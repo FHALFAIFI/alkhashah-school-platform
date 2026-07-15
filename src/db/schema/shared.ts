@@ -56,8 +56,8 @@ export const evidenceLinks = pgTable(
     evidenceId: uuid("evidence_id").notNull().references(() => evidenceItems.id, { onDelete: "cascade" }),
     entityType: text("entity_type").notNull(), // program | deliverable | meeting | perf_session | perf_rating | room | inspection | maintenance ...
     entityId: uuid("entity_id").notNull(),
-    /** لسجلات الأداء: ربط بمؤشر محدد */
-    subKey: text("sub_key"),
+    /** لسجلات الأداء: ربط بمؤشر محدد — سلسلة فارغة تعني بلا مفتاح فرعي (لتفعيل قيد التفرد) */
+    subKey: text("sub_key").notNull().default(""),
     linkedBy: uuid("linked_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
