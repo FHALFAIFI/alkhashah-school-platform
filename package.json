@@ -16,10 +16,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "backup:daily": "tsx scripts/backup-daily.ts",
-    "backup:weekly": "tsx scripts/backup-weekly.ts",
-    "restore": "tsx scripts/restore.ts",
-    "db:seed:geometry": "NODE_OPTIONS=--conditions=react-server tsx src/db/seed-geometry.ts"
+    "backup:daily": "bash scripts/backup-daily.sh",
+    "backup:weekly": "bash scripts/backup-weekly.sh",
+    "restore": "bash scripts/restore.sh",
+    "db:seed:geometry": "NODE_OPTIONS=--conditions=react-server tsx src/db/seed-geometry.ts",
+    "restore:rehearsal": "bash scripts/restore-rehearsal.sh"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans-arabic": "5.2.9",

@@ -1,62 +1,26 @@
 # PROGRESS — سجل التقدم
 
-> Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and the latest test results. Continue from the last checkpoint — never restart.
+> Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Current state
-- **Phase:** 4 complete → starting Phase 5 (integrations/deployment)
-- **App:** Next.js 16.2.10, port 3080. DB: Postgres 16 Docker `madrasa-db` on host port **5544**. `npm run dev` to start; login: `principal` / `admin` (passwords in `storage/private/initial-credentials.txt`, git-ignored).
-- **Tests:** `npm run test` (vitest, 18 passing — uses isolated `madrasa_test` DB, auto-created), `npm run test:e2e` (playwright, 4 passing, starts dev server itself).
+## Current state — FIRST RELEASE COMPLETE (all 5 phases + Phase 0)
+- **App:** Next.js 16.2.10, port 3080, Postgres 16 Docker `madrasa-db` host port **5544**. Login: `principal`/`admin` (temp passwords in `storage/private/initial-credentials.txt`).
+- **Quality:** 43 vitest + 4 playwright green; typecheck/lint/build clean; restore rehearsal executed successfully (see `docs/BACKUP_REHEARSAL_LOG.md`).
+- **Acceptance:** A1–A18 all pass — statuses + evidence in `docs/ACCEPTANCE_TESTS.md`.
 
-## Done
-### Phase 0 (commit `Phase 0: foundation`)
-Docs (REQUIREMENTS_AR/DECISIONS/DATA_MAPPING/ACCEPTANCE_TESTS/SECURITY_AND_BACKUP), pinned stack, full Drizzle schema for ALL modules, migration 0000, production seed (RBAC, 2 users, school+stages, official 1448-1449 calendar verbatim, 6 committee templates from the 1447 PDF, zones/floors, settings, branding import to private storage).
+## Phase summary (each has its own git checkpoint commit)
+- **Phase 0** — docs, pinned stack, full schema (55 tables), seed: RBAC, 2 accounts, school+stages, official 1448-1449 calendar (verbatim, teacher_return=1448/3/10=2026-08-23), 6 committee templates from اللجان الرسمية 47.pdf, zones/floors, settings, private branding import.
+- **Phase 1** — auth (Argon2id/sessions/TOTP/lockout), permission-RBAC, RTL shell, people register, safe-import framework (preview→correct→explicit-approve→transactional commit→rollback) + people & plan importers (data minimization; verbatim officials), plan module (weighted milestones, packages+readiness, change requests, approve/reopen+versions), unified evidence (+delete guard, content rendering incl. PDF page-1), documents (KHS-DOC numbers, verification codes, frozen snapshots, audited branding), Arabic A4 PDF via Playwright Chromium, tasks, notifications, dual calendar, admin pages.
+- **Phase 2** — committees: annual formation from templates (no old members), members from school register only, approve/reopen, meetings, outcomes (قرار→mandatory task; توصية→optional), official minutes PDF (chair+secretary only), signed-minutes completion gate, close/archive, PLCs. Zero attendance/absence/quorum (schema-scan test).
+- **Phase 3** — performance: scoring lib ((rating/5)×weight, server-only, tamper-rejected), model designer (=100% gate; official-entry flow ready — ministry PDF still missing, D-006), teacher/employee cycles w/ frozen calendar+model snapshots, sessions (once-only trio, unlimited visits w/ pre-study warning), completion gates (issued+signed report; final also all-rated+per-indicator evidence), reopen+versioning, improvement-plan suggestions, individual-detail principal-only guard.
+- **Phase 4** — digital twin: traced 4 floors + site (26×18 calibration), Konva editor (two-way binding, undo/redo, draft/publish versions), backgrounds from source files (pptx rasters; aerial via sips/pdftoppm), publish→room-register sync (KHS-RM + QR), SVG 2D + three.js isometric 3D, assets (individual/quantity + QR + history), inspection templates (drafts→approve), readiness+override-with-reason, maintenance workflow, offline PWA (sw.js + IndexedDB queue + idempotent sync via clientOpId), girls-zone context guard everywhere.
+- **Phase 5** — AI adapter (Ollama/AnythingLLM, disabled by default, drafts-only, audited; OCR helper vision-model based), M365 draft-email integration (never auto-sends; manual mailto fallback always available), encrypted backups (daily DB + weekly full, retention, off-site dir) + restore + REAL rehearsal, Dockerfile (+chromium+poppler), executive report (cross-module; individual details principal-only), Word/Excel exports, demo seed (synthetic, tagged «تجريبي»), full docs set (INSTALL_MAC_AR, DEPLOY_UBUNTU_AR, BACKUP_RESTORE_AR, USER_GUIDE_AR, SECURITY_REVIEW, LIMITATIONS_AR, TEST_RESULTS, README).
 
-### Phase 1 (this checkpoint)
-- **Auth:** Argon2id + DB sessions (hashed tokens), lockout, optional TOTP (otplib v13 wrapper in `src/lib/auth/totp.ts`), CSRF token per session, rate limiting. `requireUser` redirects to /login; `requirePermission` throws Arabic AuthError.
-- **RBAC:** permission-keyed checks everywhere; principal = all permissions; sysadmin = all except `performance.individual.read` + `branding.use` (D-013 in DECISIONS).
-- **Shell:** RTL sidebar app shell (`src/components/app-shell.tsx`), UI primitives (`src/components/ui.tsx`), IBM Plex Sans Arabic bundled.
-- **Storage:** `src/lib/storage.ts` provider abstraction, uploads validated (MIME+ext+size), UUID paths under `storage/`, authenticated download route `/api/files/[id]` (401/403/404, sensitive files audited).
-- **Import framework:** `src/lib/imports/framework.ts` (batch → preview → correct → explicit approve → transactional commit → rollback). People parser (data minimization enforced at parse level — sensitive columns never leave the file) + plan parser (multi-sheet, verbatim official values, milestone derivation w/ equal weights). UI wizard at `/imports`.
-- **Plan module:** `/plan` (26-program list + domain cards), `/plan/[id]` (official card, weighted milestones w/ two-way progress recompute, deliverable packages + readiness (تنفيذ/مخرج/أثر/خارجي), evidence panel, change requests w/ old/new/reason/approve, approve-lock/reopen-with-reason + record_versions), `/plan/kpis`, `/plan/risks`. Year close action.
-- **Evidence:** unified register, link-many, delete guard (approved-linked = blocked), `/evidence`.
-- **Evidence rendering for reports:** `src/lib/evidence-render.ts` — images embedded, PDF page 1 via pdfjs-dist+napi-canvas, DOCX text extraction, XLSX limited preview, truncation note string exactly as required.
-- **Documents/PDF:** `src/lib/pdf.ts` (Playwright Chromium, A4, embedded font, official header), `src/lib/documents.ts` (doc numbers KHS-DOC-#####, verification codes, frozen snapshots, branding audited), program report generator + UI.
-- **Tasks:** unified register `/tasks` with overdue computation, mandatory-task protection.
-- **Notifications**, **Calendar** (dual display, teacher-return anchor highlighted), **Dashboard**, **Admin** (users+password change w/ session invalidation, settings incl. independent signature/stamp defaults, read-only audit log, backup policy page).
-- **Committee templates page** live (from seed).
-- Stubs for `/performance*`, `/committees`, `/building*`, `/reports/executive` (later phases).
+## Outstanding items blocked on missing source files (D-006 — NOT code gaps)
+1. `نماذج تقيم اداء شاغلي الوظائف التعليمية1.pdf` — enter the 8 official models via /performance/models («رسمي») with visual verification; never invent content.
+2. `بيانات الموظفين في فارس.xlsx` — import the real 52 records via /imports (pipeline tested with synthetic fixtures; classification 42/10 must be reviewed in preview, not trusted).
+3. `الدليل الارشادي لادارة الاداء الوظيفي.pdf` — reference only.
 
-## Key facts (Phase 0 discovery)
-- Plan: 26 programs (7/6/8/5 across 4 domains), end **5/1/1449هـ** verbatim. Teacher return **1448/3/10 = 2026-08-23** (`anchorKey: teacher_return`). Fixtures for tests are synthetic — real data never in Git.
-- **MISSING reference files (D-006):** official 8-model performance PDF, guidance PDF, Fares xlsx. Phase 3 builds infrastructure + designer; official model content flagged «بانتظار الاعتماد الرسمي» until files arrive.
-
-## Done — Phase 2 (this checkpoint)
-- Committees: annual formation from the 6 seeded templates (no prior-year members), member management (school people only, single chair/secretary), principal approve/reopen-with-reason + snapshots, meetings (agenda/discussion/date/location), outcomes (قرار → mandatory task automatically; توصية → optional task; ملاحظة), official minutes PDF (chair+secretary signature lines only), signed-minutes upload gate before completion, committee close/archive, recurrence due-indicator, PLCs (name/leader/members/objectives/outputs).
-- Tests: 5 new integration tests exercising REAL server actions with mocked request context (A5, A6, no-attendance schema scan, external-member rejection). 23 total green.
-
-## Done — Phase 3 (this checkpoint)
-- Scoring lib (src/lib/performance/scoring.ts): weighted = (rating/5)*weight; session result server-computed only; cycle progress = latest rating per indicator by session date; final-report uses final-session ratings; weak (≤2) suggestions.
-- Models: designer (indicators+weights must equal exactly 100 to approve), official flag for ministry models (source PDF still missing — entry+visual-verification flow ready, «رسمي» models never invented), reopen with reason + snapshots.
-- Cycles: teacher (anchored to teacher_return from frozen calendar snapshot) / employee (Jan-Dec + principal-set deadlines); frozen model snapshot; suggested model from job title requires confirmation; self-evaluation blocked; unique per person+year.
-- Sessions: تخطيط/منتصف/نهائي once-only, زيارة unlimited (pre-students_start = warning only), متابعة with configurable target; ratings 1..5 only; client-sent percentages ignored (A4); non-final sessions may stay incomplete.
-- Completion gates: any session requires issued report + uploaded signed report (A3); final additionally requires all indicators rated + required per-indicator evidence linked; reopen requires reason + full version snapshot.
-- Session report PDF: all indicators/weights/ratings/weighted scores/notes/evidence content, optional principal signature+stamp independently, manual teacher signature line.
-- Individual-performance guard: cycle/session detail pages require performance.individual.read (principal-only).
-- Tests: 13 new (unit scoring + real-action integration incl. tamper rejection, once-only, visit warning, A3 gates, final-lock evidence gate, reopen versioning). 36 total green.
-
-## Done — Phase 4 (this checkpoint)
-- Geometry model (meters, 1-decimal display, rectangles+doors) with validation; initial traced drafts for 4 floors (from pptx names/dimensions + raster layout) and external site (calibrated on 26×18 field, girls complex as faded contextShapes) — seeded via npm run db:seed:geometry (needs NODE_OPTIONS=--conditions=react-server for tsx + server-only).
-- Source backgrounds auto-imported: 4 floor rasters extracted from pptx, aerial rendered from PDF via sips/pdftoppm helper (src/lib/pdf-to-image.ts — replaced broken pdfjs approach; poppler-utils is the documented Ubuntu dep). Evidence PDF preview uses same helper.
-- Konva editor (/building/editor/[floorKey]): two-way binding (fields ⇄ canvas), move/resize/add/delete rooms, doors, auto area/perimeter, undo/redo (50 steps), draft versions + publish, background toggle/transform/replace (never touches vectors), context zones uneditable.
-- /building viewer (SVG from same geometry) + room register auto-sync on publish (KHS-RM- codes; removed rooms deactivated, never deleted). /building/3d: three.js isometric extrusion from same stored geometry with per-floor toggles + drag rotate.
-- Rooms: QR per room (links to room page), readiness (inspection 50% + assets 30% + open issues 20%), override with mandatory reason, inspection run form.
-- Assets: manual entry (important=individual+serial vs quantity), QR for important assets, condition history, empty start (nothing invented). Inspections: 5 starter templates by room type seeded as DRAFTS (principal approves). Maintenance: issue→repair→close+verify with photos, KHS-MNT codes.
-- Offline PWA: /building/offline + public/sw.js; IndexedDB data cache + op queue; sync endpoint idempotent via clientOpId unique constraint (re-send → skipped, no duplicates); CSRF + zone guards on sync; approvals/reports remain online-only.
-- Tests: 6 new (A11 bidirectional versioned edit + publish sync, A12 background replace/transform preserves vectors byte-for-byte, A13 idempotent re-sync, A14 context-zone rejection for geometry/assets/inspections/sync, readiness calc). 42 vitest + 4 e2e green.
-
-## Next steps (Phase 5)
-1. AI adapter (Ollama/AnythingLLM, disabled by default, explicit consent for external), OCR flow with human review.
-2. M365 draft-email flow (optional) + mailto fallback.
-3. Backups: daily pg_dump + weekly full encrypted (age or openssl), retention, restore script + rehearsal, off-host copy guide.
-4. Deployment: Dockerfile, Ubuntu+Tailscale guide, Mac guide, Arabic operator guide, security review report, known limitations, demo seed, executive report page.
-5. Final acceptance run + checkpoint.
+## Go-live checklist (operator)
+1. Change both initial passwords; enable TOTP; store then delete `initial-credentials.txt`.
+2. Import real plan workbook + Fares file (when delivered) through /imports.
+3. Deploy per `docs/DEPLOY_UBUNTU_AR.md`; set `BACKUP_OFFSITE_DIR`; schedule cron backups; run `npm run restore:rehearsal` on the server and log it.

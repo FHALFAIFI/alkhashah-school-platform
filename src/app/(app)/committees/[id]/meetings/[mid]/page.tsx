@@ -8,6 +8,8 @@ import { PageHeader, Card, Badge, Table } from "@/components/ui";
 import { MeetingEditForm, OutcomeForm, SignedMinutesUpload, CompleteMeetingButton } from "./meeting-ui";
 import { generateMinutesDocument } from "@/lib/reports/minutes-report";
 import { SubmitButton } from "@/components/ui";
+import { aiEnabled } from "@/lib/ai/provider";
+import { AiMeetingAssistant } from "@/components/integrations-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +106,8 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         )}
         <p className="mt-2 text-xs text-gray-400">القرار ينشئ إجراءً إلزامياً تلقائياً؛ التوصية قد تنشئ إجراءً اختيارياً.</p>
       </Card>
+
+      {aiEnabled() && canWrite && <AiMeetingAssistant meetingId={mid} />}
 
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">المحضر والتوقيع والاكتمال</h2>

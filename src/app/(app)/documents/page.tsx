@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
 import { PageHeader, Table, EmptyState } from "@/components/ui";
+import { EmailDocumentButton } from "@/components/integrations-ui";
 
 export const metadata = { title: "الوثائق الصادرة" };
 export const dynamic = "force-dynamic";
@@ -39,7 +40,10 @@ export default async function DocumentsPage() {
                 {!d.withSignature && !d.withStamp ? "—" : ""}
               </td>
               <td className="px-3 py-2">
-                {d.pdfFileId && <a href={`/api/files/${d.pdfFileId}`} className="text-xs text-brand-700 underline">PDF</a>}
+                <div className="flex items-center gap-2">
+                  {d.pdfFileId && <a href={`/api/files/${d.pdfFileId}`} className="text-xs text-brand-700 underline">PDF</a>}
+                  <EmailDocumentButton docId={d.id} docNumber={d.docNumber} pdfFileId={d.pdfFileId} />
+                </div>
               </td>
             </tr>
           ))}

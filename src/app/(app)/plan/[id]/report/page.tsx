@@ -55,6 +55,10 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
           <SubmitButton>إصدار تقرير PDF جديد</SubmitButton>
           <p className="text-xs text-gray-400">يتضمن التقرير مضمون الشواهد (صور، أول صفحة PDF، نصوص، معاينات جداول) وليس أسماء الملفات فقط.</p>
         </form>
+        <div className="mt-3 flex gap-3 border-t border-sand-100 pt-3 text-sm">
+          <a href={`/api/export/program-docx/${id}`} className="text-brand-700 underline">تصدير Word قابل للتحرير</a>
+          <a href="/api/export/plan-xlsx" className="text-brand-700 underline">تصدير Excel تحليلي للخطة كاملة</a>
+        </div>
       </Card>
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">الإصدارات السابقة</h2>
