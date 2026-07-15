@@ -1,14 +1,88 @@
+import Link from "next/link";
+import { asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
-import { PageHeader, EmptyState } from "@/components/ui";
+import { db } from "@/db";
+import { perfCycles, perfModels, people } from "@/db/schema";
+import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
+import { NewCycleForm } from "./performance-ui";
 
-export const metadata = { title: "وحدة الأداء الوظيفي" };
+export const metadata = { title: "دورات الأداء" };
+export const dynamic = "force-dynamic";
 
-export default async function Page() {
-  await requirePermission("performance.read");
+export default async function PerformancePage() {
+  const user = await requirePermission("performance.read");
+  const canSeeIndividual = user.permissions.has("performance.individual.read");
+  const canWrite = user.permissions.has("performance.write");
+
+  const [cycles, models, persons] = await Promise.all([
+    db.select().from(perfCycles).orderBy(desc(perfCycles.createdAt)),
+    db.select().from(perfModels).where(eq(perfModels.status, "معتمد")),
+    db.select().from(people).where(eq(people.active, true)).orderBy(asc(people.fullName)),
+  ]);
+  const personName = new Map(persons.map((p) => [p.id, p.fullName]));
+
+  const teacherCycles = cycles.filter((c) => c.cycleType === "معلم");
+  const staffCycles = cycles.filter((c) => c.cycleType === "موظف");
+
   return (
-    <div>
-      <PageHeader title="وحدة الأداء الوظيفي" />
-      <EmptyState title="هذه الوحدة قيد الإنشاء ضمن مرحلة لاحقة من خطة البناء" hint="ستتوفر تلقائياً بعد اكتمال مرحلتها" />
+    <div className="space-y-5">
+      <PageHeader
+        title="إدارة الأداء الوظيفي"
+        subtitle="دورتا المعلم (التقويم الدراسي، تبدأ بعودة المعلمين) والموظف (السنة الميلادية) منفصلتان في لوحة موحدة"
+        actions={<LinkButton href="/performance/models" variant="secondary">نماذج الأداء</LinkButton>}
+      />
+
+      {!canSeeIndividual && (
+        <Card className="border-amber-200 bg-amber-50">
+          <p className="text-sm text-amber-900">تفاصيل الأداء الفردي متاحة لمدير المدرسة فقط — تعرض هنا الحالة العامة دون التفاصيل.</p>
+        </Card>
+      )}
+
+      {canWrite && models.length > 0 && persons.length > 0 && (
+        <Card>
+          <h2 className="mb-3 font-bold text-brand-900">دورة أداء جديدة</h2>
+          <NewCycleForm
+            people={persons.map((p) => ({ id: p.id, fullName: p.fullName, category: p.category, suggestedModelKey: p.suggestedModelKey }))}
+            models={models.map((m) => ({ id: m.id, nameAr: m.nameAr, audience: m.audience, official: m.official }))}
+          />
+        </Card>
+      )}
+      {models.length === 0 && (
+        <Card className="border-purple-200 bg-purple-50">
+          <p className="text-sm text-purple-900">
+            لا نماذج معتمدة بعد. النماذج الرسمية الثمانية تدخل من ملف الوزارة بعد التحقق البصري (الملف المصدر غير متوفر حالياً)،
+            ويمكن للمدير تصميم نماذج الموظفين من <Link className="underline" href="/performance/models">مصمم النماذج</Link>.
+          </p>
+        </Card>
+      )}
+
+      {[{ title: "دورات المعلمين", data: teacherCycles }, { title: "دورات الموظفين", data: staffCycles }].map((group) => (
+        <Card key={group.title}>
+          <h2 className="mb-3 font-bold text-brand-900">{group.title} ({group.data.length})</h2>
+          {group.data.length === 0 ? (
+            <p className="text-sm text-gray-400">لا دورات بعد</p>
+          ) : (
+            <Table headers={["الاسم", "السنة", "البداية", "النهاية", "الحالة", ""]}>
+              {group.data.map((c) => (
+                <tr key={c.id}>
+                  <td className="px-3 py-2 font-medium">{personName.get(c.personId) ?? "—"}</td>
+                  <td className="px-3 py-2 tabular-nums">{c.yearKey}</td>
+                  <td className="px-3 py-2 text-xs tabular-nums">{c.startDate ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs tabular-nums">{c.endDate ?? "—"}</td>
+                  <td className="px-3 py-2"><Badge value={c.status} /></td>
+                  <td className="px-3 py-2">
+                    {canSeeIndividual ? (
+                      <LinkButton href={`/performance/cycles/${c.id}`} variant="secondary">فتح</LinkButton>
+                    ) : (
+                      <span className="text-xs text-gray-400">مقيد</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </Card>
+      ))}
     </div>
   );
 }
