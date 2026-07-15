@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { cache } from "react";
 import { and, eq, gt, inArray } from "drizzle-orm";
 import { db } from "@/db";
@@ -134,10 +135,7 @@ export class AuthError extends Error {
 
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
-  if (!user) {
-    const { redirect } = await import("next/navigation");
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
   return user;
 }
 
