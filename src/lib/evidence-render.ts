@@ -25,21 +25,10 @@ function esc(s: string): string {
 }
 
 async function renderPdfFirstPage(data: Buffer): Promise<string | null> {
-  try {
-    const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const { createCanvas } = await import("@napi-rs/canvas");
-    const doc = await getDocument({ data: new Uint8Array(data), disableFontFace: false }).promise;
-    const page = await doc.getPage(1);
-    const viewport = page.getViewport({ scale: 1.4 });
-    const canvas = createCanvas(viewport.width, viewport.height);
-    const ctx = canvas.getContext("2d");
-    await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, viewport, canvas: canvas as unknown as HTMLCanvasElement }).promise;
-    const png = canvas.toBuffer("image/png");
-    await doc.destroy();
-    return `data:image/png;base64,${png.toString("base64")}`;
-  } catch {
-    return null;
-  }
+  const { pdfFirstPageToPng } = await import("@/lib/pdf-to-image");
+  const png = await pdfFirstPageToPng(data);
+  if (!png) return null;
+  return `data:image/png;base64,${png.toString("base64")}`;
 }
 
 function extractDocxText(data: Buffer): string {

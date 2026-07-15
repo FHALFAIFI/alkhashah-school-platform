@@ -3,7 +3,7 @@
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and the latest test results. Continue from the last checkpoint — never restart.
 
 ## Current state
-- **Phase:** 3 complete → starting Phase 4 (digital twin)
+- **Phase:** 4 complete → starting Phase 5 (integrations/deployment)
 - **App:** Next.js 16.2.10, port 3080. DB: Postgres 16 Docker `madrasa-db` on host port **5544**. `npm run dev` to start; login: `principal` / `admin` (passwords in `storage/private/initial-credentials.txt`, git-ignored).
 - **Tests:** `npm run test` (vitest, 18 passing — uses isolated `madrasa_test` DB, auto-created), `npm run test:e2e` (playwright, 4 passing, starts dev server itself).
 
@@ -44,8 +44,19 @@ Docs (REQUIREMENTS_AR/DECISIONS/DATA_MAPPING/ACCEPTANCE_TESTS/SECURITY_AND_BACKU
 - Individual-performance guard: cycle/session detail pages require performance.individual.read (principal-only).
 - Tests: 13 new (unit scoring + real-action integration incl. tamper rejection, once-only, visit warning, A3 gates, final-lock evidence gate, reopen versioning). 36 total green.
 
-## Next steps (Phase 4 — digital twin)
-1. Trace 4 floors from مخطط المبنى.pptx text overlays + rasters (import rasters to private storage as toggleable backgrounds); external site from أبو فهد PDF calibrated on 26×18 field.
-2. Konva editor: two-way name/dimension binding, move/resize/draw/delete, doors, auto area/perimeter, undo/redo, draft/publish geometry versions, background transform without touching vectors.
-3. Rooms register + QR (KHS-RM-), assets (KHS-AST- individual vs quantity), inspections (templates draft→approve, recurring), readiness calc + override with reason, simple maintenance workflow, offline PWA inspection (IndexedDB queue, idempotent sync via client op ids), girls zone = context-only guard.
-4. Tests A11-A14 + checkpoint.
+## Done — Phase 4 (this checkpoint)
+- Geometry model (meters, 1-decimal display, rectangles+doors) with validation; initial traced drafts for 4 floors (from pptx names/dimensions + raster layout) and external site (calibrated on 26×18 field, girls complex as faded contextShapes) — seeded via npm run db:seed:geometry (needs NODE_OPTIONS=--conditions=react-server for tsx + server-only).
+- Source backgrounds auto-imported: 4 floor rasters extracted from pptx, aerial rendered from PDF via sips/pdftoppm helper (src/lib/pdf-to-image.ts — replaced broken pdfjs approach; poppler-utils is the documented Ubuntu dep). Evidence PDF preview uses same helper.
+- Konva editor (/building/editor/[floorKey]): two-way binding (fields ⇄ canvas), move/resize/add/delete rooms, doors, auto area/perimeter, undo/redo (50 steps), draft versions + publish, background toggle/transform/replace (never touches vectors), context zones uneditable.
+- /building viewer (SVG from same geometry) + room register auto-sync on publish (KHS-RM- codes; removed rooms deactivated, never deleted). /building/3d: three.js isometric extrusion from same stored geometry with per-floor toggles + drag rotate.
+- Rooms: QR per room (links to room page), readiness (inspection 50% + assets 30% + open issues 20%), override with mandatory reason, inspection run form.
+- Assets: manual entry (important=individual+serial vs quantity), QR for important assets, condition history, empty start (nothing invented). Inspections: 5 starter templates by room type seeded as DRAFTS (principal approves). Maintenance: issue→repair→close+verify with photos, KHS-MNT codes.
+- Offline PWA: /building/offline + public/sw.js; IndexedDB data cache + op queue; sync endpoint idempotent via clientOpId unique constraint (re-send → skipped, no duplicates); CSRF + zone guards on sync; approvals/reports remain online-only.
+- Tests: 6 new (A11 bidirectional versioned edit + publish sync, A12 background replace/transform preserves vectors byte-for-byte, A13 idempotent re-sync, A14 context-zone rejection for geometry/assets/inspections/sync, readiness calc). 42 vitest + 4 e2e green.
+
+## Next steps (Phase 5)
+1. AI adapter (Ollama/AnythingLLM, disabled by default, explicit consent for external), OCR flow with human review.
+2. M365 draft-email flow (optional) + mailto fallback.
+3. Backups: daily pg_dump + weekly full encrypted (age or openssl), retention, restore script + rehearsal, off-host copy guide.
+4. Deployment: Dockerfile, Ubuntu+Tailscale guide, Mac guide, Arabic operator guide, security review report, known limitations, demo seed, executive report page.
+5. Final acceptance run + checkpoint.

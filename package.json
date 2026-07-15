@@ -18,7 +18,8 @@
     "test:e2e": "playwright test",
     "backup:daily": "tsx scripts/backup-daily.ts",
     "backup:weekly": "tsx scripts/backup-weekly.ts",
-    "restore": "tsx scripts/restore.ts"
+    "restore": "tsx scripts/restore.ts",
+    "db:seed:geometry": "NODE_OPTIONS=--conditions=react-server tsx src/db/seed-geometry.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans-arabic": "5.2.9",
@@ -31,13 +32,13 @@
     "konva": "10.3.0",
     "next": "16.2.10",
     "otplib": "13.4.1",
-    "pdfjs-dist": "5.4.624",
     "pg": "8.22.0",
     "playwright": "1.61.1",
     "qrcode": "1.5.4",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-konva": "19.2.5",
+    "server-only": "0.0.1",
     "three": "0.185.1",
     "zod": "4.4.3"
   },
