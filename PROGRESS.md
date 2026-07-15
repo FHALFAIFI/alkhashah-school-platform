@@ -3,7 +3,7 @@
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and the latest test results. Continue from the last checkpoint — never restart.
 
 ## Current state
-- **Phase:** 1 complete → starting Phase 2 (committees)
+- **Phase:** 2 complete → starting Phase 3 (performance)
 - **App:** Next.js 16.2.10, port 3080. DB: Postgres 16 Docker `madrasa-db` on host port **5544**. `npm run dev` to start; login: `principal` / `admin` (passwords in `storage/private/initial-credentials.txt`, git-ignored).
 - **Tests:** `npm run test` (vitest, 18 passing — uses isolated `madrasa_test` DB, auto-created), `npm run test:e2e` (playwright, 4 passing, starts dev server itself).
 
@@ -30,7 +30,11 @@ Docs (REQUIREMENTS_AR/DECISIONS/DATA_MAPPING/ACCEPTANCE_TESTS/SECURITY_AND_BACKU
 - Plan: 26 programs (7/6/8/5 across 4 domains), end **5/1/1449هـ** verbatim. Teacher return **1448/3/10 = 2026-08-23** (`anchorKey: teacher_return`). Fixtures for tests are synthetic — real data never in Git.
 - **MISSING reference files (D-006):** official 8-model performance PDF, guidance PDF, Fares xlsx. Phase 3 builds infrastructure + designer; official model content flagged «بانتظار الاعتماد الرسمي» until files arrive.
 
-## Next steps (Phase 2)
+## Done — Phase 2 (this checkpoint)
+- Committees: annual formation from the 6 seeded templates (no prior-year members), member management (school people only, single chair/secretary), principal approve/reopen-with-reason + snapshots, meetings (agenda/discussion/date/location), outcomes (قرار → mandatory task automatically; توصية → optional task; ملاحظة), official minutes PDF (chair+secretary signature lines only), signed-minutes upload gate before completion, committee close/archive, recurrence due-indicator, PLCs (name/leader/members/objectives/outputs).
+- Tests: 5 new integration tests exercising REAL server actions with mocked request context (A5, A6, no-attendance schema scan, external-member rejection). 23 total green.
+
+## Next steps (Phase 3 — performance)
 1. Committees: annual formation from templates (member picking from people register), meetings (agenda/discussion/outcomes), decision→mandatory task, recommendation→optional task, signed minutes gate (chair+secretary only), principal approval, recurrence reminders, PLCs (lighter model), annual archive, minutes PDF.
 2. Tests: A5 (no completion without signed minutes), A6 (decision creates mandatory action), zero attendance/quorum surface.
 3. Git checkpoint after gate passes.
