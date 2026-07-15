@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: madrasa-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-madrasa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-madrasa_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-madrasa}
+    ports:
+      - "${POSTGRES_PORT:-5544}:5432"
+    volumes:
+      - madrasa_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-madrasa} -d ${POSTGRES_DB:-madrasa}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    profiles: ["production"]
+    build: .
+    container_name: madrasa-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-madrasa}:${POSTGRES_PASSWORD:-madrasa_dev}@db:5432/${POSTGRES_DB:-madrasa}
+      SESSION_SECRET: ${SESSION_SECRET}
+      STORAGE_DIR: /data/storage
+      BACKUP_DIR: /data/backups
+      NODE_ENV: production
+    ports:
+      - "${APP_PORT:-3080}:3080"
+    volumes:
+      - ./storage:/data/storage
+      - ./backups:/data/backups
+
+volumes:
+  madrasa_pgdata:

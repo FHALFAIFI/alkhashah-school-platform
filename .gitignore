@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp*
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Environment and secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Original reference files (school data) — never commit
+reference_files/
+
+# Private runtime storage (attachments, signatures, stamps, backups)
+storage/
+backups/
+
+# Extracted/derived school data kept local
+local_data/
+
+# Test and coverage output
+coverage/
+playwright-report/
+test-results/
+*.lcov
+
+# Logs and OS files
+*.log
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# TypeScript incremental
+*.tsbuildinfo
+next-env.d.ts

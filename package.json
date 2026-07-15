@@ -1,0 +1,61 @@
+{
+  "name": "madrasa-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "منصة الإدارة المدرسية المتكاملة — مجمع الخشعة التعليمي للبنين",
+  "scripts": {
+    "dev": "next dev -p 3080",
+    "build": "next build",
+    "start": "next start -p 3080",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "db:seed:demo": "tsx src/db/seed-demo.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "backup:daily": "tsx scripts/backup-daily.ts",
+    "backup:weekly": "tsx scripts/backup-weekly.ts",
+    "restore": "tsx scripts/restore.ts"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-sans-arabic": "5.2.9",
+    "@node-rs/argon2": "2.0.2",
+    "docx": "9.7.1",
+    "drizzle-orm": "0.45.2",
+    "exceljs": "4.4.0",
+    "konva": "10.3.0",
+    "next": "16.2.10",
+    "otplib": "13.4.1",
+    "pg": "8.22.0",
+    "playwright": "1.61.1",
+    "qrcode": "1.5.4",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-konva": "19.2.5",
+    "three": "0.185.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@tailwindcss/postcss": "4.3.2",
+    "@types/node": "26.1.1",
+    "@types/pg": "8.20.0",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@types/three": "0.185.1",
+    "drizzle-kit": "0.31.10",
+    "eslint": "10.7.0",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "4.3.2",
+    "tsx": "4.23.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

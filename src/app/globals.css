@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+
+  /* هوية بصرية هادئة رسمية — أخضر مؤسسي وألوان محايدة */
+  --color-brand-50: #f0f7f4;
+  --color-brand-100: #d8ece2;
+  --color-brand-200: #b2d8c6;
+  --color-brand-300: #83bda4;
+  --color-brand-400: #549d80;
+  --color-brand-500: #348066;
+  --color-brand-600: #256652;
+  --color-brand-700: #1f5244;
+  --color-brand-800: #1b4238;
+  --color-brand-900: #17372f;
+  --color-brand-950: #0b1f1a;
+
+  --color-sand-50: #faf9f7;
+  --color-sand-100: #f2f0eb;
+  --color-sand-200: #e5e1d8;
+  --color-sand-300: #d3ccbd;
+}
+
+html {
+  font-family: var(--font-sans);
+}
+
+body {
+  @apply bg-sand-50 text-gray-900 antialiased;
+}
+
+/* أرقام عربية غربية موحدة داخل الجداول والرموز */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* طباعة A4 */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
