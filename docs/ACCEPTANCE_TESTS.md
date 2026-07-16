@@ -4,7 +4,7 @@ Master list from §15 of the build prompt. Statuses as of 2026-07-16 (first-rele
 
 | # | Requirement | Proof | Status |
 |---|---|---|---|
-| A1 | No English in critical user workflows | Playwright scans rendered text of 9 critical pages for Latin words (allowlist: format/code tokens PDF/Excel/Word/QR/KHS…) — `tests/e2e/arabic-and-auth.spec.ts` | ✅ pass |
+| A1 | No English in critical user workflows | Playwright scans rendered text of 9 critical pages for Latin words (allowlist: format/code tokens PDF/Excel/Word/QR/KHS… + file extensions xlsx/docx/csv appearing inside real uploaded-file names) — `tests/e2e/arabic-and-auth.spec.ts` | ✅ pass |
 | A2 | A future role cannot access individual performance without explicit permission | `tests/integration/rbac.test.ts` — future «معلم» role lacks `performance.individual.read`; sysadmin lacks it too; principal has it | ✅ pass |
 | A3 | Performance session cannot fully complete without signed report | `tests/integration/performance.test.ts` — real action rejects without issued report, then without signed upload, then completes | ✅ pass |
 | A4 | Calculated percentages cannot be manually changed | Same suite — client-sent `sessionResult=100` ignored; server computes 83 from (rating/5)×weight; out-of-range ratings rejected | ✅ pass |
@@ -23,5 +23,19 @@ Master list from §15 of the build prompt. Statuses as of 2026-07-16 (first-rele
 | A17 | Arabic reports render correctly in PDF and Word | `tests/integration/reports.test.ts` (PDF bytes, Arabic snapshot, evidence content) + `tests/integration/exports.test.ts` (docx contains Arabic + bidi) | ✅ pass |
 | A18 | Authorization on every private download and approval endpoint | e2e 401 unauthenticated / 404-authorized; all approval actions behind `requirePermission`; sync endpoint CSRF-gated | ✅ pass |
 
+## Real-data validation pass — 2026-07-16 (source files delivered; D-014)
+
+| # | Requirement | Proof | Status |
+|---|---|---|---|
+| B1 | The 8 official models present with exact Arabic names, official flag, no duplicates | `tests/integration/official-models.test.ts` — names pinned verbatim from visual page-by-page inspection of the ministry PDF | ✅ pass |
+| B2 | Indicator order and weights match the ministry PDF | Same suite — full weight sequences per model + spot-checked indicator names (incl. the 3 rows disputed vs the guide) | ✅ pass |
+| B3 | Every official model totals exactly 100% | Same suite + seed-time guard (`seedOfficialPerfModels` throws on ≠100) + `approveModelAction` gate | ✅ pass |
+| B4 | Official content locked from normal editing | Same suite — `addIndicatorAction` rejects on «معتمد»; only documented-reason reopen path remains | ✅ pass |
+| B5 | Principal model preserved; principal self-evaluation impossible | Same suite — `school-principal` model approved+official; `createCycleAction` rejects self-cycle («لا يجوز إنشاء دورة تقييم ذاتي») | ✅ pass |
+| B6 | Fares file: 52 employee rows detected | Same suite (runs against the real gitignored file; auto-skips if absent) | ✅ pass |
+| B7 | Sensitive fields (national ID, birth date, manager ID, mobile) excluded by default from the real file | Same suite — columns detected+flagged, values absent from raw/mapped (regex sweep) | ✅ pass |
+| B8 | Classification & model assignment editable before approval; batch stays «معاينة» until principal commits | Same suite — `updateRowCorrection` round-trip on the real batch; commit not called | ✅ pass |
+| B9 | Teacher-return date revalidated against official source row | `docs/PERFORMANCE_MODEL_VALIDATION.md` §6 — sheet «التقويم الدراسي الرسمي», row 6: 1448/3/10 = 2026/8/23 (الأحد) in both official workbooks; seed matches verbatim | ✅ pass |
+
 ## Phase gates
-- **Gate 1–5:** all green. Gate 3 note: calculations verified against synthetic 100%-total model; the 8 official ministry models await the missing source PDF (D-006) and will be entered through the official-model flow with visual verification — no official content invented.
+- **Gate 1–5:** all green. Gate 3 note (updated 2026-07-16): the 8 official ministry models are now entered verbatim from the delivered source PDF after page-by-page visual verification and locked («معتمد»); scoring verified against the official calculation mechanism (models PDF p.45, guide p.62). Cross-check discrepancies with the guide documented in D-014 — nothing invented, nothing silently resolved.

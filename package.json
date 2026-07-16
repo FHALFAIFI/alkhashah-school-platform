@@ -20,6 +20,7 @@
     "backup:weekly": "bash scripts/backup-weekly.sh",
     "restore": "bash scripts/restore.sh",
     "db:seed:geometry": "NODE_OPTIONS=--conditions=react-server tsx src/db/seed-geometry.ts",
+    "fares:preview": "NODE_OPTIONS=--conditions=react-server tsx scripts/fares-preview.ts",
     "restore:rehearsal": "bash scripts/restore-rehearsal.sh"
   },
   "dependencies": {

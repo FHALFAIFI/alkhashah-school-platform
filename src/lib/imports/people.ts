@@ -44,8 +44,10 @@ export function suggestModelKey(jobTitle: string): string | null {
   const t = jobTitle.trim();
   if (t.includes("مدير")) return "school-principal";
   if (t.includes("وكيل")) return "school-vice";
+  if (t.includes("توجيه صحي") || t.includes("موجه صحي") || t.includes("مرشد صحي")) return "health-advisor";
   if (t.includes("موجه طلابي") || t.includes("مرشد")) return "student-advisor";
   if (t.includes("رائد نشاط")) return "activity-leader";
+  if (t.includes("رياض أطفال") || t.includes("رياض الأطفال") || t.includes("روضة") || t.includes("طفولة مبكرة")) return "kindergarten-teacher";
   if (t.includes("أمين مصادر") || t.includes("امين مصادر")) return "lrc-specialist";
   if (t.includes("محضر مختبر")) return "lab-technician";
   if (t.includes("معلم") || t.includes("مدرس")) return "teacher";

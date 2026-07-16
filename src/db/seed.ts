@@ -16,6 +16,7 @@ import {
 import { permissionsSeed, rolesSeed } from "./seed-data/permissions";
 import { committeeTemplatesSeed } from "./seed-data/committee-templates";
 import { calendar1448Seed } from "./seed-data/calendar-1448-1449";
+import { seedOfficialPerfModels } from "./seed-official-models";
 
 const STORAGE_DIR = process.env.STORAGE_DIR ?? "./storage";
 
@@ -277,6 +278,7 @@ async function main() {
   const credLines = await seedUsers();
   await seedSchool();
   await seedCalendar();
+  await seedOfficialPerfModels();
   await seedCommitteeTemplates();
   await seedZonesAndFloors();
   await seedSettings();
