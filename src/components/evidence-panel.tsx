@@ -11,12 +11,20 @@ export function EvidencePanel({
   entityId,
   items,
   canWrite,
+  subKeys,
+  subKeyLabel = "الربط الفرعي",
+  subKeyRequired = false,
 }: {
   entityType: string;
   entityId: string;
-  items: { id: string; title: string; kind: string; role: string | null; fileId: string | null }[];
+  items: { id: string; title: string; kind: string; role: string | null; fileId: string | null; subKey?: string | null }[];
   canWrite: boolean;
+  /** خيارات المفتاح الفرعي (مثل مؤشرات النموذج) — عند تمريرها يظهر حقل اختيار في نموذج الإضافة */
+  subKeys?: { value: string; label: string }[];
+  subKeyLabel?: string;
+  subKeyRequired?: boolean;
 }) {
+  const subKeyName = new Map((subKeys ?? []).map((s) => [s.value, s.label]));
   const [state, formAction] = useActionState<ActionState, FormData>(createEvidenceAction, null);
   const [kind, setKind] = useState("file");
   const [showForm, setShowForm] = useState(false);
@@ -39,9 +47,12 @@ export function EvidencePanel({
       <ul className="space-y-2">
         {items.map((item) => (
           <li key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-sand-100 px-3 py-2 text-sm">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{item.title}</span>
               {item.role && <Badge value={item.role} />}
+              {item.subKey && subKeyName.has(item.subKey) && (
+                <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs text-brand-700">{subKeyName.get(item.subKey)}</span>
+              )}
               <span className="text-xs text-gray-400">{item.kind === "file" ? "ملف" : item.kind === "link" ? "رابط" : "نص"}</span>
             </div>
             <div className="flex items-center gap-2">
@@ -74,6 +85,25 @@ export function EvidencePanel({
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="entityType" value={entityType} />
           <input type="hidden" name="entityId" value={entityId} />
+          {subKeys && subKeys.length > 0 && (
+            <div>
+              <label htmlFor="subKey" className="mb-1 block text-sm font-medium text-gray-700">
+                {subKeyLabel}
+                {subKeyRequired && <span className="text-red-500"> *</span>}
+              </label>
+              <select
+                id="subKey"
+                name="subKey"
+                required={subKeyRequired}
+                className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+              >
+                {!subKeyRequired && <option value="">— عام (بلا ربط فرعي) —</option>}
+                {subKeys.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="عنوان الشاهد" name="title" required />
             <div>

@@ -3,12 +3,14 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { evidenceItems, evidenceLinks } from "@/db/schema";
 import { PageHeader, Table, Badge, EmptyState } from "@/components/ui";
+import { EvidenceReviewControl } from "./review-ui";
 
 export const metadata = { title: "الشواهد" };
 export const dynamic = "force-dynamic";
 
 export default async function EvidencePage() {
-  await requirePermission("evidence.read");
+  const user = await requirePermission("evidence.read");
+  const canReview = user.permissions.has("evidence.write");
   const items = await db.select().from(evidenceItems).orderBy(desc(evidenceItems.createdAt));
   const links = await db.select().from(evidenceLinks);
   const linkCount = new Map<string, number>();
@@ -30,7 +32,13 @@ export default async function EvidencePage() {
               <td className="px-3 py-2 text-xs">{item.kind === "file" ? "ملف" : item.kind === "link" ? "رابط" : "نص"}</td>
               <td className="px-3 py-2">{item.role ? <Badge value={item.role} /> : "—"}</td>
               <td className="px-3 py-2 text-xs">{item.source ?? "—"}</td>
-              <td className="px-3 py-2 text-xs">{item.reviewStatus}</td>
+              <td className="px-3 py-2 text-xs">
+                <div className="space-y-1">
+                  <Badge value={item.reviewStatus} />
+                  {item.reviewNote && <p className="text-xs text-gray-400">{item.reviewNote}</p>}
+                  {canReview && item.reviewStatus === "لم يراجع" && <EvidenceReviewControl evidenceId={item.id} />}
+                </div>
+              </td>
               <td className="px-3 py-2 tabular-nums">{linkCount.get(item.id) ?? 0}</td>
               <td className="px-3 py-2">
                 {item.fileId ? (

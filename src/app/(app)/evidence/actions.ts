@@ -28,6 +28,8 @@ export async function createEvidenceAction(_prev: ActionState, formData: FormDat
   const kind = String(formData.get("kind") ?? "file");
   const entityType = String(formData.get("entityType") ?? "");
   const entityId = String(formData.get("entityId") ?? "");
+  /** ربط بمفتاح فرعي (مثل مؤشر أداء محدد) — سلسلة فارغة تعني بلا مفتاح */
+  const subKey = String(formData.get("subKey") ?? "").trim();
 
   let fileId: string | null = null;
   let url: string | null = null;
@@ -76,7 +78,7 @@ export async function createEvidenceAction(_prev: ActionState, formData: FormDat
     .returning();
 
   if (entityType && entityId) {
-    await linkEvidence({ evidenceId: item.id, entityType, entityId, linkedBy: user.id });
+    await linkEvidence({ evidenceId: item.id, entityType, entityId, subKey, linkedBy: user.id });
   }
   await audit({ actorId: user.id, action: "evidence.created", entityType: "evidence", entityId: item.id, summary: `إضافة شاهد «${item.title}»` });
   revalidatePath("/evidence");
@@ -89,11 +91,38 @@ export async function linkEvidenceAction(_prev: ActionState, formData: FormData)
   const evidenceId = String(formData.get("evidenceId") ?? "");
   const entityType = String(formData.get("entityType") ?? "");
   const entityId = String(formData.get("entityId") ?? "");
+  const subKey = String(formData.get("subKey") ?? "").trim();
   if (!evidenceId || !entityType || !entityId) return { error: "بيانات الربط ناقصة" };
-  await linkEvidence({ evidenceId, entityType, entityId, linkedBy: user.id });
+  await linkEvidence({ evidenceId, entityType, entityId, subKey, linkedBy: user.id });
   await audit({ actorId: user.id, action: "evidence.linked", entityType, entityId, summary: "ربط شاهد" });
   revalidatePath("/evidence");
   return { success: "تم الربط" };
+}
+
+/** مراجعة الشاهد — مرحلة «المراجعة» في سير عمل الشواهد: مقبول أو مرفوض مع ملاحظة */
+export async function reviewEvidenceAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("evidence.write");
+  const evidenceId = String(formData.get("evidenceId") ?? "");
+  const decision = String(formData.get("decision") ?? "");
+  const note = String(formData.get("note") ?? "").trim();
+  if (!evidenceId) return { error: "الشاهد غير محدد" };
+  if (decision !== "مقبول" && decision !== "مرفوض") return { error: "قرار المراجعة يجب أن يكون «مقبول» أو «مرفوض»" };
+  if (decision === "مرفوض" && note.length < 3) return { error: "اذكر سبب الرفض في الملاحظة" };
+  const [item] = await db
+    .update(evidenceItems)
+    .set({ reviewStatus: decision, reviewNote: note || null })
+    .where(eq(evidenceItems.id, evidenceId))
+    .returning();
+  if (!item) return { error: "الشاهد غير موجود" };
+  await audit({
+    actorId: user.id,
+    action: "evidence.reviewed",
+    entityType: "evidence",
+    entityId: evidenceId,
+    summary: `مراجعة شاهد «${item.title}»: ${decision}`,
+  });
+  revalidatePath("/evidence");
+  return { success: `سجلت المراجعة: ${decision}` };
 }
 
 export async function deleteEvidenceAction(evidenceId: string): Promise<ActionState> {
