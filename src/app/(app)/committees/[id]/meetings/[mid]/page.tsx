@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, committeeMembers, meetings, meetingOutcomes, people, documents, actionTasks } from "@/db/schema";
 import { PageHeader, Card, Badge, Table } from "@/components/ui";
+import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { MeetingEditForm, OutcomeForm, SignedMinutesUpload, CompleteMeetingButton } from "./meeting-ui";
 import { generateMinutesDocument } from "@/lib/reports/minutes-report";
 import { SubmitButton } from "@/components/ui";
@@ -35,6 +36,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   const taskById = new Map(tasks.map((t) => [t.id, t]));
 
   const canWrite = user.permissions.has("committees.write") && meeting.status !== "مكتمل";
+  const showAiMeetingAssistant = (await aiEnabled()) && canWrite;
   const canApprove = user.permissions.has("committees.approve");
   const chair = members.find((x) => x.m.role === "رئيس" || x.m.role === "قائد");
   const secretary = members.find((x) => x.m.role === "مقرر");
@@ -51,7 +53,14 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
       <PageHeader
         title={`${meeting.title ?? `الاجتماع ${meeting.seq}`}`}
         subtitle={committee.nameAr}
-        actions={<Badge value={meeting.status} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge value={meeting.status} />
+            {user.permissions.has("ai.use") && (
+              <AskAssistant type="meeting" id={mid} label={`اجتماع ${committee.nameAr}: ${meeting.title ?? meeting.seq}`} />
+            )}
+          </div>
+        }
       />
 
       <Card>
@@ -107,7 +116,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         <p className="mt-2 text-xs text-gray-400">القرار ينشئ إجراءً إلزامياً تلقائياً؛ التوصية قد تنشئ إجراءً اختيارياً.</p>
       </Card>
 
-      {aiEnabled() && canWrite && <AiMeetingAssistant meetingId={mid} />}
+      {showAiMeetingAssistant && <AiMeetingAssistant meetingId={mid} />}
 
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">المحضر والتوقيع والاكتمال</h2>

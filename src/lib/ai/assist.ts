@@ -1,5 +1,6 @@
 import "server-only";
-import { getAiProvider } from "./provider";
+import { getActiveProvider } from "./provider";
+import { getAiConfig } from "./settings";
 import { audit } from "@/lib/audit";
 
 /**
@@ -16,8 +17,7 @@ export async function draftMeetingSummary(opts: {
   discussion: string;
   actorId: string;
 }): Promise<string> {
-  const provider = getAiProvider();
-  if (!provider) throw new Error("الذكاء الاصطناعي معطل");
+  const { provider } = await getActiveProvider();
   const result = await provider.chat([
     { role: "system", content: SYSTEM_AR },
     {
@@ -25,7 +25,7 @@ export async function draftMeetingSummary(opts: {
       content: `لخص مناقشات هذا الاجتماع في نقاط، واقترح قرارات وتوصيات محتملة بصيغة واضحة.\nاللجنة: ${opts.committeeName}\nجدول الأعمال:\n${opts.agenda.map((a, i) => `${i + 1}. ${a}`).join("\n")}\nالمناقشات:\n${opts.discussion}`,
     },
   ]);
-  await audit({ actorId: opts.actorId, action: "ai.meeting_summary_drafted", summary: `مسودة تلخيص اجتماع ${opts.committeeName} (مزود محلي)` });
+  await audit({ actorId: opts.actorId, action: "ai.meeting_summary_drafted", summary: `مسودة تلخيص اجتماع ${opts.committeeName} (${provider.nameAr})` });
   return result;
 }
 
@@ -35,8 +35,7 @@ export async function reviewEvidenceCompleteness(opts: {
   actualEvidence: { title: string; role: string | null }[];
   actorId: string;
 }): Promise<string> {
-  const provider = getAiProvider();
-  if (!provider) throw new Error("الذكاء الاصطناعي معطل");
+  const { provider } = await getActiveProvider();
   const result = await provider.chat([
     { role: "system", content: SYSTEM_AR },
     {
@@ -44,16 +43,16 @@ export async function reviewEvidenceCompleteness(opts: {
       content: `راجع اكتمال شواهد هذا البرنامج واذكر النواقص المحتملة فقط دون أحكام نهائية.\nالبرنامج: ${opts.programName}\nالشواهد المطلوبة حسب الخطة: ${opts.requiredEvidence}\nالشواهد المسجلة:\n${opts.actualEvidence.map((e) => `- ${e.title}${e.role ? ` (${e.role})` : ""}`).join("\n") || "لا شواهد"}`,
     },
   ]);
-  await audit({ actorId: opts.actorId, action: "ai.evidence_reviewed", summary: `مراجعة اكتمال شواهد ${opts.programName} (مزود محلي)` });
+  await audit({ actorId: opts.actorId, action: "ai.evidence_reviewed", summary: `مراجعة اكتمال شواهد ${opts.programName} (${provider.nameAr})` });
   return result;
 }
 
 /** استخراج نص من صورة (OCR) — عند الطلب فقط، والمراجعة البشرية إلزامية قبل الحفظ */
 export async function ocrImage(opts: { imageBase64: string; mime: string; actorId: string }): Promise<string> {
-  const provider = getAiProvider();
-  if (!provider) throw new Error("الذكاء الاصطناعي معطل");
+  const config = await getAiConfig();
+  if (!config.enabled) throw new Error("الذكاء الاصطناعي معطل");
   // Ollama يدعم الصور عبر واجهة chat بالحقل images
-  const baseUrl = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+  const baseUrl = config.ollamaBaseUrl;
   const model = process.env.OLLAMA_VISION_MODEL ?? "qwen3-vl:8b";
   const res = await fetch(`${baseUrl}/api/chat`, {
     method: "POST",

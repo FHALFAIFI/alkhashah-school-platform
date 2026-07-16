@@ -14,7 +14,7 @@ export type AiState = { error?: string; draft?: string } | null;
 /** مسودة تلخيص اجتماع — مقترح نصي يراجعه الإنسان، لا يكتب في أي سجل */
 export async function aiMeetingSummaryAction(meetingId: string): Promise<AiState> {
   const user = await requirePermission("committees.write");
-  if (!aiEnabled()) return { error: "الذكاء الاصطناعي معطل — يفعل من إعدادات الخادم" };
+  if (!(await aiEnabled())) return { error: "الذكاء الاصطناعي معطل — يفعله المدير من إعدادات الذكاء الاصطناعي" };
   const [meeting] = await db.select().from(meetings).where(eq(meetings.id, meetingId));
   if (!meeting) return { error: "الاجتماع غير موجود" };
   const [committee] = await db.select().from(committees).where(eq(committees.id, meeting.committeeId));

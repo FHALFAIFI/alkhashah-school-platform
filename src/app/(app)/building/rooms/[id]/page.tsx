@@ -9,6 +9,7 @@ import {
 import { PageHeader, Card, Badge, Table, ProgressBar } from "@/components/ui";
 import { computeRoomReadiness } from "@/lib/building/readiness";
 import { InspectionRunForm, ReadinessOverrideForm, RoomEditForm, RoomIssueForm } from "./room-ui";
+import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +54,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
       <PageHeader
         title={`${room.nameAr} (${room.code})`}
         subtitle={`${floor.nameAr} — ${room.roomType}${room.lengthM && room.widthM ? ` — ${Number(room.lengthM).toFixed(1)}×${Number(room.widthM).toFixed(1)}م` : ""}${room.areaM2 ? ` — ${Number(room.areaM2).toFixed(1)} م²` : ""}`}
+        actions={user.permissions.has("ai.use") ? <AskAssistant type="room" id={id} label={`غرفة ${room.nameAr} (${room.code})`} /> : undefined}
       />
 
       {(canEdit || canReport) && (

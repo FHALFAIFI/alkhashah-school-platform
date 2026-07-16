@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { perfCycles, perfSessions, perfRatings, people, improvementPlans } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, ProgressBar } from "@/components/ui";
+import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { cycleProgress, weakIndicators } from "@/lib/performance/scoring";
 import { NewSessionForm, ImprovementPlanForm } from "./cycle-ui";
 import { dualDisplay } from "@/lib/dates";
@@ -52,7 +53,14 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
       <PageHeader
         title={`دورة أداء: ${person.fullName}`}
         subtitle={`${cycle.cycleType} — ${snapshot.model.nameAr} — ${cycle.yearKey}`}
-        actions={<Badge value={cycle.status} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge value={cycle.status} />
+            {user.permissions.has("ai.use") && (
+              <AskAssistant type="performance" id={id} label={`دورة أداء: ${person.fullName} (${cycle.yearKey})`} />
+            )}
+          </div>
+        }
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

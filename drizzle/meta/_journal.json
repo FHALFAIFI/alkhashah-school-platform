@@ -15,6 +15,13 @@
       "when": 1784148536250,
       "tag": "0001_cheerful_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784223628842,
+      "tag": "0002_bent_forgotten_one",
+      "breakpoints": true
     }
   ]
 }

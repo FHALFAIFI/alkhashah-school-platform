@@ -1,5 +1,6 @@
 import { requirePermission } from "@/lib/auth/session";
 import { PageHeader, Card, LinkButton } from "@/components/ui";
+import { AskAssistant } from "@/components/assistant/ask-assistant";
 
 export const metadata = { title: "التقارير" };
 
@@ -7,7 +8,11 @@ export default async function ReportsPage() {
   const user = await requirePermission("reports.read");
   return (
     <div>
-      <PageHeader title="التقارير" subtitle="قسم موحد، وتتوفر تقارير سياقية داخل كل وحدة" />
+      <PageHeader
+        title="التقارير"
+        subtitle="قسم موحد، وتتوفر تقارير سياقية داخل كل وحدة"
+        actions={user.permissions.has("ai.use") ? <AskAssistant type="report" id={user.id} label="التقارير" /> : undefined}
+      />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <h2 className="font-bold text-brand-900">تقارير البرامج</h2>

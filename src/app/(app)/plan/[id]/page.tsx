@@ -14,6 +14,7 @@ import {
   ChangeRequestDecision, ApprovePackageButton,
 } from "./program-ui";
 import { EvidencePanel } from "@/components/evidence-panel";
+import { AskAssistant } from "@/components/assistant/ask-assistant";
 
 export const dynamic = "force-dynamic";
 
@@ -67,8 +68,9 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         title={`${program.seq}. ${program.name}`}
         subtitle={program.domain}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge value={program.status} />
+            {user.permissions.has("ai.use") && <AskAssistant type="program" id={id} label={`برنامج: ${program.name}`} />}
             <LinkButton href={`/plan/${id}/report`} variant="secondary">تقرير البرنامج</LinkButton>
           </div>
         }

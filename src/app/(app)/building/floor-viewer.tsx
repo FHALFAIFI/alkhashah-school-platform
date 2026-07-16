@@ -52,6 +52,7 @@ export function FloorViewer({
   const ty = (y: number) => (y - minY + 2) * S;
 
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
+  const [interacting, setInteracting] = useState(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ dist: number; scale: number; x: number; y: number; cx: number; cy: number } | null>(null);
   const moved = useRef(false);
@@ -74,6 +75,7 @@ export function FloorViewer({
   const onPointerDown = (e: React.PointerEvent) => {
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     moved.current = false;
+    setInteracting(true);
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
       gesture.current = {
@@ -112,6 +114,7 @@ export function FloorViewer({
 
   const onPointerUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
+    if (pointers.current.size === 0) setInteracting(false);
     if (pointers.current.size < 2) gesture.current = null;
     if (pointers.current.size === 1 && view.scale > 1) {
       const [p] = [...pointers.current.values()];
@@ -152,7 +155,7 @@ export function FloorViewer({
           style={{
             transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
             transformOrigin: "center center",
-            transition: gesture.current ? "none" : "transform 120ms ease-out",
+            transition: interacting ? "none" : "transform 120ms ease-out",
           }}
         >
           {(geometry.contextShapes ?? []).map((c) => (

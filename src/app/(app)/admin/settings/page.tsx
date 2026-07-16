@@ -1,6 +1,7 @@
 import { requirePermission } from "@/lib/auth/session";
 import { getSetting, setSetting } from "@/lib/settings";
-import { PageHeader, Card, SubmitButton, Field } from "@/components/ui";
+import { getAiConfig, providerNameAr } from "@/lib/ai/settings";
+import { PageHeader, Card, SubmitButton, Field, LinkButton } from "@/components/ui";
 import { audit } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 
@@ -8,13 +9,13 @@ export const metadata = { title: "الإعدادات" };
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  await requirePermission("admin.settings");
-  const [sigDefault, stampDefault, followupTarget, assetPrefix, aiEnabled] = await Promise.all([
+  const user = await requirePermission("admin.settings");
+  const [sigDefault, stampDefault, followupTarget, assetPrefix, aiConfig] = await Promise.all([
     getSetting("branding.signature_default", false),
     getSetting("branding.stamp_default", false),
     getSetting("performance.followup_target", 5),
     getSetting("assets.code_prefix", "KHS-AST-"),
-    getSetting("ai.enabled", false),
+    getAiConfig(),
   ]);
 
   async function save(formData: FormData) {
@@ -49,14 +50,20 @@ export default async function SettingsPage() {
             <Field label="المستهدف السنوي لجلسات المتابعة" name="followupTarget" type="number" defaultValue={followupTarget} />
             <Field label="بادئة رموز الأصول" name="assetPrefix" defaultValue={assetPrefix} dir="ltr" />
           </div>
-          <div>
-            <h2 className="mb-1 font-bold text-gray-800">الذكاء الاصطناعي</h2>
-            <p className="text-sm text-gray-500">
-              الحالة: <strong>{aiEnabled ? "مفعل" : "معطل (الافتراضي)"}</strong> — يُدار التفعيل من ملف البيئة على الخادم، والتطبيق يعمل كاملاً بدونه.
-            </p>
-          </div>
           <SubmitButton>حفظ الإعدادات</SubmitButton>
         </form>
+      </Card>
+      <Card>
+        <h2 className="mb-1 font-bold text-gray-800">الذكاء الاصطناعي</h2>
+        <p className="text-sm text-gray-500">
+          الحالة: <strong>{aiConfig.enabled ? `مفعل — ${providerNameAr(aiConfig.provider)}` : "معطل (الافتراضي)"}</strong> — التطبيق يعمل
+          كاملاً بدونه، والتفعيل والفحص من صفحة الإعدادات المخصصة.
+        </p>
+        {user.permissions.has("ai.manage") && (
+          <div className="mt-3">
+            <LinkButton href="/admin/settings/ai" variant="secondary">فتح إعدادات الذكاء الاصطناعي</LinkButton>
+          </div>
+        )}
       </Card>
     </div>
   );

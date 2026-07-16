@@ -61,6 +61,9 @@ export const permissionsSeed: { key: string; nameAr: string; module: string }[] 
   { key: "admin.audit.read", nameAr: "عرض سجل التدقيق", module: "admin" },
   { key: "admin.backup", nameAr: "إدارة النسخ الاحتياطي", module: "admin" },
   { key: "admin.integrations", nameAr: "إدارة التكاملات الاختيارية", module: "admin" },
+
+  { key: "ai.use", nameAr: "استخدام مساعد المدير الذكي", module: "ai" },
+  { key: "ai.manage", nameAr: "إدارة إعدادات الذكاء الاصطناعي", module: "ai" },
 ];
 
 /**

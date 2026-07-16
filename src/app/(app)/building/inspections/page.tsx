@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { inspectionTemplates, inspections, rooms, floors, maintenanceIssues, assets, readinessOverrides } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, ProgressBar } from "@/components/ui";
+import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { computeRoomReadiness } from "@/lib/building/readiness";
 import { ApproveTemplateButton } from "./inspections-ui";
 
@@ -43,7 +44,14 @@ export default async function InspectionsPage() {
       <PageHeader
         title="الفحص والجاهزية"
         subtitle="قوالب فحص حسب نوع الغرفة تبقى مسودة حتى اعتماد المدير — الفحص الميداني يدعم وضع عدم الاتصال"
-        actions={<LinkButton href="/building/offline">وضع الفحص دون اتصال</LinkButton>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {user.permissions.has("ai.use") && (
+              <AskAssistant type="inspection" id={user.id} label="الفحص والجاهزية" />
+            )}
+            <LinkButton href="/building/offline">وضع الفحص دون اتصال</LinkButton>
+          </div>
+        }
       />
 
       <Card>

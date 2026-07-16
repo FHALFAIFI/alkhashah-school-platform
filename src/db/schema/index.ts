@@ -5,3 +5,4 @@ export * from "./plan";
 export * from "./committees";
 export * from "./performance";
 export * from "./building";
+export * from "./ai";
