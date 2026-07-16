@@ -75,7 +75,7 @@ test.describe("الجوال", () => {
     expect(overflow).toBeLessThanOrEqual(0);
     // صفحة المساعد الكاملة تعرض الاقتراحات العربية
     await page.goto("/assistant");
-    await expect(page.getByText("ما البرامج المتأخرة هذا الشهر؟")).toBeVisible();
+    await expect(page.getByText("اعرض البرامج المتأخرة واقترح إجراءات")).toBeVisible();
     await expect(page.getByText("معطل", { exact: false }).first()).toBeHidden().catch(() => {});
   });
 });

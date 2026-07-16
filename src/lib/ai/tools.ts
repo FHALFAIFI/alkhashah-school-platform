@@ -1,14 +1,24 @@
 import "server-only";
-import { and, desc, eq, gt, ilike, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
   people, programs, committees, meetings, actionTasks, evidenceItems, evidenceLinks,
   rooms, assets, inspections, maintenanceIssues, documents, perfCycles, perfSessions,
-  aiDrafts,
+  aiDrafts, programMilestones, programDeliverables, programChangeRequests,
+  committeeMembers, meetingOutcomes, readinessOverrides,
 } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth/session";
 import { createDraftEmail, m365Enabled } from "@/lib/email/m365";
+import { computePackageReadiness } from "@/lib/plan/progress";
+import { computeRoomReadiness } from "@/lib/building/readiness";
+import { readStoredFile } from "@/lib/storage";
+import { ocrImage } from "./assist";
 
 /**
  * سجل الأدوات المصنفة لمساعد المدير الذكي — النموذج لا يصل لقاعدة البيانات إطلاقاً؛
@@ -27,6 +37,9 @@ export type ReadToolResult = {
 export type WriteToolResult = { message: string; links: ToolLink[] };
 export type PreviewItem = { label: string; value: string };
 
+/** سياق الصفحة المربوط بالمحادثة — يمرر مصادَقاً عليه من مسار المحادثة إلى تنفيذ الأدوات */
+export type ToolContext = { type: string; id: string };
+
 type ReadTool = {
   name: string;
   descriptionAr: string;
@@ -34,7 +47,7 @@ type ReadTool = {
   permission: string;
   args: z.ZodTypeAny;
   readOnly: true;
-  execute(user: CurrentUser, args: unknown): Promise<ReadToolResult>;
+  execute(user: CurrentUser, args: unknown, context?: ToolContext | null): Promise<ReadToolResult>;
 };
 
 type WriteTool = {
@@ -44,9 +57,9 @@ type WriteTool = {
   args: z.ZodTypeAny;
   readOnly: false;
   /** معاينة مفصلة بنداً بنداً تعرض على المستخدم قبل أي تنفيذ */
-  buildPreview(user: CurrentUser, args: unknown): Promise<PreviewItem[]>;
+  buildPreview(user: CurrentUser, args: unknown, context?: ToolContext | null): Promise<PreviewItem[]>;
   /** ينفذ فقط بعد تأكيد صريح — ويعاد فحص الصلاحية لحظة التنفيذ */
-  execute(user: CurrentUser, args: unknown): Promise<WriteToolResult>;
+  execute(user: CurrentUser, args: unknown, context?: ToolContext | null): Promise<WriteToolResult>;
 };
 
 export type AiTool = ReadTool | WriteTool;
@@ -55,6 +68,57 @@ function requireToolPermission(user: CurrentUser, permission: string) {
   if (!user.permissions.has(permission)) {
     throw new Error(`لا تملك صلاحية «${permission}» اللازمة لهذه الأداة`);
   }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** يعيد معرف السياق فقط إذا طابق النوع المتوقع وكان UUID صالحاً — وإلا null */
+function contextIdFor(context: ToolContext | null | undefined, expectedType: string): string | null {
+  return context && context.type === expectedType && UUID_RE.test(context.id) ? context.id : null;
+}
+
+/** التحقق من أن معرف السياق يعود فعلاً لسجل من النوع المعلن — لا يوثق أي معرف قبل التحقق */
+async function contextEntityExists(type: string, id: string): Promise<boolean> {
+  if (!UUID_RE.test(id)) return false;
+  if (type === "program") return (await db.select({ id: programs.id }).from(programs).where(eq(programs.id, id)).limit(1)).length > 0;
+  if (type === "meeting") return (await db.select({ id: meetings.id }).from(meetings).where(eq(meetings.id, id)).limit(1)).length > 0;
+  if (type === "performance") return (await db.select({ id: perfCycles.id }).from(perfCycles).where(eq(perfCycles.id, id)).limit(1)).length > 0;
+  if (type === "room") return (await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, id)).limit(1)).length > 0;
+  return false;
+}
+
+/**
+ * ربط سياق الصفحة بوسائط الأداة على الخادم: عندما يغفل النموذج معرف السجل تملؤه المنصة
+ * من السياق بعد التحقق من انتماء المعرف للنوع المعلن. المعرف الذي يقدمه النموذج صراحة
+ * لا يستبدل، لكنه يتحقق منه داخل الأداة نفسها بالاستعلام في الجدول الصحيح، وتعاد
+ * فحوص الصلاحية (RBAC) عند كل تنفيذ كالمعتاد.
+ */
+export async function bindContextToArgs(
+  toolName: string,
+  rawArgs: Record<string, unknown>,
+  context: ToolContext | null | undefined,
+): Promise<Record<string, unknown>> {
+  if (!context || !UUID_RE.test(context.id)) return rawArgs;
+  const args = { ...rawArgs };
+  const fillIfValid = async (key: string, expectedType: string) => {
+    if (!args[key] && context.type === expectedType && (await contextEntityExists(expectedType, context.id))) {
+      args[key] = context.id;
+    }
+  };
+  if (toolName === "program_brief") await fillIfValid("programId", "program");
+  if (toolName === "meeting_brief") await fillIfValid("meetingId", "meeting");
+  if (toolName === "room_brief") await fillIfValid("roomId", "room");
+  if (toolName === "person_performance_brief" && !args.personId && context.type === "performance") {
+    // سياق صفحة الأداء يحمل معرف الدورة — نستنتج الشخص من الدورة بعد التحقق من وجودها
+    const [c] = await db.select({ personId: perfCycles.personId }).from(perfCycles).where(eq(perfCycles.id, context.id)).limit(1);
+    if (c) args.personId = c.personId;
+  }
+  if (toolName === "create_maintenance_issue" && !args.roomId && !args.room) await fillIfValid("roomId", "room");
+  if (toolName === "save_draft" && !args.relatedId && !args.relatedType && (await contextEntityExists(context.type, context.id))) {
+    args.relatedType = context.type;
+    args.relatedId = context.id;
+  }
+  return args;
 }
 
 const OPEN_TASK_STATUSES = ["جديدة", "قيد التنفيذ"];
@@ -114,7 +178,7 @@ const searchRecords: ReadTool = {
       rows = r.map((t) => ({ title: t.title, detail: `${t.status} — أولوية ${t.priority}`, href: "/tasks" }));
     } else if (entity === "evidence") {
       const r = await db.select().from(evidenceItems).where(or(ilike(evidenceItems.title, q), ilike(evidenceItems.description, q))).orderBy(desc(evidenceItems.createdAt)).limit(limit);
-      rows = r.map((e) => ({ title: e.title, detail: e.role ?? e.kind, href: "/evidence" }));
+      rows = r.map((e) => ({ title: e.title, detail: `${e.role ?? e.kind} — evidenceId=${e.id}`, href: "/evidence" }));
     } else if (entity === "rooms") {
       const r = await db.select().from(rooms).where(and(eq(rooms.active, true), or(ilike(rooms.nameAr, q), ilike(rooms.code, q), ilike(rooms.roomType, q)))).limit(limit);
       rows = r.map((rm) => ({ title: `${rm.nameAr} (${rm.code})`, detail: rm.roomType, href: `/building/rooms/${rm.id}` }));
@@ -328,6 +392,365 @@ const dashboardSummary: ReadTool = {
   },
 };
 
+// ————————————————— الأدوات السياقية (مربوطة بسجل الصفحة الحالية) —————————————————
+
+const programBriefArgs = z.object({ programId: z.string().uuid().optional() });
+
+const programBrief: ReadTool = {
+  name: "program_brief",
+  descriptionAr:
+    "ملخص حالة برنامج واحد من الخطة التشغيلية: الحالة والتقدم والمعالم الموزونة وطلبات التغيير المفتوحة وجاهزية حزم الشواهد مع الأدوار الناقصة. programId اختياري — يملأ تلقائياً من سياق الصفحة عند فتح المساعد من صفحة برنامج.",
+  permission: "plan.read",
+  readOnly: true,
+  args: programBriefArgs,
+  async execute(user, rawArgs, context) {
+    requireToolPermission(user, "plan.read");
+    const a = programBriefArgs.parse(rawArgs);
+    const programId = a.programId ?? contextIdFor(context, "program");
+    if (!programId) throw new Error("حدد معرف البرنامج أو افتح المساعد من صفحة البرنامج");
+    const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+    if (!program) throw new Error("البرنامج غير موجود");
+
+    const milestones = await db
+      .select()
+      .from(programMilestones)
+      .where(eq(programMilestones.programId, program.id))
+      .orderBy(asc(programMilestones.sortOrder));
+    const [cr] = await db
+      .select({ open: sql<number>`count(*)` })
+      .from(programChangeRequests)
+      .where(and(eq(programChangeRequests.programId, program.id), eq(programChangeRequests.status, "قيد الاعتماد")));
+    const deliverables = await db.select().from(programDeliverables).where(eq(programDeliverables.programId, program.id));
+    const links = deliverables.length
+      ? await db
+          .select({ entityId: evidenceLinks.entityId, role: evidenceItems.role })
+          .from(evidenceLinks)
+          .innerJoin(evidenceItems, eq(evidenceLinks.evidenceId, evidenceItems.id))
+          .where(and(eq(evidenceLinks.entityType, "deliverable"), inArray(evidenceLinks.entityId, deliverables.map((d) => d.id))))
+      : [];
+    const rolesByDeliverable = new Map<string, string[]>();
+    for (const l of links) {
+      if (!l.role) continue;
+      rolesByDeliverable.set(l.entityId, [...(rolesByDeliverable.get(l.entityId) ?? []), l.role]);
+    }
+
+    const rows: ReadToolResult["rows"] = [
+      {
+        title: `${program.seq}. ${program.name}`,
+        detail: `${program.status} — التنفيذ: ${program.executionStatus} — الإنجاز ${program.progress}٪${program.hijriStart ? ` — الفترة ${program.hijriStart} إلى ${program.hijriEnd ?? "؟"}` : ""}`,
+        href: `/plan/${program.id}`,
+      },
+      { title: `طلبات التغيير المفتوحة: ${Number(cr.open)}`, href: `/plan/${program.id}` },
+    ];
+    for (const m of milestones) {
+      rows.push({
+        title: `معلم: ${m.title}`,
+        detail: `${m.status} — الوزن ${m.weight}٪ — الإنجاز ${m.progress}٪${m.dueText ? ` — الموعد ${m.dueText}` : ""}`,
+      });
+    }
+    let completePackages = 0;
+    for (const d of deliverables) {
+      const { readiness, missing } = computePackageReadiness({
+        requiresExternal: d.requiresExternal,
+        evidenceRoles: rolesByDeliverable.get(d.id) ?? [],
+      });
+      if (missing.length === 0) completePackages++;
+      rows.push({
+        title: `مخرج: ${d.mainOutput ?? d.outputType ?? "حزمة شواهد"}`,
+        detail: `جاهزية الحزمة ${readiness}٪ — ${d.packageStatus}${missing.length ? ` — الأدوار الناقصة: شاهد ${missing.join("، شاهد ")}` : " — الأدوار مكتملة"}`,
+      });
+    }
+    if (program.evidenceText) rows.push({ title: "الشواهد المطلوبة حسب الخطة", detail: program.evidenceText.slice(0, 400) });
+
+    return {
+      summary: `برنامج «${program.name}»: ${program.status} — التنفيذ ${program.executionStatus} — الإنجاز ${program.progress}٪ — المعالم: ${milestones.length} — طلبات تغيير مفتوحة: ${Number(cr.open)} — حزم شواهد مكتملة الأدوار: ${completePackages}/${deliverables.length}`,
+      rows,
+    };
+  },
+};
+
+const meetingBriefArgs = z.object({ meetingId: z.string().uuid().optional() });
+
+const meetingBrief: ReadTool = {
+  name: "meeting_brief",
+  descriptionAr:
+    "المادة الكاملة لاجتماع واحد: اللجنة ورقمه وتاريخه وجدول أعماله والمناقشات والنتائج (قرار/توصية/ملاحظة) والأعضاء بأدوارهم والمرفقات المرتبطة — وهي المادة الخام لمسودة محضر تحفظ عبر save_draft بنوع «محضر اجتماع». meetingId اختياري — يملأ من سياق الصفحة.",
+  permission: "committees.read",
+  readOnly: true,
+  args: meetingBriefArgs,
+  async execute(user, rawArgs, context) {
+    requireToolPermission(user, "committees.read");
+    const a = meetingBriefArgs.parse(rawArgs);
+    const meetingId = a.meetingId ?? contextIdFor(context, "meeting");
+    if (!meetingId) throw new Error("حدد معرف الاجتماع أو افتح المساعد من صفحة الاجتماع");
+    const [row] = await db
+      .select({ m: meetings, committee: committees })
+      .from(meetings)
+      .innerJoin(committees, eq(meetings.committeeId, committees.id))
+      .where(eq(meetings.id, meetingId));
+    if (!row) throw new Error("الاجتماع غير موجود");
+    const { m, committee } = row;
+    const href = `/committees/${m.committeeId}/meetings/${m.id}`;
+
+    const outcomes = await db.select().from(meetingOutcomes).where(eq(meetingOutcomes.meetingId, m.id)).orderBy(asc(meetingOutcomes.sortOrder));
+    const members = await db
+      .select({ name: people.fullName, role: committeeMembers.role, position: committeeMembers.position })
+      .from(committeeMembers)
+      .innerJoin(people, eq(committeeMembers.personId, people.id))
+      .where(eq(committeeMembers.committeeId, m.committeeId))
+      .orderBy(asc(committeeMembers.sortOrder));
+    const attachments = await db
+      .select({ e: evidenceItems })
+      .from(evidenceLinks)
+      .innerJoin(evidenceItems, eq(evidenceLinks.evidenceId, evidenceItems.id))
+      .where(and(eq(evidenceLinks.entityType, "meeting"), eq(evidenceLinks.entityId, m.id)));
+
+    const rows: ReadToolResult["rows"] = [
+      {
+        title: m.title ?? `اجتماع ${committee.nameAr} رقم ${m.seq}`,
+        detail: `${committee.nameAr} — رقم ${m.seq} — ${m.status}${m.meetingDate ? ` — ${m.meetingDate.toLocaleDateString("ar-SA-u-nu-latn")}` : ""}${m.location ? ` — ${m.location}` : ""}`,
+        href,
+      },
+    ];
+    (m.agenda ?? []).forEach((item, i) => rows.push({ title: `بند ${i + 1}: ${item}` }));
+    if (m.discussion) rows.push({ title: "المناقشات", detail: m.discussion.slice(0, 2000) });
+    for (const o of outcomes) rows.push({ title: `${o.outcomeType}: ${o.text.slice(0, 300)}` });
+    for (const mem of members) rows.push({ title: `عضو: ${mem.name}`, detail: `${mem.role}${mem.position ? ` — ${mem.position}` : ""}` });
+    for (const { e } of attachments) {
+      rows.push({ title: `مرفق: ${e.title}`, detail: `النوع ${e.kind} — لاستخراج نصه مرر evidenceId=${e.id} إلى attachment_text` });
+    }
+
+    return {
+      summary: `اجتماع ${committee.nameAr} رقم ${m.seq} (${m.status}) — بنود جدول الأعمال: ${(m.agenda ?? []).length} — النتائج: ${outcomes.length} — الأعضاء: ${members.length} — المرفقات: ${attachments.length}`,
+      rows,
+    };
+  },
+};
+
+const personPerfBriefArgs = z.object({ personId: z.string().uuid().optional() });
+
+/**
+ * ملخص متابعة أداء موظف — القرار D-016 الصارم: تستبعد هذه الأداة عمداً كل الدرجات
+ * والتقديرات والنتائج والأوزان (sessionResult وcoverage وperfRatings لا تستعلم إطلاقاً)
+ * من أي مخرجات تصل للنموذج؛ تعرض الأنواع والمواعيد والحالات وعدد الشواهد فقط.
+ */
+const personPerformanceBrief: ReadTool = {
+  name: "person_performance_brief",
+  descriptionAr:
+    "ملخص متابعة أداء موظف واحد دون أي تقديرات (تستبعد عمداً): الاسم والفئة والمسمى، الدورة النشطة، الجلسات المنعقدة (النوع والتاريخ والحالة فقط)، الجلسات الإلزامية غير المنعقدة، وعدد الشواهد المرتبطة بكل جلسة. personId اختياري — يستنتج من سياق صفحة دورة الأداء.",
+  permission: "performance.read",
+  readOnly: true,
+  args: personPerfBriefArgs,
+  async execute(user, rawArgs, context) {
+    requireToolPermission(user, "performance.read");
+    const a = personPerfBriefArgs.parse(rawArgs);
+    let personId = a.personId ?? null;
+    // سياق صفحة الأداء يحمل معرف الدورة — نستنتج منه الشخص بعد التحقق من وجود الدورة
+    if (!personId) {
+      const cycleId = contextIdFor(context, "performance");
+      if (cycleId) {
+        const [c] = await db.select({ personId: perfCycles.personId }).from(perfCycles).where(eq(perfCycles.id, cycleId)).limit(1);
+        personId = c?.personId ?? null;
+      }
+    }
+    if (!personId) throw new Error("حدد معرف الموظف أو افتح المساعد من صفحة دورة الأداء");
+    const [person] = await db.select().from(people).where(eq(people.id, personId));
+    if (!person) throw new Error("الشخص غير موجود");
+
+    const [cycle] = await db
+      .select()
+      .from(perfCycles)
+      .where(and(eq(perfCycles.personId, personId), eq(perfCycles.status, "نشطة")))
+      .orderBy(desc(perfCycles.createdAt))
+      .limit(1);
+
+    const rows: ReadToolResult["rows"] = [
+      { title: person.fullName, detail: `${person.category}${person.jobTitle ? ` — ${person.jobTitle}` : ""}`, href: `/people/${person.id}` },
+    ];
+    if (!cycle) {
+      rows.push({ title: "لا دورة أداء نشطة لهذا الشخص" });
+      return { summary: `«${person.fullName}» — لا دورة أداء نشطة حالياً (يعرض هذا الملخص المواعيد والحالات فقط دون أي تقديرات)`, rows };
+    }
+    rows.push({
+      title: `الدورة النشطة: ${cycle.cycleType} ${cycle.yearKey}`,
+      detail: cycle.startDate ? `من ${cycle.startDate}${cycle.endDate ? ` إلى ${cycle.endDate}` : ""}` : undefined,
+      href: `/performance/cycles/${cycle.id}`,
+    });
+
+    // D-016: نستعلم النوع والتاريخ والحالة فقط — لا sessionResult ولا coverage ولا perfRatings إطلاقاً
+    const sessions = await db
+      .select({ id: perfSessions.id, sessionType: perfSessions.sessionType, sessionDate: perfSessions.sessionDate, status: perfSessions.status })
+      .from(perfSessions)
+      .where(eq(perfSessions.cycleId, cycle.id))
+      .orderBy(asc(perfSessions.createdAt));
+
+    const evidenceCounts = sessions.length
+      ? await db
+          .select({ entityId: evidenceLinks.entityId, n: sql<number>`count(*)` })
+          .from(evidenceLinks)
+          .where(and(eq(evidenceLinks.entityType, "perf_session"), inArray(evidenceLinks.entityId, sessions.map((s) => s.id))))
+          .groupBy(evidenceLinks.entityId)
+      : [];
+    const countBySession = new Map(evidenceCounts.map((c) => [c.entityId, Number(c.n)]));
+
+    for (const s of sessions) {
+      rows.push({
+        title: `جلسة ${s.sessionType}`,
+        detail: `${s.status}${s.sessionDate ? ` — ${s.sessionDate}` : ""} — الشواهد المرتبطة: ${countBySession.get(s.id) ?? 0}`,
+      });
+    }
+    const ONCE_ONLY_SESSIONS = ["تخطيط", "منتصف", "نهائي"];
+    const held = new Set(sessions.map((s) => s.sessionType));
+    const missingOnce = ONCE_ONLY_SESSIONS.filter((t) => !held.has(t));
+    if (missingOnce.length) rows.push({ title: `جلسات إلزامية لم تنعقد بعد: ${missingOnce.join("، ")}` });
+
+    return {
+      summary: `متابعة أداء «${person.fullName}» — دورة ${cycle.cycleType} ${cycle.yearKey} — جلسات منعقدة: ${sessions.length}${missingOnce.length ? ` — لم تنعقد بعد: ${missingOnce.join("، ")}` : ""} (يعرض المواعيد والحالات فقط؛ التقديرات مستبعدة عمداً وفق القرار D-016)`,
+      rows,
+    };
+  },
+};
+
+const roomBriefArgs = z.object({ roomId: z.string().uuid().optional() });
+
+const roomBrief: ReadTool = {
+  name: "room_brief",
+  descriptionAr:
+    "ملخص حالة غرفة واحدة: الاسم والرمز والنوع والأبعاد، الجاهزية المحسوبة، بلاغات الصيانة المفتوحة، وتاريخ آخر فحص. roomId اختياري — يملأ من سياق الصفحة عند فتح المساعد من صفحة غرفة.",
+  permission: "building.read",
+  readOnly: true,
+  args: roomBriefArgs,
+  async execute(user, rawArgs, context) {
+    requireToolPermission(user, "building.read");
+    const a = roomBriefArgs.parse(rawArgs);
+    const roomId = a.roomId ?? contextIdFor(context, "room");
+    if (!roomId) throw new Error("حدد معرف الغرفة أو افتح المساعد من صفحة الغرفة");
+    const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId));
+    if (!room) throw new Error("الغرفة غير موجودة");
+
+    const [latestIns] = await db.select().from(inspections).where(eq(inspections.roomId, room.id)).orderBy(desc(inspections.inspectionDate)).limit(1);
+    const roomAssets = await db
+      .select({ condition: assets.condition, important: assets.important })
+      .from(assets)
+      .where(and(eq(assets.roomId, room.id), eq(assets.active, true)));
+    const openIssues = await db
+      .select()
+      .from(maintenanceIssues)
+      .where(and(eq(maintenanceIssues.roomId, room.id), inArray(maintenanceIssues.status, ["مفتوح", "قيد الإصلاح"])))
+      .orderBy(desc(maintenanceIssues.createdAt));
+    const [override] = await db
+      .select()
+      .from(readinessOverrides)
+      .where(eq(readinessOverrides.roomId, room.id))
+      .orderBy(desc(readinessOverrides.createdAt))
+      .limit(1);
+    const { readiness, source } = computeRoomReadiness({
+      latestInspection: latestIns ? { results: latestIns.results ?? [] } : null,
+      assets: roomAssets,
+      openIssues: openIssues.length,
+      override: override ? { value: override.overrideValue } : null,
+    });
+
+    const dims = room.lengthM && room.widthM ? `الأبعاد ${room.lengthM}×${room.widthM} م` : null;
+    const rows: ReadToolResult["rows"] = [
+      {
+        title: `${room.nameAr} (${room.code})`,
+        detail: [room.roomType, dims, room.areaM2 ? `المساحة ${room.areaM2} م²` : null, room.capacity ? `السعة ${room.capacity}` : null]
+          .filter(Boolean)
+          .join(" — "),
+        href: `/building/rooms/${room.id}`,
+      },
+      { title: `الجاهزية: ${readiness}٪`, detail: source },
+      { title: "آخر فحص", detail: latestIns ? latestIns.inspectionDate.toLocaleDateString("ar-SA-u-nu-latn") : "لم تفحص إطلاقاً" },
+    ];
+    for (const issue of openIssues) {
+      rows.push({ title: `بلاغ ${issue.code}: ${issue.title}`, detail: `${issue.status} — أولوية ${issue.priority}`, href: "/building/maintenance" });
+    }
+
+    return {
+      summary: `غرفة «${room.nameAr}» (${room.code}): الجاهزية ${readiness}٪ — بلاغات مفتوحة: ${openIssues.length} — آخر فحص: ${latestIns ? latestIns.inspectionDate.toLocaleDateString("ar-SA-u-nu-latn") : "لا يوجد"}`,
+      rows,
+    };
+  },
+};
+
+const attachmentTextArgs = z.object({
+  evidenceId: z.string().uuid().optional(),
+  documentId: z.string().uuid().optional(),
+});
+
+const ATTACHMENT_TEXT_MAX = 8000;
+const execFileAsync = promisify(execFile);
+
+/** استخراج نص PDF عبر pdftotext (poppler) — البيانات تقرأ من جدول stored_files حصراً وتكتب لملف مؤقت يولده الخادم؛ لا مسارات من العميل أو النموذج أبداً */
+async function extractPdfText(data: Buffer): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), "madrasa-ai-pdf-"));
+  const pdfPath = path.join(dir, "in.pdf");
+  try {
+    await writeFile(pdfPath, data);
+    const { stdout } = await execFileAsync("pdftotext", ["-enc", "UTF-8", pdfPath, "-"], {
+      timeout: 60_000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return stdout;
+  } catch {
+    throw new Error("تعذر استخراج النص من PDF — تأكد من توفر أداة pdftotext (حزمة poppler)");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function extractStoredFileText(fileId: string, actorId: string): Promise<string> {
+  const stored = await readStoredFile(fileId); // مسارات جدول stored_files فقط
+  if (!stored) throw new Error("الملف غير موجود");
+  const { file, data } = stored;
+  if (file.mime === "application/pdf") return extractPdfText(data);
+  if (file.mime.startsWith("image/")) return ocrImage({ imageBase64: data.toString("base64"), mime: file.mime, actorId });
+  if (file.mime === "text/plain") return data.toString("utf8");
+  throw new Error(`استخراج النص يدعم PDF والصور والنصوص فقط — نوع الملف: ${file.mime}`);
+}
+
+const attachmentText: ReadTool = {
+  name: "attachment_text",
+  descriptionAr:
+    "استخراج النص من مرفق لتحليله (مثل استخراج القرارات والمهام منه): شاهد ملف (PDF عبر pdftotext، صورة عبر OCR محلي، نص/رابط) أو وثيقة صادرة. مرر evidenceId (يظهر في نتائج meeting_brief وsearch_records) أو documentId. بعد الاستخراج اقترح لكل قرار قابل للتنفيذ إنشاء مهمة عبر create_task.",
+  permission: "evidence.read",
+  readOnly: true,
+  args: attachmentTextArgs,
+  async execute(user, rawArgs) {
+    requireToolPermission(user, "evidence.read");
+    const a = attachmentTextArgs.parse(rawArgs);
+    if (!a.evidenceId && !a.documentId) throw new Error("حدد evidenceId أو documentId");
+
+    if (a.evidenceId) {
+      const [ev] = await db.select().from(evidenceItems).where(eq(evidenceItems.id, a.evidenceId));
+      if (!ev) throw new Error("الشاهد غير موجود");
+      let text: string;
+      if (ev.kind === "text") text = ev.textContent ?? "";
+      else if (ev.kind === "link") text = `رابط: ${ev.url ?? "—"}\n${ev.description ?? ""}`;
+      else if (ev.kind === "file" && ev.fileId) text = await extractStoredFileText(ev.fileId, user.id);
+      else throw new Error("لا ملف مرتبطاً بهذا الشاهد");
+      const clipped = text.trim().slice(0, ATTACHMENT_TEXT_MAX);
+      return {
+        summary: `النص المستخرج من الشاهد «${ev.title}»${text.trim().length > ATTACHMENT_TEXT_MAX ? " (مقتطع للحد الأقصى)" : ""}`,
+        rows: [{ title: ev.title, detail: clipped || "لا نص مستخرجاً", href: "/evidence" }],
+      };
+    }
+
+    requireToolPermission(user, "documents.read");
+    const [doc] = await db.select().from(documents).where(eq(documents.id, a.documentId!));
+    if (!doc) throw new Error("الوثيقة غير موجودة");
+    let text = "";
+    if (doc.htmlSnapshot) text = doc.htmlSnapshot.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    else if (doc.pdfFileId) text = await extractStoredFileText(doc.pdfFileId, user.id);
+    const clipped = text.slice(0, ATTACHMENT_TEXT_MAX);
+    return {
+      summary: `النص المستخرج من الوثيقة «${doc.title}» (${doc.docNumber})${text.length > ATTACHMENT_TEXT_MAX ? " (مقتطع للحد الأقصى)" : ""}`,
+      rows: [{ title: `${doc.title} (${doc.docNumber})`, detail: clipped || "لا نص", href: "/documents" }],
+    };
+  },
+};
+
 // ————————————————— أدوات الكتابة (معاينة ثم تأكيد صريح) —————————————————
 
 const DRAFT_KINDS = [
@@ -361,11 +784,13 @@ const saveDraft: WriteTool = {
   readOnly: false,
   args: saveDraftArgs,
   async buildPreview(_user, rawArgs) {
+    // relatedType/relatedId يملآن تلقائياً من سياق الصفحة عند إغفالهما (bindContextToArgs)
     const a = saveDraftArgs.parse(rawArgs);
     return [
       { label: "نوع المسودة", value: a.kind },
       { label: "العنوان", value: a.title },
       { label: "المحتوى", value: a.content },
+      ...(a.relatedType && a.relatedId ? [{ label: "مرتبطة بالسجل", value: `${a.relatedType}: ${a.relatedId}` }] : []),
       { label: "ملاحظة", value: "تحفظ كمسودة للمراجعة فقط — لا تمس أي سجل رسمي" },
     ];
   },
@@ -429,6 +854,8 @@ const createIssueArgs = z.object({
   description: z.string().trim().max(4000).optional(),
   priority: z.enum(["عالية", "متوسطة", "منخفضة"]).default("متوسطة"),
   room: z.string().trim().max(120).optional(),
+  /** معرف الغرفة مباشرة — يملأ تلقائياً من سياق صفحة الغرفة عند إغفاله مع room */
+  roomId: z.string().uuid().optional(),
 });
 
 async function resolveRoomByQuery(roomQuery: string | undefined) {
@@ -441,27 +868,47 @@ async function resolveRoomByQuery(roomQuery: string | undefined) {
   return room ?? null;
 }
 
+/** حل الغرفة: roomId الصريح أولاً (يتحقق منه بالجدول)، ثم البحث النصي، ثم سياق صفحة الغرفة */
+async function resolveIssueRoom(a: { roomId?: string; room?: string }, context?: ToolContext | null) {
+  const roomId = a.roomId ?? (!a.room ? contextIdFor(context, "room") : null);
+  if (roomId) {
+    const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+    return room ?? null;
+  }
+  return resolveRoomByQuery(a.room);
+}
+
 const createMaintenanceIssue: WriteTool = {
   name: "create_maintenance_issue",
-  descriptionAr: "إنشاء بلاغ صيانة جديد، ويمكن ربطه بغرفة عبر رمزها (مثل KHS-RM-0001) أو اسمها.",
+  descriptionAr:
+    "إنشاء بلاغ صيانة جديد، ويمكن ربطه بغرفة عبر roomId (يملأ تلقائياً من سياق صفحة الغرفة) أو عبر رمزها (مثل KHS-RM-0001) أو اسمها في room.",
   permission: "maintenance.write",
   readOnly: false,
   args: createIssueArgs,
-  async buildPreview(_user, rawArgs) {
+  async buildPreview(_user, rawArgs, context) {
     const a = createIssueArgs.parse(rawArgs);
-    const room = await resolveRoomByQuery(a.room);
+    const room = await resolveIssueRoom(a, context);
     return [
       { label: "الإجراء", value: "إنشاء بلاغ صيانة" },
       { label: "العنوان", value: a.title },
       ...(a.description ? [{ label: "الوصف", value: a.description }] : []),
       { label: "الأولوية", value: a.priority },
-      { label: "الغرفة", value: room ? `${room.nameAr} (${room.code})` : a.room ? `لم يعثر على غرفة تطابق «${a.room}» — سيسجل البلاغ دون غرفة` : "دون غرفة محددة" },
+      {
+        label: "الغرفة",
+        value: room
+          ? `${room.nameAr} (${room.code})`
+          : a.roomId
+            ? "معرف الغرفة غير صالح — سيسجل البلاغ دون غرفة"
+            : a.room
+              ? `لم يعثر على غرفة تطابق «${a.room}» — سيسجل البلاغ دون غرفة`
+              : "دون غرفة محددة",
+      },
     ];
   },
-  async execute(user, rawArgs) {
+  async execute(user, rawArgs, context) {
     requireToolPermission(user, "maintenance.write");
     const a = createIssueArgs.parse(rawArgs);
-    const room = await resolveRoomByQuery(a.room);
+    const room = await resolveIssueRoom(a, context);
     const { nextMaintenanceCode } = await import("@/lib/building/codes");
     const code = await nextMaintenanceCode();
     const [row] = await db
@@ -538,6 +985,11 @@ export const AI_TOOLS: AiTool[] = [
   roomsNeedingInspection,
   openMaintenanceIssues,
   dashboardSummary,
+  programBrief,
+  meetingBrief,
+  personPerformanceBrief,
+  roomBrief,
+  attachmentText,
   saveDraft,
   createTask,
   createMaintenanceIssue,

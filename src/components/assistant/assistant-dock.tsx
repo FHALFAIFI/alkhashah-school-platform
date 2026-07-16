@@ -8,9 +8,29 @@ import { AssistantChat } from "./assistant-chat";
  * مرساة المساعد — زر عائم يفتح لوحة جانبية على الحاسب وواجهة كاملة الشاشة على الجوال.
  * تظهر على كل الصفحات لمن يملك صلاحية ai.use عندما يكون الذكاء الاصطناعي مفعلاً.
  */
+
+const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+
+/** صفحات السجلات التي تربط اللوحة سياقها تلقائياً — المجموعة الملتقطة هي معرف السجل */
+const CONTEXT_ROUTES: { pattern: RegExp; type: string }[] = [
+  { pattern: new RegExp(`^/plan/(${UUID})$`), type: "program" },
+  { pattern: new RegExp(`^/committees/${UUID}/meetings/(${UUID})$`), type: "meeting" },
+  { pattern: new RegExp(`^/performance/cycles/(${UUID})$`), type: "performance" },
+  { pattern: new RegExp(`^/building/rooms/(${UUID})$`), type: "room" },
+];
+
+function contextFromPathname(pathname: string): { type: string; id: string; label: string } | null {
+  for (const route of CONTEXT_ROUTES) {
+    const m = pathname.match(route.pattern);
+    if (m) return { type: route.type, id: m[1], label: "هذه الصفحة" };
+  }
+  return null;
+}
+
 export function AssistantDock({ csrfToken }: { csrfToken: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const context = contextFromPathname(pathname);
 
   // قفل تمرير الصفحة أثناء الفتح على الجوال
   useEffect(() => {
@@ -66,7 +86,7 @@ export function AssistantDock({ csrfToken }: { csrfToken: string }) {
               </button>
             </div>
           </div>
-          <AssistantChat csrfToken={csrfToken} compact />
+          <AssistantChat csrfToken={csrfToken} context={context} compact />
         </div>
       )}
     </>
