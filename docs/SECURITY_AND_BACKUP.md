@@ -34,3 +34,16 @@ Only via environment (`.env` git-ignored; `.env.example` committed without value
 
 ## Hosting path
 Mac mini (dev/test) → Ubuntu Server: Docker Compose (app + Postgres 16 + volume-mounted storage/backups), Tailscale with HTTPS via `tailscale serve`, UFW default-deny, unattended-upgrades. Full steps in `docs/DEPLOY_UBUNTU_AR.md` (Phase 5).
+
+## AI assistant security (corrective release, 2026-07-16)
+- **No raw access:** the model only proposes calls into a typed, zod-validated tool registry; free-form output is never executed; no SQL or filesystem tools exist.
+- **RBAC everywhere:** every read tool re-checks the current user's permission keys internally; write proposals re-check permission **at execution time**, not just at prompt time.
+- **Two-step writes:** every write becomes a proposal with an itemized preview; explicit confirmation required; a guarded status transition + unique idempotency key make duplicate confirmations no-ops.
+- **Hard exclusions:** approve/lock/sign/stamp/rating/weight/import-commit/permanent-delete/final-send/user-management actions have no tools at all; the allowlist is pinned by `tests/integration/ai.test.ts`.
+- **Local by default, consent for external:** Ollama/AnythingLLM run on-device; the Claude API provider refuses to construct without the recorded `allowExternal` consent flag. AnythingLLM is knowledge-only and never executes application actions.
+- **Secrets:** provider API keys live only in env (outside Git, never in DB); the settings UI shows presence only. System prompts, secrets and raw DB errors are never surfaced to the chat.
+- **Audit:** `ai.prompt`, `ai.action_proposed/confirmed/executed/failed/cancelled`, `ai.settings_updated`, `ai.connection_tested`, `ai.conversation_deleted`, `ai.history_deleted` are all recorded with provider/model detail.
+- **Retention:** conversations are per-user, user-deletable, and auto-pruned by the configurable retention policy.
+
+## Transport security (corrective release, 2026-07-16)
+Access from devices goes through Tailscale Serve HTTPS only (`https://<device>.<tailnet>.ts.net` → localhost:3080); Funnel/public exposure is forbidden. Session cookies are `Secure` whenever the request arrives over HTTPS and always in production; `HttpOnly` + `SameSite=Lax` unchanged. Server-action origins behind the proxy are restricted via `TRUSTED_ORIGINS` (default `*.ts.net`).

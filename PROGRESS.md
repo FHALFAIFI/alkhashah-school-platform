@@ -2,10 +2,14 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Current state — FIRST RELEASE COMPLETE + REAL-DATA VALIDATION PASS (D-014, 2026-07-16)
+## Current state — CORRECTIVE RELEASE (mobile + AI assistant + Tailscale HTTPS) COMPLETE PENDING ONE OPERATOR CLICK (2026-07-16)
+- **First acceptance was rejected** (broken iPhone UI, no usable in-app AI, insecure HTTP). Three corrective commits landed: mobile remediation (`7213b36`), GenAI assistant «مساعد المدير الذكي» (`d00064a`), Tailscale HTTPS + secure cookies (`1859508`). **v1.0.0-pilot is NOT tagged** — gate C5 awaits the one-time tailnet HTTPS enablement (operator opens the link printed by `tailscale serve`, see RUNBOOK.md), then re-run `APP_URL=https://<device>.<tailnet>.ts.net npm run test:e2e` and verify camera/offline/PWA from the actual iPhone before tagging.
+- **Mobile:** drawer root cause fixed (was anchored to the RTL *left* edge and translated into the viewport); all principal routes measured clean at 390/393/430/360px; ≥16px inputs, ≥44px targets, safe areas; digital-twin viewer with pinch-zoom/pan/reset + tappable rooms; room simple-fields editing + in-room camera maintenance report; Arabic loading/error/offline states.
+- **AI assistant:** nav item + dock (desktop panel / mobile full-screen) + `/assistant` + contextual entries; Ollama (default, `qwen3:4b`, ~4s answers) / AnythingLLM (knowledge-only) local, Claude optional external behind recorded consent; typed zod-validated tool registry (8 read, 4 draft/write), preview→confirm→execute with idempotency + execution-time RBAC recheck, full audit; settings UI at `/admin/settings/ai` with live connection test; drafts inbox; works fully when disabled.
+- **HTTPS:** `tailscale serve --bg localhost:3080` configured (NO Funnel); Secure cookies behind HTTPS; `TRUSTED_ORIGINS` (default `*.ts.net`, no hostname hardcoded); QR codes derive from request host.
 - **App:** Next.js 16.2.10, port 3080, Postgres 16 Docker `madrasa-db` host port **5544**. Login: `principal`/`admin` (temp passwords in `storage/private/initial-credentials.txt`).
-- **Quality:** 51 vitest (12 files) + 4 playwright green; typecheck/lint/build clean; no schema drift; restore rehearsal executed successfully (see `docs/BACKUP_REHEARSAL_LOG.md`).
-- **Acceptance:** A1–A18 + B1–B9 (real-data pass) all pass — statuses + evidence in `docs/ACCEPTANCE_TESTS.md`.
+- **Quality:** 63 vitest (13 files) + 15 playwright green (1 skipped = real-HTTPS gate C5); typecheck/lint/build clean; no schema drift (migration 0002: AI tables); restore rehearsal previously executed (see `docs/BACKUP_REHEARSAL_LOG.md`).
+- **Acceptance:** A1–A18 + B1–B9 pass; corrective gates C1–C14 pass except C5 (pending the operator click above) — evidence in `docs/ACCEPTANCE_TESTS.md` + `docs/TEST_RESULTS.md`.
 - **Official models:** the 8 ministry models entered verbatim (page-by-page visual verification, `docs/PERFORMANCE_MODEL_VALIDATION.md`), seeded «معتمد»+رسمي (locked), each Σ=100%. Guide-vs-models discrepancy in 3 cells documented (D-014) — models PDF adopted; principal to compare with نظام فارس at first real cycle.
 - **Fares import:** preview batch «معاينة» ready in /imports (52 rows; 42 معلم / 10 موظف مقترح؛ الحقول الحساسة مستبعدة). **Final commit is the principal's manual action.** Per-row review: `storage/private/fares-import-preview.md` (outside Git).
 - **Calendar:** teacher_return 1448/3/10 = 2026-08-23 (الأحد) revalidated against the official sheet row 6 in both official workbooks.
@@ -24,8 +28,10 @@
 3. ~~`الدليل الارشادي لادارة الاداء الوظيفي.pdf`~~ — **done**: used as cross-check; 3-cell weight discrepancy vs models PDF documented in D-014 (models PDF adopted; compare with نظام فارس at first cycle).
 
 ## Remaining operator decisions (not code gaps)
+- **Enable Tailscale HTTPS (one click):** open the link printed by `tailscale serve` (`https://login.tailscale.com/f/serve?node=…`), confirm, then verify `tailscale serve status` shows `https://<device>.<tailnet>.ts.net → 127.0.0.1:3080`; re-run the C5 e2e (`APP_URL=https://… npm run test:e2e`) and test camera + offline from the iPhone; only then tag `v1.0.0-pilot`.
 - Review and commit the Fares preview batch in /imports (or reject it); confirm the 10 «يحتاج مراجعة» classifications and per-person model assignments (أمين مصادر has no official model — manual choice).
 - At the first real evaluation cycle, compare the 3 D-014 weight cells with نظام فارس.
+- Optional: harden `TRUSTED_ORIGINS` in `.env` to the exact device name instead of the `*.ts.net` default.
 
 ## Go-live checklist (operator)
 1. Change both initial passwords; enable TOTP; store then delete `initial-credentials.txt`.

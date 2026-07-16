@@ -39,3 +39,22 @@ Master list from §15 of the build prompt. Statuses as of 2026-07-16 (first-rele
 
 ## Phase gates
 - **Gate 1–5:** all green. Gate 3 note (updated 2026-07-16): the 8 official ministry models are now entered verbatim from the delivered source PDF after page-by-page visual verification and locked («معتمد»); scoring verified against the official calculation mechanism (models PDF p.45, guide p.62). Cross-check discrepancies with the guide documented in D-014 — nothing invented, nothing silently resolved.
+
+## Corrective release gates — 2026-07-16 (mobile / AI assistant / Tailscale HTTPS)
+
+| # | Requirement | Proof | Status |
+|---|---|---|---|
+| C1 | Every principal route renders at 390px with no page-level horizontal overflow | `tests/e2e/mobile.spec.ts` (WebKit iPhone 12) sweeps 27 routes + login; `scripts/mobile-audit.mjs` measured offenders element-by-element at 390/393/430/360px — all clean | ✅ pass |
+| C2 | RTL drawer fully visible and usable on mobile | Same suite — drawer geometry (right edge, ≤min(86vw,360px)), labels visible, dark backdrop, body scroll-lock, close via button/backdrop/navigation | ✅ pass |
+| C3 | Cards, forms, dialogs, tables work on mobile | ≥16px inputs (Safari anti-zoom) + ≥44px touch targets pinned by tests; tables scroll inside their own container; forms single-column at 390px (audit) | ✅ pass |
+| C4 | PWA + secure-cookie behavior through HTTPS | `tests/e2e/https-pwa.spec.ts` — Secure+HttpOnly session cookie behind HTTPS proxy, RTL installable manifest, service worker served correctly | ✅ pass |
+| C5 | Camera/photo + offline inspection in a secure context | Same file, secure-context suite (isSecureContext, mediaDevices, active service worker) — runs against the real `https://….ts.net` origin; camera accepts on file inputs use `image/*` so iOS offers Take Photo | ⏳ pending one-time tailnet HTTPS enablement (operator click), then `APP_URL=https://… npm run test:e2e` |
+| C6 | AI assistant appears on desktop and mobile | `tests/e2e/assistant.spec.ts` — nav item + floating dock + desktop side panel ≤430px + mobile full-screen sheet without overflow | ✅ pass |
+| C7 | Local-provider connection testing works | Same suite — settings page runs a live connection test against local Ollama and shows Arabic diagnostics + model list | ✅ pass |
+| C8 | Read-only AI tools respect RBAC | `tests/integration/ai.test.ts` — per-entity permission enforced inside each tool; execution-time recheck on confirm | ✅ pass |
+| C9 | Write tools require preview + confirmation | Same suite — itemized preview built for every write tool; UI proposal card verified live (`scripts/ai-proposal-smoke.mjs`) | ✅ pass |
+| C10 | Duplicate confirmation cannot create duplicate records | Same suite — guarded status transition + idempotency key; second confirm refused, single record exists | ✅ pass |
+| C11 | AI cannot approve/lock/sign/stamp/score/commit imports/delete/send | Registry pinned to an explicit allowlist; forbidden-verb scan; no such tools exist in code | ✅ pass |
+| C12 | Every AI action audited | Same suite — `ai.prompt`, `ai.action_proposed/confirmed/executed`, settings/test/history events in audit log | ✅ pass |
+| C13 | Application fully works with AI disabled | Same suite + whole vitest/e2e run with AI off by default; assistant UI hidden; A16 unchanged | ✅ pass |
+| C14 | Desktop behavior remains correct | Full existing suite (A1–A18, B1–B9) re-run green after all corrective changes | ✅ pass |
