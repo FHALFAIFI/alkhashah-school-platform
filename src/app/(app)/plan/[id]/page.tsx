@@ -1,14 +1,16 @@
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import {
-  programs, programMilestones, programDeliverables, programChangeRequests, programRoadmapCells,
+  programs, programMilestones, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups,
 } from "@/db/schema";
 import { evidenceForEntity } from "@/lib/evidence";
 import { computePackageReadiness } from "@/lib/plan/progress";
+import { isFollowupDue } from "@/lib/plan/followup";
 import { getVersions } from "@/lib/versioning";
-import { PageHeader, Card, Badge, ProgressBar, LinkButton } from "@/components/ui";
+import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps } from "@/components/ui";
+import { FollowupDueBadge } from "../followup-badge";
 import {
   MilestoneRow, AddMilestoneForm, ApproveProgramButton, ReopenForm, ChangeRequestForm,
   ChangeRequestDecision, ApprovePackageButton,
@@ -24,19 +26,29 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
   const [program] = await db.select().from(programs).where(eq(programs.id, id));
   if (!program) notFound();
 
-  const [milestones, deliverables, changeRequests, roadmap, evidence, versions] = await Promise.all([
+  const [milestones, deliverables, changeRequests, roadmap, evidence, versions, followups] = await Promise.all([
     db.select().from(programMilestones).where(eq(programMilestones.programId, id)).orderBy(asc(programMilestones.sortOrder)),
     db.select().from(programDeliverables).where(eq(programDeliverables.programId, id)),
     db.select().from(programChangeRequests).where(eq(programChangeRequests.programId, id)),
     db.select().from(programRoadmapCells).where(eq(programRoadmapCells.programId, id)).orderBy(asc(programRoadmapCells.sortOrder)),
     evidenceForEntity("program", id),
     getVersions("program", id),
+    db.select().from(programFollowups).where(eq(programFollowups.programId, id)).orderBy(desc(programFollowups.createdAt)).limit(8),
   ]);
 
   const canWrite = user.permissions.has("plan.write") && program.status === "مسودة";
   const canApprove = user.permissions.has("plan.approve");
   const totalWeight = milestones.reduce((s, m) => s + m.weight, 0);
   const evidenceRoles = evidence.map((e) => e.item.role ?? "").filter(Boolean);
+
+  /** مراحل سير عمل البرنامج: الإعداد ← الاعتماد ← التنفيذ والمتابعة ← الإقفال */
+  const weightsReady = milestones.length > 0 && totalWeight === 100;
+  const workflowCurrent =
+    program.status === "مقفل" ? 4 : program.status === "معتمد" ? 2 : weightsReady ? 1 : 0;
+  const packagesWithGaps = deliverables.filter(
+    (d) => computePackageReadiness({ requiresExternal: d.requiresExternal, evidenceRoles }).missing.length > 0,
+  ).length;
+  const followupDue = program.status === "معتمد" && isFollowupDue(program.lastReviewAt);
 
   const infoRows: [string, string | null][] = [
     ["المجال", program.domain],
@@ -75,6 +87,48 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           </div>
         }
       />
+
+      <Card>
+        <WorkflowSteps steps={["الإعداد", "الاعتماد", "التنفيذ والمتابعة", "الإقفال"]} current={workflowCurrent} />
+        <div className="mt-3 border-t border-sand-100 pt-3 text-sm">
+          {program.status === "مسودة" && !weightsReady && (
+            <p className="text-amber-700">
+              <span className="font-medium">الخطوة التالية:</span>{" "}
+              {milestones.length === 0
+                ? "أضف معالم موزونة ثم اضبط أوزانها لتساوي 100"
+                : "اضبط أوزان المعالم لتساوي 100"}{" "}
+              <span className="text-xs text-amber-600">(المجموع الحالي: {totalWeight}٪)</span>
+            </p>
+          )}
+          {program.status === "مسودة" && weightsReady && (
+            canApprove ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-medium text-gray-700">الخطوة التالية: البرنامج جاهز للاعتماد</span>
+                <ApproveProgramButton programId={id} disabled={false} totalWeight={totalWeight} />
+              </div>
+            ) : (
+              <p className="text-gray-700">
+                <span className="font-medium">الخطوة التالية:</span> البرنامج جاهز — بانتظار اعتماد المدير
+              </p>
+            )
+          )}
+          {program.status === "معتمد" && (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-medium text-gray-700">الخطوة التالية: سجل المتابعة الأسبوعية</span>
+              {followupDue && <FollowupDueBadge />}
+              <LinkButton href="/plan/followup">المتابعة الأسبوعية</LinkButton>
+              {packagesWithGaps > 0 && (
+                <a href="#evidence" className="text-xs text-amber-700 underline">
+                  {packagesWithGaps === 1 ? "حزمة شواهد واحدة ناقصة" : `${packagesWithGaps} حزم شواهد ناقصة`} — أكمل الشواهد المطلوبة
+                </a>
+              )}
+            </div>
+          )}
+          {program.status === "مقفل" && (
+            <p className="text-gray-500">السنة مقفلة — البرنامج مؤرشف للقراءة فقط ولا تقبل تعديلات أو متابعات</p>
+          )}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
@@ -125,6 +179,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         {canWrite && <AddMilestoneForm programId={id} />}
       </Card>
 
+      <div id="evidence" className="scroll-mt-20">
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">المخرجات وحزمة الشواهد</h2>
         {deliverables.map((d) => {
@@ -157,6 +212,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         })}
         {deliverables.length === 0 && <p className="text-sm text-gray-400">لا مخرجات مسجلة</p>}
       </Card>
+      </div>
 
       <EvidencePanel
         entityType="program"
@@ -179,6 +235,38 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         </Card>
       )}
 
+      <div id="followups" className="scroll-mt-20">
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold text-brand-900">المتابعة الأسبوعية</h2>
+          <LinkButton href="/plan/followup" variant="secondary">صفحة المتابعة الأسبوعية</LinkButton>
+        </div>
+        {followups.length === 0 ? (
+          <p className="text-sm text-gray-400">
+            {program.status === "معتمد"
+              ? "لا متابعات مسجلة بعد — سجل أول متابعة أسبوعية من صفحة المتابعة"
+              : "تسجل المتابعات الأسبوعية بعد اعتماد البرنامج"}
+          </p>
+        ) : (
+          <div className="space-y-2 text-sm">
+            {followups.map((f) => (
+              <div key={f.id} className="rounded-lg border border-sand-200 p-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs tabular-nums text-gray-500">{f.weekKey}</span>
+                  <Badge value={f.executionStatus} />
+                  <span className="text-xs text-gray-400">
+                    {f.createdAt.toLocaleDateString("ar-SA-u-nu-latn")} · التقدم حينها: {f.progressSnapshot}٪
+                  </span>
+                </div>
+                <p className="mt-1 text-gray-700">{f.note}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      </div>
+
+      <div id="change-requests" className="scroll-mt-20">
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">طلبات التغيير</h2>
         {program.status !== "مسودة" && program.status !== "مقفل" && (
@@ -205,6 +293,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           </div>
         )}
       </Card>
+      </div>
 
       {versions.length > 0 && (
         <Card>

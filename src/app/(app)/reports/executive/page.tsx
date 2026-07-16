@@ -55,6 +55,9 @@ export default async function ExecutiveReportPage() {
                 <option value="فصلي">فصلي (فصل دراسي)</option>
                 <option value="سنوي">سنوي</option>
               </select>
+              <p className="mt-1 text-xs text-gray-400">
+                الفترة تظهر كعنوان للتقرير فقط — يشمل التقرير الحالة الراهنة لجميع الوحدات
+              </p>
             </div>
             {canIndividual && (
               <label className="flex items-center gap-2 pb-2 text-sm">

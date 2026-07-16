@@ -26,7 +26,7 @@ export function MilestoneRow({ milestone, editable, draftMode }: { milestone: Mi
   return (
     <div className="rounded-lg border border-sand-200 p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-48 flex-1">
+        <div className="min-w-0 flex-1 basis-48">
           <div className="text-sm font-medium">{milestone.title}</div>
           <div className="text-xs text-gray-400">
             الوزن: {milestone.weight}٪ {milestone.dueText && `· الموعد: ${milestone.dueText}`}
@@ -36,7 +36,7 @@ export function MilestoneRow({ milestone, editable, draftMode }: { milestone: Mi
         {editable && (
           <form
             action={(fd) => startTransition(() => updateMilestoneAction(milestone.id, fd))}
-            className="flex items-center gap-2"
+            className="flex flex-wrap items-center gap-2"
           >
             <label className="text-xs text-gray-500" htmlFor={`p-${milestone.id}`}>تحديث الإنجاز</label>
             <input
@@ -58,9 +58,9 @@ export function MilestoneRow({ milestone, editable, draftMode }: { milestone: Mi
       {editing && (
         <form
           action={(fd) => startTransition(() => { updateMilestoneWeightAction(milestone.id, fd); setEditing(false); })}
-          className="mt-2 flex items-end gap-2 border-t border-sand-100 pt-2"
+          className="mt-2 flex flex-wrap items-end gap-2 border-t border-sand-100 pt-2"
         >
-          <div className="flex-1">
+          <div className="min-w-0 flex-1 basis-40">
             <label className="block text-xs text-gray-500">العنوان</label>
             <input name="title" defaultValue={milestone.title} className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
           </div>
@@ -87,7 +87,7 @@ export function AddMilestoneForm({ programId }: { programId: string }) {
   return (
     <form action={formAction} className="mt-3 flex flex-wrap items-end gap-2 border-t border-sand-100 pt-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
-      <div className="min-w-64 flex-1">
+      <div className="min-w-0 flex-1 basis-56">
         <Field label="معلم جديد" name="title" required />
       </div>
       <div className="w-24">
@@ -186,13 +186,13 @@ export function ChangeRequestForm({ programId }: { programId: string }) {
         </select>
         <input type="hidden" name="fieldLabel" value={FIELD_OPTIONS.find((o) => o.value === field)?.label ?? field} />
       </div>
-      <div className="min-w-52 flex-1">
+      <div className="min-w-0 flex-1 basis-52">
         <label className="block text-xs text-gray-500">القيمة الجديدة</label>
-        <input name="newValue" required className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        <input name="newValue" required className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
       </div>
-      <div className="min-w-52 flex-1">
+      <div className="min-w-0 flex-1 basis-52">
         <label className="block text-xs text-gray-500">السبب (إلزامي)</label>
-        <input name="reason" required className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        <input name="reason" required className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
       </div>
       <SubmitButton variant="secondary">طلب تغيير</SubmitButton>
     </form>

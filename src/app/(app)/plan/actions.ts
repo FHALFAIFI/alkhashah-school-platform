@@ -5,13 +5,14 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
-  programs, programMilestones, programChangeRequests, programDeliverables, planYears,
+  programs, programMilestones, programChangeRequests, programDeliverables, planYears, programFollowups,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { snapshotRecord } from "@/lib/versioning";
 import { computeProgramProgress } from "@/lib/plan/progress";
-import { notifyAll } from "@/lib/notify";
+import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
+import { notifyAll, notifyUser } from "@/lib/notify";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -53,6 +54,9 @@ export async function addMilestoneAction(programId: string, _prev: ActionState, 
   const parsed = milestoneSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const existing = await db.select().from(programMilestones).where(eq(programMilestones.programId, programId));
+  if (existing.some((m) => m.title.trim() === parsed.data.title.trim())) {
+    return { error: "يوجد معلم بنفس العنوان في هذا البرنامج" };
+  }
   await db.insert(programMilestones).values({
     programId,
     title: parsed.data.title,
@@ -171,6 +175,15 @@ export async function createChangeRequestAction(programId: string, _prev: Action
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.status === "مقفل") return { error: "السنة مقفلة — لا تغييرات" };
+  const [pending] = await db
+    .select({ id: programChangeRequests.id })
+    .from(programChangeRequests)
+    .where(and(
+      eq(programChangeRequests.programId, programId),
+      eq(programChangeRequests.field, parsed.data.field),
+      eq(programChangeRequests.status, "قيد الاعتماد"),
+    ));
+  if (pending) return { error: "يوجد طلب تعديل قائم لهذا الحقل" };
   const oldValue = (program as unknown as Record<string, unknown>)[parsed.data.field];
   await db.insert(programChangeRequests).values({
     programId,
@@ -182,6 +195,12 @@ export async function createChangeRequestAction(programId: string, _prev: Action
     requestedBy: user.id,
   });
   await audit({ actorId: user.id, action: "program.change_requested", entityType: "program", entityId: programId, summary: `طلب تغيير ${parsed.data.fieldLabel}` });
+  // لا يوجد إشعار حسب الصلاحية — في هذا النشر ثنائي المستخدمين يكفي إشعار الجميع
+  await notifyAll({
+    title: "طلب تعديل جديد على برنامج",
+    body: `${program.name} — ${parsed.data.fieldLabel}`,
+    link: `/plan/${programId}#change-requests`,
+  });
   revalidatePath(`/plan/${programId}`);
   return { success: "سجل طلب التغيير — بانتظار اعتماد المدير" };
 }
@@ -212,8 +231,68 @@ export async function decideChangeRequestAction(requestId: string, decision: "م
     .set({ status: decision, decidedBy: user.id, decidedAt: new Date() })
     .where(eq(programChangeRequests.id, requestId));
   await audit({ actorId: user.id, action: "program.change_decided", entityType: "program", entityId: program.id, summary: `${decision === "معتمد" ? "اعتماد" : "رفض"} طلب تغيير ${req.fieldLabel}` });
+  if (req.requestedBy) {
+    await notifyUser(req.requestedBy, {
+      title: decision === "معتمد" ? "اعتمد طلب التعديل" : "رفض طلب التعديل",
+      body: `${program.name} — ${req.fieldLabel}`,
+      link: `/plan/${req.programId}#change-requests`,
+    });
+  }
   revalidatePath(`/plan/${req.programId}`);
   return null;
+}
+
+/** المتابعة الأسبوعية لبرنامج معتمد — سجل واحد لكل أسبوع ISO (إعادة الإرسال تحدث سجل الأسبوع نفسه) */
+const followupSchema = z.object({
+  note: z.string().trim().min(2, "نص المتابعة مطلوب"),
+  executionStatus: z.enum(FOLLOWUP_STATUSES, { message: "حالة التنفيذ غير صحيحة" }),
+});
+
+export async function submitFollowupAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.write");
+  const parsed = followupSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (program.status !== "معتمد") return { error: "المتابعة الأسبوعية للبرامج المعتمدة فقط" };
+
+  const now = new Date();
+  const weekKey = isoWeekKey(now);
+  await db
+    .insert(programFollowups)
+    .values({
+      programId,
+      weekKey,
+      note: parsed.data.note,
+      executionStatus: parsed.data.executionStatus,
+      progressSnapshot: program.progress,
+      createdBy: user.id,
+    })
+    .onConflictDoUpdate({
+      target: [programFollowups.programId, programFollowups.weekKey],
+      set: {
+        note: parsed.data.note,
+        executionStatus: parsed.data.executionStatus,
+        progressSnapshot: program.progress,
+        createdBy: user.id,
+        createdAt: now,
+      },
+    });
+  await db
+    .update(programs)
+    .set({ lastReviewAt: now, executionStatus: parsed.data.executionStatus, updatedAt: now })
+    .where(eq(programs.id, programId));
+  await audit({
+    actorId: user.id,
+    action: "program.followup_recorded",
+    entityType: "program",
+    entityId: programId,
+    summary: `متابعة أسبوعية ${weekKey} لبرنامج «${program.name}» — ${parsed.data.executionStatus}`,
+  });
+  revalidatePath("/plan/followup");
+  revalidatePath(`/plan/${programId}`);
+  revalidatePath("/plan");
+  return { success: "سجلت المتابعة الأسبوعية" };
 }
 
 /** اعتماد حزمة مخرجات البرنامج */

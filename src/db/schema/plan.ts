@@ -183,6 +183,27 @@ export const programRoadmapCells = pgTable(
   (t) => [uniqueIndex("roadmap_unique").on(t.programId, t.periodKey)],
 );
 
+/** المتابعة الأسبوعية للبرامج المعتمدة — سجل أسبوعي واحد لكل برنامج (upsert) */
+export const programFollowups = pgTable(
+  "program_followups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    programId: uuid("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
+    /** أسبوع ISO مثل 2026-W29 */
+    weekKey: text("week_key").notNull(),
+    note: text("note").notNull(),
+    /** لقطة التقدم المحسوب وقت المتابعة */
+    progressSnapshot: integer("progress_snapshot").notNull().default(0),
+    executionStatus: text("execution_status").notNull(), // في المسار | متأخر | متوقف مؤقتاً | مكتمل
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("followups_program_week_unique").on(t.programId, t.weekKey),
+    index("followups_program_idx").on(t.programId),
+  ],
+);
+
 /** طلبات تغيير البرامج المعتمدة */
 export const programChangeRequests = pgTable(
   "program_change_requests",

@@ -4,6 +4,8 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs } from "@/db/schema";
 import { PageHeader, Table, Badge, LinkButton, EmptyState, ProgressBar, Card } from "@/components/ui";
+import { isFollowupDue } from "@/lib/plan/followup";
+import { FollowupDueBadge } from "./followup-badge";
 
 export const metadata = { title: "الخطة التشغيلية" };
 export const dynamic = "force-dynamic";
@@ -43,7 +45,12 @@ export default async function PlanPage() {
       <PageHeader
         title={`الخطة التشغيلية — ${activeYear.nameAr}`}
         subtitle={`${progs.length} برنامجاً · معتمد: ${approved} · متوسط الإنجاز: ${avgProgress}٪ · تنتهي جميع البرامج في 5/1/1449هـ`}
-        actions={<Badge value={activeYear.status} />}
+        actions={
+          <>
+            <LinkButton href="/plan/followup">المتابعة الأسبوعية</LinkButton>
+            <Badge value={activeYear.status} />
+          </>
+        }
       />
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {domains.map((d) => {
@@ -71,7 +78,12 @@ export default async function PlanPage() {
               {p.hijriStart && p.hijriEnd ? `${p.hijriStart}هـ ← ${p.hijriEnd}هـ` : p.periodText ?? "—"}
             </td>
             <td className="px-3 py-2"><ProgressBar value={p.progress} /></td>
-            <td className="px-3 py-2"><Badge value={p.status} /></td>
+            <td className="px-3 py-2">
+              <span className="inline-flex flex-wrap items-center gap-1">
+                <Badge value={p.status} />
+                {p.status === "معتمد" && isFollowupDue(p.lastReviewAt) && <FollowupDueBadge />}
+              </span>
+            </td>
             <td className="px-3 py-2"><LinkButton href={`/plan/${p.id}`} variant="secondary">فتح</LinkButton></td>
           </tr>
         ))}
