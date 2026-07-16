@@ -72,6 +72,14 @@ export default async function CommitteesPage() {
               c.status === "معتمدة" &&
               dueDays !== undefined &&
               (!lastMeeting || nowMs - lastMeeting.meetingDate!.getTime() > dueDays * 24 * 3600 * 1000);
+            const nextAction =
+              c.status === "مسودة"
+                ? "بانتظار الاعتماد — أكمل التشكيل واعتمده"
+                : c.status === "مقفلة"
+                  ? "مقفلة — للاطلاع فقط"
+                  : isDue
+                    ? "اجتماع مستحق — اعقد الاجتماع التالي"
+                    : "معتمدة — تابع الاجتماعات وتوثيقها";
             return (
               <Link key={c.id} href={`/committees/${c.id}`}>
                 <Card className="h-full transition hover:border-brand-300">
@@ -80,6 +88,9 @@ export default async function CommitteesPage() {
                       <h2 className="font-bold text-brand-900">{c.nameAr}</h2>
                       <p className="mt-0.5 text-xs text-gray-400">
                         {yearName.get(c.planYearId)} · {RECURRENCE_LABELS[c.recurrence] ?? c.recurrence} · اجتماعات مكتملة: {completed}/{ms.length}
+                      </p>
+                      <p className={`mt-1 text-xs font-medium ${c.status === "مقفلة" ? "text-gray-500" : isDue || c.status === "مسودة" ? "text-amber-700" : "text-emerald-700"}`}>
+                        {nextAction}
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-1">

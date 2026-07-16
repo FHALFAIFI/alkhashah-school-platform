@@ -4,7 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, committeeMembers, meetings, people, planYears } from "@/db/schema";
-import { PageHeader, Card, Badge, Table, LinkButton } from "@/components/ui";
+import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
 import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton } from "./committee-ui";
 import { dualDisplay } from "@/lib/dates";
 
@@ -26,18 +26,52 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
   const canWrite = user.permissions.has("committees.write") && c.status !== "مقفلة";
   const canApprove = user.permissions.has("committees.approve");
 
+  // مؤشر المرحلة: التشكيل → الاعتماد → الاجتماعات → الإقفال
+  const formationComplete =
+    c.kind === "مجتمع تعلم"
+      ? members.length > 0
+      : members.some((m) => m.role === "رئيس") && members.some((m) => m.role === "مقرر");
+  const stage =
+    c.status === "مقفلة" ? 4 : c.status === "معتمدة" ? 2 : formationComplete ? 1 : 0;
+
   return (
     <div className="space-y-5">
       <PageHeader
         title={c.nameAr}
         subtitle={`${c.kind} — ${year?.nameAr ?? ""}`}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge value={c.status} />
             {canApprove && c.status !== "مقفلة" && <CloseCommitteeButton committeeId={id} />}
           </div>
         }
       />
+
+      <Card>
+        <WorkflowSteps steps={["التشكيل", "الاعتماد", "الاجتماعات", "الإقفال"]} current={stage} />
+        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-sand-100 pt-3">
+          {c.status === "مسودة" && !formationComplete && (
+            <p className="text-sm font-medium text-amber-700">
+              الخطوة التالية: {c.kind === "مجتمع تعلم" ? "أضف قائد المجتمع وأعضاءه ثم اعتمد التشكيل" : "أضف الرئيس والمقرر ثم اعتمد التشكيل"}
+            </p>
+          )}
+          {c.status === "مسودة" && formationComplete && (
+            <>
+              <p className="text-sm font-medium text-brand-900">الخطوة التالية: اعتماد التشكيل</p>
+              {canApprove && <ApproveCommitteeButton committeeId={id} />}
+            </>
+          )}
+          {c.status === "معتمدة" && (
+            <>
+              <p className="text-sm font-medium text-brand-900">الخطوة التالية: عقد الاجتماعات وتوثيقها</p>
+              {canWrite && <LinkButton href="#meetings">اجتماع جديد</LinkButton>}
+            </>
+          )}
+          {c.status === "مقفلة" && (
+            <p className="text-sm text-gray-500">اللجنة مقفلة ومؤرشفة — السجل للاطلاع فقط ولا تعديل عليه.</p>
+          )}
+        </div>
+      </Card>
 
       {c.goal && (
         <Card>
@@ -53,7 +87,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
       )}
 
       <Card>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold text-brand-900">الأعضاء ({members.length})</h2>
           {c.status === "مسودة" && canApprove && <ApproveCommitteeButton committeeId={id} />}
           {c.status === "معتمدة" && canApprove && <ReopenCommitteeForm committeeId={id} />}
@@ -84,6 +118,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
         )}
       </Card>
 
+      <div id="meetings" className="scroll-mt-20">
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-bold text-brand-900">الاجتماعات ({ms.length})</h2>
@@ -113,6 +148,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
         {canWrite && c.status === "معتمدة" && <NewMeetingForm committeeId={id} />}
         {c.status === "مسودة" && <p className="text-sm text-amber-600">اعتمد التشكيل أولاً لعقد الاجتماعات</p>}
       </Card>
+      </div>
     </div>
   );
 }

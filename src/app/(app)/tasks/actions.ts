@@ -38,17 +38,21 @@ export async function createTaskAction(_prev: ActionState, formData: FormData): 
   return { success: "أضيفت المهمة" };
 }
 
-export async function updateTaskStatusAction(taskId: string, formData: FormData): Promise<void> {
+export async function updateTaskStatusAction(taskId: string, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("tasks.write");
   const status = String(formData.get("status") ?? "جديدة");
   const progress = Math.max(0, Math.min(100, Number(formData.get("progress") ?? 0)));
   const [task] = await db.select().from(actionTasks).where(eq(actionTasks.id, taskId));
-  if (!task) return;
-  if (task.mandatory && status === "ملغاة") return; // الإجراء الإلزامي لا يلغى
+  if (!task) return { error: "المهمة غير موجودة" };
+  if (task.mandatory && status === "ملغاة") {
+    // الإجراء الإلزامي (الناتج عن قرار اجتماع) لا يلغى
+    return { error: "لا يلغى إجراء إلزامي ناتج عن قرار — أنجزه أو حدث تقدمه" };
+  }
   await db
     .update(actionTasks)
     .set({ status, progress: status === "مكتملة" ? 100 : progress, updatedAt: new Date() })
     .where(eq(actionTasks.id, taskId));
   await audit({ actorId: user.id, action: "task.updated", entityType: "task", entityId: taskId, summary: `تحديث مهمة إلى «${status}»` });
   revalidatePath("/tasks");
+  return { success: "حدثت المهمة" };
 }

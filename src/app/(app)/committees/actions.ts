@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
@@ -108,15 +108,17 @@ export async function addMemberAction(committeeId: string, _prev: ActionState, f
   return { success: "أضيف العضو" };
 }
 
-export async function removeMemberAction(memberId: string): Promise<void> {
+export async function removeMemberAction(memberId: string): Promise<ActionState> {
   const user = await requirePermission("committees.write");
   const [m] = await db.select().from(committeeMembers).where(eq(committeeMembers.id, memberId));
-  if (!m) return;
+  if (!m) return { error: "العضو غير موجود" };
   const [c] = await db.select().from(committees).where(eq(committees.id, m.committeeId));
-  if (!c || c.status === "مقفلة") return;
+  if (!c) return { error: "اللجنة غير موجودة" };
+  if (c.status === "مقفلة") return { error: "اللجنة مقفلة — لا تعديل على الأعضاء" };
   await db.delete(committeeMembers).where(eq(committeeMembers.id, memberId));
   await audit({ actorId: user.id, action: "committee.member_removed", entityType: "committee", entityId: m.committeeId });
   revalidatePath(`/committees/${m.committeeId}`);
+  return { success: "أزيل العضو" };
 }
 
 /** اعتماد التشكيل — المدير */
@@ -142,7 +144,7 @@ export async function approveCommitteeAction(committeeId: string): Promise<Actio
   return { success: "اعتمد التشكيل" };
 }
 
-export async function reopenCommitteeAction(committeeId: string, formData: FormData): Promise<ActionState> {
+export async function reopenCommitteeAction(committeeId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("committees.approve");
   const reason = String(formData.get("reason") ?? "").trim();
   if (reason.length < 5) return { error: "سبب إعادة الفتح إلزامي" };
@@ -153,7 +155,7 @@ export async function reopenCommitteeAction(committeeId: string, formData: FormD
   await db.update(committees).set({ status: "مسودة", version: c.version + 1 }).where(eq(committees.id, committeeId));
   await audit({ actorId: user.id, action: "committee.reopened", entityType: "committee", entityId: committeeId, summary: `إعادة فتح التشكيل — ${reason}` });
   revalidatePath(`/committees/${committeeId}`);
-  return null;
+  return { success: "أعيد فتح التشكيل — عدل الأعضاء ثم اعتمد من جديد" };
 }
 
 /** إنشاء اجتماع */
@@ -223,7 +225,11 @@ export async function addOutcomeAction(meetingId: string, _prev: ActionState, fo
   const parsed = outcomeSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
+  const text = parsed.data.text.trim();
   const existing = await db.select().from(meetingOutcomes).where(eq(meetingOutcomes.meetingId, meetingId));
+  if (existing.some((o) => o.text.trim() === text)) {
+    return { error: "هذه النتيجة مسجلة مسبقاً في هذا الاجتماع" };
+  }
 
   let taskId: string | null = null;
   const isDecision = parsed.data.outcomeType === "قرار";
@@ -232,7 +238,7 @@ export async function addOutcomeAction(meetingId: string, _prev: ActionState, fo
     const [task] = await db
       .insert(actionTasks)
       .values({
-        title: parsed.data.text.slice(0, 200),
+        title: text.slice(0, 200),
         description: `${parsed.data.outcomeType} من اجتماع`,
         ownerPersonId: parsed.data.ownerPersonId || null,
         dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
@@ -250,7 +256,7 @@ export async function addOutcomeAction(meetingId: string, _prev: ActionState, fo
     .values({
       meetingId,
       outcomeType: parsed.data.outcomeType,
-      text: parsed.data.text,
+      text,
       taskId,
       sortOrder: existing.length,
     })
@@ -258,7 +264,7 @@ export async function addOutcomeAction(meetingId: string, _prev: ActionState, fo
   if (taskId) {
     await db.update(actionTasks).set({ sourceId: outcome.id }).where(eq(actionTasks.id, taskId));
   }
-  await audit({ actorId: user.id, action: "meeting.outcome_added", entityType: "meeting", entityId: meetingId, summary: `${parsed.data.outcomeType}: ${parsed.data.text.slice(0, 80)}` });
+  await audit({ actorId: user.id, action: "meeting.outcome_added", entityType: "meeting", entityId: meetingId, summary: `${parsed.data.outcomeType}: ${text.slice(0, 80)}` });
   revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);
   return { success: "سجلت النتيجة" };
 }
@@ -314,11 +320,13 @@ export async function closeCommitteeAction(committeeId: string): Promise<ActionS
   const user = await requirePermission("committees.approve");
   const [c] = await db.select().from(committees).where(eq(committees.id, committeeId));
   if (!c) return { error: "اللجنة غير موجودة" };
-  const open = await db
-    .select()
-    .from(meetings)
-    .where(and(eq(meetings.committeeId, committeeId), eq(meetings.status, "مسودة")));
-  if (open.length > 0) return { error: `أكمل أو احذف ${open.length} اجتماعاً مسودة قبل الإقفال` };
+  const ms = await db.select().from(meetings).where(eq(meetings.committeeId, committeeId));
+  const drafts = ms.filter((m) => m.status === "مسودة").length;
+  if (drafts > 0) return { error: `أكمل أو احذف ${drafts} اجتماعاً مسودة قبل الإقفال` };
+  const awaitingSignature = ms.filter((m) => m.status === "بانتظار التوقيع").length;
+  if (awaitingSignature > 0) {
+    return { error: `لا يقفل — ${awaitingSignature} اجتماعاً بحالة «بانتظار التوقيع»: اعتمد اكتماله بالمحضر الموقع أولاً` };
+  }
   await db.update(committees).set({ status: "مقفلة", closedAt: new Date() }).where(eq(committees.id, committeeId));
   await audit({ actorId: user.id, action: "committee.closed", entityType: "committee", entityId: committeeId, summary: `إقفال ${c.nameAr} وأرشفتها` });
   await notifyAll({ title: "أقفلت لجنة", body: c.nameAr, link: `/committees/${committeeId}` });

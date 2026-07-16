@@ -48,15 +48,24 @@ export function AddMemberForm({
 }
 
 export function RemoveMemberButton({ memberId }: { memberId: string }) {
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   return (
-    <button
-      disabled={pending}
-      onClick={() => startTransition(() => removeMemberAction(memberId))}
-      className="text-xs text-red-500 hover:underline"
-    >
-      إزالة
-    </button>
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <button
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            const res = await removeMemberAction(memberId);
+            setError(res?.error ?? null);
+          })
+        }
+        className="text-xs text-red-500 hover:underline"
+      >
+        إزالة
+      </button>
+      {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
+    </span>
   );
 }
 
@@ -83,23 +92,13 @@ export function ApproveCommitteeButton({ committeeId }: { committeeId: string })
 }
 
 export function ReopenCommitteeForm({ committeeId }: { committeeId: string }) {
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [state, formAction] = useActionState<ActionState, FormData>(reopenCommitteeAction.bind(null, committeeId), null);
   return (
-    <form
-      action={(fd) =>
-        startTransition(async () => {
-          const res = await reopenCommitteeAction(committeeId, fd);
-          if (res?.error) setError(res.error);
-        })
-      }
-      className="flex items-center gap-2"
-    >
-      {error && <span className="text-xs text-red-600">{error}</span>}
-      <input name="reason" required placeholder="سبب إعادة الفتح (إلزامي)" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-      <button disabled={pending} className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-50">
-        إعادة فتح التشكيل
-      </button>
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      {state?.error && <span role="alert" className="w-full text-xs text-red-600">{state.error}</span>}
+      {state?.success && <span role="status" className="w-full text-xs text-emerald-700">{state.success}</span>}
+      <input name="reason" required placeholder="سبب إعادة الفتح (إلزامي)" className="min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+      <SubmitButton variant="secondary">إعادة فتح التشكيل</SubmitButton>
     </form>
   );
 }

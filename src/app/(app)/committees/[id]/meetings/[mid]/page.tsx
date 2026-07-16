@@ -1,10 +1,11 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, committeeMembers, meetings, meetingOutcomes, people, documents, actionTasks } from "@/db/schema";
-import { PageHeader, Card, Badge, Table } from "@/components/ui";
+import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { MeetingEditForm, OutcomeForm, SignedMinutesUpload, CompleteMeetingButton } from "./meeting-ui";
 import { generateMinutesDocument } from "@/lib/reports/minutes-report";
@@ -32,7 +33,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   ]);
 
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
-  const tasks = taskIds.length > 0 ? await db.select().from(actionTasks) : [];
+  const tasks = taskIds.length > 0 ? await db.select().from(actionTasks).where(inArray(actionTasks.id, taskIds)) : [];
   const taskById = new Map(tasks.map((t) => [t.id, t]));
 
   const canWrite = user.permissions.has("committees.write") && meeting.status !== "مكتمل";
@@ -48,6 +49,18 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     revalidatePath(`/committees/${id}/meetings/${mid}`);
   }
 
+  // مؤشر المرحلة: الإعداد والنتائج → إصدار المحضر → المحضر الموقع → الاكتمال
+  const stage =
+    meeting.status === "مكتمل"
+      ? 4
+      : meeting.signedMinutesFileId
+        ? 3
+        : meeting.minutesDocId
+          ? 2
+          : outcomes.length > 0
+            ? 1
+            : 0;
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -62,6 +75,34 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
           </div>
         }
       />
+
+      <Card>
+        <WorkflowSteps steps={["الإعداد والنتائج", "إصدار المحضر", "المحضر الموقع", "الاكتمال"]} current={stage} />
+        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-sand-100 pt-3">
+          {stage === 0 && (
+            <p className="text-sm font-medium text-brand-900">الخطوة التالية: سجل بيانات الاجتماع ونتائجه (قرارات وتوصيات وملاحظات)</p>
+          )}
+          {stage === 1 && (
+            <>
+              <p className="text-sm font-medium text-brand-900">الخطوة التالية: إصدار المحضر الرسمي (PDF)</p>
+              <LinkButton href="#minutes" variant="secondary">إلى المحضر</LinkButton>
+            </>
+          )}
+          {stage === 2 && (
+            <>
+              <p className="text-sm font-medium text-brand-900">الخطوة التالية: ارفع المحضر الموقع من الرئيس والمقرر</p>
+              <LinkButton href="#minutes" variant="secondary">إلى الرفع</LinkButton>
+            </>
+          )}
+          {stage === 3 && (
+            <>
+              <p className="text-sm font-medium text-brand-900">الخطوة التالية: أكمل الاجتماع</p>
+              {canApprove ? <CompleteMeetingButton meetingId={mid} disabled={false} /> : <p className="text-xs text-gray-500">يعتمد الاكتمال المدير</p>}
+            </>
+          )}
+          {stage === 4 && <p className="text-sm text-emerald-700">اكتمل الاجتماع واعتمد — السجل للاطلاع فقط.</p>}
+        </div>
+      </Card>
 
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">بيانات الاجتماع وجدول الأعمال والمناقشات</h2>
@@ -97,10 +138,10 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
                   <td className="px-3 py-2">{o.text}</td>
                   <td className="px-3 py-2 text-xs">
                     {task ? (
-                      <span>
-                        {task.mandatory && <span className="me-1 rounded bg-red-50 px-1.5 py-0.5 text-red-700">إلزامي</span>}
+                      <Link href={`/tasks#task-${task.id}`} className="inline-flex items-center gap-1 hover:underline" title="فتح الإجراء في قائمة المهام">
+                        {task.mandatory && <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-700">إلزامي</span>}
                         <Badge value={task.status} />
-                      </span>
+                      </Link>
                     ) : (
                       "—"
                     )}
@@ -118,6 +159,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
 
       {showAiMeetingAssistant && <AiMeetingAssistant meetingId={mid} />}
 
+      <div id="minutes" className="scroll-mt-20">
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">المحضر والتوقيع والاكتمال</h2>
         <div className="space-y-3 text-sm">
@@ -150,6 +192,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
           )}
         </div>
       </Card>
+      </div>
     </div>
   );
 }

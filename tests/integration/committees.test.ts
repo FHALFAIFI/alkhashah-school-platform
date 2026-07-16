@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { Pool } from "pg";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ensureTestDb, truncateAll, TEST_DB_URL } from "../helpers/test-db";
 
 let pool: Pool;
@@ -176,5 +176,126 @@ describe("قواعد الاجتماعات عبر الإجراءات الفعلي
     fd2.set("role", "عضو");
     const closed = await addMemberAction(c.id, null, fd2);
     expect(closed?.error).toContain("مقفلة");
+  });
+});
+
+describe("إصلاحات سير عمل اللجان", () => {
+  it("التشكيل من قالب ينشئ لجنة بلا أعضاء ويمنع تكرار التشكيل لنفس القالب والسنة", async () => {
+    const { db } = await import("@/db");
+    const { planYears, committeeTemplates, committees, committeeMembers } = await import("@/db/schema");
+    const { createCommitteeFromTemplateAction } = await import("@/app/(app)/committees/actions");
+    const suffix = Math.floor(Math.random() * 1e9);
+
+    // سنة نشطة واحدة حتمياً — الإجراء يختار السنة النشطة
+    await db.update(planYears).set({ status: "مقفلة" });
+    const [year] = await db.insert(planYears).values({ key: `frm-yr-${suffix}`, nameAr: "سنة تشكيل" }).returning();
+    const [tpl] = await db
+      .insert(committeeTemplates)
+      .values({ key: `tpl-${suffix}`, nameAr: "لجنة قالب تجريبية", kind: "لجنة", recurrence: "monthly" })
+      .returning();
+
+    const fd = new FormData();
+    fd.set("templateId", tpl.id);
+    const first = await createCommitteeFromTemplateAction(null, fd);
+    expect(first?.error).toBeUndefined();
+
+    const created = await db
+      .select()
+      .from(committees)
+      .where(and(eq(committees.templateId, tpl.id), eq(committees.planYearId, year.id)));
+    expect(created.length).toBe(1);
+    expect(created[0].status).toBe("مسودة");
+
+    // بلا نسخ عضويات — تبدأ اللجنة فارغة
+    const members = await db.select().from(committeeMembers).where(eq(committeeMembers.committeeId, created[0].id));
+    expect(members.length).toBe(0);
+
+    // تشكيل مكرر لنفس القالب والسنة يرفض
+    const fd2 = new FormData();
+    fd2.set("templateId", tpl.id);
+    const dup = await createCommitteeFromTemplateAction(null, fd2);
+    expect(dup?.error).toContain("مسبقاً");
+    const after = await db
+      .select()
+      .from(committees)
+      .where(and(eq(committees.templateId, tpl.id), eq(committees.planYearId, year.id)));
+    expect(after.length).toBe(1);
+  });
+
+  it("الاعتماد يرفض دون رئيس ومقرر وينجح بوجودهما", async () => {
+    const { db } = await import("@/db");
+    const { planYears, people, committees, committeeMembers } = await import("@/db/schema");
+    const { approveCommitteeAction } = await import("@/app/(app)/committees/actions");
+    const suffix = Math.floor(Math.random() * 1e9);
+
+    const [year] = await db.insert(planYears).values({ key: `apv-yr-${suffix}`, nameAr: "سنة اعتماد" }).returning();
+    const [c] = await db
+      .insert(committees)
+      .values({ planYearId: year.id, nameAr: "لجنة اعتماد", kind: "لجنة" })
+      .returning();
+
+    // بلا أعضاء إطلاقاً
+    const noMembers = await approveCommitteeAction(c.id);
+    expect(noMembers?.error).toContain("رئيس");
+
+    // رئيس فقط — يرفض لغياب المقرر
+    const [chairPerson] = await db.insert(people).values({ fullName: `رئيس اعتماد ${suffix}`, category: "معلم" }).returning();
+    await db.insert(committeeMembers).values({ committeeId: c.id, personId: chairPerson.id, role: "رئيس" });
+    const noSecretary = await approveCommitteeAction(c.id);
+    expect(noSecretary?.error).toContain("مقرر");
+
+    // رئيس ومقرر — ينجح
+    const [secPerson] = await db.insert(people).values({ fullName: `مقرر اعتماد ${suffix}`, category: "معلم" }).returning();
+    await db.insert(committeeMembers).values({ committeeId: c.id, personId: secPerson.id, role: "مقرر" });
+    const approved = await approveCommitteeAction(c.id);
+    expect(approved?.error).toBeUndefined();
+    const [after] = await db.select().from(committees).where(eq(committees.id, c.id));
+    expect(after.status).toBe("معتمدة");
+  });
+
+  it("تكرار نص النتيجة في الاجتماع نفسه يرفض", async () => {
+    const { db } = await import("@/db");
+    const { meetingOutcomes } = await import("@/db/schema");
+    const { addOutcomeAction } = await import("@/app/(app)/committees/actions");
+    const { meeting } = await seedCommitteeFixture();
+
+    const fd1 = new FormData();
+    fd1.set("outcomeType", "ملاحظة");
+    fd1.set("text", "نتيجة مكررة للاختبار");
+    const first = await addOutcomeAction(meeting.id, null, fd1);
+    expect(first?.error).toBeUndefined();
+
+    // النص نفسه مع فراغات زائدة — يعامل كمكرر بعد التطبيع
+    const fd2 = new FormData();
+    fd2.set("outcomeType", "قرار");
+    fd2.set("text", "  نتيجة مكررة للاختبار  ");
+    const dup = await addOutcomeAction(meeting.id, null, fd2);
+    expect(dup?.error).toBe("هذه النتيجة مسجلة مسبقاً في هذا الاجتماع");
+
+    const outcomes = await db.select().from(meetingOutcomes).where(eq(meetingOutcomes.meetingId, meeting.id));
+    expect(outcomes.length).toBe(1);
+  });
+
+  it("الإقفال يمنع ما دام اجتماع بانتظار التوقيع أو مسودة ثم ينجح بعد الاكتمال", async () => {
+    const { db } = await import("@/db");
+    const { committees, meetings } = await import("@/db/schema");
+    const { closeCommitteeAction } = await import("@/app/(app)/committees/actions");
+    const { c, meeting } = await seedCommitteeFixture();
+
+    // اجتماع مسودة يمنع الإقفال
+    const draftBlocked = await closeCommitteeAction(c.id);
+    expect(draftBlocked?.error).toContain("مسودة");
+
+    // اجتماع بانتظار التوقيع يمنع الإقفال برسالة تسمي الحالة
+    await db.update(meetings).set({ status: "بانتظار التوقيع" }).where(eq(meetings.id, meeting.id));
+    const awaitingBlocked = await closeCommitteeAction(c.id);
+    expect(awaitingBlocked?.error).toContain("بانتظار التوقيع");
+
+    // بعد اكتمال الاجتماع يقفل
+    await db.update(meetings).set({ status: "مكتمل" }).where(eq(meetings.id, meeting.id));
+    const closed = await closeCommitteeAction(c.id);
+    expect(closed?.error).toBeUndefined();
+    const [after] = await db.select().from(committees).where(eq(committees.id, c.id));
+    expect(after.status).toBe("مقفلة");
   });
 });
