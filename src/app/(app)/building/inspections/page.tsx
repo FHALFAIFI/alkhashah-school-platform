@@ -58,7 +58,7 @@ export default async function InspectionsPage() {
         <h2 className="mb-3 font-bold text-brand-900">قوالب الفحص ({templates.length})</h2>
         <Table headers={["القالب", "نوع الغرفة", "البنود", "الحالة", ""]}>
           {templates.map((t) => (
-            <tr key={t.id}>
+            <tr key={t.id} id={`tpl-${t.id}`} className="scroll-mt-20">
               <td className="px-3 py-2 font-medium">{t.nameAr}</td>
               <td className="px-3 py-2 text-xs">{t.roomType ?? "عام"}</td>
               <td className="px-3 py-2 tabular-nums">{t.items.length}</td>

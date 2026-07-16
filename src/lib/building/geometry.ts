@@ -36,6 +36,31 @@ export function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/**
+ * مزامنة تعديل غرفة (اسم/نوع/أبعاد) داخل هندسة الدور — مصدر الحقيقة الواحد.
+ * الغرف في هذا النموذج مستطيلات محاذية للمحاور (x,y,w,h)، لذا تغيير الأبعاد
+ * يعيد تحجيم المستطيل حول ركن التثبيت (x,y) دون تحريكه، وتقص إزاحات الأبواب
+ * لتبقى داخل الحدود الجديدة. يعيد null إذا لم توجد الغرفة بالمفتاح.
+ */
+export function applyRoomEditToGeometry(
+  geometry: FloorGeometry,
+  geomKey: string,
+  edit: { name: string; type: string; lengthM?: number; widthM?: number },
+): FloorGeometry | null {
+  const target = geometry.rooms.find((r) => r.key === geomKey);
+  if (!target) return null;
+  const next: GeoRoom = { ...target, name: edit.name, type: edit.type };
+  if (edit.lengthM != null && edit.lengthM > 0) next.w = round1(edit.lengthM);
+  if (edit.widthM != null && edit.widthM > 0) next.h = round1(edit.widthM);
+  if (next.doors && next.doors.length > 0) {
+    next.doors = next.doors.map((d) => ({
+      ...d,
+      offset: round1(Math.max(0, Math.min(d.offset, d.side === "top" || d.side === "bottom" ? next.w : next.h))),
+    }));
+  }
+  return { ...geometry, rooms: geometry.rooms.map((r) => (r.key === geomKey ? next : r)) };
+}
+
 export function validateGeometry(geo: unknown): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   const g = geo as FloorGeometry;

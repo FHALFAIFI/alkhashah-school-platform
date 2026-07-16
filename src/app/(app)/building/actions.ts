@@ -1,18 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
   floors, floorGeometryVersions, floorBackgrounds, rooms, assets, assetHistory,
-  inspectionTemplates, inspections, maintenanceIssues, readinessOverrides, siteZones,
+  inspectionTemplates, inspections, maintenanceIssues, people, readinessOverrides, siteZones,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { saveUploadedFile } from "@/lib/storage";
-import { validateGeometry, roomArea, roomPerimeter, round1, type FloorGeometry } from "@/lib/building/geometry";
-import { nextRoomCode, nextAssetCode, nextMaintenanceCode } from "@/lib/building/codes";
+import { validateGeometry, applyRoomEditToGeometry, roomArea, roomPerimeter, round1, type FloorGeometry } from "@/lib/building/geometry";
+import { nextRoomCode, nextAssetCode, nextMaintenanceCode, findRoomByCode } from "@/lib/building/codes";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -38,7 +39,12 @@ const roomUpdateSchema = z.object({
   notes: z.string().trim().max(2000).optional(),
 });
 
-/** تعديل الحقول البسيطة للغرفة من الجوال أو الحاسب — التعديل الهندسي الدقيق يبقى في المحرر */
+/**
+ * تعديل الحقول البسيطة للغرفة — مصدر حقيقة واحد:
+ * في معاملة واحدة يحدث سجل الغرف ويكتب الاسم/النوع/الأبعاد نفسها في هندسة الدور
+ * كمسودة (يحدث آخر نسخة إن كانت مسودة، وإلا ينشئ مسودة جديدة). النشر لاحقاً يزامن
+ * السجل من الهندسة فلا يعود يمسح التعديلات.
+ */
 export async function updateRoomAction(roomId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("building.write");
   const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId));
@@ -59,24 +65,77 @@ export async function updateRoomAction(roomId: string, _prev: ActionState, formD
 
   const lengthM = d.lengthM ?? (room.lengthM ? Number(room.lengthM) : undefined);
   const widthM = d.widthM ?? (room.widthM ? Number(room.widthM) : undefined);
-  await db
-    .update(rooms)
-    .set({
-      nameAr: d.nameAr,
-      roomType: d.roomType,
-      lengthM: lengthM != null ? String(round1(lengthM)) : room.lengthM,
-      widthM: widthM != null ? String(round1(widthM)) : room.widthM,
-      areaM2: lengthM != null && widthM != null ? String(round1(lengthM * widthM)) : room.areaM2,
-      perimeterM: lengthM != null && widthM != null ? String(round1(2 * (lengthM + widthM))) : room.perimeterM,
-      capacity: d.capacity ?? room.capacity,
-      notes: d.notes ?? room.notes,
-      updatedAt: new Date(),
-    })
-    .where(eq(rooms.id, roomId));
-  await audit({ actorId: user.id, action: "room.updated", entityType: "room", entityId: roomId, summary: `تعديل بيانات الغرفة ${room.code}` });
+
+  const geometrySync = await db.transaction(async (tx) => {
+    await tx
+      .update(rooms)
+      .set({
+        nameAr: d.nameAr,
+        roomType: d.roomType,
+        lengthM: lengthM != null ? String(round1(lengthM)) : room.lengthM,
+        widthM: widthM != null ? String(round1(widthM)) : room.widthM,
+        areaM2: lengthM != null && widthM != null ? String(round1(lengthM * widthM)) : room.areaM2,
+        perimeterM: lengthM != null && widthM != null ? String(round1(2 * (lengthM + widthM))) : room.perimeterM,
+        capacity: d.capacity ?? room.capacity,
+        notes: d.notes ?? room.notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(rooms.id, roomId));
+
+    // مزامنة التعديل نفسه في هندسة الدور — حتى يظهر الاسم على المخطط ولا يمسح النشر التعديل
+    const [latest] = await tx
+      .select()
+      .from(floorGeometryVersions)
+      .where(eq(floorGeometryVersions.floorId, room.floorId))
+      .orderBy(desc(floorGeometryVersions.version))
+      .limit(1);
+    if (!latest) return { synced: false as const };
+
+    const updated = applyRoomEditToGeometry(latest.geometry as unknown as FloorGeometry, room.geomKey, {
+      name: d.nameAr,
+      type: d.roomType,
+      lengthM,
+      widthM,
+    });
+    if (!updated) return { synced: false as const };
+
+    if (latest.status === "مسودة") {
+      await tx
+        .update(floorGeometryVersions)
+        .set({ geometry: updated as object, note: `مزامنة تعديل الغرفة ${room.code}` })
+        .where(eq(floorGeometryVersions.id, latest.id));
+      return { synced: true as const, version: latest.version };
+    }
+    const version = latest.version + 1;
+    await tx.insert(floorGeometryVersions).values({
+      floorId: room.floorId,
+      version,
+      geometry: updated as object,
+      status: "مسودة",
+      note: `مزامنة تعديل الغرفة ${room.code}`,
+      createdBy: user.id,
+    });
+    return { synced: true as const, version };
+  });
+
+  await audit({ actorId: user.id, action: "room.updated", entityType: "room", entityId: roomId, summary: `تعديل بيانات الغرفة ${room.code}${geometrySync.synced ? ` + مسودة مخطط نسخة ${geometrySync.version}` : ""}` });
   revalidatePath(`/building/rooms/${roomId}`);
   revalidatePath("/building");
-  return { success: "حُفظت بيانات الغرفة" };
+  return {
+    success: geometrySync.synced
+      ? `حُفظت بيانات الغرفة وسجل التعديل في مسودة المخطط (نسخة ${geometrySync.version})`
+      : "حُفظت بيانات الغرفة",
+  };
+}
+
+/** فتح غرفة بالرمز المطبوع — بديل يدوي لمسح QR يعمل عبر HTTP دون كاميرا */
+export async function openRoomByCodeAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requirePermission("building.read");
+  const code = String(formData.get("code") ?? "").trim();
+  if (!code) return { error: "أدخل رمز الغرفة (مثال: KHS-RM-0007)" };
+  const room = await findRoomByCode(code);
+  if (!room) return { error: `لا غرفة بالرمز «${code}» — تحقق من الرمز المطبوع` };
+  redirect(`/building/rooms/${room.id}`);
 }
 
 // ————————————————— الهندسة —————————————————
@@ -343,6 +402,7 @@ const issueSchema = z.object({
   description: z.string().optional(),
   roomId: z.string().uuid().optional().or(z.literal("")),
   assetId: z.string().uuid().optional().or(z.literal("")),
+  ownerPersonId: z.string().uuid("اختر المكلف من السجل").optional().or(z.literal("")),
   priority: z.enum(["عالية", "متوسطة", "منخفضة"]).default("متوسطة"),
 });
 
@@ -356,6 +416,10 @@ export async function createIssueAction(_prev: ActionState, formData: FormData):
       const zoneError = await assertManagedZone(room.floorId);
       if (zoneError) return { error: zoneError };
     }
+  }
+  if (parsed.data.ownerPersonId) {
+    const [person] = await db.select().from(people).where(eq(people.id, parsed.data.ownerPersonId));
+    if (!person || !person.active) return { error: "المكلف بالإصلاح غير موجود في سجل الأشخاص النشطين" };
   }
   const photos: string[] = [];
   const photo = formData.get("photo") as File | null;
@@ -378,6 +442,7 @@ export async function createIssueAction(_prev: ActionState, formData: FormData):
       description: parsed.data.description || null,
       roomId: parsed.data.roomId || null,
       assetId: parsed.data.assetId || null,
+      ownerPersonId: parsed.data.ownerPersonId || null,
       priority: parsed.data.priority,
       photos,
       reportedBy: user.id,
@@ -388,10 +453,13 @@ export async function createIssueAction(_prev: ActionState, formData: FormData):
   return { success: `سجل البلاغ ${code}` };
 }
 
+const ISSUE_STATUSES = ["مفتوح", "قيد الإصلاح", "تم الإصلاح", "مغلق ومتحقق"] as const;
+
 export async function updateIssueStatusAction(issueId: string, formData: FormData): Promise<void> {
   const user = await requirePermission("maintenance.write");
   const status = String(formData.get("status") ?? "مفتوح");
-  const repairNote = String(formData.get("repairNote") ?? "");
+  if (!ISSUE_STATUSES.includes(status as (typeof ISSUE_STATUSES)[number])) return;
+  const repairNote = String(formData.get("repairNote") ?? "").trim();
   const [issue] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issueId));
   if (!issue) return;
   const patch: Record<string, unknown> = { status, updatedAt: new Date() };

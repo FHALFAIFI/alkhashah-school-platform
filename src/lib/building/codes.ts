@@ -21,3 +21,18 @@ export async function nextMaintenanceCode(): Promise<string> {
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(maintenanceIssues);
   return `${prefix}${String(count + 1).padStart(4, "0")}`;
 }
+
+/**
+ * تحليل رمز غرفة مدخل يدوياً (بديل مسح QR على HTTP) — يتجاهل الفراغات وحالة الأحرف.
+ * يعيد الغرفة أو null إذا لم يوجد رمز مطابق.
+ */
+export async function findRoomByCode(code: string) {
+  const needle = code.trim().toLowerCase();
+  if (!needle) return null;
+  const [room] = await db
+    .select()
+    .from(rooms)
+    .where(sql`lower(${rooms.code}) = ${needle}`)
+    .limit(1);
+  return room ?? null;
+}

@@ -281,8 +281,9 @@ export function OfflineInspection() {
                   <input name="notes" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">التقاط صورة</label>
-                  <input name="photo" type="file" accept="image/*" capture="environment" className="text-sm" />
+                  <label className="mb-1 block text-sm font-medium text-gray-700">صورة (اختياري)</label>
+                  <input name="photo" type="file" accept="image/*" className="text-sm" />
+                  <p className="mt-1 text-xs text-gray-400">التقط صورة أو اختر ملفاً من الجهاز</p>
                 </div>
               </div>
               <button type="submit" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">

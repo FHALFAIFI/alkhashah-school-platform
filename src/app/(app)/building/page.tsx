@@ -6,6 +6,7 @@ import { floors, floorGeometryVersions, rooms as roomsTable } from "@/db/schema"
 import { PageHeader, Card, Badge, LinkButton, Table } from "@/components/ui";
 import type { FloorGeometry } from "@/lib/building/geometry";
 import { FloorViewer } from "./floor-viewer";
+import { OpenRoomByCodeForm } from "./building-ui";
 
 export const metadata = { title: "مخطط المبنى" };
 export const dynamic = "force-dynamic";
@@ -54,6 +55,11 @@ export default async function BuildingPage({ searchParams }: { searchParams: Pro
           </LinkButton>
         ))}
       </div>
+
+      <Card>
+        <OpenRoomByCodeForm />
+        <p className="mt-1 text-xs text-gray-400">اكتب الرمز المطبوع على ملصق الغرفة — يعمل دون كاميرا أو مسح ضوئي</p>
+      </Card>
 
       {geometry ? (
         <Card>

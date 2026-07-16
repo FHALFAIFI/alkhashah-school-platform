@@ -187,6 +187,172 @@ describe("التوأم الرقمي (A11, A12, A14)", () => {
   });
 });
 
+describe("مصدر حقيقة واحد: تعديل الغرفة يمر عبر مسودة الهندسة", () => {
+  it("updateRoomAction يحدث السجل وينشئ/يحدث مسودة هندسة، والنشر اللاحق لا يرجع الاسم", async () => {
+    const { db } = await import("@/db");
+    const { floors, floorGeometryVersions, rooms } = await import("@/db/schema");
+    const { saveGeometryDraftAction, publishGeometryAction, updateRoomAction } = await import("@/app/(app)/building/actions");
+
+    // دور جديد معزول عن بقية الاختبارات
+    const [first] = await db
+      .insert(floors)
+      .values({ key: "first", nameAr: "الدور الأول", level: 1, zoneKey: "boys", sortOrder: 2 })
+      .returning();
+
+    // نسخة 1 منشورة — تنشئ سجل الغرفة
+    const geo = {
+      unit: "m",
+      rooms: [{ key: "u1", name: "غرفة المصدر", type: "فصل دراسي", x: 1, y: 1, w: 5, h: 4, doors: [{ side: "bottom", offset: 4.5 }] }],
+    };
+    expect((await saveGeometryDraftAction(first.id, JSON.stringify(geo)))?.error).toBeUndefined();
+    const [v1] = await db
+      .select()
+      .from(floorGeometryVersions)
+      .where(and(eq(floorGeometryVersions.floorId, first.id), eq(floorGeometryVersions.version, 1)));
+    expect((await publishGeometryAction(v1.id))?.error).toBeUndefined();
+    const [room] = await db.select().from(rooms).where(and(eq(rooms.floorId, first.id), eq(rooms.geomKey, "u1")));
+    expect(room.nameAr).toBe("غرفة المصدر");
+
+    // تعديل من صفحة الغرفة: اسم ونوع وأبعاد جديدة
+    const fd = new FormData();
+    fd.set("nameAr", "غرفة معدلة");
+    fd.set("roomType", "معمل");
+    fd.set("lengthM", "8");
+    fd.set("widthM", "3");
+    const res = await updateRoomAction(room.id, null, fd);
+    expect(res?.error).toBeUndefined();
+    expect(res?.success).toContain("مسودة");
+
+    // السجل حدث فوراً
+    const [after] = await db.select().from(rooms).where(eq(rooms.id, room.id));
+    expect(after.nameAr).toBe("غرفة معدلة");
+    expect(Number(after.lengthM)).toBe(8);
+    expect(Number(after.widthM)).toBe(3);
+
+    // نشأت مسودة نسخة 2 تحمل الاسم والأبعاد نفسها (تحجيم حول ركن التثبيت + قص إزاحة الباب)
+    let versions = await db.select().from(floorGeometryVersions).where(eq(floorGeometryVersions.floorId, first.id));
+    expect(versions.length).toBe(2);
+    const draft = versions.find((v) => v.version === 2)!;
+    expect(draft.status).toBe("مسودة");
+    const draftRoom = (draft.geometry as { rooms: { key: string; name: string; type: string; x: number; y: number; w: number; h: number; doors?: { offset: number }[] }[] }).rooms.find((r) => r.key === "u1")!;
+    expect(draftRoom.name).toBe("غرفة معدلة");
+    expect(draftRoom.type).toBe("معمل");
+    expect(draftRoom.w).toBe(8);
+    expect(draftRoom.h).toBe(3);
+    expect(draftRoom.x).toBe(1); // ركن التثبيت لا يتحرك
+    expect(draftRoom.y).toBe(1);
+    expect(draftRoom.doors?.[0].offset).toBeLessThanOrEqual(8);
+
+    // تعديل ثانٍ يحدث المسودة نفسها في مكانها — لا نسخة ثالثة
+    const fd2 = new FormData();
+    fd2.set("nameAr", "غرفة معدلة نهائية");
+    fd2.set("roomType", "معمل");
+    const res2 = await updateRoomAction(room.id, null, fd2);
+    expect(res2?.error).toBeUndefined();
+    versions = await db.select().from(floorGeometryVersions).where(eq(floorGeometryVersions.floorId, first.id));
+    expect(versions.length).toBe(2);
+
+    // النشر يزامن السجل من الهندسة دون أن يرجع الاسم القديم
+    const latestDraft = versions.find((v) => v.version === 2)!;
+    expect((await publishGeometryAction(latestDraft.id))?.error).toBeUndefined();
+    const [published] = await db.select().from(rooms).where(eq(rooms.id, room.id));
+    expect(published.nameAr).toBe("غرفة معدلة نهائية");
+    expect(Number(published.lengthM)).toBe(8);
+    expect(Number(published.widthM)).toBe(3);
+    expect(Number(published.areaM2)).toBe(24);
+  });
+});
+
+describe("فتح غرفة بالرمز (بديل QR اليدوي على HTTP)", () => {
+  it("يحل الرمز دون حساسية لحالة الأحرف والفراغات ويرفض الرمز المجهول", async () => {
+    const { db } = await import("@/db");
+    const { rooms } = await import("@/db/schema");
+    const { findRoomByCode } = await import("@/lib/building/codes");
+
+    const [anyRoom] = await db.select().from(rooms).limit(1);
+    expect(anyRoom).toBeDefined();
+
+    const resolved = await findRoomByCode(`  ${anyRoom.code.toLowerCase()}  `);
+    expect(resolved?.id).toBe(anyRoom.id);
+
+    const upper = await findRoomByCode(anyRoom.code.toUpperCase());
+    expect(upper?.id).toBe(anyRoom.id);
+
+    expect(await findRoomByCode("KHS-RM-9999")).toBeNull();
+    expect(await findRoomByCode("   ")).toBeNull();
+  });
+});
+
+describe("سير الصيانة: تكليف ← تم الإصلاح بملاحظة ← إغلاق متحقق", () => {
+  it("البلاغ يخزن المكلف، وملاحظة الإصلاح تسجل، والإغلاق يختم closedAt/verifiedBy", async () => {
+    const { db } = await import("@/db");
+    const { people, maintenanceIssues } = await import("@/db/schema");
+    const { createIssueAction, updateIssueStatusAction } = await import("@/app/(app)/building/actions");
+
+    const [person] = await db
+      .insert(people)
+      .values({ fullName: "مكلف الصيانة الاختباري", category: "موظف" })
+      .returning();
+
+    const title = `تسريب مكيف اختبار ${Math.random().toString(36).slice(2, 8)}`;
+    const fd = new FormData();
+    fd.set("title", title);
+    fd.set("description", "بلاغ اختبار سير العمل");
+    fd.set("ownerPersonId", person.id);
+    fd.set("priority", "عالية");
+    const created = await createIssueAction(null, fd);
+    expect(created?.error).toBeUndefined();
+
+    const [issue] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.title, title));
+    expect(issue.ownerPersonId).toBe(person.id);
+    expect(issue.status).toBe("مفتوح");
+
+    // تم الإصلاح مع ملاحظة اختيارية
+    const fixFd = new FormData();
+    fixFd.set("status", "تم الإصلاح");
+    fixFd.set("repairNote", "استبدال صمام التصريف");
+    await updateIssueStatusAction(issue.id, fixFd);
+    let [updated] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
+    expect(updated.status).toBe("تم الإصلاح");
+    expect(updated.repairNote).toBe("استبدال صمام التصريف");
+    expect(updated.closedAt).toBeNull();
+
+    // حالة غير معروفة ترفض بصمت — لا تغيير
+    const badFd = new FormData();
+    badFd.set("status", "حالة مخترعة");
+    await updateIssueStatusAction(issue.id, badFd);
+    [updated] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
+    expect(updated.status).toBe("تم الإصلاح");
+
+    // الإغلاق المتحقق يختم التاريخ والمتحقق
+    const closeFd = new FormData();
+    closeFd.set("status", "مغلق ومتحقق");
+    await updateIssueStatusAction(issue.id, closeFd);
+    const [closed] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
+    expect(closed.status).toBe("مغلق ومتحقق");
+    expect(closed.closedAt).not.toBeNull();
+    expect(closed.verifiedBy).toBe(testUserId);
+    expect(closed.verifiedAt).not.toBeNull();
+    expect(closed.repairNote).toBe("استبدال صمام التصريف"); // الملاحظة لا تمسح عند الإغلاق
+  });
+
+  it("البلاغ يرفض مكلفاً غير موجود في سجل الأشخاص النشطين", async () => {
+    const { db } = await import("@/db");
+    const { people } = await import("@/db/schema");
+    const { createIssueAction } = await import("@/app/(app)/building/actions");
+
+    const [inactive] = await db
+      .insert(people)
+      .values({ fullName: "موظف موقوف", category: "موظف", active: false })
+      .returning();
+    const fd = new FormData();
+    fd.set("title", "بلاغ بمكلف موقوف");
+    fd.set("ownerPersonId", inactive.id);
+    const res = await createIssueAction(null, fd);
+    expect(res?.error).toContain("سجل الأشخاص");
+  });
+});
+
 describe("مزامنة الفحص دون اتصال (A13)", () => {
   it("إعادة إرسال الدفعة نفسها لا تنشئ سجلات مكررة", async () => {
     const { db } = await import("@/db");

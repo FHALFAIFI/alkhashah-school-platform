@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import QRCode from "qrcode";
@@ -10,8 +11,10 @@ import { NewAssetForm, AssetConditionControl } from "./assets-ui";
 export const metadata = { title: "العهدة والأصول" };
 export const dynamic = "force-dynamic";
 
-export default async function AssetsPage() {
+export default async function AssetsPage({ searchParams }: { searchParams: Promise<{ رمز?: string }> }) {
   const user = await requirePermission("assets.read");
+  const params = await searchParams;
+  const codeFilter = (params["رمز"] ?? "").trim().toLowerCase();
   const [allAssets, allRooms, allFloors] = await Promise.all([
     db.select().from(assets).where(eq(assets.active, true)).orderBy(asc(assets.code)),
     db.select().from(rooms).where(eq(rooms.active, true)).orderBy(asc(rooms.nameAr)),
@@ -31,6 +34,9 @@ export default async function AssetsPage() {
     importantQr.set(a.id, await QRCode.toDataURL(`${appUrl}/building/assets?رمز=${a.code}`, { width: 72, margin: 0 }));
   }
 
+  // مسح رمز QR للأصل (أو فتح رابطه) يصفي الجدول على هذا الرمز — دون حساسية لحالة الأحرف
+  const shownAssets = codeFilter ? allAssets.filter((a) => a.code.toLowerCase() === codeFilter) : allAssets;
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -45,14 +51,23 @@ export default async function AssetsPage() {
           />
         </Card>
       )}
+      {codeFilter && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-brand-50 p-2 text-sm text-brand-900">
+          <span>
+            عرض الأصل بالرمز <span className="tabular-nums" dir="ltr">{params["رمز"]?.trim()}</span>
+            {shownAssets.length === 0 && " — لا أصل بهذا الرمز، تحقق من الملصق"}
+          </span>
+          <Link href="/building/assets" className="font-medium text-brand-700 underline">إظهار الكل</Link>
+        </div>
+      )}
       {allAssets.length === 0 ? (
         <EmptyState title="العهدة فارغة" hint="أضف الأصول يدوياً أو استوردها من قالب Excel عبر صفحة الاستيراد" />
       ) : (
         <Table headers={["الرمز", "الأصل", "الموقع", "النوع", "الكمية/التسلسلي", "الحالة", "رمز QR", canWrite ? "تحديث الحالة" : ""]}>
-          {allAssets.map((a) => {
+          {shownAssets.map((a) => {
             const room = a.roomId ? roomById.get(a.roomId) : null;
             return (
-              <tr key={a.id}>
+              <tr key={a.id} id={`asset-${a.code}`}>
                 <td className="px-3 py-2 tabular-nums">{a.code}</td>
                 <td className="px-3 py-2 font-medium">{a.nameAr}</td>
                 <td className="px-3 py-2 text-xs">{room ? `${room.nameAr} — ${floorName.get(room.floorId) ?? ""}` : "—"}</td>

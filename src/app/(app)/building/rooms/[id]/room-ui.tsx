@@ -21,14 +21,14 @@ export function RoomEditForm({
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="min-h-11 rounded-lg border border-sand-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0">
+      <button id="edit-room" onClick={() => setOpen(true)} className="min-h-11 scroll-mt-20 rounded-lg border border-sand-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0">
         تعديل بيانات الغرفة
       </button>
     );
   }
   const types = ROOM_TYPES.includes(initial.roomType) ? ROOM_TYPES : [initial.roomType, ...ROOM_TYPES];
   return (
-    <form action={formAction} className="w-full space-y-3 rounded-lg bg-sand-50 p-3">
+    <form id="edit-room" action={formAction} className="w-full scroll-mt-20 space-y-3 rounded-lg bg-sand-50 p-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{state.success}</div>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -52,19 +52,19 @@ export function RoomEditForm({
   );
 }
 
-/** بلاغ صيانة سريع من صفحة الغرفة نفسها — مع صورة من الكاميرا مباشرة */
-export function RoomIssueForm({ roomId }: { roomId: string }) {
+/** بلاغ صيانة سريع من صفحة الغرفة نفسها — الصورة ملف من الجهاز (يعمل عبر HTTP دون كاميرا) */
+export function RoomIssueForm({ roomId, people }: { roomId: string; people: { id: string; label: string }[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createIssueAction, null);
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="min-h-11 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0">
+      <button id="report-issue" onClick={() => setOpen(true)} className="min-h-11 scroll-mt-20 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0">
         بلاغ صيانة لهذه الغرفة
       </button>
     );
   }
   return (
-    <form action={formAction} className="w-full space-y-3 rounded-lg bg-sand-50 p-3">
+    <form id="report-issue" action={formAction} className="w-full scroll-mt-20 space-y-3 rounded-lg bg-sand-50 p-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{state.success}</div>}
       <input type="hidden" name="roomId" value={roomId} />
@@ -80,8 +80,18 @@ export function RoomIssueForm({ roomId }: { roomId: string }) {
           </select>
         </div>
         <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">المكلف بالإصلاح (اختياري)</label>
+          <select name="ownerPersonId" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+            <option value="">— بلا تكليف —</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className="mb-1 block text-sm font-medium text-gray-700">صورة (اختياري)</label>
           <input name="photo" type="file" accept="image/*" className="w-full text-sm" />
+          <p className="mt-1 text-xs text-gray-400">التقط صورة أو اختر ملفاً من الجهاز</p>
         </div>
       </div>
       <div className="flex gap-2">

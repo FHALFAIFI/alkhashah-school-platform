@@ -1,12 +1,13 @@
 import { notFound } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import QRCode from "qrcode";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import {
-  rooms, floors, assets, inspections, inspectionTemplates, maintenanceIssues, readinessOverrides,
+  rooms, floors, floorGeometryVersions, assets, inspections, inspectionTemplates,
+  maintenanceIssues, people, readinessOverrides,
 } from "@/db/schema";
-import { PageHeader, Card, Badge, Table, ProgressBar } from "@/components/ui";
+import { PageHeader, Card, Badge, LinkButton, Table, ProgressBar } from "@/components/ui";
 import { computeRoomReadiness } from "@/lib/building/readiness";
 import { InspectionRunForm, ReadinessOverrideForm, RoomEditForm, RoomIssueForm } from "./room-ui";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
@@ -21,12 +22,18 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
   if (!room) notFound();
   const [floor] = await db.select().from(floors).where(eq(floors.id, room.floorId));
 
-  const [roomAssets, roomInspections, openIssues, override, templates] = await Promise.all([
+  const [roomAssets, roomInspections, openIssues, override, templates, activePeople, geometryVersions] = await Promise.all([
     db.select().from(assets).where(and(eq(assets.roomId, id), eq(assets.active, true))),
     db.select().from(inspections).where(eq(inspections.roomId, id)).orderBy(desc(inspections.inspectionDate)).limit(10),
     db.select().from(maintenanceIssues).where(eq(maintenanceIssues.roomId, id)),
     db.select().from(readinessOverrides).where(eq(readinessOverrides.roomId, id)).orderBy(desc(readinessOverrides.createdAt)).limit(1),
     db.select().from(inspectionTemplates).where(eq(inspectionTemplates.status, "معتمد")),
+    db.select().from(people).where(eq(people.active, true)).orderBy(asc(people.fullName)),
+    db
+      .select({ id: floorGeometryVersions.id, version: floorGeometryVersions.version, status: floorGeometryVersions.status })
+      .from(floorGeometryVersions)
+      .where(eq(floorGeometryVersions.floorId, room.floorId))
+      .orderBy(desc(floorGeometryVersions.version)),
   ]);
 
   const open = openIssues.filter((i) => i.status === "مفتوح" || i.status === "قيد الإصلاح");
@@ -48,6 +55,15 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
   const canInspect = user.permissions.has("inspections.write");
   const canEdit = user.permissions.has("building.write");
   const canReport = user.permissions.has("maintenance.write");
+  const canPublish = user.permissions.has("building.publish");
+
+  // مسودة مخطط أحدث من المنشورة؟ (تنشأ تلقائياً عند حفظ تعديل بيانات الغرفة)
+  const latestGeometry = geometryVersions[0] ?? null;
+  const publishedGeometry = geometryVersions.find((v) => v.status === "منشورة") ?? null;
+  const draftPending =
+    latestGeometry?.status === "مسودة" && (!publishedGeometry || latestGeometry.version > publishedGeometry.version);
+
+  const peopleOptions = activePeople.map((p) => ({ id: p.id, label: p.fullName }));
 
   return (
     <div className="space-y-4">
@@ -56,6 +72,31 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
         subtitle={`${floor.nameAr} — ${room.roomType}${room.lengthM && room.widthM ? ` — ${Number(room.lengthM).toFixed(1)}×${Number(room.widthM).toFixed(1)}م` : ""}${room.areaM2 ? ` — ${Number(room.areaM2).toFixed(1)} م²` : ""}`}
         actions={user.permissions.has("ai.use") ? <AskAssistant type="room" id={id} label={`غرفة ${room.nameAr} (${room.code})`} /> : undefined}
       />
+
+      {/* صف الإجراء التالي — أين أنا وماذا أفعل الآن */}
+      <Card>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="text-sm font-bold text-brand-900">
+            الجاهزية: <span className="tabular-nums">{readiness}٪</span>
+          </span>
+          {canInspect && matchingTemplates.length > 0 && <LinkButton href="#inspection" variant="secondary">سجل فحصاً</LinkButton>}
+          {canReport && <LinkButton href="#report-issue" variant="secondary">أبلغ عن عطل</LinkButton>}
+          {canEdit && <LinkButton href="#edit-room" variant="secondary">حدّث البيانات</LinkButton>}
+        </div>
+      </Card>
+
+      {draftPending && (
+        <Card className="border-amber-200 bg-amber-50">
+          <p className="text-sm text-amber-900">التعديل محفوظ في مسودة المخطط — انشر النسخة ليظهر على المخطط</p>
+          {canPublish ? (
+            <div className="mt-2">
+              <LinkButton href={`/building/editor/${floor.key}`} variant="secondary">فتح محرر الدور للنشر</LinkButton>
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-amber-800">النشر يتم من صاحب صلاحية نشر المخطط (مدير المدرسة) — تعديلك محفوظ ولن يضيع</p>
+          )}
+        </Card>
+      )}
 
       {(canEdit || canReport) && (
         <div className="flex flex-wrap items-start gap-2">
@@ -72,7 +113,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
               }}
             />
           )}
-          {canReport && <RoomIssueForm roomId={id} />}
+          {canReport && <RoomIssueForm roomId={id} people={peopleOptions} />}
         </div>
       )}
 
@@ -124,7 +165,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
       </Card>
 
       <Card>
-        <h2 className="mb-3 font-bold text-brand-900">الفحص</h2>
+        <h2 id="inspection" className="mb-3 scroll-mt-20 font-bold text-brand-900">الفحص</h2>
         {canInspect && matchingTemplates.length > 0 && (
           <InspectionRunForm
             roomId={id}

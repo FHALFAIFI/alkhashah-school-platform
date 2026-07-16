@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import type Konva from "konva";
 import { Stage, Layer, Rect, Text, Group, Image as KImage, Circle } from "react-konva";
 import {
@@ -69,6 +69,7 @@ export function PlanEditor({
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
   const stageRef = useRef<Konva.Stage>(null);
+  const router = useRouter();
 
   useEffect(() => {
     if (!bg) return;
@@ -133,24 +134,14 @@ export function PlanEditor({
     updateRoom(selected.key, { doors });
   }, [selected, updateRoom]);
 
+  /** حفظ مسودة فقط — لا نشر هنا. النشر له زر واحد واضح في لوحة «النشر» */
   const saveDraft = () =>
     startTransition(async () => {
       setMessage(null);
       const res = await saveGeometryDraftAction(floorId, JSON.stringify(geometry));
       setMessage(res?.error ? { kind: "err", text: res.error } : { kind: "ok", text: res?.success ?? "حفظ" });
-    });
-
-  const publish = () =>
-    startTransition(async () => {
-      setMessage(null);
-      // احفظ مسودة أولاً ثم انشرها؟ النشر يكون لآخر نسخة محفوظة
-      const res = await saveGeometryDraftAction(floorId, JSON.stringify(geometry));
-      if (res?.error) {
-        setMessage({ kind: "err", text: res.error });
-        return;
-      }
-      // أعد تحميل الصفحة ليظهر زر نشر النسخة الجديدة
-      window.location.reload();
+      // تحديث بيانات الخادم (رقم النسخة وحالتها) دون فقدان حالة المحرر — ليظهر زر النشر للمسودة الجديدة
+      if (!res?.error) router.refresh();
     });
 
   const saveBgTransform = () => {
@@ -173,7 +164,7 @@ export function PlanEditor({
           <button onClick={undo} disabled={historyIdx === 0} className="rounded-lg border border-sand-200 px-3 py-1.5 text-sm disabled:opacity-40">تراجع</button>
           <button onClick={redo} disabled={historyIdx >= history.length - 1} className="rounded-lg border border-sand-200 px-3 py-1.5 text-sm disabled:opacity-40">إعادة</button>
           <span className="mx-2 border-s border-sand-200" />
-          <button onClick={saveDraft} disabled={pending} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white disabled:opacity-50">حفظ مسودة (نسخة جديدة)</button>
+          <button onClick={saveDraft} disabled={pending} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white disabled:opacity-50">حفظ مسودة</button>
           {bg && (
             <>
               <button
@@ -404,10 +395,14 @@ export function PlanEditor({
         <div className="rounded-xl border border-sand-200 bg-white p-4">
           <h2 className="mb-2 font-bold text-brand-900">النشر</h2>
           <p className="mb-2 text-xs text-gray-500">
-            احفظ مسودة ثم انشرها من قائمة النسخ في صفحة المخطط. النشر يزامن سجل الغرف ويحفظ التاريخ الكامل للنسخ.
+            خطوتان واضحتان: «حفظ مسودة» يحفظ نسخة جديدة دون نشر، ثم «نشر النسخة» يجعلها المعتمدة على المخطط ويزامن سجل الغرف. التاريخ الكامل للنسخ محفوظ.
           </p>
-          {canPublish && latestVersionId && latestStatus === "مسودة" && (
+          {canPublish && latestVersionId && latestStatus === "مسودة" ? (
             <PublishButton versionId={latestVersionId} version={latestVersion} />
+          ) : canPublish ? (
+            <p className="text-xs text-amber-700">لا مسودة بانتظار النشر — احفظ مسودة أولاً ليظهر زر النشر</p>
+          ) : (
+            <p className="text-xs text-amber-700">النشر يتطلب صلاحية نشر المخطط (مدير المدرسة) — احفظ مسودتك وسينشرها صاحب الصلاحية</p>
           )}
         </div>
       </div>
@@ -432,7 +427,7 @@ function PublishButton({ versionId, version }: { versionId: string; version: num
         }
         className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
       >
-        نشر النسخة {version} ومزامنة سجل الغرف
+        نشر النسخة {version} — تصبح المعتمدة ويزامن سجل الغرف
       </button>
     </div>
   );
