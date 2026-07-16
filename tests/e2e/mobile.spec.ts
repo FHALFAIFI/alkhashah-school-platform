@@ -80,7 +80,7 @@ test("القائمة الجانبية على الجوال: ضمن الشاشة،
   expect(box.x).toBeGreaterThanOrEqual(0);
 
   // عناوين القائمة مرئية غير مقصوصة
-  await expect(page.locator("aside").getByText("لوحة المتابعة")).toBeVisible();
+  await expect(page.locator("aside").getByText("مركز عمل مدير المدرسة")).toBeVisible();
   await expect(page.locator("aside").getByText("سجل المعلمين والموظفين")).toBeVisible();
 
   // خلفية معتمة + قفل تمرير الجسم

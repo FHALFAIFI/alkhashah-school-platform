@@ -65,6 +65,16 @@ const badgeColors: Record<string, string> = {
   "إجازة": "bg-amber-100 text-amber-800",
   "معلم": "bg-brand-100 text-brand-800",
   "موظف": "bg-blue-100 text-blue-800",
+  "غير معتمد": "bg-gray-100 text-gray-600",
+  "خارج الخدمة": "bg-red-100 text-red-800",
+  "تحتاج صيانة": "bg-amber-100 text-amber-800",
+  "مؤرشف": "bg-gray-100 text-gray-500",
+  "ممتازة": "bg-emerald-100 text-emerald-800",
+  "جيدة": "bg-emerald-50 text-emerald-700",
+  "بانتظار التأكيد": "bg-amber-100 text-amber-800",
+  "ملغي": "bg-gray-100 text-gray-500",
+  "لم يراجع": "bg-amber-50 text-amber-700",
+  "مقبول": "bg-emerald-100 text-emerald-800",
 };
 
 export function Badge({ value }: { value: string }) {
@@ -242,17 +252,38 @@ export function Select({
   );
 }
 
-export function SubmitButton({ children, variant = "primary" }: { children: React.ReactNode; variant?: "primary" | "danger" | "secondary" }) {
-  const cls =
-    variant === "primary"
-      ? "bg-brand-600 text-white hover:bg-brand-700"
-      : variant === "danger"
-        ? "bg-red-600 text-white hover:bg-red-700"
-        : "border border-sand-200 bg-white text-gray-700 hover:bg-sand-100";
+export { SubmitButton } from "./submit-button";
+
+/**
+ * مؤشر مراحل سير العمل — يعرض المراحل المكتملة والحالية والمتبقية بالعربية.
+ * `current` هو فهرس المرحلة الحالية (يبدأ من 0)؛ فهرس أكبر من آخر مرحلة يعني اكتمال الكل.
+ */
+export function WorkflowSteps({ steps, current }: { steps: string[]; current: number }) {
   return (
-    <button type="submit" className={`inline-flex min-h-11 items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition lg:min-h-0 ${cls}`}>
-      {children}
-    </button>
+    <ol className="flex flex-wrap items-center gap-y-2 text-xs" aria-label="مراحل سير العمل">
+      {steps.map((label, i) => {
+        const state = i < current ? "done" : i === current ? "current" : "todo";
+        const circle =
+          state === "done"
+            ? "bg-emerald-500 text-white"
+            : state === "current"
+              ? "bg-brand-600 text-white ring-2 ring-brand-200"
+              : "bg-sand-200 text-gray-500";
+        const text =
+          state === "done" ? "text-emerald-700" : state === "current" ? "font-bold text-brand-900" : "text-gray-400";
+        return (
+          <li key={label} className="flex items-center">
+            <span className="flex items-center gap-1.5">
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${circle}`} aria-hidden>
+                {state === "done" ? "✓" : i + 1}
+              </span>
+              <span className={text} aria-current={state === "current" ? "step" : undefined}>{label}</span>
+            </span>
+            {i < steps.length - 1 && <span className="mx-2 h-px w-4 bg-sand-300 sm:w-6" aria-hidden />}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

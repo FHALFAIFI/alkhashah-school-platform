@@ -12,7 +12,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
   {
     section: "عام",
     items: [
-      { href: "/dashboard", label: "لوحة المتابعة", icon: "◧" },
+      { href: "/dashboard", label: "مركز عمل مدير المدرسة", icon: "◧" },
       { href: "/assistant", label: "مساعد المدير الذكي", permission: "ai.use", icon: "✦" },
       { href: "/tasks", label: "المهام والإجراءات", permission: "tasks.read", icon: "☑" },
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },

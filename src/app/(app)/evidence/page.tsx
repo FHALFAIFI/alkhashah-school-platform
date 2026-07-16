@@ -25,7 +25,7 @@ export default async function EvidencePage() {
       ) : (
         <Table headers={["العنوان", "النوع", "الدور", "المصدر", "حالة المراجعة", "الروابط", "تنزيل"]}>
           {items.map((item) => (
-            <tr key={item.id}>
+            <tr key={item.id} id={`ev-${item.id}`}>
               <td className="px-3 py-2 font-medium">{item.title}</td>
               <td className="px-3 py-2 text-xs">{item.kind === "file" ? "ملف" : item.kind === "link" ? "رابط" : "نص"}</td>
               <td className="px-3 py-2">{item.role ? <Badge value={item.role} /> : "—"}</td>

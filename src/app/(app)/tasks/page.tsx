@@ -6,6 +6,8 @@ import { PageHeader, Table, Badge, EmptyState, ProgressBar, Card } from "@/compo
 import { dualDisplay, todayIso } from "@/lib/dates";
 import { NewTaskForm, TaskStatusControl } from "./task-ui";
 import { asc } from "drizzle-orm";
+import Link from "next/link";
+import { resolveTaskSources } from "@/lib/worklist";
 
 export const metadata = { title: "المهام والإجراءات" };
 export const dynamic = "force-dynamic";
@@ -17,6 +19,7 @@ const SOURCE_LABELS: Record<string, string> = {
   inspection: "فحص",
   maintenance: "صيانة",
   manual: "يدوي",
+  ai_assistant: "مساعد ذكي",
 };
 
 export default async function TasksPage() {
@@ -24,6 +27,7 @@ export default async function TasksPage() {
   const tasks = await db.select().from(actionTasks).orderBy(desc(actionTasks.createdAt));
   const persons = await db.select({ id: people.id, fullName: people.fullName }).from(people).orderBy(asc(people.fullName));
   const personName = new Map(persons.map((p) => [p.id, p.fullName]));
+  const sourceLinks = await resolveTaskSources(tasks);
   const today = todayIso();
 
   const overdue = tasks.filter(
@@ -49,8 +53,9 @@ export default async function TasksPage() {
             const dueIso = t.dueDate?.toISOString().slice(0, 10);
             const isOverdue = dueIso && t.status !== "مكتملة" && t.status !== "ملغاة" && dueIso < today;
             const d = dueIso ? dualDisplay(dueIso, "employee") : null;
+            const src = sourceLinks.get(t.id);
             return (
-              <tr key={t.id}>
+              <tr key={t.id} id={`task-${t.id}`}>
                 <td className="px-3 py-2">
                   <span className="font-medium">{t.title}</span>
                   {t.mandatory && <span className="ms-2 rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-700">إلزامي</span>}
@@ -63,7 +68,15 @@ export default async function TasksPage() {
                 <td className="px-3 py-2"><Badge value={t.priority} /></td>
                 <td className="px-3 py-2"><ProgressBar value={t.progress} /></td>
                 <td className="px-3 py-2"><Badge value={t.status} /></td>
-                <td className="px-3 py-2 text-xs">{SOURCE_LABELS[t.sourceType ?? "manual"] ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">
+                  {src ? (
+                    <Link href={src.href} className="text-brand-700 underline underline-offset-2 hover:text-brand-900">
+                      {SOURCE_LABELS[t.sourceType ?? "manual"] ?? "المصدر"}
+                    </Link>
+                  ) : (
+                    SOURCE_LABELS[t.sourceType ?? "manual"] ?? "—"
+                  )}
+                </td>
                 <td className="px-3 py-2">
                   {user.permissions.has("tasks.write") && <TaskStatusControl taskId={t.id} status={t.status} progress={t.progress} />}
                 </td>

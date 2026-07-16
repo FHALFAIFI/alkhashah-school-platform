@@ -1,97 +1,195 @@
 import Link from "next/link";
-import { desc, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/db";
-import { programs, people, actionTasks, evidenceItems, meetings, notifications, planYears } from "@/db/schema";
-import { PageHeader, Card, ProgressBar, EmptyState } from "@/components/ui";
-import { todayIso, toHijriLong, toGregorianLong } from "@/lib/dates";
+import { programs, people, evidenceItems } from "@/db/schema";
+import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
+import { toHijriLong, toGregorianLong } from "@/lib/dates";
+import { getWorkCenter, type WorkItem } from "@/lib/worklist";
 
-export const metadata = { title: "لوحة المتابعة" };
+export const metadata = { title: "مركز عمل مدير المدرسة" };
 export const dynamic = "force-dynamic";
+
+const SECTION_LIMIT = 8;
+
+function WorkItemRow({ item }: { item: WorkItem }) {
+  return (
+    <Link
+      href={item.href}
+      className="flex flex-col gap-1 rounded-lg border border-transparent px-2 py-2 transition hover:border-brand-200 hover:bg-sand-50"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-medium text-gray-800">{item.title}</span>
+        {item.status && <Badge value={item.status} />}
+      </div>
+      {item.detail && <p className="text-xs text-gray-500">{item.detail}</p>}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-700">
+          <span aria-hidden>←</span>
+          {item.action}
+        </span>
+        {item.due && <span className="text-xs text-gray-400 tabular-nums">الاستحقاق: {item.due}</span>}
+      </div>
+    </Link>
+  );
+}
+
+function WorkSection({
+  title,
+  items,
+  emptyText,
+  moreHref,
+}: {
+  title: string;
+  items: WorkItem[];
+  emptyText: string;
+  moreHref?: string;
+}) {
+  const shown = items.slice(0, SECTION_LIMIT);
+  return (
+    <Card>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="font-bold text-brand-900">{title}</h2>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${items.length ? "bg-brand-100 text-brand-800" : "bg-sand-100 text-gray-400"}`}>
+          {items.length}
+        </span>
+      </div>
+      {shown.length === 0 ? (
+        <p className="py-3 text-sm text-gray-400">{emptyText}</p>
+      ) : (
+        <div className="divide-y divide-sand-100">
+          {shown.map((item) => (
+            <WorkItemRow key={`${item.href}-${item.title}`} item={item} />
+          ))}
+        </div>
+      )}
+      {items.length > SECTION_LIMIT && moreHref && (
+        <Link href={moreHref} className="mt-2 block text-center text-xs font-medium text-brand-700 hover:underline">
+          عرض {items.length - SECTION_LIMIT} عنصراً إضافياً
+        </Link>
+      )}
+    </Card>
+  );
+}
 
 export default async function DashboardPage() {
   const user = await requireUser();
   const today = new Date();
 
-  const [progs, peopleCount, tasks, evidenceCount] = await Promise.all([
-    db.select().from(programs),
-    db.select({ c: sql<number>`count(*)::int`, category: people.category }).from(people).where(eq(people.active, true)).groupBy(people.category),
-    db.select().from(actionTasks),
+  const [work, progCount, peopleCount, evidenceCount] = await Promise.all([
+    getWorkCenter(user),
+    db.select({ c: sql<number>`count(*)::int` }).from(programs),
+    db
+      .select({ c: sql<number>`count(*)::int`, category: people.category })
+      .from(people)
+      .where(eq(people.active, true))
+      .groupBy(people.category),
     db.select({ c: sql<number>`count(*)::int` }).from(evidenceItems),
   ]);
 
   const teachers = peopleCount.find((p) => p.category === "معلم")?.c ?? 0;
   const staff = peopleCount.find((p) => p.category === "موظف")?.c ?? 0;
-  const avgProgress = progs.length ? Math.round(progs.reduce((s, p) => s + p.progress, 0) / progs.length) : 0;
-  const openTasks = tasks.filter((t) => t.status !== "مكتملة" && t.status !== "ملغاة");
-  const todayIsoStr = todayIso();
-  const overdue = openTasks.filter((t) => t.dueDate && t.dueDate.toISOString().slice(0, 10) < todayIsoStr);
 
-  const stats: { label: string; value: string; href: string; sub?: string }[] = [
-    { label: "برامج الخطة التشغيلية", value: String(progs.length), href: "/plan", sub: `متوسط الإنجاز ${avgProgress}٪` },
+  const quickLinks: { label: string; value: string; href: string }[] = [
+    { label: "برامج الخطة التشغيلية", value: String(progCount[0]?.c ?? 0), href: "/plan" },
     { label: "المعلمون", value: String(teachers), href: "/people?فئة=معلم" },
     { label: "الموظفون", value: String(staff), href: "/people?فئة=موظف" },
-    { label: "مهام مفتوحة", value: String(openTasks.length), href: "/tasks", sub: overdue.length ? `${overdue.length} متأخرة` : undefined },
     { label: "الشواهد", value: String(evidenceCount[0]?.c ?? 0), href: "/evidence" },
   ];
 
-  return (
-    <div>
-      <PageHeader
-        title={`مرحباً، ${user.displayName}`}
-        subtitle={`${toHijriLong(today)} — ${toGregorianLong(today)}`}
-      />
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-        {stats.map((s) => (
-          <Link key={s.label} href={s.href}>
-            <Card className="h-full transition hover:border-brand-300">
-              <div className="text-2xl font-bold text-brand-900 tabular-nums">{s.value}</div>
-              <div className="mt-1 text-sm text-gray-600">{s.label}</div>
-              {s.sub && <div className="mt-0.5 text-xs text-gray-400">{s.sub}</div>}
-            </Card>
-          </Link>
-        ))}
-      </div>
+  const totalPending =
+    work.needsActionNow.length +
+    work.overdueTasks.length +
+    work.awaitingReview.length +
+    work.awaitingApproval.length;
 
-      {progs.length === 0 ? (
-        <EmptyState
-          title="ابدأ باستيراد الخطة التشغيلية"
-          hint="من صفحة الاستيراد، ارفع مصنف «الخطة التشغيلية المتكاملة 1448/1449» ثم راجع المعاينة واعتمد التنفيذ"
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Card>
-            <h2 className="mb-3 font-bold text-brand-900">أقل البرامج إنجازاً</h2>
-            <div className="space-y-2">
-              {[...progs]
-                .filter((p) => p.status !== "مقفل")
-                .sort((a, b) => a.progress - b.progress)
-                .slice(0, 6)
-                .map((p) => (
-                  <Link key={p.id} href={`/plan/${p.id}`} className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-sand-50">
-                    <span className="truncate">{p.seq}. {p.name}</span>
-                    <ProgressBar value={p.progress} />
-                  </Link>
-                ))}
-            </div>
-          </Card>
-          <Card>
-            <h2 className="mb-3 font-bold text-brand-900">مهام متأخرة</h2>
-            {overdue.length === 0 ? (
-              <p className="text-sm text-gray-400">لا مهام متأخرة</p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {overdue.slice(0, 8).map((t) => (
-                  <li key={t.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-sand-50">
-                    <span className="truncate">{t.title}</span>
-                    <span className="text-xs text-red-600 tabular-nums">{t.dueDate?.toISOString().slice(0, 10)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="مركز عمل مدير المدرسة"
+        subtitle={`مرحباً ${user.displayName} — ${toHijriLong(today)} · ${toGregorianLong(today)}`}
+      />
+
+      {/* ما يحتاج إجراء الآن */}
+      <Card className="border-brand-300 bg-brand-50/40">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="font-bold text-brand-900">ما يحتاج إجراء الآن</h2>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${work.needsActionNow.length ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>
+            {work.needsActionNow.length}
+          </span>
         </div>
-      )}
+        {work.needsActionNow.length === 0 ? (
+          totalPending === 0 ? (
+            <EmptyState title="لا إجراءات عاجلة اليوم" hint="كل الأعمال تحت السيطرة — راجع الأقسام أدناه للمتابعة الدورية" />
+          ) : (
+            <p className="py-3 text-sm text-gray-500">لا عناصر عاجلة — راجع الأقسام أدناه</p>
+          )
+        ) : (
+          <div className="grid grid-cols-1 gap-1 divide-y divide-brand-100 md:grid-cols-2 md:gap-x-6 md:divide-y-0">
+            {work.needsActionNow.slice(0, 10).map((item) => (
+              <WorkItemRow key={`now-${item.href}-${item.title}`} item={item} />
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <WorkSection
+          title="مهام متأخرة"
+          items={work.overdueTasks}
+          emptyText="لا مهام متأخرة"
+          moreHref="/tasks"
+        />
+        <WorkSection
+          title="عناصر بانتظار المراجعة"
+          items={work.awaitingReview}
+          emptyText="لا عناصر بانتظار المراجعة"
+          moreHref="/evidence"
+        />
+        <WorkSection
+          title="عناصر بانتظار الاعتماد"
+          items={work.awaitingApproval}
+          emptyText="لا عناصر بانتظار الاعتماد"
+          moreHref="/imports"
+        />
+        <WorkSection
+          title="تنبيهات نقص الشواهد"
+          items={work.evidenceGaps}
+          emptyText="لا نقص في شواهد البرامج المعتمدة"
+          moreHref="/plan"
+        />
+        <WorkSection
+          title="قرارات اللجان المفتوحة"
+          items={work.openDecisions}
+          emptyText="لا قرارات مفتوحة"
+          moreHref="/tasks"
+        />
+        <WorkSection
+          title="تقييمات الأداء القادمة"
+          items={work.upcomingPerformance}
+          emptyText="لا جلسات أداء مستحقة"
+          moreHref="/performance"
+        />
+        <WorkSection
+          title="بلاغات الصيانة"
+          items={work.maintenance}
+          emptyText="لا بلاغات صيانة مفتوحة"
+          moreHref="/building/maintenance"
+        />
+
+        {/* روابط سريعة */}
+        <Card>
+          <h2 className="mb-3 font-bold text-brand-900">نظرة سريعة</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {quickLinks.map((s) => (
+              <Link key={s.label} href={s.href} className="rounded-lg border border-sand-200 p-3 transition hover:border-brand-300 hover:bg-sand-50">
+                <div className="text-xl font-bold text-brand-900 tabular-nums">{s.value}</div>
+                <div className="mt-0.5 text-xs text-gray-600">{s.label}</div>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

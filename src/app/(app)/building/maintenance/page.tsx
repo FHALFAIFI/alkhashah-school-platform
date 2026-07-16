@@ -34,7 +34,7 @@ export default async function MaintenancePage() {
       ) : (
         <Table headers={["الرمز", "البلاغ", "الموقع", "الأولوية", "الحالة", "الصور", canWrite ? "تحديث" : ""]}>
           {issues.map((i) => (
-            <tr key={i.id}>
+            <tr key={i.id} id={`issue-${i.code}`}>
               <td className="px-3 py-2 tabular-nums">{i.code}</td>
               <td className="px-3 py-2">
                 <span className="font-medium">{i.title}</span>
