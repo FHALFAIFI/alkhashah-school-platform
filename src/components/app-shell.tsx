@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { logoutAction } from "@/app/(auth)/login/actions";
+import { OfflineBanner } from "./offline-banner";
 
 type NavItem = { href: string; label: string; permission?: string; icon: string };
 
@@ -12,6 +13,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: "عام",
     items: [
       { href: "/dashboard", label: "لوحة المتابعة", icon: "◧" },
+      { href: "/assistant", label: "مساعد المدير الذكي", permission: "ai.use", icon: "✦" },
       { href: "/tasks", label: "المهام والإجراءات", permission: "tasks.read", icon: "☑" },
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },
     ],
@@ -82,7 +84,29 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [lastPath, setLastPath] = useState(pathname);
   const permSet = new Set(permissions);
+
+  // إغلاق القائمة عند التنقل بين الصفحات (تعديل حالة أثناء التصيير — النمط الموصى به)
+  if (lastPath !== pathname) {
+    setLastPath(pathname);
+    if (open) setOpen(false);
+  }
+
+  // قفل تمرير الصفحة أثناء فتح القائمة + إغلاق بزر Escape
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const nav = NAV.map((s) => ({
     ...s,
@@ -90,23 +114,48 @@ export function AppShell({
   })).filter((s) => s.items.length > 0);
 
   return (
-    <div className="flex min-h-screen">
-      {/* الشريط الجانبي */}
+    <div className="flex min-h-dvh">
+      {/* خلفية معتمة خلف القائمة على الجوال */}
+      {open && (
+        <button
+          aria-label="إغلاق القائمة"
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* الشريط الجانبي — يلتصق بالحافة اليمنى في الاتجاه العربي وينزلق خارج الشاشة عند الإغلاق */}
       <aside
-        className={`no-print fixed inset-y-0 end-0 z-40 w-64 transform overflow-y-auto bg-brand-900 text-white transition-transform lg:static lg:translate-x-0 ${
+        role="navigation"
+        aria-label="القائمة الرئيسية"
+        className={`no-print fixed inset-y-0 start-0 z-50 flex w-[min(86vw,360px)] transform flex-col overflow-y-auto overscroll-contain bg-brand-900 text-white transition-transform duration-200 lg:static lg:z-auto lg:w-64 lg:translate-x-0 ${
           open ? "translate-x-0" : "translate-x-full lg:translate-x-0"
         }`}
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+        aria-hidden={!open ? undefined : undefined}
       >
         <div className="border-b border-brand-800 p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-lg font-bold">خ</div>
-            <div>
-              <div className="text-sm font-bold leading-tight">منصة الإدارة المدرسية المتكاملة</div>
-              <div className="mt-0.5 text-xs text-brand-200">مجمع الخشعة التعليمي للبنين</div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-lg font-bold">خ</div>
+              <div className="min-w-0">
+                <div className="text-sm font-bold leading-tight">منصة الإدارة المدرسية المتكاملة</div>
+                <div className="mt-0.5 text-xs text-brand-200">مجمع الخشعة التعليمي للبنين</div>
+              </div>
             </div>
+            <button
+              aria-label="إغلاق القائمة"
+              className="-me-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-xl text-brand-200 hover:bg-brand-800 lg:hidden"
+              onClick={() => setOpen(false)}
+            >
+              ✕
+            </button>
           </div>
         </div>
-        <nav className="p-3">
+        <nav className="flex-1 p-3">
           {nav.map((section) => (
             <div key={section.section} className="mb-4">
               <div className="mb-1 px-2 text-xs font-medium text-brand-300">{section.section}</div>
@@ -117,12 +166,12 @@ export function AppShell({
                     key={item.href}
                     href={item.href}
                     onClick={() => setOpen(false)}
-                    className={`mb-0.5 flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition ${
+                    className={`mb-0.5 flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 text-sm transition lg:min-h-0 lg:py-1.5 ${
                       active ? "bg-brand-600 font-medium text-white" : "text-brand-100 hover:bg-brand-800"
                     }`}
                   >
-                    <span aria-hidden className="w-5 text-center text-xs opacity-70">{item.icon}</span>
-                    <span className="flex-1">{item.label}</span>
+                    <span aria-hidden className="w-5 shrink-0 text-center text-xs opacity-70">{item.icon}</span>
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
                     {item.href === "/notifications" && unreadCount > 0 && (
                       <span className="rounded-full bg-red-500 px-1.5 text-xs tabular-nums">{unreadCount}</span>
                     )}
@@ -134,35 +183,36 @@ export function AppShell({
         </nav>
       </aside>
 
-      {open && (
-        <button
-          aria-label="إغلاق القائمة"
-          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-          onClick={() => setOpen(false)}
-        />
-      )}
-
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="no-print sticky top-0 z-20 flex items-center justify-between border-b border-sand-200 bg-white px-4 py-2.5">
+        <header
+          className="no-print sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-sand-200 bg-white px-3 py-1.5 sm:px-4"
+          style={{ paddingTop: "max(0.375rem, env(safe-area-inset-top))" }}
+        >
           <button
-            className="rounded-lg border border-sand-200 px-3 py-1.5 text-sm lg:hidden"
+            aria-label="فتح القائمة"
+            aria-expanded={open}
+            className="flex min-h-11 items-center gap-2 rounded-lg border border-sand-200 px-3 text-sm lg:hidden"
             onClick={() => setOpen(true)}
           >
+            <span aria-hidden className="text-base leading-none">☰</span>
             القائمة
           </button>
           <div className="hidden text-sm text-gray-500 lg:block">
             {new Intl.DateTimeFormat("ar-SA-u-ca-islamic-umalqura", { dateStyle: "full" }).format(new Date())}
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-gray-700">{displayName}</span>
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <span className="truncate text-sm font-medium text-gray-700">{displayName}</span>
             <form action={logoutAction}>
-              <button className="rounded-lg border border-sand-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-sand-100">
+              <button className="min-h-11 rounded-lg border border-sand-200 px-3 text-sm text-gray-600 hover:bg-sand-100 lg:min-h-0 lg:py-1.5">
                 خروج
               </button>
             </form>
           </div>
         </header>
-        <main className="flex-1 p-4 lg:p-6">{children}</main>
+        <OfflineBanner />
+        <main className="min-w-0 flex-1 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 lg:p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

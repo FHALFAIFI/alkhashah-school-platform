@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { floors, floorGeometryVersions, rooms as roomsTable } from "@/db/schema";
 import { PageHeader, Card, Badge, LinkButton, Table } from "@/components/ui";
 import type { FloorGeometry } from "@/lib/building/geometry";
-import { FloorSvg } from "./floor-svg";
+import { FloorViewer } from "./floor-viewer";
 
 export const metadata = { title: "مخطط المبنى" };
 export const dynamic = "force-dynamic";
@@ -69,7 +69,10 @@ export default async function BuildingPage({ searchParams }: { searchParams: Pro
               تعرض مسودة غير منشورة — راجعها في المحرر مع صورة المصدر ثم انشرها لمزامنة سجل الغرف.
             </p>
           )}
-          <FloorSvg geometry={geometry} isSite={active.key === "site"} />
+          <FloorViewer
+            geometry={geometry}
+            roomLinks={Object.fromEntries(floorRooms.map((r) => [r.geomKey, `/building/rooms/${r.id}`]))}
+          />
         </Card>
       ) : (
         <Card>

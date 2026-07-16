@@ -135,7 +135,7 @@ export function SignedReportUpload({ sessionId }: { sessionId: string }) {
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       <div className="min-w-64 flex-1">
         <label className="mb-1 block text-sm font-medium text-gray-700">رفع التقرير الموقع</label>
-        <input name="file" type="file" accept=".pdf,.jpg,.jpeg,.png" required className="w-full rounded-lg border border-dashed border-gray-300 p-3 text-sm" />
+        <input name="file" type="file" accept="application/pdf,image/*" required className="w-full rounded-lg border border-dashed border-gray-300 p-3 text-sm" />
       </div>
       <SubmitButton variant="secondary">رفع</SubmitButton>
     </form>

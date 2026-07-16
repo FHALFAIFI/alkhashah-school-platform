@@ -1,8 +1,96 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { submitInspectionAction, overrideReadinessAction, type ActionState } from "../../actions";
-import { SubmitButton } from "@/components/ui";
+import { submitInspectionAction, overrideReadinessAction, updateRoomAction, createIssueAction, type ActionState } from "../../actions";
+import { Field, SubmitButton } from "@/components/ui";
+
+const ROOM_TYPES = [
+  "فصل دراسي", "معمل", "مكتب إداري", "غرفة معلمين", "مصادر تعلم", "ممر", "سلم",
+  "دورة مياه", "خدمات", "ملعب", "ساحة", "مخرج طوارئ", "بوابة", "مظلة",
+];
+
+/** تعديل الحقول البسيطة للغرفة — الاسم والنوع والأبعاد والسعة والملاحظات */
+export function RoomEditForm({
+  roomId,
+  initial,
+}: {
+  roomId: string;
+  initial: { nameAr: string; roomType: string; lengthM: string | null; widthM: string | null; capacity: number | null; notes: string | null };
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(updateRoomAction.bind(null, roomId), null);
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="min-h-11 rounded-lg border border-sand-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0">
+        تعديل بيانات الغرفة
+      </button>
+    );
+  }
+  const types = ROOM_TYPES.includes(initial.roomType) ? ROOM_TYPES : [initial.roomType, ...ROOM_TYPES];
+  return (
+    <form action={formAction} className="w-full space-y-3 rounded-lg bg-sand-50 p-3">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{state.success}</div>}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="اسم الغرفة" name="nameAr" defaultValue={initial.nameAr} required />
+        <div>
+          <label htmlFor="roomType" className="mb-1 block text-sm font-medium text-gray-700">النوع</label>
+          <select id="roomType" name="roomType" defaultValue={initial.roomType} className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+            {types.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <Field label="الطول (م)" name="lengthM" type="number" defaultValue={initial.lengthM ?? undefined} dir="ltr" />
+        <Field label="العرض (م)" name="widthM" type="number" defaultValue={initial.widthM ?? undefined} dir="ltr" />
+        <Field label="السعة" name="capacity" type="number" defaultValue={initial.capacity ?? undefined} dir="ltr" />
+        <Field label="ملاحظات" name="notes" defaultValue={initial.notes ?? undefined} />
+      </div>
+      <div className="flex gap-2">
+        <SubmitButton>حفظ</SubmitButton>
+        <button type="button" onClick={() => setOpen(false)} className="min-h-11 px-3 text-sm text-gray-500 lg:min-h-0">إغلاق</button>
+      </div>
+    </form>
+  );
+}
+
+/** بلاغ صيانة سريع من صفحة الغرفة نفسها — مع صورة من الكاميرا مباشرة */
+export function RoomIssueForm({ roomId }: { roomId: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(createIssueAction, null);
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="min-h-11 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0">
+        بلاغ صيانة لهذه الغرفة
+      </button>
+    );
+  }
+  return (
+    <form action={formAction} className="w-full space-y-3 rounded-lg bg-sand-50 p-3">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{state.success}</div>}
+      <input type="hidden" name="roomId" value={roomId} />
+      <Field label="عنوان البلاغ" name="title" required />
+      <Field label="الوصف" name="description" />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">الأولوية</label>
+          <select name="priority" defaultValue="متوسطة" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+            <option value="عالية">عالية</option>
+            <option value="متوسطة">متوسطة</option>
+            <option value="منخفضة">منخفضة</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">صورة (اختياري)</label>
+          <input name="photo" type="file" accept="image/*" className="w-full text-sm" />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <SubmitButton>تسجيل البلاغ</SubmitButton>
+        <button type="button" onClick={() => setOpen(false)} className="min-h-11 px-3 text-sm text-gray-500 lg:min-h-0">إغلاق</button>
+      </div>
+    </form>
+  );
+}
 
 export function InspectionRunForm({
   roomId,

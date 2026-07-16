@@ -38,7 +38,7 @@ export function NewIssueForm({ rooms }: { rooms: { id: string; label: string }[]
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700">صورة (اختياري)</label>
-          <input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp" className="text-sm" />
+          <input name="photo" type="file" accept="image/*" className="text-sm" />
         </div>
         <SubmitButton>تسجيل البلاغ</SubmitButton>
       </div>

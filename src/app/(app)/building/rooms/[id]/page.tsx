@@ -8,7 +8,8 @@ import {
 } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, ProgressBar } from "@/components/ui";
 import { computeRoomReadiness } from "@/lib/building/readiness";
-import { InspectionRunForm, ReadinessOverrideForm } from "./room-ui";
+import { InspectionRunForm, ReadinessOverrideForm, RoomEditForm, RoomIssueForm } from "./room-ui";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -36,10 +37,16 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
     override: override[0] ? { value: override[0].overrideValue } : null,
   });
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3080";
+  // رابط رمز QR من عنوان الطلب الفعلي — يعمل عبر Tailscale أو أي نطاق دون تثبيت اسم جهاز
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const appUrl = host ? `${proto}://${host}` : (process.env.APP_URL ?? "http://localhost:3080");
   const qrDataUrl = await QRCode.toDataURL(`${appUrl}/building/rooms/${room.id}`, { width: 180, margin: 1 });
   const matchingTemplates = templates.filter((t) => !t.roomType || t.roomType === room.roomType);
   const canInspect = user.permissions.has("inspections.write");
+  const canEdit = user.permissions.has("building.write");
+  const canReport = user.permissions.has("maintenance.write");
 
   return (
     <div className="space-y-4">
@@ -47,6 +54,25 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
         title={`${room.nameAr} (${room.code})`}
         subtitle={`${floor.nameAr} — ${room.roomType}${room.lengthM && room.widthM ? ` — ${Number(room.lengthM).toFixed(1)}×${Number(room.widthM).toFixed(1)}م` : ""}${room.areaM2 ? ` — ${Number(room.areaM2).toFixed(1)} م²` : ""}`}
       />
+
+      {(canEdit || canReport) && (
+        <div className="flex flex-wrap items-start gap-2">
+          {canEdit && (
+            <RoomEditForm
+              roomId={id}
+              initial={{
+                nameAr: room.nameAr,
+                roomType: room.roomType,
+                lengthM: room.lengthM,
+                widthM: room.widthM,
+                capacity: room.capacity,
+                notes: room.notes,
+              }}
+            />
+          )}
+          {canReport && <RoomIssueForm roomId={id} />}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>

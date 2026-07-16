@@ -129,7 +129,7 @@ export function LinkButton({
       ? "bg-brand-600 text-white hover:bg-brand-700"
       : "border border-sand-200 bg-white text-gray-700 hover:bg-sand-100";
   return (
-    <Link href={href} className={`inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium transition ${cls}`}>
+    <Link href={href} className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-sm font-medium transition lg:min-h-0 ${cls}`}>
       {children}
     </Link>
   );
@@ -168,7 +168,7 @@ export function Field({
         required={required}
         dir={dir}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+        className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 lg:min-h-0"
       />
       {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
     </div>
@@ -230,7 +230,7 @@ export function Select({
         name={name}
         defaultValue={defaultValue ?? undefined}
         required={required}
-        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+        className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 lg:min-h-0"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -250,7 +250,7 @@ export function SubmitButton({ children, variant = "primary" }: { children: Reac
         ? "bg-red-600 text-white hover:bg-red-700"
         : "border border-sand-200 bg-white text-gray-700 hover:bg-sand-100";
   return (
-    <button type="submit" className={`rounded-lg px-4 py-2 text-sm font-medium transition ${cls}`}>
+    <button type="submit" className={`inline-flex min-h-11 items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition lg:min-h-0 ${cls}`}>
       {children}
     </button>
   );

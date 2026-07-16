@@ -27,6 +27,58 @@ async function assertManagedZone(floorId: string): Promise<string | null> {
   return null;
 }
 
+// ————————————————— الغرف —————————————————
+
+const roomUpdateSchema = z.object({
+  nameAr: z.string().trim().min(1, "اسم الغرفة إلزامي").max(120),
+  roomType: z.string().trim().min(1).max(60),
+  lengthM: z.coerce.number().min(0).max(200).optional(),
+  widthM: z.coerce.number().min(0).max(200).optional(),
+  capacity: z.coerce.number().int().min(0).max(10000).optional(),
+  notes: z.string().trim().max(2000).optional(),
+});
+
+/** تعديل الحقول البسيطة للغرفة من الجوال أو الحاسب — التعديل الهندسي الدقيق يبقى في المحرر */
+export async function updateRoomAction(roomId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("building.write");
+  const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId));
+  if (!room) return { error: "الغرفة غير موجودة" };
+  const zoneError = await assertManagedZone(room.floorId);
+  if (zoneError) return { error: zoneError };
+
+  const parsed = roomUpdateSchema.safeParse({
+    nameAr: formData.get("nameAr"),
+    roomType: formData.get("roomType"),
+    lengthM: formData.get("lengthM") || undefined,
+    widthM: formData.get("widthM") || undefined,
+    capacity: formData.get("capacity") || undefined,
+    notes: formData.get("notes") || undefined,
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "بيانات غير صالحة" };
+  const d = parsed.data;
+
+  const lengthM = d.lengthM ?? (room.lengthM ? Number(room.lengthM) : undefined);
+  const widthM = d.widthM ?? (room.widthM ? Number(room.widthM) : undefined);
+  await db
+    .update(rooms)
+    .set({
+      nameAr: d.nameAr,
+      roomType: d.roomType,
+      lengthM: lengthM != null ? String(round1(lengthM)) : room.lengthM,
+      widthM: widthM != null ? String(round1(widthM)) : room.widthM,
+      areaM2: lengthM != null && widthM != null ? String(round1(lengthM * widthM)) : room.areaM2,
+      perimeterM: lengthM != null && widthM != null ? String(round1(2 * (lengthM + widthM))) : room.perimeterM,
+      capacity: d.capacity ?? room.capacity,
+      notes: d.notes ?? room.notes,
+      updatedAt: new Date(),
+    })
+    .where(eq(rooms.id, roomId));
+  await audit({ actorId: user.id, action: "room.updated", entityType: "room", entityId: roomId, summary: `تعديل بيانات الغرفة ${room.code}` });
+  revalidatePath(`/building/rooms/${roomId}`);
+  revalidatePath("/building");
+  return { success: "حُفظت بيانات الغرفة" };
+}
+
 // ————————————————— الهندسة —————————————————
 
 /** حفظ مسودة هندسة جديدة — نسخة جديدة دائماً، التاريخ لا يفقد */
