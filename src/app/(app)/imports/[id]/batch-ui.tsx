@@ -10,34 +10,42 @@ export function BatchActions({
   canCommit,
   canRollback,
   reviewCount,
+  fileName,
+  readyCount,
+  teacherCount,
+  staffCount,
+  excludedCount,
 }: {
   batchId: string;
   status: string;
   canCommit: boolean;
   canRollback: boolean;
   reviewCount: number;
+  fileName: string;
+  readyCount: number;
+  teacherCount: number;
+  staffCount: number;
+  excludedCount: number;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
 
   return (
     <div className="mb-4 rounded-xl border border-sand-200 bg-white p-4">
       {error && <div role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</div>}
       <div className="flex flex-wrap items-center gap-3">
-        {status === "معاينة" && (
+        {status === "معاينة" && !confirming && (
           <>
             <button
               disabled={!canCommit || pending}
-              onClick={() =>
-                startTransition(async () => {
-                  setError(null);
-                  const res = await commitBatchAction(batchId);
-                  if (res?.error) setError(res.error);
-                })
-              }
+              onClick={() => {
+                setError(null);
+                setConfirming(true);
+              }}
               className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
             >
-              {pending ? "جارٍ التنفيذ…" : "موافقة صريحة وتنفيذ الاستيراد"}
+              موافقة صريحة وتنفيذ الاستيراد
             </button>
             {reviewCount > 0 && (
               <span className="text-sm text-amber-700">
@@ -45,6 +53,42 @@ export function BatchActions({
               </span>
             )}
           </>
+        )}
+        {status === "معاينة" && confirming && (
+          <div className="w-full rounded-lg border border-brand-200 bg-brand-50 p-4">
+            <p className="mb-2 font-bold text-brand-900">تأكيد التنفيذ — راجع ملخص الدفعة قبل الموافقة النهائية</p>
+            <ul className="mb-3 space-y-1 text-sm text-brand-900">
+              <li>اسم الملف: <span className="font-medium">{fileName}</span></li>
+              <li>عدد الصفوف الجاهزة: <span className="font-medium tabular-nums">{readyCount}</span></li>
+              <li>عدد المعلمين: <span className="font-medium tabular-nums">{teacherCount}</span></li>
+              <li>عدد الموظفين: <span className="font-medium tabular-nums">{staffCount}</span></li>
+              <li>عدد المستبعدين: <span className="font-medium tabular-nums">{excludedCount}</span></li>
+            </ul>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    setError(null);
+                    const res = await commitBatchAction(batchId);
+                    if (res?.error) setError(res.error);
+                    setConfirming(false);
+                  })
+                }
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {pending ? "جارٍ التنفيذ…" : "تأكيد التنفيذ"}
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setConfirming(false)}
+                className="rounded-lg border border-sand-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-sand-100 disabled:opacity-50"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
         )}
         {canRollback && (
           <button

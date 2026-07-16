@@ -8,6 +8,9 @@ import { createBatch, commitBatch, rollbackBatch, updateRowCorrection, getBatchW
 import { parsePeopleWorkbook, commitPeopleRows, rollbackPeopleBatch } from "@/lib/imports/people";
 import { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch } from "@/lib/imports/plan";
 import { notifyAll } from "@/lib/notify";
+import { db } from "@/db";
+import { planYears } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 export type ImportActionState = { error?: string } | null;
 
@@ -90,10 +93,12 @@ export async function commitBatchAction(batchId: string): Promise<ImportActionSt
     if (data.batch.importType === "people") {
       await commitBatch(batchId, user.id, (tx, rows) => commitPeopleRows(tx, rows, batchId, user.id));
     } else if (data.batch.importType === "operational_plan") {
+      // السنة التخطيطية النشطة هي الوجهة — لا سنة مثبتة في الشيفرة
+      const [activeYear] = await db.select().from(planYears).where(eq(planYears.status, "نشطة")).limit(1);
       await commitBatch(batchId, user.id, (tx, rows) =>
         commitPlanRows(tx, rows, batchId, {
-          planYearKey: "1448-1449",
-          planYearName: "العام الدراسي 1448/1449هـ",
+          planYearKey: activeYear?.key ?? "1448-1449",
+          planYearName: activeYear?.nameAr ?? "العام الدراسي 1448/1449هـ",
           createdBy: user.id,
         }),
       );
@@ -103,9 +108,12 @@ export async function commitBatchAction(batchId: string): Promise<ImportActionSt
   } catch (e) {
     return { error: e instanceof Error ? e.message : "فشل التنفيذ" };
   }
-  await notifyAll({ title: "تم تنفيذ دفعة استيراد", body: `نفذت دفعة ${data.batch.sourceFileName} بنجاح`, link: `/imports/${batchId}` });
+  // استيراد الأشخاص يوجه إلى سجل الموظفين مصفى بالدفعة؛ باقي الأنواع تبقى على صفحة الدفعة
+  const notifyLink = data.batch.importType === "people" ? `/people?دفعة=${batchId}` : `/imports/${batchId}`;
+  await notifyAll({ title: "تم تنفيذ دفعة استيراد", body: `نفذت دفعة ${data.batch.sourceFileName} بنجاح`, link: notifyLink });
   revalidatePath(`/imports/${batchId}`);
   revalidatePath("/imports");
+  revalidatePath("/people");
   return null;
 }
 

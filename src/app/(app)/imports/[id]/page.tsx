@@ -1,10 +1,23 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/session";
 import { getBatchWithRows } from "@/lib/imports/framework";
-import { PageHeader, Card, Badge, Table } from "@/components/ui";
+import { PageHeader, Card, Badge, Table, WorkflowSteps, LinkButton } from "@/components/ui";
 import { BatchActions, RowEditor } from "./batch-ui";
 
 export const dynamic = "force-dynamic";
+
+/** مراحل سير عمل الاستيراد — تطابق ما يعرض في صفحة الرفع */
+const IMPORT_STEPS = ["رفع الملف", "المعاينة والتصحيح", "الموافقة والتنفيذ", "عرض النتيجة"];
+
+/** يشتق فهرس المرحلة الحالية من حالة الدفعة وصفوفها */
+function currentStep(status: string, counts: { ready: number; review: number }): number {
+  if (status === "منفذة" || status === "متراجع عنها") return 3;
+  // معاينة (وأي حالة أخرى): مراجعة معلقة → مرحلة التصحيح، وإلا → مرحلة الموافقة
+  if (counts.review > 0) return 1;
+  if (counts.ready > 0) return 2;
+  return 1;
+}
 
 const PEOPLE_FIELDS: { key: string; label: string }[] = [
   { key: "fullName", label: "الاسم" },
@@ -31,6 +44,8 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
   };
 
   const isPeople = batch.importType === "people";
+  const readyRows = rows.filter((r) => r.status === "جاهز");
+  const teacherCount = readyRows.filter((r) => (r.mapped as Record<string, string>)?.category === "معلم").length;
 
   return (
     <div>
@@ -40,17 +55,50 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
         actions={<Badge value={batch.status} />}
       />
 
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-sand-200 bg-white p-4">
+        <WorkflowSteps steps={IMPORT_STEPS} current={currentStep(batch.status, counts)} />
+        {batch.status === "متراجع عنها" && <Badge value="متراجع عنها" />}
+      </div>
+
+      {batch.status === "معاينة" && counts.review > 0 && (
+        <Card className="mb-4 border-amber-300 bg-amber-50">
+          <p className="font-bold text-amber-900">
+            {counts.review} صفاً تحتاج مراجعة قبل التنفيذ — عدّل كل صف أو أكده كجاهز أو استبعده
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            استخدم أزرار «تصحيح» و«تأكيد كجاهز» و«استبعاد» في عمود الإجراءات لكل صف أدناه.
+          </p>
+        </Card>
+      )}
+
+      {batch.status === "منفذة" && isPeople && (
+        <Card className="mb-4 border-emerald-200 bg-emerald-50">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-emerald-900">تم الاستيراد</p>
+              <p className="mt-1 text-sm text-emerald-800">أنشئت سجلات الموظفين من هذه الدفعة — يمكنك عرضها في سجل المعلمين والموظفين.</p>
+            </div>
+            <LinkButton href={`/people?دفعة=${batch.id}`}>عرض الموظفين المستوردين</LinkButton>
+          </div>
+        </Card>
+      )}
+
       <BatchActions
         batchId={batch.id}
         status={batch.status}
         canCommit={user.permissions.has("imports.commit") && counts.review === 0 && counts.ready > 0 && batch.status === "معاينة"}
         canRollback={user.permissions.has("imports.rollback") && batch.status === "منفذة"}
         reviewCount={counts.review}
+        fileName={batch.sourceFileName}
+        readyCount={counts.ready}
+        teacherCount={teacherCount}
+        staffCount={counts.ready - teacherCount}
+        excludedCount={counts.excluded}
       />
 
       {batch.errorLog != null && (
         <Card className="mb-4 border-red-200 bg-red-50">
-          <pre className="whitespace-pre-wrap text-xs text-red-800">{JSON.stringify(batch.errorLog, null, 1)}</pre>
+          <ErrorLogList log={batch.errorLog} />
         </Card>
       )}
 
@@ -64,7 +112,15 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
                 <td className="px-3 py-2 tabular-nums">{r.rowIndex}</td>
                 <td className="px-3 py-2"><Badge value={r.status} /></td>
                 {PEOPLE_FIELDS.map((f) => (
-                  <td key={f.key} className="px-3 py-2">{m?.[f.key] || "—"}</td>
+                  <td key={f.key} className="px-3 py-2">
+                    {f.key === "fullName" && r.status === "منفذ" && r.createdEntityId ? (
+                      <Link href={`/people/${r.createdEntityId}`} className="font-medium text-brand-700 underline-offset-2 hover:underline">
+                        {m?.[f.key] || "—"}
+                      </Link>
+                    ) : (
+                      m?.[f.key] || "—"
+                    )}
+                  </td>
                 ))}
                 <td className="px-3 py-2 text-xs">
                   {v?.errors?.map((e, i) => <div key={i} className="text-red-600">✗ {e}</div>)}
@@ -88,6 +144,45 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
       ) : (
         <PlanPreview rows={rows} />
       )}
+    </div>
+  );
+}
+
+/**
+ * سجل الأخطاء بصيغة عربية مقروءة (رقم الصف + الرسالة) بدل JSON الخام،
+ * مع تحمل الأشكال غير المعروفة دون كسر الصفحة.
+ */
+function ErrorLogList({ log }: { log: unknown }) {
+  const entries: { rowIndex?: number; message: string }[] = [];
+  const push = (item: unknown) => {
+    if (typeof item === "string") {
+      entries.push({ message: item });
+    } else if (item && typeof item === "object") {
+      const o = item as Record<string, unknown>;
+      const rowIndex =
+        typeof o.rowIndex === "number" ? o.rowIndex : typeof o.row === "number" ? o.row : undefined;
+      const message =
+        typeof o.message === "string" ? o.message : typeof o.error === "string" ? o.error : JSON.stringify(item);
+      entries.push({ rowIndex, message });
+    } else if (item != null) {
+      entries.push({ message: String(item) });
+    }
+  };
+  if (Array.isArray(log)) log.forEach(push);
+  else push(log);
+
+  if (entries.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-2 font-bold text-red-900">سجل الأخطاء</p>
+      <ul className="space-y-1 text-sm text-red-800">
+        {entries.map((e, i) => (
+          <li key={i}>
+            {e.rowIndex !== undefined && <span className="ms-1 font-medium tabular-nums">الصف {e.rowIndex}: </span>}
+            {e.message}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

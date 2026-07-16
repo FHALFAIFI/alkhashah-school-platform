@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, and } from "drizzle-orm";
 import { db } from "@/db";
 import { importBatches, importRows } from "@/db/schema";
 import { audit } from "@/lib/audit";
@@ -92,6 +92,7 @@ export async function commitBatch(
   actorId: string,
   committer: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], rows: { id: string; mapped: Record<string, unknown> }[]) => Promise<CommitResult>,
 ) {
+  // فحوص مسبقة لرسائل ودية فقط — الادعاء الذري داخل المعاملة هو الحكم النهائي
   const data = await getBatchWithRows(batchId);
   if (!data) throw new Error("الدفعة غير موجودة");
   if (data.batch.status === "منفذة") throw new Error("الدفعة منفذة مسبقاً");
@@ -106,18 +107,23 @@ export async function commitBatch(
   }
 
   const result = await db.transaction(async (tx) => {
+    // ادعاء ذري للدفعة أولاً: يمنع التنفيذ المزدوج من نافذتين متزامنتين (TOCTOU)
+    const claimed = await tx
+      .update(importBatches)
+      .set({ status: "منفذة", committedAt: new Date(), committedBy: actorId })
+      .where(and(eq(importBatches.id, batchId), eq(importBatches.status, "معاينة")))
+      .returning();
+    if (claimed.length === 0) {
+      throw new Error("الدفعة ليست في حالة معاينة — ربما نفذت من نافذة أخرى");
+    }
     const res = await committer(
       tx,
       ready.map((r) => ({ id: r.id, mapped: r.mapped as Record<string, unknown> })),
     );
+    // الملخص النهائي يكتب في نهاية المعاملة بعد اكتمال التنفيذ
     await tx
       .update(importBatches)
-      .set({
-        status: "منفذة",
-        committedAt: new Date(),
-        committedBy: actorId,
-        summary: res.createdSummary,
-      })
+      .set({ summary: res.createdSummary })
       .where(eq(importBatches.id, batchId));
     return res;
   });
@@ -141,16 +147,22 @@ export async function rollbackBatch(
   actorId: string,
   rollbacker: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<void>,
 ) {
+  // فحص مسبق لرسالة ودية فقط — الادعاء الذري داخل المعاملة هو الحكم النهائي
   const [batch] = await db.select().from(importBatches).where(eq(importBatches.id, batchId));
   if (!batch) throw new Error("الدفعة غير موجودة");
   if (batch.status !== "منفذة") throw new Error("التراجع ممكن فقط عن دفعة منفذة");
 
   await db.transaction(async (tx) => {
-    await rollbacker(tx);
-    await tx
+    // ادعاء ذري: يمنع التراجع المزدوج من نافذتين متزامنتين
+    const claimed = await tx
       .update(importBatches)
       .set({ status: "متراجع عنها", rolledBackAt: new Date() })
-      .where(eq(importBatches.id, batchId));
+      .where(and(eq(importBatches.id, batchId), eq(importBatches.status, "منفذة")))
+      .returning();
+    if (claimed.length === 0) {
+      throw new Error("الدفعة ليست في حالة منفذة — ربما تُرجع عنها من نافذة أخرى");
+    }
+    await rollbacker(tx);
   });
 
   await audit({
