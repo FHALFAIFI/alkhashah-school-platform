@@ -3,12 +3,12 @@ import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
-import { perfCycles, perfSessions, perfRatings, people, improvementPlans } from "@/db/schema";
-import { PageHeader, Card, Badge, Table, LinkButton, ProgressBar } from "@/components/ui";
+import { perfCycles, perfSessions, perfRatings, people, improvementPlans, documents } from "@/db/schema";
+import { PageHeader, Card, Badge, Table, LinkButton, ProgressBar, WorkflowSteps } from "@/components/ui";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { cycleProgress, weakIndicators } from "@/lib/performance/scoring";
-import { NewSessionForm, ImprovementPlanForm } from "./cycle-ui";
-import { dualDisplay } from "@/lib/dates";
+import { NewSessionForm, ImprovementPlanForm, PlanStatusControl } from "./cycle-ui";
+import { dualDisplay, todayIso } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +48,26 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
   const startDisplay = cycle.startDate ? dualDisplay(cycle.startDate, context) : null;
   const endDisplay = cycle.endDate ? dualDisplay(cycle.endDate, context) : null;
 
+  // مؤشر المرحلة: يشتق من الجلسات أحادية الانعقاد (تخطيط/منتصف/نهائي)
+  const doneStates = new Set(["مكتملة", "مقفلة"]);
+  const stageSessions = [
+    { type: "تخطيط", label: "التخطيط", session: sessions.find((s) => s.sessionType === "تخطيط"), deadline: cycle.planningDeadline },
+    { type: "منتصف", label: "منتصف العام", session: sessions.find((s) => s.sessionType === "منتصف"), deadline: cycle.midDeadline },
+    { type: "نهائي", label: "التقييم النهائي", session: sessions.find((s) => s.sessionType === "نهائي"), deadline: cycle.finalDeadline },
+  ];
+  const finalSession = stageSessions[2].session;
+  const finalLocked = !!finalSession && finalSession.status === "مقفلة";
+  const firstIncomplete = stageSessions.findIndex((st) => !st.session || !doneStates.has(st.session.status));
+  const currentStep = finalLocked ? 4 : firstIncomplete === -1 ? 3 : firstIncomplete;
+  const nextStage = stageSessions.find((st) => !st.session || !doneStates.has(st.session.status));
+  const finalReportDoc = finalLocked && finalSession?.reportDocId
+    ? (await db.select().from(documents).where(eq(documents.id, finalSession.reportDocId)))[0]
+    : null;
+  const today = todayIso();
+  const employeeDeadlines = cycle.cycleType === "موظف"
+    ? stageSessions.filter((st) => st.deadline)
+    : [];
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -62,6 +82,64 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
           </div>
         }
       />
+
+      <Card>
+        <h2 className="mb-3 font-bold text-brand-900">مرحلة الدورة</h2>
+        <WorkflowSteps steps={["تخطيط", "منتصف العام", "التقييم النهائي", "الاكتمال"]} current={currentStep} />
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-sand-100 pt-3">
+          {finalLocked ? (
+            <>
+              <Badge value="مكتملة" />
+              <span className="text-sm text-gray-600">الدورة مكتملة — أقفل التقييم النهائي بتقرير موقع.</span>
+              {finalReportDoc?.pdfFileId ? (
+                <a href={`/api/files/${finalReportDoc.pdfFileId}`} className="text-sm text-brand-700 underline">
+                  تنزيل تقرير التقييم النهائي ({finalReportDoc.docNumber})
+                </a>
+              ) : (
+                finalSession && (
+                  <LinkButton href={`/performance/cycles/${id}/sessions/${finalSession.id}`} variant="secondary">
+                    فتح التقييم النهائي
+                  </LinkButton>
+                )
+              )}
+            </>
+          ) : nextStage ? (
+            nextStage.session ? (
+              <>
+                <span className="text-sm text-gray-600">الإجراء التالي:</span>
+                <LinkButton href={`/performance/cycles/${id}/sessions/${nextStage.session.id}`}>
+                  أكمل جلسة {nextStage.type}
+                </LinkButton>
+              </>
+            ) : (
+              <>
+                <span className="text-sm text-gray-600">الإجراء التالي:</span>
+                <LinkButton href="#sessions">أنشئ جلسة {nextStage.label}</LinkButton>
+              </>
+            )
+          ) : (
+            <span className="text-sm text-gray-600">أقفل التقييم النهائي لإكمال الدورة.</span>
+          )}
+        </div>
+        {employeeDeadlines.length > 0 && (
+          <div className="mt-3 grid grid-cols-1 gap-2 border-t border-sand-100 pt-3 sm:grid-cols-3">
+            {employeeDeadlines.map((st) => {
+              const d = dualDisplay(st.deadline!, "employee");
+              const late = today > st.deadline! && (!st.session || !doneStates.has(st.session.status));
+              return (
+                <div key={st.type} className="rounded-lg bg-sand-50 p-2 text-sm">
+                  <div className="text-xs text-gray-500">موعد {st.label}</div>
+                  <div className="mt-0.5 font-medium tabular-nums">{d?.primary}</div>
+                  <div className="text-xs text-gray-400 tabular-nums">{d?.secondary}</div>
+                  {late && (
+                    <div className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">متأخر عن الموعد</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card>
@@ -88,6 +166,7 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
         </Card>
       </div>
 
+      <div id="sessions" className="scroll-mt-20">
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">الجلسات ({sessions.length})</h2>
         <p className="mb-3 text-xs text-gray-400">
@@ -111,6 +190,7 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
         )}
         {canWrite && <NewSessionForm cycleId={id} />}
       </Card>
+      </div>
 
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">خطط التحسين</h2>
@@ -123,9 +203,12 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
           <ul className="mb-3 space-y-2">
             {plans.map((p) => (
               <li key={p.id} className="rounded-lg border border-sand-200 p-3 text-sm">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">{p.title}</span>
-                  <Badge value={p.status} />
+                  <span className="flex items-center gap-2">
+                    <Badge value={p.status} />
+                    {canWrite && p.status !== "مكتملة" && <PlanStatusControl planId={p.id} status={p.status} />}
+                  </span>
                 </div>
                 {p.goals && <p className="mt-1 text-xs text-gray-500">الأهداف: {p.goals}</p>}
                 {p.actions && <p className="text-xs text-gray-500">الإجراءات: {p.actions}</p>}

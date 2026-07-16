@@ -184,9 +184,9 @@ describe("إدارة الأداء (A3, A4 وبوابة المرحلة 3)", () =>
     expect(done.status).toBe("مكتملة");
   });
 
-  it("التقييم النهائي لا يقفل قبل تقييم كل المؤشرات واكتمال الشواهد المطلوبة", async () => {
+  it("التقييم النهائي لا يقفل قبل تقييم كل المؤشرات واكتمال الشواهد المطلوبة — وإقفاله يكمل الدورة وإعادة فتحه تعيدها نشطة", async () => {
     const { db } = await import("@/db");
-    const { perfSessions, storedFiles, documents, evidenceItems } = await import("@/db/schema");
+    const { perfSessions, perfCycles, storedFiles, documents, evidenceItems } = await import("@/db/schema");
     const { completeSessionAction, saveRatingsAction } = await import("@/app/(app)/performance/actions");
     const { linkEvidence } = await import("@/lib/evidence");
     const { cycle, inds } = await seedPerformanceFixture();
@@ -219,13 +219,20 @@ describe("إدارة الأداء (A3, A4 وبوابة المرحلة 3)", () =>
     const r2 = await completeSessionAction(session!.id);
     expect(r2?.error).toContain("الشواهد");
 
-    // ربط شاهد بالمؤشر الأول → يقفل
-    const [ev] = await db.insert(evidenceItems).values({ title: "شاهد مؤشر", kind: "text", textContent: "ن" }).returning();
-    await linkEvidence({ evidenceId: ev.id, entityType: "perf_session", entityId: session!.id, subKey: inds[0].id });
+    // ربط شاهد بكل مؤشر يتطلب شواهد (subKey = معرف المؤشر) عبر المسار الحقيقي → يقفل
+    const requiresEvidence = inds.filter((i) => i.requiresEvidence);
+    for (const ind of requiresEvidence) {
+      const [ev] = await db.insert(evidenceItems).values({ title: `شاهد ${ind.nameAr}`, kind: "text", textContent: "ن" }).returning();
+      await linkEvidence({ evidenceId: ev.id, entityType: "perf_session", entityId: session!.id, subKey: ind.id });
+    }
     const r3 = await completeSessionAction(session!.id);
     expect(r3?.error).toBeUndefined();
     const [locked] = await db.select().from(perfSessions).where(eq(perfSessions.id, session!.id));
     expect(locked.status).toBe("مقفلة");
+
+    // إقفال التقييم النهائي يكمل الدورة
+    const [completedCycle] = await db.select().from(perfCycles).where(eq(perfCycles.id, cycle.id));
+    expect(completedCycle.status).toBe("مكتملة");
 
     // إعادة الفتح تتطلب سبباً وتحفظ النسخة
     const { reopenSessionAction } = await import("@/app/(app)/performance/actions");
@@ -238,5 +245,78 @@ describe("إدارة الأداء (A3, A4 وبوابة المرحلة 3)", () =>
     const { getVersions } = await import("@/lib/versioning");
     const versions = await getVersions("perf_session", session!.id);
     expect(versions.some((v) => v.action === "reopened" && v.reason === "تصحيح تقدير مؤشر")).toBe(true);
+
+    // إعادة فتح الجلسة النهائية تعيد الدورة إلى «نشطة»
+    const [reactivatedCycle] = await db.select().from(perfCycles).where(eq(perfCycles.id, cycle.id));
+    expect(reactivatedCycle.status).toBe("نشطة");
+  });
+
+  it("D-014: دورة موظف بلا نموذج معتمد لفئته تنشأ بنموذج معلم معتمد (اختيار يدوي)، وترفض عند وجود نموذج مطابق", async () => {
+    const { db } = await import("@/db");
+    const { and } = await import("drizzle-orm");
+    const { people, perfModels, perfCycles } = await import("@/db/schema");
+    const { createCycleAction } = await import("@/app/(app)/performance/actions");
+
+    // لا نموذج معتمد لفئة «موظف» (تحيد أي نموذج اعتمد في اختبارات سابقة)
+    await db
+      .update(perfModels)
+      .set({ status: "مسودة" })
+      .where(and(eq(perfModels.audience, "موظف"), eq(perfModels.status, "معتمد")));
+
+    const { model } = await seedPerformanceFixture(); // نموذج «معلم» معتمد
+    const suffix = Math.floor(Math.random() * 1e9);
+    const [staff] = await db.insert(people).values({ fullName: `موظف تجريبي ${suffix}`, category: "موظف" }).returning();
+
+    const fd = new FormData();
+    fd.set("personId", staff.id);
+    fd.set("modelId", model.id);
+    fd.set("cycleType", "موظف");
+    fd.set("yearKey", "2026");
+    const res = await createCycleAction(null, fd);
+    expect(res?.error).toBeUndefined();
+
+    const [cycle] = await db.select().from(perfCycles).where(eq(perfCycles.personId, staff.id));
+    expect(cycle).toBeDefined();
+    expect(cycle.cycleType).toBe("موظف");
+    expect(cycle.status).toBe("نشطة");
+    expect(cycle.startDate).toBe("2026-01-01");
+    expect(cycle.endDate).toBe("2026-12-31");
+
+    // عند وجود نموذج معتمد مطابق للفئة يرفض عدم التطابق
+    const [staffModel] = await db
+      .insert(perfModels)
+      .values({ key: `staff-model-${suffix}`, nameAr: "نموذج موظفين", audience: "موظف", status: "معتمد" })
+      .returning();
+    expect(staffModel).toBeDefined();
+    const [staff2] = await db.insert(people).values({ fullName: `موظف ثانٍ ${suffix}`, category: "موظف" }).returning();
+    const fd2 = new FormData();
+    fd2.set("personId", staff2.id);
+    fd2.set("modelId", model.id); // نموذج «معلم» رغم وجود نموذج موظفين معتمد
+    fd2.set("cycleType", "موظف");
+    fd2.set("yearKey", "2026");
+    const rejected = await createCycleAction(null, fd2);
+    expect(rejected?.error).toContain("مخصص لفئة");
+  });
+
+  it("خطط التحسين: منع التكرار بنفس العنوان وتقدم الحالة مسودة → قيد التنفيذ → مكتملة", async () => {
+    const { db } = await import("@/db");
+    const { improvementPlans } = await import("@/db/schema");
+    const { createImprovementPlanAction, advanceImprovementPlanAction } = await import("@/app/(app)/performance/actions");
+    const { cycle } = await seedPerformanceFixture();
+
+    const fd = new FormData();
+    fd.set("title", "خطة تطوير القراءة");
+    const first = await createImprovementPlanAction(cycle.id, null, fd);
+    expect(first?.error).toBeUndefined();
+    const dup = await createImprovementPlanAction(cycle.id, null, fd);
+    expect(dup?.error).toContain("العنوان نفسه");
+
+    const [plan] = await db.select().from(improvementPlans).where(eq(improvementPlans.cycleId, cycle.id));
+    expect(plan.status).toBe("مسودة");
+    expect((await advanceImprovementPlanAction(plan.id))?.error).toBeUndefined();
+    expect((await advanceImprovementPlanAction(plan.id))?.error).toBeUndefined();
+    const [done] = await db.select().from(improvementPlans).where(eq(improvementPlans.id, plan.id));
+    expect(done.status).toBe("مكتملة");
+    expect((await advanceImprovementPlanAction(plan.id))?.error).toContain("لا حالة تالية");
   });
 });

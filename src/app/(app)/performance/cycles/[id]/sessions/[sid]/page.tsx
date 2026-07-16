@@ -70,8 +70,36 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
         </Card>
       )}
 
+      {session.sessionType === "نهائي" && (
+        <Card>
+          <h2 className="mb-2 font-bold text-brand-900">شواهد المؤشرات المطلوبة لإقفال التقييم النهائي</h2>
+          <p className="mb-3 text-xs text-gray-400">
+            كل مؤشر يتطلب شواهد يجب ربط شاهد به من لوحة الشواهد أدناه (حقل «المؤشر المرتبط») قبل الإقفال.
+          </p>
+          <ul className="space-y-1.5 text-sm">
+            {snapshot.indicators.filter((i) => i.requiresEvidence).map((ind) => {
+              const has = (evidenceByIndicator.get(ind.id) ?? 0) > 0;
+              return (
+                <li key={ind.id} className="flex flex-wrap items-center gap-2">
+                  {has ? (
+                    <span className="text-emerald-600" aria-hidden>✓</span>
+                  ) : (
+                    <span className="text-red-500" aria-hidden>✗</span>
+                  )}
+                  <span>{ind.nameAr}</span>
+                  {!has && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">ينقص شاهد</span>}
+                </li>
+              );
+            })}
+            {snapshot.indicators.every((i) => !i.requiresEvidence) && (
+              <li className="text-gray-400">لا مؤشرات تتطلب شواهد في هذا النموذج</li>
+            )}
+          </ul>
+        </Card>
+      )}
+
       <Card>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold text-brand-900">المؤشرات والتقديرات</h2>
           <div className="text-sm text-gray-500">
             النتيجة المحسوبة: <strong className="tabular-nums">{session.sessionResult ? `${Number(session.sessionResult).toFixed(2)}٪` : "—"}</strong>
@@ -108,8 +136,10 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
       <EvidencePanel
         entityType="perf_session"
         entityId={sid}
-        items={evidence.map((e) => ({ id: e.item.id, title: e.item.title, kind: e.item.kind, role: e.item.role, fileId: e.item.fileId }))}
+        items={evidence.map((e) => ({ id: e.item.id, title: e.item.title, kind: e.item.kind, role: e.item.role, fileId: e.item.fileId, subKey: e.link.subKey }))}
         canWrite={user.permissions.has("evidence.write") && editable}
+        subKeys={snapshot.indicators.map((ind) => ({ value: ind.id, label: ind.nameAr }))}
+        subKeyLabel="المؤشر المرتبط"
       />
 
       <Card>
@@ -128,7 +158,12 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
                 </label>
               </>
             )}
-            <SubmitButton variant="secondary">إصدار تقرير الجلسة (PDF)</SubmitButton>
+            <SubmitButton
+              variant="secondary"
+              confirmText={session.reportDocId ? "يوجد تقرير صادر لهذه الجلسة — إعادة الإصدار تستبدل مرجع التقرير الحالي بالجديد. هل تريد المتابعة؟" : undefined}
+            >
+              {session.reportDocId ? "إعادة إصدار تقرير الجلسة (PDF)" : "إصدار تقرير الجلسة (PDF)"}
+            </SubmitButton>
             {reportDoc?.pdfFileId && (
               <a href={`/api/files/${reportDoc.pdfFileId}`} className="text-brand-700 underline">
                 تنزيل {reportDoc.docNumber}

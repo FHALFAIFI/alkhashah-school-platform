@@ -177,10 +177,10 @@ export function ReopenSessionForm({ sessionId }: { sessionId: string }) {
           if (res?.error) setError(res.error);
         })
       }
-      className="flex items-center gap-2"
+      className="flex flex-wrap items-center gap-2"
     >
-      {error && <span className="text-xs text-red-600">{error}</span>}
-      <input name="reason" required placeholder="سبب إعادة الفتح (إلزامي)" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+      {error && <span className="w-full text-xs text-red-600">{error}</span>}
+      <input name="reason" required placeholder="سبب إعادة الفتح (إلزامي)" className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
       <button disabled={pending} className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-50">
         إعادة فتح مع حفظ النسخة
       </button>

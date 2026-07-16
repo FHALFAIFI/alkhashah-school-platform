@@ -148,7 +148,18 @@ export async function createCycleAction(_prev: ActionState, formData: FormData):
   const [model] = await db.select().from(perfModels).where(eq(perfModels.id, parsed.data.modelId));
   if (!model) return { error: "النموذج غير موجود" };
   if (model.status !== "معتمد") return { error: "النموذج غير معتمد — يعتمد المدير النموذج أولاً" };
-  if (model.audience !== parsed.data.cycleType) return { error: `النموذج مخصص لفئة «${model.audience}»` };
+  // D-014 (الاختيار اليدوي): عدم تطابق فئة النموذج مع فئة الدورة يسمح به فقط عندما
+  // لا يوجد أي نموذج معتمد مطابق للفئة (مثال: كل النماذج الرسمية «معلم» والشخص «موظف»).
+  // لا يخترع النظام نموذجاً — الاختيار اليدوي مسؤولية المدير ويوثق في سجل التدقيق.
+  let audienceMismatch = false;
+  if (model.audience !== parsed.data.cycleType) {
+    const matching = await db
+      .select({ id: perfModels.id })
+      .from(perfModels)
+      .where(and(eq(perfModels.audience, parsed.data.cycleType), eq(perfModels.status, "معتمد")));
+    if (matching.length > 0) return { error: `النموذج مخصص لفئة «${model.audience}»` };
+    audienceMismatch = true;
+  }
 
   const indicators = await db
     .select()
@@ -199,7 +210,13 @@ export async function createCycleAction(_prev: ActionState, formData: FormData):
         createdBy: user.id,
       })
       .returning();
-    await audit({ actorId: user.id, action: "perf_cycle.created", entityType: "perf_cycle", entityId: cycle.id, summary: `دورة ${parsed.data.cycleType} — ${person.fullName} (${parsed.data.yearKey})` });
+    await audit({
+      actorId: user.id,
+      action: "perf_cycle.created",
+      entityType: "perf_cycle",
+      entityId: cycle.id,
+      summary: `دورة ${parsed.data.cycleType} — ${person.fullName} (${parsed.data.yearKey})${audienceMismatch ? ` — اختيار يدوي لنموذج فئة «${model.audience}» لعدم وجود نموذج معتمد للفئة (D-014)` : ""}`,
+    });
     revalidatePath("/performance");
     redirect(`/performance/cycles/${cycle.id}`);
   } catch (e) {
@@ -376,8 +393,15 @@ export async function completeSessionAction(sessionId: string): Promise<ActionSt
     .set({ status: newStatus, lockedAt: new Date(), lockedBy: user.id, version: session.version + 1 })
     .where(eq(perfSessions.id, sessionId));
   await audit({ actorId: user.id, action: "perf_session.completed", entityType: "perf_session", entityId: sessionId, summary: `${newStatus === "مقفلة" ? "إقفال التقييم النهائي" : "اكتمال جلسة"} بتقرير موقع` });
+  // إقفال التقييم النهائي يكمل الدورة — تعاد إلى «نشطة» عند إعادة فتح الجلسة النهائية
+  if (session.sessionType === "نهائي") {
+    await db.update(perfCycles).set({ status: "مكتملة" }).where(eq(perfCycles.id, session.cycleId));
+    await audit({ actorId: user.id, action: "perf_cycle.completed", entityType: "perf_cycle", entityId: session.cycleId, summary: "اكتملت الدورة بإقفال التقييم النهائي" });
+    revalidatePath(`/performance/cycles/${session.cycleId}`);
+    revalidatePath("/performance");
+  }
   revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
-  return { success: newStatus === "مقفلة" ? "أقفل التقييم النهائي" : "اكتملت الجلسة" };
+  return { success: newStatus === "مقفلة" ? "أقفل التقييم النهائي واكتملت الدورة" : "اكتملت الجلسة" };
 }
 
 /** إعادة فتح جلسة مقفلة — سبب إلزامي وحفظ النسخة السابقة الكاملة */
@@ -401,6 +425,16 @@ export async function reopenSessionAction(sessionId: string, formData: FormData)
     .set({ status: "مسودة", version: session.version + 1, updatedAt: new Date() })
     .where(eq(perfSessions.id, sessionId));
   await audit({ actorId: user.id, action: "perf_session.reopened", entityType: "perf_session", entityId: sessionId, summary: `إعادة فتح — ${reason}` });
+  // إعادة فتح الجلسة النهائية تعيد الدورة من «مكتملة» إلى «نشطة»
+  if (session.sessionType === "نهائي") {
+    const [cycle] = await db.select().from(perfCycles).where(eq(perfCycles.id, session.cycleId));
+    if (cycle && cycle.status === "مكتملة") {
+      await db.update(perfCycles).set({ status: "نشطة" }).where(eq(perfCycles.id, session.cycleId));
+      await audit({ actorId: user.id, action: "perf_cycle.reactivated", entityType: "perf_cycle", entityId: session.cycleId, summary: `أعيدت الدورة إلى «نشطة» بإعادة فتح التقييم النهائي — ${reason}` });
+      revalidatePath(`/performance/cycles/${session.cycleId}`);
+      revalidatePath("/performance");
+    }
+  }
   revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
   return null;
 }
@@ -418,6 +452,11 @@ export async function createImprovementPlanAction(cycleId: string, _prev: Action
   const user = await requirePermission("performance.write", "performance.individual.read");
   const parsed = improvementSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const duplicate = await db
+    .select({ id: improvementPlans.id })
+    .from(improvementPlans)
+    .where(and(eq(improvementPlans.cycleId, cycleId), eq(improvementPlans.title, parsed.data.title)));
+  if (duplicate.length > 0) return { error: "توجد خطة تحسين بالعنوان نفسه في هذه الدورة" };
   await db.insert(improvementPlans).values({
     cycleId,
     title: parsed.data.title,
@@ -430,4 +469,19 @@ export async function createImprovementPlanAction(cycleId: string, _prev: Action
   await audit({ actorId: user.id, action: "improvement_plan.created", entityType: "perf_cycle", entityId: cycleId });
   revalidatePath(`/performance/cycles/${cycleId}`);
   return { success: "أنشئت خطة التحسين" };
+}
+
+/** تسلسل حالة خطة التحسين: مسودة → قيد التنفيذ → مكتملة (قرار يدوي، والاقتراحات استشارية) */
+const PLAN_NEXT_STATUS: Record<string, string> = { "مسودة": "قيد التنفيذ", "قيد التنفيذ": "مكتملة" };
+
+export async function advanceImprovementPlanAction(planId: string): Promise<ActionState> {
+  const user = await requirePermission("performance.write", "performance.individual.read");
+  const [plan] = await db.select().from(improvementPlans).where(eq(improvementPlans.id, planId));
+  if (!plan) return { error: "الخطة غير موجودة" };
+  const next = PLAN_NEXT_STATUS[plan.status];
+  if (!next) return { error: "الخطة مكتملة — لا حالة تالية" };
+  await db.update(improvementPlans).set({ status: next }).where(eq(improvementPlans.id, planId));
+  await audit({ actorId: user.id, action: "improvement_plan.status_advanced", entityType: "perf_cycle", entityId: plan.cycleId, summary: `خطة «${plan.title}»: ${plan.status} → ${next}` });
+  revalidatePath(`/performance/cycles/${plan.cycleId}`);
+  return { success: next === "مكتملة" ? "اكتملت الخطة" : "بدأ تنفيذ الخطة" };
 }

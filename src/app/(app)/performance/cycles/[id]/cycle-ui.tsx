@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
-import { createSessionAction, createImprovementPlanAction, type ActionState } from "../../actions";
+import { useActionState, useState, useTransition } from "react";
+import { createSessionAction, createImprovementPlanAction, advanceImprovementPlanAction, type ActionState } from "../../actions";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
 
 export function NewSessionForm({ cycleId }: { cycleId: string }) {
@@ -48,5 +48,30 @@ export function ImprovementPlanForm({ cycleId, suggested }: { cycleId: string; s
       </div>
       <SubmitButton variant="secondary">إنشاء الخطة</SubmitButton>
     </form>
+  );
+}
+
+/** ترقية حالة خطة التحسين: مسودة → قيد التنفيذ → مكتملة (قرار يدوي) */
+export function PlanStatusControl({ planId, status }: { planId: string; status: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const actionLabel = status === "مسودة" ? "بدء التنفيذ" : "إكمال الخطة";
+  return (
+    <span className="inline-flex items-center gap-2">
+      {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
+      <button
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            setError(null);
+            const res = await advanceImprovementPlanAction(planId);
+            if (res?.error) setError(res.error);
+          })
+        }
+        className="rounded-lg border border-sand-200 px-2.5 py-1 text-xs text-gray-700 hover:bg-sand-100 disabled:opacity-50"
+      >
+        {actionLabel}
+      </button>
+    </span>
   );
 }
