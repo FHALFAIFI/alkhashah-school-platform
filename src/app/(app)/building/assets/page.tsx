@@ -1,4 +1,5 @@
 import { asc, eq } from "drizzle-orm";
+import { headers } from "next/headers";
 import QRCode from "qrcode";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
@@ -19,7 +20,11 @@ export default async function AssetsPage() {
   const floorName = new Map(allFloors.map((f) => [f.id, f.nameAr]));
   const roomById = new Map(allRooms.map((r) => [r.id, r]));
   const canWrite = user.permissions.has("assets.write");
-  const appUrl = process.env.APP_URL ?? "http://localhost:3080";
+  // رابط رمز QR من عنوان الطلب الفعلي — يعمل عبر Tailscale أو أي نطاق دون تثبيت اسم جهاز
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const appUrl = host ? `${proto}://${host}` : (process.env.APP_URL ?? "http://localhost:3080");
 
   const importantQr = new Map<string, string>();
   for (const a of allAssets.filter((x) => x.important).slice(0, 100)) {

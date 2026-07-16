@@ -21,6 +21,12 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/** هل وصل الطلب الحالي عبر HTTPS (مباشرة أو خلف وسيط مثل Tailscale Serve)? */
+async function requestIsHttps(): Promise<boolean> {
+  const h = await headers();
+  return h.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https";
+}
+
 export async function createSession(userId: string, ip?: string, userAgent?: string) {
   const token = randomBytes(32).toString("hex");
   const csrfToken = randomBytes(32).toString("hex");
@@ -37,7 +43,8 @@ export async function createSession(userId: string, ip?: string, userAgent?: str
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    // آمن دائماً في الإنتاج، وفي التطوير عندما يصل الطلب عبر HTTPS (مثل Tailscale Serve)
+    secure: process.env.NODE_ENV === "production" || (await requestIsHttps()),
     path: "/",
     maxAge: ABSOLUTE_DAYS * 24 * 3600,
   });

@@ -18,14 +18,22 @@ sudo ufw allow in on tailscale0
 sudo ufw enable
 ```
 
-## 2) Tailscale
+## 2) Tailscale + HTTPS (إلزامي)
+سفاري على الآيفون يتطلب HTTPS للكاميرا وعامل الخدمة وتثبيت PWA والعمل دون اتصال — لذلك Tailscale Serve إلزامي وليس اختيارياً.
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
-# HTTPS داخلي عبر شهادة tailscale (اختياري ومستحسن):
-sudo tailscale serve --bg 3080
+
+# مرة واحدة لكل شبكة: فعل HTTPS (الشهادات) من لوحة تحكم Tailscale —
+# الأمر يطبع رابط التفعيل إن لم يكن مفعلاً
+sudo tailscale serve --bg localhost:3080
+sudo tailscale serve status
 # الوصول: https://<اسم-الجهاز>.<tailnet>.ts.net
 ```
+- **ممنوع `tailscale funnel`** — يعرض التطبيق للإنترنت العام.
+- الإعداد يبقى بعد إعادة التشغيل. ملف تعريف ارتباط الجلسة آمن (secure) تلقائياً عبر HTTPS، وفي الإنتاج دائماً.
+- إجراءات الخادم خلف الوسيط مسموحة افتراضياً لمضيفي `*.ts.net`؛ لتشديد أكثر ثبت الاسم في `.env`:
+  `TRUSTED_ORIGINS=<اسم-الجهاز>.<tailnet>.ts.net` — لا يثبت أي اسم جهاز في الشيفرة.
 
 ## 3) نشر التطبيق
 ```bash
