@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/session";
 import { getBatchWithRows, type RowDecisionEntry } from "@/lib/imports/framework";
 import { rowValidationDisplay } from "@/lib/imports/validation-display";
+import { PEOPLE_FIELDS } from "@/lib/imports/people-fields";
 import { PageHeader, Card, Badge, Table, WorkflowSteps, LinkButton } from "@/components/ui";
 import { BatchActions, RowEditor } from "./batch-ui";
 
@@ -19,16 +20,6 @@ function currentStep(status: string, counts: { ready: number; review: number; de
   if (counts.ready > 0) return 2;
   return 1;
 }
-
-const PEOPLE_FIELDS: { key: string; label: string }[] = [
-  { key: "fullName", label: "الاسم" },
-  { key: "category", label: "الفئة" },
-  { key: "jobTitle", label: "الوظيفة" },
-  { key: "cadre", label: "السلك/الكادر" },
-  { key: "employmentStatus", label: "الحالة" },
-  { key: "orgUnit", label: "المرحلة/الجهة" },
-  { key: "jobNumber", label: "رقم الوظيفة" },
-];
 
 export default async function BatchPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("imports.read");

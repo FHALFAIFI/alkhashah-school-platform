@@ -147,6 +147,14 @@ export async function applyRowDecision(opts: {
     entityType: "import_row",
     entityId: opts.rowId,
     summary: `قرار «${opts.action}» على الصف ${row.rowIndex} — ${row.status} ← ${newStatus}`,
+    // قبل/بعد كاملة في السجل غير القابل للتعديل — التراجع لاحقاً لا يمس هذا القيد
+    detail: {
+      decision: opts.action,
+      rowIndex: row.rowIndex,
+      before: { status: row.status, mapped: row.mapped, corrections: row.corrections },
+      after: { status: newStatus, mapped, corrections: opts.corrections ?? row.corrections },
+      ...(entry.resolvedWarnings ? { resolvedWarnings: entry.resolvedWarnings } : {}),
+    },
   });
   return updated;
 }
@@ -176,6 +184,13 @@ export async function undoLastRowDecision(opts: { rowId: string; actorId: string
     entityType: "import_row",
     entityId: opts.rowId,
     summary: `تراجع عن قرار «${last.action}» على الصف ${row.rowIndex} — عادت الحالة إلى «${last.from.status}»`,
+    // التراجع حدث جديد يُلحق بالسجل ولا يحذف أحداثه — قبل/بعد كاملة هنا أيضاً
+    detail: {
+      undoneDecision: last.action,
+      rowIndex: row.rowIndex,
+      before: { status: row.status, mapped: row.mapped, corrections: row.corrections },
+      after: { status: last.from.status, mapped: last.from.mapped, corrections: last.from.corrections },
+    },
   });
   return updated;
 }

@@ -143,6 +143,26 @@ test.describe("قرارات الاستيراد القابلة للتراجع —
     await expect(card.getByText(WARNING).first()).toBeVisible();
     expect(await pageOverflow(page), "تمرير أفقي بعد الدورة").toBeLessThanOrEqual(0);
   });
+
+  test("سجل التدقيق يعرض قبل/بعد لكل قرار وتراجع — والتراجع أحداث ملحقة لا حذف (عبر الواجهة)", async ({ page }) => {
+    test.setTimeout(120_000);
+    await login(page);
+    await page.goto("/admin/audit");
+
+    // حدث «تصحيح» الأحدث للصف 2 من الدفعة الاصطناعية يحمل قيم قبل/بعد
+    const correctRow = page
+      .locator("tr", { hasText: "قرار «تصحيح» على الصف 2" })
+      .filter({ hasNotText: "تراجع" })
+      .first();
+    await correctRow.locator("summary", { hasText: "قبل / بعد" }).click();
+    await expect(correctRow.getByText("الوظيفة: «عامل» ← «عامل خدمات معدل»")).toBeVisible();
+    await expect(correctRow.getByText("الحالة: «يحتاج مراجعة» ← «جاهز»")).toBeVisible();
+
+    // التراجع عن التصحيح حدث مستقل يوثق استعادة القيم — لا حذف للحدث الأصلي
+    const undoRow = page.locator("tr", { hasText: "تراجع عن قرار «تصحيح» على الصف 2" }).first();
+    await undoRow.locator("summary", { hasText: "قبل / بعد" }).click();
+    await expect(undoRow.getByText("الوظيفة: «عامل خدمات معدل» ← «عامل»")).toBeVisible();
+  });
 });
 
 test.describe("سطح المكتب: جدول الدفعة كما هو", () => {

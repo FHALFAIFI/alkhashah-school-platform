@@ -125,6 +125,58 @@ describe("قرارات صفوف الاستيراد القابلة للتراجع
     await expect(undoLastRowDecision({ rowId: committed.id, actorId: u.id, actorName: u.displayName })).rejects.toThrow(/منفذ/);
   });
 
+  it("كل قرار وتراجع يكتب حدث تدقيق إلحاقياً بقيم قبل/بعد — والتراجع لا يحذف أي حدث سابق", async () => {
+    const { applyRowDecision, undoLastRowDecision } = await import("@/lib/imports/framework");
+    const { db } = await import("@/db");
+    const { auditLog } = await import("@/db/schema");
+    const { eq, asc } = await import("drizzle-orm");
+    const { u, rows } = await makeBatch();
+    const review = rows.find((r) => r.status === "يحتاج مراجعة")!;
+    const originalTitle = (review.mapped as { jobTitle: string }).jobTitle;
+
+    const rowEvents = () =>
+      db.select().from(auditLog).where(eq(auditLog.entityId, review.id)).orderBy(asc(auditLog.createdAt));
+
+    // قرار تصحيح: حدث تدقيق يحمل الحالة والقيم قبل وبعد
+    await applyRowDecision({
+      rowId: review.id,
+      action: "تصحيح",
+      corrections: { jobTitle: "مسمى تدقيق قبل-بعد" },
+      actorId: u.id,
+      actorName: u.displayName,
+    });
+    const afterDecision = await rowEvents();
+    expect(afterDecision).toHaveLength(1);
+    expect(afterDecision[0].action).toBe("import.row_decision");
+    const d = afterDecision[0].detail as {
+      decision: string;
+      before: { status: string; mapped: { jobTitle: string } };
+      after: { status: string; mapped: { jobTitle: string } };
+    };
+    expect(d.decision).toBe("تصحيح");
+    expect(d.before.status).toBe("يحتاج مراجعة");
+    expect(d.after.status).toBe("جاهز");
+    expect(d.before.mapped.jobTitle).toBe(originalTitle);
+    expect(d.after.mapped.jobTitle).toBe("مسمى تدقيق قبل-بعد");
+
+    // التراجع: حدث جديد يُلحق، وكل الأحداث السابقة باقية بمعرفاتها
+    await undoLastRowDecision({ rowId: review.id, actorId: u.id, actorName: u.displayName });
+    const afterUndo = await rowEvents();
+    expect(afterUndo).toHaveLength(afterDecision.length + 1);
+    expect(afterUndo.slice(0, afterDecision.length).map((e) => e.id)).toEqual(afterDecision.map((e) => e.id));
+    const undoEvt = afterUndo[afterUndo.length - 1];
+    expect(undoEvt.action).toBe("import.row_decision_undone");
+    const ud = undoEvt.detail as {
+      undoneDecision: string;
+      before: { status: string; mapped: { jobTitle: string } };
+      after: { status: string; mapped: { jobTitle: string } };
+    };
+    expect(ud.undoneDecision).toBe("تصحيح");
+    expect(ud.before.mapped.jobTitle).toBe("مسمى تدقيق قبل-بعد");
+    expect(ud.after.mapped.jobTitle).toBe(originalTitle);
+    expect(ud.after.status).toBe("يحتاج مراجعة");
+  });
+
   it("القرار من «يحتاج مراجعة» يحفظ التحذيرات المحسومة في سجله", async () => {
     const { applyRowDecision } = await import("@/lib/imports/framework");
     const { u, rows } = await makeBatch();
