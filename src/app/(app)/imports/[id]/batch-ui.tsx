@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import {
   commitBatchAction,
   rollbackBatchAction,
+  cancelBatchAction,
   correctRowAction,
   excludeRowAction,
   markRowReadyAction,
@@ -105,6 +106,22 @@ export function BatchActions({
               </button>
             </div>
           </div>
+        )}
+        {status === "معاينة" && !confirming && (
+          <button
+            disabled={pending}
+            onClick={() => {
+              if (!confirm("إلغاء دفعة المعاينة هذه؟ لن تُنفذ، وتُحفظ كـ«ملغاة» ويمكنك رفع الملف من جديد بعدها.")) return;
+              startTransition(async () => {
+                setError(null);
+                const res = await cancelBatchAction(batchId);
+                if (res?.error) setError(res.error);
+              });
+            }}
+            className="rounded-lg border border-sand-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-sand-100 disabled:opacity-50"
+          >
+            إلغاء الدفعة (لن تُنفذ)
+          </button>
         )}
         {canRollback && (
           <button

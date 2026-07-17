@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, asc, and } from "drizzle-orm";
+import { eq, asc, and, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { importBatches, importRows } from "@/db/schema";
 import { audit } from "@/lib/audit";
@@ -69,6 +69,47 @@ export async function getBatchWithRows(batchId: string) {
     .where(eq(importRows.batchId, batchId))
     .orderBy(asc(importRows.rowIndex));
   return { batch, rows };
+}
+
+/**
+ * دفعات سابقة «حية» لنفس الملف والنوع (معاينة أو منفذة) — أساس منع التكرار قبل الرفع.
+ * الملغاة والمتراجع عنها لا تُحتسب لأنها منتهية.
+ */
+export async function findLiveBatchesForFile(importType: string, sourceFileName: string) {
+  return db
+    .select()
+    .from(importBatches)
+    .where(
+      and(
+        eq(importBatches.importType, importType),
+        eq(importBatches.sourceFileName, sourceFileName),
+        inArray(importBatches.status, ["معاينة", "جاهزة", "منفذة"]),
+      ),
+    )
+    .orderBy(asc(importBatches.createdAt));
+}
+
+/** إلغاء دفعة في المعاينة (لم تنفذ) — يحولها إلى «ملغاة» دون حذف، مع تدقيق. */
+export async function cancelBatch(batchId: string, actorId: string) {
+  const [batch] = await db.select().from(importBatches).where(eq(importBatches.id, batchId));
+  if (!batch) throw new Error("الدفعة غير موجودة");
+  if (batch.status === "منفذة") throw new Error("لا يمكن إلغاء دفعة منفذة — استخدم التراجع الكامل");
+  if (batch.status !== "معاينة" && batch.status !== "جاهزة") {
+    throw new Error("لا يمكن إلغاء إلا دفعة في المعاينة");
+  }
+  const claimed = await db
+    .update(importBatches)
+    .set({ status: "ملغاة" })
+    .where(and(eq(importBatches.id, batchId), inArray(importBatches.status, ["معاينة", "جاهزة"])))
+    .returning();
+  if (claimed.length === 0) throw new Error("تعذر إلغاء الدفعة — ربما تغيرت حالتها");
+  await audit({
+    actorId,
+    action: "import.batch_cancelled",
+    entityType: "import_batch",
+    entityId: batchId,
+    summary: `إلغاء دفعة معاينة «${batch.sourceFileName}» قبل التنفيذ`,
+  });
 }
 
 export async function updateRowCorrection(rowId: string, corrections: Record<string, unknown>, newStatus?: string) {

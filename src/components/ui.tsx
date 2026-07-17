@@ -11,9 +11,10 @@ export function PageHeader({
 }) {
   return (
     <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="text-xl font-bold text-brand-900">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-gray-500">{subtitle}</p>}
+      {/* min-w-0 + break-words: أسماء الملفات الطويلة الموصولة بشرطات سفلية تلتف بدل أن تمدّد الصفحة */}
+      <div className="min-w-0">
+        <h1 className="break-words text-xl font-bold text-brand-900">{title}</h1>
+        {subtitle && <p className="mt-1 break-words text-sm text-gray-500">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>

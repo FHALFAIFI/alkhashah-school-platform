@@ -49,6 +49,8 @@ async function unconfidentWorkbook(): Promise<Buffer> {
 
 const RESOLVED = "تمت مراجعة التصنيف";
 const WARNING = "التصنيف (معلم/موظف) غير مؤكد";
+// اسم ملف فريد لكل تشغيل — يتفادى منع التكرار الذي يمنع رفع نفس الملف مرتين
+const DECISIONS_FILE = `موظفون تجريبي آلي قرارات ${Date.now().toString().slice(-8)}.xlsx`;
 
 test.describe("قرارات الاستيراد القابلة للتراجع — 390×844", () => {
   test.describe.configure({ mode: "serial" });
@@ -61,7 +63,7 @@ test.describe("قرارات الاستيراد القابلة للتراجع —
     test.setTimeout(120_000);
     await login(page);
     await page.goto("/imports/new?type=people");
-    await page.setInputFiles("#file", { name: "موظفون تجريبي آلي قرارات.xlsx", mimeType: XLSX_MIME, buffer: await unconfidentWorkbook() });
+    await page.setInputFiles("#file", { name: DECISIONS_FILE, mimeType: XLSX_MIME, buffer: await unconfidentWorkbook() });
     await page.getByRole("button", { name: "تحليل ومعاينة" }).click();
     await page.waitForURL(/\/imports\/[0-9a-f-]{36}$/, { timeout: 30_000 });
     batchUrl = page.url();
@@ -173,7 +175,7 @@ test.describe("سطح المكتب: جدول الدفعة كما هو", () => {
     await page.goto("/imports");
     const openBtn = page
       .locator("tbody tr")
-      .filter({ hasText: "موظفون تجريبي آلي قرارات.xlsx" })
+      .filter({ hasText: DECISIONS_FILE })
       .first()
       .getByRole("link", { name: "فتح" });
     await openBtn.click();

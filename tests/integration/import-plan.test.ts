@@ -1,8 +1,31 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Pool } from "pg";
 import { eq } from "drizzle-orm";
+import AdmZip from "adm-zip";
 import { ensureTestDb, truncateAll, TEST_DB_URL } from "../helpers/test-db";
 import { syntheticPlanWorkbook } from "../helpers/fixtures";
+
+const MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+
+/**
+ * يحاكي مصنفات المولد الرسمي (‎.NET/OpenXML): يعيد كتابة أجزاء XML الرئيسية
+ * ببادئة نطاق أسماء <x:...> ويكرر نطاق دمج — وهو ما كانت exceljs ترفضه.
+ */
+function prefixedWorkbook(data: Buffer): Buffer {
+  const zip = new AdmZip(data);
+  for (const entry of zip.getEntries()) {
+    if (!/^xl\/(workbook\.xml|sharedStrings\.xml|styles\.xml|worksheets\/[^/]+\.xml)$/.test(entry.entryName)) continue;
+    let xml = entry.getData().toString("utf8");
+    xml = xml.replace(/<(\/?)([A-Za-z][\w.-]*)(?=[\s/>])/g, "<$1x:$2");
+    xml = xml.replace(`xmlns="${MAIN_NS}"`, `xmlns:x="${MAIN_NS}"`);
+    if (entry.entryName.startsWith("xl/worksheets/")) {
+      // نطاق دمج مكرر كما في الملفات الرسمية
+      xml = xml.replace("</x:worksheet>", '<x:mergeCells count="2"><x:mergeCell ref="A1:B1" /><x:mergeCell ref="A1:B1" /></x:mergeCells></x:worksheet>');
+    }
+    zip.updateFile(entry.entryName, Buffer.from(xml, "utf8"));
+  }
+  return zip.toBuffer();
+}
 
 let pool: Pool;
 
@@ -92,5 +115,46 @@ describe("حساب التقدم من المعالم الموزونة", () => {
     expect(r1.missing).toEqual(["أثر"]);
     const r2 = computePackageReadiness({ requiresExternal: true, evidenceRoles: ["تنفيذ", "مخرج", "أثر", "خارجي"] });
     expect(r2.readiness).toBe(100);
+  });
+});
+
+describe("قراءة مصنفات المولد الرسمي مبدوءة البادئة (البند الراسب 4)", () => {
+  it("مصنف بنمط <x:workbook> ونطاقات دمج مكررة يُقرأ ويعطي نفس نتيجة المصنف العادي", async () => {
+    const { parsePlanWorkbook } = await import("@/lib/imports/plan");
+    const plain = await syntheticPlanWorkbook();
+    const prefixed = prefixedWorkbook(plain);
+    // تأكد أن المحاكاة صادقة: المصنف المبدوء يبدأ فعلاً بـ <x:workbook>
+    const wbXml = new AdmZip(prefixed).getEntry("xl/workbook.xml")!.getData().toString("utf8");
+    expect(wbXml).toContain("<x:workbook");
+
+    const a = await parsePlanWorkbook(plain);
+    const b = await parsePlanWorkbook(prefixed);
+    expect(b.summary).toEqual(a.summary);
+    expect(b.rows.length).toBe(a.rows.length);
+    expect(b.rows.map((r) => r.mapped)).toEqual(a.rows.map((r) => r.mapped));
+  });
+
+  it("ملف غير صالح يعطي رسالة عربية لا خطأ تقنياً إنجليزياً", async () => {
+    const { parsePlanWorkbook } = await import("@/lib/imports/plan");
+    await expect(parsePlanWorkbook(Buffer.from("ليس ملف Excel"))).rejects.toThrow(/تعذر فتح الملف/);
+  });
+
+  it("صف إجمالي بنص غير رقمي في عمود «م» لا يُحتسب برنامجاً (لا برنامج شبح seq=0)", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const { parsePlanWorkbook } = await import("@/lib/imports/plan");
+    const base = await syntheticPlanWorkbook();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(base as unknown as ArrayBuffer);
+    const main = wb.getWorksheet("الخطة التشغيلية")!;
+    // صف إجمالي كالذي في الملف الرسمي: نص في كل الأعمدة بما فيها عمود «م»
+    main.addRow(["إجمالي الميزانية المدرسية المباشرة", "إجمالي الميزانية المدرسية المباشرة"]);
+    const withTotal = Buffer.from(await wb.xlsx.writeBuffer());
+
+    const { summary, rows } = await parsePlanWorkbook(withTotal);
+    // البرامج تبقى 2 (لا 3) — صف الإجمالي مُستبعد
+    expect(summary["برامج"]).toBe(2);
+    const programSeqs = rows.filter((r) => (r.mapped as { rowType: string }).rowType === "program").map((r) => (r.mapped as { seq: number }).seq);
+    expect(programSeqs).not.toContain(0);
+    expect(programSeqs.sort()).toEqual([1, 2]);
   });
 });

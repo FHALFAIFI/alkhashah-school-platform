@@ -19,10 +19,11 @@ function WorkItemRow({ item }: { item: WorkItem }) {
       className="flex flex-col gap-1 rounded-lg border border-transparent px-2 py-2 transition hover:border-brand-200 hover:bg-sand-50"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm font-medium text-gray-800">{item.title}</span>
+        {/* break-words: أسماء الملفات الطويلة الموصولة بشرطات سفلية تلتف بدل أن تمدّد البطاقة */}
+        <span className="min-w-0 break-words text-sm font-medium text-gray-800">{item.title}</span>
         {item.status && <Badge value={item.status} />}
       </div>
-      {item.detail && <p className="text-xs text-gray-500">{item.detail}</p>}
+      {item.detail && <p className="break-words text-xs text-gray-500">{item.detail}</p>}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-700">
           <span aria-hidden>←</span>

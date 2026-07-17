@@ -252,6 +252,75 @@ function ErrorLogList({ log }: { log: unknown }) {
   );
 }
 
+/** يشتق السنة الدراسية الهجرية من تواريخ البرامج (أقدم بدء / أحدث انتهاء) */
+function deriveAcademicYear(programs: Record<string, unknown>[]): string {
+  const years = new Set<string>();
+  for (const m of programs) {
+    for (const key of ["hijriStart", "hijriEnd"]) {
+      const y = String(m[key] ?? "").match(/^(\d{3,4})\//)?.[1];
+      if (y) years.add(y);
+    }
+  }
+  const sorted = [...years].sort();
+  if (sorted.length === 0) return "—";
+  return sorted.length === 1 ? `${sorted[0]}هـ` : `${sorted[0]}/${sorted[sorted.length - 1]}هـ`;
+}
+
+function ValidationInline({ validation }: { validation: unknown }) {
+  const v = validation as { errors?: string[]; warnings?: string[] } | null;
+  if (!v || ((v.errors?.length ?? 0) === 0 && (v.warnings?.length ?? 0) === 0)) return null;
+  return (
+    <div className="mt-1 text-xs">
+      {v.errors?.map((e, i) => <div key={`e${i}`} className="text-red-600">✗ {e}</div>)}
+      {v.warnings?.map((w, i) => <div key={`w${i}`} className="text-amber-600">⚠ {w}</div>)}
+    </div>
+  );
+}
+
+/** بطاقة برنامج قابلة للفتح — تعرض الأهداف والمؤشر والمسؤول والتواريخ والمعالم والمستهدف والشواهد */
+function ProgramCard({ m, status, validation }: { m: Record<string, unknown>; status: string; validation: unknown }) {
+  const s = (k: string) => String(m[k] ?? "").trim();
+  const field = (label: string, key: string) =>
+    s(key) ? (
+      <div>
+        <dt className="text-xs text-gray-400">{label}</dt>
+        <dd className="break-words">{s(key)}</dd>
+      </div>
+    ) : null;
+  return (
+    <details data-testid="plan-program-card" className="rounded-xl border border-sand-200 bg-white p-3">
+      <summary className="flex cursor-pointer items-center justify-between gap-2">
+        <span className="break-words font-medium text-brand-900">
+          {s("seq")}. {s("name")}
+          <span className="text-xs font-normal text-gray-400"> — {s("domain")}</span>
+        </span>
+        <Badge value={status} />
+      </summary>
+      <dl className="mt-2 space-y-2 border-t border-sand-100 pt-2 text-sm">
+        {field("الهدف العام", "generalGoal")}
+        {field("الهدف الخاص", "specificGoal")}
+        {field("المؤشر", "kpiText") ?? field("المؤشر", "indicator")}
+        {field("مسؤول التنفيذ", "ownerPosition")}
+        <div className="grid grid-cols-2 gap-x-3">
+          {field("تاريخ البدء", "hijriStart")}
+          {field("تاريخ الانتهاء", "hijriEnd")}
+        </div>
+        {field("المعالم ونقاط القياس", "milestones")}
+        {field("المستهدف وشرحه", "targetText") ?? field("المستهدف", "target")}
+        {field("الشواهد المطلوبة", "evidenceText")}
+        {field("المخرج المطلوب", "deliverableText")}
+        {s("budget") && s("budget") !== "null" ? (
+          <div>
+            <dt className="text-xs text-gray-400">الميزانية</dt>
+            <dd className="tabular-nums">{s("budget")} ريال</dd>
+          </div>
+        ) : null}
+      </dl>
+      <ValidationInline validation={validation} />
+    </details>
+  );
+}
+
 function PlanPreview({ rows }: { rows: { id: string; mapped: unknown; status: string; validation: unknown }[] }) {
   const groups = new Map<string, typeof rows>();
   for (const r of rows) {
@@ -268,38 +337,88 @@ function PlanPreview({ rows }: { rows: { id: string; mapped: unknown; status: st
     budget: "بنود الميزانية",
     roadmap: "خارطة التنفيذ",
   };
+
+  const programRows = groups.get("program") ?? [];
+  const programMapped = programRows.map((r) => r.mapped as Record<string, unknown>);
+  const domains = new Set(programMapped.map((m) => String(m.domain ?? "").trim()).filter(Boolean));
+  const academicYear = deriveAcademicYear(programMapped);
+
   return (
     <div className="space-y-6">
-      {[...groups.entries()].map(([type, groupRows]) => (
-        <div key={type}>
-          <h2 className="mb-2 font-bold text-brand-900">
-            {labels[type] ?? type} <span className="text-sm font-normal text-gray-400">({groupRows.length})</span>
-          </h2>
-          <Table headers={["البيان", "الحالة", "التحقق"]}>
-            {groupRows.map((r) => {
-              const m = r.mapped as Record<string, unknown>;
-              const v = r.validation as { errors: string[]; warnings: string[] };
-              const label =
-                type === "program" ? `${m.seq}. ${m.name} — ${m.domain}` :
-                type === "deliverable" ? `برنامج ${m.programSeq}: ${String(m.mainOutput ?? "").slice(0, 80)}` :
-                type === "kpi" ? `${m.code}: ${m.nameAr}` :
-                type === "risk" ? `${m.code}: ${m.risk}` :
-                type === "budget" ? `${m.item} (${m.amount ?? "—"})` :
-                `برنامج ${m.programSeq}: ${(m.cells as unknown[])?.length ?? 0} فترة`;
-              return (
-                <tr key={r.id}>
-                  <td className="px-3 py-2">{label}</td>
-                  <td className="px-3 py-2"><Badge value={r.status} /></td>
-                  <td className="px-3 py-2 text-xs">
-                    {v?.errors?.map((e, i) => <div key={i} className="text-red-600">✗ {e}</div>)}
-                    {v?.warnings?.map((w, i) => <div key={i} className="text-amber-600">⚠ {w}</div>)}
-                  </td>
-                </tr>
-              );
-            })}
-          </Table>
+      {/* ملخص الخطة: السنة الدراسية + عدد المجالات والبرامج + عدّاد كل مجموعة */}
+      <Card className="border-brand-200 bg-brand-50">
+        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div>
+            <p className="text-xs text-gray-500">السنة الدراسية</p>
+            <p className="font-bold text-brand-900 tabular-nums">{academicYear}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">عدد المجالات</p>
+            <p className="font-bold text-brand-900 tabular-nums">{domains.size}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">عدد البرامج</p>
+            <p className="font-bold text-brand-900 tabular-nums">{programRows.length}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">إجمالي الصفوف</p>
+            <p className="font-bold text-brand-900 tabular-nums">{rows.length}</p>
+          </div>
         </div>
-      ))}
+        {domains.size > 0 && (
+          <p className="mt-3 text-xs text-gray-600">
+            <span className="text-gray-400">المجالات: </span>
+            {[...domains].join(" · ")}
+          </p>
+        )}
+      </Card>
+
+      {/* البرامج: بطاقات قابلة للفتح بكل التفاصيل (تعمل على الجوال بلا تمرير أفقي) */}
+      {programRows.length > 0 && (
+        <div>
+          <h2 className="mb-2 font-bold text-brand-900">
+            {labels.program} <span className="text-sm font-normal text-gray-400">({programRows.length})</span>
+          </h2>
+          <div className="space-y-2">
+            {programRows.map((r) => (
+              <ProgramCard key={r.id} m={r.mapped as Record<string, unknown>} status={r.status} validation={r.validation} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* بقية المجموعات: جداول ضمن حاوية تمرير أفقي داخلية */}
+      {[...groups.entries()]
+        .filter(([type]) => type !== "program")
+        .map(([type, groupRows]) => (
+          <div key={type}>
+            <h2 className="mb-2 font-bold text-brand-900">
+              {labels[type] ?? type} <span className="text-sm font-normal text-gray-400">({groupRows.length})</span>
+            </h2>
+            <Table headers={["البيان", "الحالة", "التحقق"]}>
+              {groupRows.map((r) => {
+                const m = r.mapped as Record<string, unknown>;
+                const v = r.validation as { errors: string[]; warnings: string[] };
+                const label =
+                  type === "deliverable" ? `برنامج ${m.programSeq}: ${String(m.mainOutput ?? "").slice(0, 80)}` :
+                  type === "kpi" ? `${m.code}: ${m.nameAr}` :
+                  type === "risk" ? `${m.code}: ${m.risk}` :
+                  type === "budget" ? `${m.item} (${m.amount ?? "—"})` :
+                  `برنامج ${m.programSeq}: ${(m.cells as unknown[])?.length ?? 0} فترة`;
+                return (
+                  <tr key={r.id}>
+                    <td className="px-3 py-2">{label}</td>
+                    <td className="px-3 py-2"><Badge value={r.status} /></td>
+                    <td className="px-3 py-2 text-xs">
+                      {v?.errors?.map((e, i) => <div key={i} className="text-red-600">✗ {e}</div>)}
+                      {v?.warnings?.map((w, i) => <div key={i} className="text-amber-600">⚠ {w}</div>)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </Table>
+          </div>
+        ))}
     </div>
   );
 }

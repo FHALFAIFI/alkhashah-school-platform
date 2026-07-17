@@ -211,7 +211,7 @@ export function AppShell({
         </header>
         <OfflineBanner />
         {/* حاشية سفلية على الجوال تكفي لتمرير آخر المحتوى فوق زر المساعد العائم */}
-        <main className="min-w-0 flex-1 p-3 pb-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] sm:p-4 sm:pb-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] lg:p-6 lg:pb-6">
+        <main className="min-w-0 flex-1 p-3 pb-24 sm:p-4 sm:pb-24 lg:p-6 lg:pb-6">
           {children}
         </main>
       </div>

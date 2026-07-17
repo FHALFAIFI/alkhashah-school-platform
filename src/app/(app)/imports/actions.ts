@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/session";
 import { saveUploadedFile } from "@/lib/storage";
-import { createBatch, commitBatch, rollbackBatch, applyRowDecision, undoLastRowDecision, getBatchWithRows } from "@/lib/imports/framework";
+import { createBatch, commitBatch, rollbackBatch, applyRowDecision, undoLastRowDecision, getBatchWithRows, findLiveBatchesForFile, cancelBatch } from "@/lib/imports/framework";
 import { parsePeopleWorkbook, commitPeopleRows, rollbackPeopleBatch } from "@/lib/imports/people";
 import { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch } from "@/lib/imports/plan";
 import { notifyAll } from "@/lib/notify";
@@ -20,6 +20,16 @@ export async function uploadImportAction(_prev: ImportActionState, formData: For
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { error: "اختر ملف Excel أولاً" };
   if (!["people", "operational_plan"].includes(importType)) return { error: "نوع استيراد غير معروف" };
+
+  // منع التكرار: دفعة حية (معاينة/منفذة) لنفس الملف والنوع توقف الرفع مع توجيه صريح
+  const existing = await findLiveBatchesForFile(importType, file.name);
+  if (existing.length > 0) {
+    const b = existing[0];
+    const where = b.status === "منفذة" ? "منفذة مسبقاً" : "قيد المعاينة";
+    return {
+      error: `يوجد استيراد لنفس الملف «${file.name}» (${where}). افتح الدفعة القائمة من صفحة الاستيراد، أو ألغِها إن كانت في المعاينة، قبل رفع نسخة جديدة — لتفادي التكرار.`,
+    };
+  }
 
   const data = Buffer.from(await file.arrayBuffer());
   let batchId: string;
@@ -100,6 +110,18 @@ export async function undoRowDecisionAction(rowId: string, batchId: string): Pro
   const user = await requirePermission("imports.read");
   await undoLastRowDecision({ rowId, actorId: user.id, actorName: user.displayName });
   revalidatePath(`/imports/${batchId}`);
+}
+
+export async function cancelBatchAction(batchId: string): Promise<ImportActionState> {
+  const user = await requirePermission("imports.read");
+  try {
+    await cancelBatch(batchId, user.id);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "تعذر إلغاء الدفعة" };
+  }
+  revalidatePath(`/imports/${batchId}`);
+  revalidatePath("/imports");
+  return null;
 }
 
 export async function commitBatchAction(batchId: string): Promise<ImportActionState> {
