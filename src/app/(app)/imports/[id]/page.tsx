@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/session";
 import { getBatchWithRows, type RowDecisionEntry } from "@/lib/imports/framework";
+import { buildConfirmSummary } from "@/lib/imports/confirm-summary";
 import { rowValidationDisplay } from "@/lib/imports/validation-display";
 import { PEOPLE_FIELDS } from "@/lib/imports/people-fields";
 import { PageHeader, Card, Badge, Table, WorkflowSteps, LinkButton } from "@/components/ui";
@@ -38,7 +39,12 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
 
   const isPeople = batch.importType === "people";
   const readyRows = rows.filter((r) => r.status === "جاهز");
-  const teacherCount = readyRows.filter((r) => (r.mapped as Record<string, string>)?.category === "معلم").length;
+  // ملخص التأكيد حسب نوع الاستيراد — دفعة الخطة لا تعرض تسميات الموظفين إطلاقاً
+  const confirmSummary = buildConfirmSummary(
+    batch.importType,
+    readyRows.map((r) => ({ mapped: r.mapped })),
+    counts.excluded,
+  );
 
   return (
     <div>
@@ -84,10 +90,8 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
         reviewCount={counts.review}
         deferredCount={counts.deferred}
         fileName={batch.sourceFileName}
-        readyCount={counts.ready}
-        teacherCount={teacherCount}
-        staffCount={counts.ready - teacherCount}
-        excludedCount={counts.excluded}
+        confirmTitle={confirmSummary.title}
+        confirmItems={confirmSummary.items}
       />
 
       {batch.errorLog != null && (

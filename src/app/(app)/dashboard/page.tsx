@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programs, people, evidenceItems } from "@/db/schema";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
 import { toHijriLong, toGregorianLong } from "@/lib/dates";
 import { getWorkCenter, type WorkItem } from "@/lib/worklist";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "مركز عمل مدير المدرسة" };
 export const dynamic = "force-dynamic";
@@ -77,15 +78,17 @@ export default async function DashboardPage() {
   const user = await requireUser();
   const today = new Date();
 
+  // إحصاءات لوحة القيادة تستبعد السجلات الاصطناعية (مفعّل في التطوير/الإنتاج)
+  const excluded = await getExcludedIdSets();
   const [work, progCount, peopleCount, evidenceCount] = await Promise.all([
     getWorkCenter(user),
-    db.select({ c: sql<number>`count(*)::int` }).from(programs),
+    db.select({ c: sql<number>`count(*)::int` }).from(programs).where(notSynthetic(programs.id, excluded.programs)),
     db
       .select({ c: sql<number>`count(*)::int`, category: people.category })
       .from(people)
-      .where(eq(people.active, true))
+      .where(and(eq(people.active, true), notSynthetic(people.id, excluded.people)))
       .groupBy(people.category),
-    db.select({ c: sql<number>`count(*)::int` }).from(evidenceItems),
+    db.select({ c: sql<number>`count(*)::int` }).from(evidenceItems).where(notSynthetic(evidenceItems.id, excluded.evidence)),
   ]);
 
   const teachers = peopleCount.find((p) => p.category === "معلم")?.c ?? 0;

@@ -22,10 +22,8 @@ export function BatchActions({
   reviewCount,
   deferredCount,
   fileName,
-  readyCount,
-  teacherCount,
-  staffCount,
-  excludedCount,
+  confirmTitle,
+  confirmItems,
 }: {
   batchId: string;
   status: string;
@@ -34,10 +32,8 @@ export function BatchActions({
   reviewCount: number;
   deferredCount: number;
   fileName: string;
-  readyCount: number;
-  teacherCount: number;
-  staffCount: number;
-  excludedCount: number;
+  confirmTitle: string;
+  confirmItems: { label: string; value: number }[];
 }) {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -73,13 +69,14 @@ export function BatchActions({
         )}
         {status === "معاينة" && confirming && (
           <div className="w-full rounded-lg border border-brand-200 bg-brand-50 p-4">
-            <p className="mb-2 font-bold text-brand-900">تأكيد التنفيذ — راجع ملخص الدفعة قبل الموافقة النهائية</p>
+            <p className="mb-2 font-bold text-brand-900">{confirmTitle}</p>
             <ul className="mb-3 space-y-1 text-sm text-brand-900">
               <li>اسم الملف: <span className="font-medium">{fileName}</span></li>
-              <li>عدد الصفوف الجاهزة: <span className="font-medium tabular-nums">{readyCount}</span></li>
-              <li>عدد المعلمين: <span className="font-medium tabular-nums">{teacherCount}</span></li>
-              <li>عدد الموظفين: <span className="font-medium tabular-nums">{staffCount}</span></li>
-              <li>عدد المستبعدين: <span className="font-medium tabular-nums">{excludedCount}</span></li>
+              {confirmItems.map((it) => (
+                <li key={it.label}>
+                  {it.label}: <span className="font-medium tabular-nums">{it.value}</span>
+                </li>
+              ))}
             </ul>
             <div className="flex flex-wrap items-center gap-3">
               <button

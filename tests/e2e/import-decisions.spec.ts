@@ -14,7 +14,7 @@ import ExcelJS from "exceljs";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function principalCredentials(): { username: string; password: string } {
-  const file = path.resolve("storage/private/initial-credentials.txt");
+  const file = path.resolve(process.env.E2E_STORAGE_DIR ?? "storage", "private/initial-credentials.txt");
   const content = readFileSync(file, "utf8");
   const line = content.split("\n").find((l) => l.includes("principal"))!;
   const password = line.split("كلمة المرور المؤقتة:")[1].trim();

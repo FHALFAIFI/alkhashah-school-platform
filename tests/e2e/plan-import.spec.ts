@@ -13,7 +13,7 @@ const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 const PLAN_FILE = `خطة تجريبي آلي قبول ${Date.now().toString().slice(-8)}.xlsx`;
 
 function principalCredentials(): { username: string; password: string } {
-  const content = readFileSync(path.resolve("storage/private/initial-credentials.txt"), "utf8");
+  const content = readFileSync(path.resolve(process.env.E2E_STORAGE_DIR ?? "storage", "private/initial-credentials.txt"), "utf8");
   const line = content.split("\n").find((l) => l.includes("principal"))!;
   return { username: "principal", password: line.split("كلمة المرور المؤقتة:")[1].trim() };
 }

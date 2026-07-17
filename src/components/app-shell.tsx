@@ -66,6 +66,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: "/admin/users", label: "المستخدمون والأدوار", permission: "admin.users", icon: "⚙" },
       { href: "/admin/settings", label: "الإعدادات", permission: "admin.settings", icon: "⚙" },
       { href: "/admin/audit", label: "سجل التدقيق", permission: "admin.audit.read", icon: "≡" },
+      { href: "/admin/cleanup", label: "تنظيف السجلات التجريبية", permission: "admin.settings", icon: "⌫" },
       { href: "/admin/backup", label: "النسخ الاحتياطي", permission: "admin.backup", icon: "⛁" },
     ],
   },

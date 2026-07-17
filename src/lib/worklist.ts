@@ -23,6 +23,7 @@ import {
 import type { CurrentUser } from "@/lib/auth/session";
 import { computePackageReadiness } from "@/lib/plan/progress";
 import { todayIso } from "@/lib/dates";
+import { getExcludedIdSets, notSynthetic, type SyntheticIdSets } from "@/lib/synthetic";
 
 /**
  * قوائم عمل المدير — تجميع كل ما يحتاج إجراء عبر الوحدات في مكان واحد.
@@ -163,7 +164,7 @@ async function importItems(user: CurrentUser): Promise<{ review: WorkItem[]; app
   return { review, approve };
 }
 
-async function planItems(user: CurrentUser): Promise<{ approve: WorkItem[]; gaps: WorkItem[] }> {
+async function planItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ approve: WorkItem[]; gaps: WorkItem[] }> {
   if (!user.permissions.has("plan.read")) return { approve: [], gaps: [] };
   const approve: WorkItem[] = [];
 
@@ -178,7 +179,7 @@ async function planItems(user: CurrentUser): Promise<{ approve: WorkItem[]; gaps
       })
       .from(programChangeRequests)
       .innerJoin(programs, eq(programChangeRequests.programId, programs.id))
-      .where(eq(programChangeRequests.status, "قيد الاعتماد"))
+      .where(and(eq(programChangeRequests.status, "قيد الاعتماد"), notSynthetic(programs.id, ex.programs)))
       .orderBy(desc(programChangeRequests.createdAt));
     for (const cr of crs) {
       approve.push({
@@ -200,7 +201,7 @@ async function planItems(user: CurrentUser): Promise<{ approve: WorkItem[]; gaps
       })
       .from(programDeliverables)
       .innerJoin(programs, eq(programDeliverables.programId, programs.id))
-      .where(eq(programDeliverables.packageStatus, "جاهزة للاعتماد"));
+      .where(and(eq(programDeliverables.packageStatus, "جاهزة للاعتماد"), notSynthetic(programs.id, ex.programs)));
     for (const d of readyPackages) {
       approve.push({
         title: `حزمة شواهد جاهزة — ${d.seq}. ${d.programName}`,
@@ -218,7 +219,7 @@ async function planItems(user: CurrentUser): Promise<{ approve: WorkItem[]; gaps
     const approvedPrograms = await db
       .select({ id: programs.id, name: programs.name, seq: programs.seq })
       .from(programs)
-      .where(eq(programs.status, "معتمد"));
+      .where(and(eq(programs.status, "معتمد"), notSynthetic(programs.id, ex.programs)));
     if (approvedPrograms.length) {
       const deliverables = await db
         .select()
@@ -268,7 +269,7 @@ async function planItems(user: CurrentUser): Promise<{ approve: WorkItem[]; gaps
   return { approve, gaps };
 }
 
-async function committeeItems(user: CurrentUser): Promise<{ review: WorkItem[]; approve: WorkItem[] }> {
+async function committeeItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ review: WorkItem[]; approve: WorkItem[] }> {
   if (!user.permissions.has("committees.read")) return { review: [], approve: [] };
   const review: WorkItem[] = [];
   const approve: WorkItem[] = [];
@@ -277,7 +278,7 @@ async function committeeItems(user: CurrentUser): Promise<{ review: WorkItem[]; 
     const drafts = await db
       .select({ id: committees.id, nameAr: committees.nameAr })
       .from(committees)
-      .where(eq(committees.status, "مسودة"))
+      .where(and(eq(committees.status, "مسودة"), notSynthetic(committees.id, ex.committees)))
       .orderBy(asc(committees.nameAr));
     for (const c of drafts) {
       approve.push({
@@ -300,7 +301,7 @@ async function committeeItems(user: CurrentUser): Promise<{ review: WorkItem[]; 
     })
     .from(meetings)
     .innerJoin(committees, eq(meetings.committeeId, committees.id))
-    .where(eq(meetings.status, "بانتظار التوقيع"))
+    .where(and(eq(meetings.status, "بانتظار التوقيع"), notSynthetic(meetings.id, ex.meetings)))
     .orderBy(desc(meetings.createdAt));
   for (const m of pendingSignature) {
     review.push({
@@ -316,7 +317,7 @@ async function committeeItems(user: CurrentUser): Promise<{ review: WorkItem[]; 
   return { review, approve };
 }
 
-async function openDecisionItems(user: CurrentUser): Promise<WorkItem[]> {
+async function openDecisionItems(user: CurrentUser, ex: SyntheticIdSets): Promise<WorkItem[]> {
   if (!user.permissions.has("tasks.read") || !user.permissions.has("committees.read")) return [];
   const rows = await db
     .select({
@@ -334,7 +335,7 @@ async function openDecisionItems(user: CurrentUser): Promise<WorkItem[]> {
     .innerJoin(meetingOutcomes, eq(actionTasks.sourceId, meetingOutcomes.id))
     .innerJoin(meetings, eq(meetingOutcomes.meetingId, meetings.id))
     .innerJoin(committees, eq(meetings.committeeId, committees.id))
-    .where(and(eq(actionTasks.sourceType, "meeting_outcome"), inArray(actionTasks.status, OPEN_TASK)))
+    .where(and(eq(actionTasks.sourceType, "meeting_outcome"), inArray(actionTasks.status, OPEN_TASK), notSynthetic(actionTasks.id, ex.tasks)))
     .orderBy(asc(actionTasks.dueDate));
   const today = todayIso();
   return rows.map((r) => {
@@ -352,13 +353,13 @@ async function openDecisionItems(user: CurrentUser): Promise<WorkItem[]> {
   });
 }
 
-async function overdueTaskItems(user: CurrentUser): Promise<WorkItem[]> {
+async function overdueTaskItems(user: CurrentUser, ex: SyntheticIdSets): Promise<WorkItem[]> {
   if (!user.permissions.has("tasks.read")) return [];
   const today = todayIso();
   const tasks = await db
     .select()
     .from(actionTasks)
-    .where(and(inArray(actionTasks.status, OPEN_TASK), sql`${actionTasks.dueDate} is not null and ${actionTasks.dueDate}::date < ${today}::date`))
+    .where(and(inArray(actionTasks.status, OPEN_TASK), sql`${actionTasks.dueDate} is not null and ${actionTasks.dueDate}::date < ${today}::date`, notSynthetic(actionTasks.id, ex.tasks)))
     .orderBy(asc(actionTasks.dueDate));
   const sources = await resolveTaskSources(tasks);
   return tasks.map((t) => {
@@ -375,12 +376,12 @@ async function overdueTaskItems(user: CurrentUser): Promise<WorkItem[]> {
   });
 }
 
-async function evidenceReviewItems(user: CurrentUser): Promise<WorkItem[]> {
+async function evidenceReviewItems(user: CurrentUser, ex: SyntheticIdSets): Promise<WorkItem[]> {
   if (!user.permissions.has("evidence.read")) return [];
   const items = await db
     .select({ id: evidenceItems.id, title: evidenceItems.title, role: evidenceItems.role })
     .from(evidenceItems)
-    .where(eq(evidenceItems.reviewStatus, "لم يراجع"))
+    .where(and(eq(evidenceItems.reviewStatus, "لم يراجع"), notSynthetic(evidenceItems.id, ex.evidence)))
     .orderBy(desc(evidenceItems.createdAt));
   return items.map((e) => ({
     title: e.title,
@@ -391,7 +392,7 @@ async function evidenceReviewItems(user: CurrentUser): Promise<WorkItem[]> {
   }));
 }
 
-async function performanceItems(user: CurrentUser): Promise<WorkItem[]> {
+async function performanceItems(user: CurrentUser, ex: SyntheticIdSets): Promise<WorkItem[]> {
   if (!user.permissions.has("performance.read")) return [];
   const cycles = await db
     .select({
@@ -402,7 +403,7 @@ async function performanceItems(user: CurrentUser): Promise<WorkItem[]> {
     })
     .from(perfCycles)
     .innerJoin(people, eq(perfCycles.personId, people.id))
-    .where(eq(perfCycles.status, "نشطة"));
+    .where(and(eq(perfCycles.status, "نشطة"), notSynthetic(perfCycles.id, ex.perfCycles)));
   if (!cycles.length) return [];
   const sessions = await db
     .select()
@@ -446,7 +447,7 @@ async function performanceItems(user: CurrentUser): Promise<WorkItem[]> {
   return items;
 }
 
-async function maintenanceItems(user: CurrentUser): Promise<WorkItem[]> {
+async function maintenanceItems(user: CurrentUser, ex: SyntheticIdSets): Promise<WorkItem[]> {
   if (!user.permissions.has("maintenance.read")) return [];
   const issues = await db
     .select({
@@ -460,7 +461,7 @@ async function maintenanceItems(user: CurrentUser): Promise<WorkItem[]> {
     })
     .from(maintenanceIssues)
     .leftJoin(rooms, eq(maintenanceIssues.roomId, rooms.id))
-    .where(inArray(maintenanceIssues.status, ["مفتوح", "قيد الإصلاح", "تم الإصلاح"]))
+    .where(and(inArray(maintenanceIssues.status, ["مفتوح", "قيد الإصلاح", "تم الإصلاح"]), notSynthetic(maintenanceIssues.id, ex.maintenance)))
     .orderBy(desc(maintenanceIssues.createdAt));
   return issues.map((i) => ({
     title: `${i.title} (${i.code})`,
@@ -489,16 +490,18 @@ async function inspectionTemplateItems(user: CurrentUser): Promise<WorkItem[]> {
 
 /** يجمع كل أقسام مركز العمل — كل قسم يفحص صلاحياته بنفسه. */
 export async function getWorkCenter(user: CurrentUser): Promise<WorkCenter> {
+  // مركز العمل يستبعد السجلات الاصطناعية (مفعّل في التطوير/الإنتاج)
+  const ex = await getExcludedIdSets();
   const [imports, plan, committee, decisions, overdue, evidenceReview, performance, maintenance, templates] =
     await Promise.all([
       importItems(user),
-      planItems(user),
-      committeeItems(user),
-      openDecisionItems(user),
-      overdueTaskItems(user),
-      evidenceReviewItems(user),
-      performanceItems(user),
-      maintenanceItems(user),
+      planItems(user, ex),
+      committeeItems(user, ex),
+      openDecisionItems(user, ex),
+      overdueTaskItems(user, ex),
+      evidenceReviewItems(user, ex),
+      performanceItems(user, ex),
+      maintenanceItems(user, ex),
       inspectionTemplateItems(user),
     ]);
 

@@ -9,6 +9,7 @@ import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric, todayIso } from "@/lib/dates";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 function esc(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -28,20 +29,22 @@ export async function generateExecutiveReport(opts: {
   const now = new Date();
   const issuedAtText = `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`;
 
+  // التقرير التنفيذي يستبعد السجلات الاصطناعية (مفعّل في التطوير/الإنتاج)
+  const excluded = await getExcludedIdSets();
   const [allPrograms, years, allCommittees, allMeetings, tasks, cycles, sessions, persons, allRooms, issues, allInspections, evidenceCount] =
     await Promise.all([
-      db.select().from(programs).orderBy(asc(programs.seq)),
+      db.select().from(programs).where(notSynthetic(programs.id, excluded.programs)).orderBy(asc(programs.seq)),
       db.select().from(planYears),
-      db.select().from(committees),
-      db.select().from(meetings),
-      db.select().from(actionTasks),
-      db.select().from(perfCycles),
-      db.select().from(perfSessions),
-      db.select().from(people),
+      db.select().from(committees).where(notSynthetic(committees.id, excluded.committees)),
+      db.select().from(meetings).where(notSynthetic(meetings.id, excluded.meetings)),
+      db.select().from(actionTasks).where(notSynthetic(actionTasks.id, excluded.tasks)),
+      db.select().from(perfCycles).where(notSynthetic(perfCycles.id, excluded.perfCycles)),
+      db.select().from(perfSessions).where(notSynthetic(perfSessions.id, excluded.perfSessions)),
+      db.select().from(people).where(notSynthetic(people.id, excluded.people)),
       db.select().from(rooms).where(eq(rooms.active, true)),
-      db.select().from(maintenanceIssues),
+      db.select().from(maintenanceIssues).where(notSynthetic(maintenanceIssues.id, excluded.maintenance)),
       db.select().from(inspections),
-      db.select().from(evidenceItems),
+      db.select().from(evidenceItems).where(notSynthetic(evidenceItems.id, excluded.evidence)),
     ]);
 
   const personName = new Map(persons.map((p) => [p.id, p.fullName]));

@@ -2,6 +2,30 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
+## Latest checkpoint — TEST ISOLATION + SYNTHETIC CLEANUP (PREVIEW) (2026-07-17)
+- **Fail-closed DB guard** (`src/db/guard.ts`): when `MADRASA_ENV=test`, `DATABASE_URL` must
+  name a `_test` DB or the connection is refused before opening. Wired into `src/db/index.ts`
+  (inert in dev/prod). Vitest + Playwright now target `madrasa_test` only. Playwright: dedicated
+  port **3081**, `reuseExistingServer:false`, `STORAGE_DIR=storage-e2e`, `global-setup.ts`
+  (ensure+migrate+truncate+seed + synthetic Fares stand-in via `scripts/e2e-fixtures.ts`),
+  `MADRASA_INCLUDE_SYNTHETIC=1` so scenario data stays visible. Root cause of prior pollution:
+  e2e drove `npm run dev` on the real `madrasa` DB. **Local caveat:** Next 16 permits one
+  `next dev` per dir — run e2e with the dev server stopped / in CI.
+- **Type-aware import confirmation** (`src/lib/imports/confirm-summary.ts`): plan imports show
+  Arabic plan counts (برامج/مخرجات/مؤشرات/مخاطر/ميزانية), never employee labels. Wired into
+  imports `[id]/page.tsx` + `batch-ui.tsx`.
+- **Synthetic classifier** (`src/lib/synthetic.ts`, read-only, no schema change): structural
+  identification (import-batch provenance «تجريبي», `demo%` plan years, FK propagation) — NOT
+  by name alone; name-only «تجريبي» records go to a separate manual-review bucket. Exclusion
+  (`getExcludedIdSets`/`notSynthetic`, ON except when `MADRASA_INCLUDE_SYNTHETIC=1`) applied to
+  dashboard stats, work center (`worklist.ts`), executive report, and AI tools (`ai/tools.ts`).
+  Preview-only **/admin/cleanup** page (read-only; cleanup NOT executed).
+- **Proof (read-only classify on the real DB):** 58 programs → **26 preserved (official) / 32
+  synthetic**; official batch `385c615a` منفذة, 26 programs, **0 flagged**; Fares `12673bed`
+  معاينة, **not** synthetic; **0 name-only suspects**. Real data untouched.
+- **Gates:** typecheck/lint/build clean; `npm test` **115 passed** in `madrasa_test`. Details in
+  `docs/TEST_ISOLATION_AND_SYNTHETIC_CLEANUP.md`. **Stopped at cleanup confirmation.**
+
 ## Current state — WORKFLOW-QUALITY PHASE DELIVERED, AWAITING PRINCIPAL ACCEPTANCE (2026-07-17)
 - **Gate C5 remains DEFERRED_BY_PRODUCT_OWNER (D-018) — NOT passed.** App runs over existing Tailscale HTTP; every camera-dependent step has manual fallbacks (room-code entry «فتح غرفة بالرمز», plain file upload). **v1.0.0-pilot is NOT tagged until the principal accepts `docs/WORKFLOW_ACCEPTANCE_AR.md`.**
 - **Workflow remediation COMPLETE** (commits `9908f19`..`a420767` + final phase commit): «مركز عمل مدير المدرسة» action-first dashboard (src/lib/worklist.ts — every card deep-links to the exact record with an Arabic next action); app-wide duplicate-submit guard (SubmitButton useFormStatus + confirmText) and WorkflowSteps stepper; evidence review stage + indicator-level subKey linking; imports (race-safe itemized approval, post-commit /people?دفعة= links); plan (weekly follow-up page + program_followups table migration 0003 — «متأخر» detection now live; CR notifications); committees (steppers, dup-outcome guard, close gate incl. بانتظار التوقيع); performance (final-evaluation gate now satisfiable via per-indicator evidence UI, cycle completes on final lock, D-014 staff manual-model fallback); digital twin (room edits flow register+geometry-draft→publish — publish no longer wipes edits; maintenance assignee; asset QR filter); AI assistant (server-side context binding, 17-tool registry incl. program/meeting/person/room briefs + attachment_text with pdftotext/OCR — hard exclusions unchanged, all writes preview+confirm).

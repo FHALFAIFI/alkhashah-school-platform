@@ -18,6 +18,7 @@ import { createDraftEmail, m365Enabled } from "@/lib/email/m365";
 import { computePackageReadiness } from "@/lib/plan/progress";
 import { computeRoomReadiness } from "@/lib/building/readiness";
 import { readStoredFile } from "@/lib/storage";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { ocrImage } from "./assist";
 
 /**
@@ -153,31 +154,33 @@ const searchRecords: ReadTool = {
     const { entity, query, limit } = this.args.parse(rawArgs) as { entity: keyof typeof ENTITY_CONFIG; query: string; limit: number };
     requireToolPermission(user, ENTITY_CONFIG[entity].permission);
     const q = `%${query}%`;
+    // سياق المساعد يستبعد السجلات الاصطناعية (مفعّل في التطوير/الإنتاج)
+    const ex = await getExcludedIdSets();
     let rows: { title: string; detail?: string; href?: string }[] = [];
 
     if (entity === "people") {
-      const r = await db.select().from(people).where(and(eq(people.active, true), or(ilike(people.fullName, q), ilike(people.jobTitle, q), ilike(people.orgUnit, q)))).limit(limit);
+      const r = await db.select().from(people).where(and(eq(people.active, true), notSynthetic(people.id, ex.people), or(ilike(people.fullName, q), ilike(people.jobTitle, q), ilike(people.orgUnit, q)))).limit(limit);
       rows = r.map((p) => ({ title: p.fullName, detail: `${p.category}${p.jobTitle ? ` — ${p.jobTitle}` : ""}`, href: `/people/${p.id}` }));
     } else if (entity === "programs") {
-      const r = await db.select().from(programs).where(or(ilike(programs.name, q), ilike(programs.domain, q), ilike(programs.generalGoal, q))).limit(limit);
+      const r = await db.select().from(programs).where(and(or(ilike(programs.name, q), ilike(programs.domain, q), ilike(programs.generalGoal, q)), notSynthetic(programs.id, ex.programs))).limit(limit);
       rows = r.map((p) => ({ title: p.name, detail: `${p.status} — ${p.executionStatus} — الإنجاز ${p.progress}٪`, href: `/plan/${p.id}` }));
     } else if (entity === "committees") {
-      const r = await db.select().from(committees).where(ilike(committees.nameAr, q)).limit(limit);
+      const r = await db.select().from(committees).where(and(ilike(committees.nameAr, q), notSynthetic(committees.id, ex.committees))).limit(limit);
       rows = r.map((c) => ({ title: c.nameAr, detail: c.status, href: `/committees/${c.id}` }));
     } else if (entity === "meetings") {
       const r = await db
         .select({ m: meetings, committeeName: committees.nameAr })
         .from(meetings)
         .innerJoin(committees, eq(meetings.committeeId, committees.id))
-        .where(or(ilike(meetings.title, q), ilike(committees.nameAr, q)))
+        .where(and(or(ilike(meetings.title, q), ilike(committees.nameAr, q)), notSynthetic(meetings.id, ex.meetings)))
         .orderBy(desc(meetings.createdAt))
         .limit(limit);
       rows = r.map(({ m, committeeName }) => ({ title: m.title ?? `اجتماع ${committeeName} رقم ${m.seq}`, detail: `${committeeName} — ${m.status}`, href: `/committees/${m.committeeId}/meetings/${m.id}` }));
     } else if (entity === "tasks") {
-      const r = await db.select().from(actionTasks).where(or(ilike(actionTasks.title, q), ilike(actionTasks.description, q))).orderBy(desc(actionTasks.createdAt)).limit(limit);
+      const r = await db.select().from(actionTasks).where(and(or(ilike(actionTasks.title, q), ilike(actionTasks.description, q)), notSynthetic(actionTasks.id, ex.tasks))).orderBy(desc(actionTasks.createdAt)).limit(limit);
       rows = r.map((t) => ({ title: t.title, detail: `${t.status} — أولوية ${t.priority}`, href: "/tasks" }));
     } else if (entity === "evidence") {
-      const r = await db.select().from(evidenceItems).where(or(ilike(evidenceItems.title, q), ilike(evidenceItems.description, q))).orderBy(desc(evidenceItems.createdAt)).limit(limit);
+      const r = await db.select().from(evidenceItems).where(and(or(ilike(evidenceItems.title, q), ilike(evidenceItems.description, q)), notSynthetic(evidenceItems.id, ex.evidence))).orderBy(desc(evidenceItems.createdAt)).limit(limit);
       rows = r.map((e) => ({ title: e.title, detail: `${e.role ?? e.kind} — evidenceId=${e.id}`, href: "/evidence" }));
     } else if (entity === "rooms") {
       const r = await db.select().from(rooms).where(and(eq(rooms.active, true), or(ilike(rooms.nameAr, q), ilike(rooms.code, q), ilike(rooms.roomType, q)))).limit(limit);
@@ -199,7 +202,7 @@ const searchRecords: ReadTool = {
         href: `/building/rooms/${roomId}`,
       }));
     } else if (entity === "documents") {
-      const r = await db.select().from(documents).where(or(ilike(documents.title, q), ilike(documents.docNumber, q))).orderBy(desc(documents.issuedAt)).limit(limit);
+      const r = await db.select().from(documents).where(and(or(ilike(documents.title, q), ilike(documents.docNumber, q)), notSynthetic(documents.id, ex.documents))).orderBy(desc(documents.issuedAt)).limit(limit);
       rows = r.map((d) => ({ title: `${d.title} (${d.docNumber})`, href: "/documents" }));
     }
 
@@ -215,10 +218,11 @@ const overduePrograms: ReadTool = {
   args: z.object({}),
   async execute(user) {
     requireToolPermission(user, "plan.read");
+    const ex = await getExcludedIdSets();
     const r = await db
       .select()
       .from(programs)
-      .where(or(eq(programs.executionStatus, "متأخر"), and(eq(programs.status, "معتمد"), lt(programs.progress, 100), lt(programs.lastReviewAt, new Date(Date.now() - 30 * 24 * 3600 * 1000)))))
+      .where(and(or(eq(programs.executionStatus, "متأخر"), and(eq(programs.status, "معتمد"), lt(programs.progress, 100), lt(programs.lastReviewAt, new Date(Date.now() - 30 * 24 * 3600 * 1000)))), notSynthetic(programs.id, ex.programs)))
       .limit(25);
     return {
       summary: `البرامج المتأخرة أو المتوقفة عن المراجعة: ${r.length}`,
@@ -235,10 +239,11 @@ const overdueTasks: ReadTool = {
   args: z.object({}),
   async execute(user) {
     requireToolPermission(user, "tasks.read");
+    const ex = await getExcludedIdSets();
     const r = await db
       .select()
       .from(actionTasks)
-      .where(and(inArray(actionTasks.status, OPEN_TASK_STATUSES), lt(actionTasks.dueDate, new Date())))
+      .where(and(inArray(actionTasks.status, OPEN_TASK_STATUSES), lt(actionTasks.dueDate, new Date()), notSynthetic(actionTasks.id, ex.tasks)))
       .orderBy(actionTasks.dueDate)
       .limit(25);
     return {
@@ -257,6 +262,7 @@ const missingEvidence: ReadTool = {
   async execute(user) {
     requireToolPermission(user, "evidence.read");
     requireToolPermission(user, "plan.read");
+    const ex = await getExcludedIdSets();
     const linked = db
       .select({ entityId: evidenceLinks.entityId })
       .from(evidenceLinks)
@@ -264,7 +270,7 @@ const missingEvidence: ReadTool = {
     const r = await db
       .select()
       .from(programs)
-      .where(and(eq(programs.status, "معتمد"), sql`${programs.evidenceText} is not null and ${programs.evidenceText} <> ''`, notInArray(programs.id, linked)))
+      .where(and(eq(programs.status, "معتمد"), sql`${programs.evidenceText} is not null and ${programs.evidenceText} <> ''`, notInArray(programs.id, linked), notSynthetic(programs.id, ex.programs)))
       .limit(25);
     return {
       summary: `برامج معتمدة بلا أي شاهد مرتبط: ${r.length}`,
@@ -281,12 +287,13 @@ const upcomingPerformanceSessions: ReadTool = {
   args: z.object({}),
   async execute(user) {
     requireToolPermission(user, "performance.read");
+    const ex = await getExcludedIdSets();
     const r = await db
       .select({ cycle: perfCycles, personName: people.fullName, sessionCount: sql<number>`count(${perfSessions.id}) filter (where ${perfSessions.status} in ('مسودة','بانتظار التقرير الموقع'))` })
       .from(perfCycles)
       .innerJoin(people, eq(perfCycles.personId, people.id))
       .leftJoin(perfSessions, eq(perfSessions.cycleId, perfCycles.id))
-      .where(eq(perfCycles.status, "نشطة"))
+      .where(and(eq(perfCycles.status, "نشطة"), notSynthetic(perfCycles.id, ex.perfCycles)))
       .groupBy(perfCycles.id, people.fullName)
       .limit(40);
     const withPending = r.filter((row) => Number(row.sessionCount) > 0);
@@ -337,11 +344,12 @@ const openMaintenanceIssues: ReadTool = {
   args: z.object({}),
   async execute(user) {
     requireToolPermission(user, "maintenance.read");
+    const ex = await getExcludedIdSets();
     const r = await db
       .select({ issue: maintenanceIssues, roomName: rooms.nameAr })
       .from(maintenanceIssues)
       .leftJoin(rooms, eq(maintenanceIssues.roomId, rooms.id))
-      .where(inArray(maintenanceIssues.status, ["مفتوح", "قيد الإصلاح"]))
+      .where(and(inArray(maintenanceIssues.status, ["مفتوح", "قيد الإصلاح"]), notSynthetic(maintenanceIssues.id, ex.maintenance)))
       .orderBy(desc(maintenanceIssues.createdAt))
       .limit(30);
     return {
@@ -363,29 +371,32 @@ const dashboardSummary: ReadTool = {
   args: z.object({}),
   async execute(user) {
     const rows: { title: string; detail?: string; href?: string }[] = [];
+    // ملخص الأرقام يستبعد السجلات الاصطناعية (مفعّل في التطوير/الإنتاج)
+    const ex = await getExcludedIdSets();
     if (user.permissions.has("plan.read")) {
       const [prog] = await db
         .select({ total: sql<number>`count(*)`, approved: sql<number>`count(*) filter (where ${programs.status} = 'معتمد')`, late: sql<number>`count(*) filter (where ${programs.executionStatus} = 'متأخر')`, avg: sql<number>`coalesce(avg(${programs.progress}), 0)` })
-        .from(programs);
+        .from(programs)
+        .where(notSynthetic(programs.id, ex.programs));
       rows.push({ title: `برامج الخطة: ${prog.total}`, detail: `المعتمد ${prog.approved} — المتأخر ${prog.late} — متوسط الإنجاز ${Math.round(Number(prog.avg))}٪`, href: "/plan" });
     }
     if (user.permissions.has("people.read")) {
       const [ppl] = await db
         .select({ teachers: sql<number>`count(*) filter (where ${people.category} = 'معلم')`, staff: sql<number>`count(*) filter (where ${people.category} = 'موظف')` })
         .from(people)
-        .where(eq(people.active, true));
+        .where(and(eq(people.active, true), notSynthetic(people.id, ex.people)));
       rows.push({ title: `المعلمون: ${ppl.teachers} — الموظفون: ${ppl.staff}`, href: "/people" });
     }
     if (user.permissions.has("tasks.read")) {
-      const [t] = await db.select({ open: sql<number>`count(*)` }).from(actionTasks).where(inArray(actionTasks.status, OPEN_TASK_STATUSES));
+      const [t] = await db.select({ open: sql<number>`count(*)` }).from(actionTasks).where(and(inArray(actionTasks.status, OPEN_TASK_STATUSES), notSynthetic(actionTasks.id, ex.tasks)));
       rows.push({ title: `المهام المفتوحة: ${t.open}`, href: "/tasks" });
     }
     if (user.permissions.has("evidence.read")) {
-      const [e] = await db.select({ total: sql<number>`count(*)` }).from(evidenceItems);
+      const [e] = await db.select({ total: sql<number>`count(*)` }).from(evidenceItems).where(notSynthetic(evidenceItems.id, ex.evidence));
       rows.push({ title: `الشواهد المسجلة: ${e.total}`, href: "/evidence" });
     }
     if (user.permissions.has("maintenance.read")) {
-      const [m] = await db.select({ open: sql<number>`count(*)` }).from(maintenanceIssues).where(inArray(maintenanceIssues.status, ["مفتوح", "قيد الإصلاح"]));
+      const [m] = await db.select({ open: sql<number>`count(*)` }).from(maintenanceIssues).where(and(inArray(maintenanceIssues.status, ["مفتوح", "قيد الإصلاح"]), notSynthetic(maintenanceIssues.id, ex.maintenance)));
       rows.push({ title: `بلاغات الصيانة المفتوحة: ${m.open}`, href: "/building/maintenance" });
     }
     return { summary: "ملخص أرقام لوحة المتابعة الحالية", rows };

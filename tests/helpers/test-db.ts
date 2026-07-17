@@ -13,7 +13,7 @@ export async function ensureTestDb(): Promise<void> {
   }
   await admin.end();
   execSync("npx tsx src/db/migrate.ts", {
-    env: { ...process.env, DATABASE_URL: TEST_DB_URL },
+    env: { ...process.env, MADRASA_ENV: "test", DATABASE_URL: TEST_DB_URL },
     stdio: "pipe",
   });
 }
