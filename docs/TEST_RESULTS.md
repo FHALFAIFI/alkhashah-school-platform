@@ -73,3 +73,30 @@ permission recheck, cancel blocks execution, full audit trail, disabled-by-defau
 ## Static checks & build
 - `npm run lint` / `npm run typecheck` — clean; `npx drizzle-kit check` — no schema drift (migration 0002 applied: ai_conversations, ai_messages, ai_action_proposals, ai_drafts).
 - `npm run build` — production build succeeds, all routes compile.
+
+---
+
+# Workflow-quality phase run — 2026-07-17 (work center + six workflow repairs + scenario e2e)
+
+Gate C5: **DEFERRED_BY_PRODUCT_OWNER (D-018)** — its e2e remains the 1 skipped test; nothing camera/PWA/HTTPS was touched.
+
+## Vitest — `npm run test`
+```
+Test Files  14 passed (14)
+Tests       84 passed (84)
+```
+New/extended: import double-commit race + createdEntityId integrity + rollback claim; `plan-workflow.test.ts` (approve/reopen/change-request/weekly-followup/year-close — previously untested state machine); performance final completion through real actions (per-indicator evidence via subKey) + cycle complete/reopen + D-014 staff manual-model path; building geometry-sync on room edit + room-code resolver + full maintenance lifecycle; AI allowlist now 17 tools + context binding + no-grades assertion + attachment_text RBAC.
+
+## Playwright — `npm run test:e2e`
+```
+30 passed, 1 skipped (deferred C5)
+```
+- NEW `workflows.spec.ts` (15 tests): 7 full desktop business scenarios driven from «مركز عمل مدير المدرسة» through every screen to the final result — employee import incl. rollback batch; plan import→approve→evidence→weekly follow-up→change request→executive report; committee formation→approval→meeting→قرار (mandatory task)→signed minutes→completion; performance cycle→planning session→final session with all-indicator ratings + per-indicator evidence→lock→cycle «مكتملة»; digital twin publish→room edit draft→inspection→maintenance to «مغلق ومتحقق»; AI contextual entry; **Fares batch sanctity assertion (still «معاينة»)** — plus 8 mobile 390×844 replays each asserting zero page-level horizontal overflow. Three consecutive fully-green runs (43.8s–1.6m).
+- Scenario testing exposed and fixed 3 real bugs: `nextRoomCode` executed outside the publish transaction (first multi-room floor publish always crashed with KHS-RM unique violation); evidence-panel form kept a stale «نوع الشاهد» radio after each save (second consecutive save failed); re-forming a committee from a template whose committee is «مقفلة» was rejected while the UI offered it.
+- `mobile.spec.ts` extended with `/plan/followup`; A1 checker now exempts document verification codes (hex by design).
+
+## Static checks & build
+tsc --noEmit, eslint, and `npm run build` (production) all clean. Migration `0003_nosy_lightspeed` (program_followups) applied.
+
+## Dev-DB state after scenario runs
+Synthetic «تجريبي آلي» residue retained deliberately (people, programs, committees, cycles, evidence, documents); ground floor published (rooms KHS-RM-0001..0017) and «فحص السلامة العام» inspection template approved. **Real Fares batch untouched: «معاينة», 52 rows.**

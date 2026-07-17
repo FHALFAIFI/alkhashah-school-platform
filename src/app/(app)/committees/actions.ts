@@ -30,7 +30,8 @@ export async function createCommitteeFromTemplateAction(_prev: ActionState, form
     .select()
     .from(committees)
     .where(and(eq(committees.templateId, templateId), eq(committees.planYearId, year.id)));
-  if (existing.length > 0) return { error: "شكلت هذه اللجنة لهذه السنة مسبقاً" };
+  // اللجنة المقفلة مؤرشفة — لا تمنع إعادة التشكيل (نفس منطق لوحة «قوالب لم تشكل لهذه السنة»)
+  if (existing.some((c) => c.status !== "مقفلة")) return { error: "شكلت هذه اللجنة لهذه السنة مسبقاً" };
 
   const [c] = await db
     .insert(committees)

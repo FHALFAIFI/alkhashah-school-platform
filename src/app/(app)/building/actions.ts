@@ -216,7 +216,8 @@ export async function publishGeometryAction(versionId: string): Promise<ActionSt
       if (room) {
         await tx.update(rooms).set(dims).where(eq(rooms.id, room.id));
       } else {
-        const code = await nextRoomCode();
+        // تمرير المعاملة إلزامي هنا حتى يرى العد الغرف المدرجة في المعاملة نفسها
+        const code = await nextRoomCode(tx);
         await tx.insert(rooms).values({ floorId: version.floorId, geomKey: gr.key, code, ...dims });
       }
     }

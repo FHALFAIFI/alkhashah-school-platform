@@ -80,7 +80,9 @@ export function EvidencePanel({
       </ul>
 
       {showForm && canWrite && (
-        <form action={formAction} className="mt-4 space-y-3 rounded-lg bg-sand-50 p-3">
+        // إعادة تركيب النموذج بعد كل إضافة: تصفير النموذج التلقائي في React يلغي تحديد
+        // أزرار «نوع الشاهد» في DOM رغم بقاء الحالة، فيرسل الحفظ التالي «ملف» خطأً
+        <form key={items.length} action={formAction} className="mt-4 space-y-3 rounded-lg bg-sand-50 p-3">
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="entityType" value={entityType} />

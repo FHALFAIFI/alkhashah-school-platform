@@ -4,9 +4,14 @@ import { db } from "@/db";
 import { rooms, assets, maintenanceIssues } from "@/db/schema";
 import { getSetting } from "@/lib/settings";
 
-export async function nextRoomCode(): Promise<string> {
+/**
+ * الرمز التالي للغرفة. عند التوليد داخل معاملة يجب تمرير المعاملة نفسها،
+ * وإلا فالعد يجري على اتصال المجمع فلا يرى الصفوف المدرجة داخل المعاملة
+ * فيتكرر الرمز نفسه (خرق قيد التفرد عند نشر مخطط بأكثر من غرفة جديدة).
+ */
+export async function nextRoomCode(executor: Pick<typeof db, "select"> = db): Promise<string> {
   const prefix = await getSetting("rooms.code_prefix", "KHS-RM-");
-  const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(rooms);
+  const [{ count }] = await executor.select({ count: sql<number>`count(*)::int` }).from(rooms);
   return `${prefix}${String(count + 1).padStart(4, "0")}`;
 }
 

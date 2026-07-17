@@ -23,7 +23,7 @@ function principalCredentials(): { username: string; password: string } {
 
 const ROUTES = [
   "/dashboard", "/tasks", "/notifications",
-  "/plan", "/plan/kpis", "/plan/risks", "/evidence",
+  "/plan", "/plan/followup", "/plan/kpis", "/plan/risks", "/evidence",
   "/performance", "/performance/models",
   "/committees", "/committees/templates",
   "/building", "/building/assets", "/building/inspections", "/building/maintenance", "/building/offline",
