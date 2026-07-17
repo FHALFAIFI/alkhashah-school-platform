@@ -46,6 +46,7 @@ const badgeColors: Record<string, string> = {
   "متراجع عنها": "bg-red-100 text-red-800",
   "يحتاج مراجعة": "bg-amber-100 text-amber-800",
   "جاهز": "bg-emerald-50 text-emerald-700",
+  "مؤجل": "bg-indigo-100 text-indigo-800",
   "مستبعد": "bg-gray-100 text-gray-500",
   "منفذ": "bg-emerald-100 text-emerald-800",
   "غير مكتملة": "bg-gray-100 text-gray-600",

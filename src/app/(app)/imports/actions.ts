@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/session";
 import { saveUploadedFile } from "@/lib/storage";
-import { createBatch, commitBatch, rollbackBatch, updateRowCorrection, getBatchWithRows } from "@/lib/imports/framework";
+import { createBatch, commitBatch, rollbackBatch, applyRowDecision, undoLastRowDecision, getBatchWithRows } from "@/lib/imports/framework";
 import { parsePeopleWorkbook, commitPeopleRows, rollbackPeopleBatch } from "@/lib/imports/people";
 import { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch } from "@/lib/imports/plan";
 import { notifyAll } from "@/lib/notify";
@@ -63,25 +63,42 @@ export async function uploadImportAction(_prev: ImportActionState, formData: For
 }
 
 export async function correctRowAction(rowId: string, batchId: string, formData: FormData): Promise<void> {
-  await requirePermission("imports.read");
+  const user = await requirePermission("imports.read");
   const corrections: Record<string, unknown> = {};
   for (const [key, value] of formData.entries()) {
     if (key.startsWith("f_")) corrections[key.slice(2)] = String(value);
   }
-  const newStatus = String(formData.get("newStatus") ?? "جاهز");
-  await updateRowCorrection(rowId, corrections, newStatus);
+  await applyRowDecision({ rowId, action: "تصحيح", corrections, actorId: user.id, actorName: user.displayName });
   revalidatePath(`/imports/${batchId}`);
 }
 
 export async function excludeRowAction(rowId: string, batchId: string): Promise<void> {
-  await requirePermission("imports.read");
-  await updateRowCorrection(rowId, {}, "مستبعد");
+  const user = await requirePermission("imports.read");
+  await applyRowDecision({ rowId, action: "استبعاد", actorId: user.id, actorName: user.displayName });
   revalidatePath(`/imports/${batchId}`);
 }
 
 export async function markRowReadyAction(rowId: string, batchId: string): Promise<void> {
-  await requirePermission("imports.read");
-  await updateRowCorrection(rowId, {}, "جاهز");
+  const user = await requirePermission("imports.read");
+  await applyRowDecision({ rowId, action: "تأكيد كجاهز", actorId: user.id, actorName: user.displayName });
+  revalidatePath(`/imports/${batchId}`);
+}
+
+export async function deferRowAction(rowId: string, batchId: string): Promise<void> {
+  const user = await requirePermission("imports.read");
+  await applyRowDecision({ rowId, action: "تأجيل", actorId: user.id, actorName: user.displayName });
+  revalidatePath(`/imports/${batchId}`);
+}
+
+export async function returnRowToReviewAction(rowId: string, batchId: string): Promise<void> {
+  const user = await requirePermission("imports.read");
+  await applyRowDecision({ rowId, action: "إعادة إلى المراجعة", actorId: user.id, actorName: user.displayName });
+  revalidatePath(`/imports/${batchId}`);
+}
+
+export async function undoRowDecisionAction(rowId: string, batchId: string): Promise<void> {
+  const user = await requirePermission("imports.read");
+  await undoLastRowDecision({ rowId, actorId: user.id, actorName: user.displayName });
   revalidatePath(`/imports/${batchId}`);
 }
 

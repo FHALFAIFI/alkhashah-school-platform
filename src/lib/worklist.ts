@@ -135,13 +135,17 @@ async function importItems(user: CurrentUser): Promise<{ review: WorkItem[]; app
   for (const b of batches) {
     const c = (s: string) => counts.find((x) => x.batchId === b.id && x.status === s)?.c ?? 0;
     const needsReview = c("يحتاج مراجعة");
+    const deferred = c("مؤجل");
     const ready = c("جاهز");
     const label = b.importType === "people" ? "استيراد أشخاص" : b.importType === "operational_plan" ? "استيراد الخطة التشغيلية" : "استيراد";
-    if (needsReview > 0) {
+    if (needsReview + deferred > 0) {
       review.push({
         title: `${label}: ${b.sourceFileName}`,
-        detail: `${needsReview} صفاً بحاجة إلى مراجعة قبل التنفيذ`,
-        status: "يحتاج مراجعة",
+        detail:
+          `${needsReview > 0 ? `${needsReview} صفاً بحاجة إلى مراجعة` : ""}` +
+          `${needsReview > 0 && deferred > 0 ? " و" : ""}` +
+          `${deferred > 0 ? `${deferred} صفاً مؤجلاً` : ""} قبل التنفيذ`,
+        status: needsReview > 0 ? "يحتاج مراجعة" : "مؤجل",
         href: `/imports/${b.id}`,
         action: "راجع الصفوف ثم أكدها أو استبعدها",
       });

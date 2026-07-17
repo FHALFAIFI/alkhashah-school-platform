@@ -139,7 +139,9 @@ export const importRows = pgTable(
     mapped: jsonb("mapped"),
     corrections: jsonb("corrections"),
     validation: jsonb("validation"),
-    status: text("status").notNull().default("جاهز"), // جاهز | يحتاج مراجعة | مستبعد | منفذ
+    // سجل قرارات المدير على الصف — كل قرار يحفظ لقطة الحالة السابقة ليكون التراجع كاملاً
+    decisionHistory: jsonb("decision_history"),
+    status: text("status").notNull().default("جاهز"), // جاهز | يحتاج مراجعة | مؤجل | مستبعد | منفذ
     createdEntityType: text("created_entity_type"),
     createdEntityId: uuid("created_entity_id"),
   },

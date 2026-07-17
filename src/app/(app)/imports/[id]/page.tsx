@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/session";
-import { getBatchWithRows } from "@/lib/imports/framework";
+import { getBatchWithRows, type RowDecisionEntry } from "@/lib/imports/framework";
+import { rowValidationDisplay } from "@/lib/imports/validation-display";
 import { PageHeader, Card, Badge, Table, WorkflowSteps, LinkButton } from "@/components/ui";
 import { BatchActions, RowEditor } from "./batch-ui";
 
@@ -11,10 +12,10 @@ export const dynamic = "force-dynamic";
 const IMPORT_STEPS = ["رفع الملف", "المعاينة والتصحيح", "الموافقة والتنفيذ", "عرض النتيجة"];
 
 /** يشتق فهرس المرحلة الحالية من حالة الدفعة وصفوفها */
-function currentStep(status: string, counts: { ready: number; review: number }): number {
+function currentStep(status: string, counts: { ready: number; review: number; deferred: number }): number {
   if (status === "منفذة" || status === "متراجع عنها") return 3;
-  // معاينة (وأي حالة أخرى): مراجعة معلقة → مرحلة التصحيح، وإلا → مرحلة الموافقة
-  if (counts.review > 0) return 1;
+  // معاينة (وأي حالة أخرى): مراجعة معلقة أو صفوف مؤجلة → مرحلة التصحيح، وإلا → مرحلة الموافقة
+  if (counts.review > 0 || counts.deferred > 0) return 1;
   if (counts.ready > 0) return 2;
   return 1;
 }
@@ -39,6 +40,7 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
   const counts = {
     ready: rows.filter((r) => r.status === "جاهز").length,
     review: rows.filter((r) => r.status === "يحتاج مراجعة").length,
+    deferred: rows.filter((r) => r.status === "مؤجل").length,
     excluded: rows.filter((r) => r.status === "مستبعد").length,
     committed: rows.filter((r) => r.status === "منفذ").length,
   };
@@ -51,7 +53,7 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
     <div>
       <PageHeader
         title={`دفعة استيراد: ${batch.sourceFileName}`}
-        subtitle={`${rows.length} صفاً — جاهز: ${counts.ready} · يحتاج مراجعة: ${counts.review} · مستبعد: ${counts.excluded} · منفذ: ${counts.committed}`}
+        subtitle={`${rows.length} صفاً — جاهز: ${counts.ready} · يحتاج مراجعة: ${counts.review} · مؤجل: ${counts.deferred} · مستبعد: ${counts.excluded} · منفذ: ${counts.committed}`}
         actions={<Badge value={batch.status} />}
       />
 
@@ -86,9 +88,10 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
       <BatchActions
         batchId={batch.id}
         status={batch.status}
-        canCommit={user.permissions.has("imports.commit") && counts.review === 0 && counts.ready > 0 && batch.status === "معاينة"}
+        canCommit={user.permissions.has("imports.commit") && counts.review === 0 && counts.deferred === 0 && counts.ready > 0 && batch.status === "معاينة"}
         canRollback={user.permissions.has("imports.rollback") && batch.status === "منفذة"}
         reviewCount={counts.review}
+        deferredCount={counts.deferred}
         fileName={batch.sourceFileName}
         readyCount={counts.ready}
         teacherCount={teacherCount}
@@ -103,47 +106,118 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
       )}
 
       {isPeople ? (
-        <Table headers={["#", "الحالة", ...PEOPLE_FIELDS.map((f) => f.label), "التحقق", ""]}>
-          {rows.map((r) => {
-            const m = r.mapped as Record<string, string>;
-            const v = r.validation as { errors: string[]; warnings: string[] };
-            return (
-              <tr key={r.id} className={r.status === "مستبعد" ? "opacity-40" : ""}>
-                <td className="px-3 py-2 tabular-nums">{r.rowIndex}</td>
-                <td className="px-3 py-2"><Badge value={r.status} /></td>
-                {PEOPLE_FIELDS.map((f) => (
-                  <td key={f.key} className="px-3 py-2">
-                    {f.key === "fullName" && r.status === "منفذ" && r.createdEntityId ? (
-                      <Link href={`/people/${r.createdEntityId}`} className="font-medium text-brand-700 underline-offset-2 hover:underline">
-                        {m?.[f.key] || "—"}
+        <>
+          {/* الجوال: كل صف معاينة بطاقة عربية رأسية كاملة — لا تمرير أفقي إطلاقاً */}
+          <div className="space-y-3 lg:hidden">
+            {rows.map((r) => {
+              const m = r.mapped as Record<string, string>;
+              const history = (r.decisionHistory as RowDecisionEntry[] | null) ?? [];
+              return (
+                <div
+                  key={r.id}
+                  data-testid="import-row-card"
+                  className={`rounded-xl border border-sand-200 bg-white p-4 ${r.status === "مستبعد" ? "opacity-60" : ""}`}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs tabular-nums text-gray-400">الصف {r.rowIndex}</span>
+                    <Badge value={r.status} />
+                  </div>
+                  <p className="mb-2 break-words font-bold text-brand-900">
+                    {r.status === "منفذ" && r.createdEntityId ? (
+                      <Link href={`/people/${r.createdEntityId}`} className="text-brand-700 underline-offset-2 hover:underline">
+                        {m?.fullName || "—"}
                       </Link>
                     ) : (
-                      m?.[f.key] || "—"
+                      m?.fullName || "—"
                     )}
-                  </td>
-                ))}
-                <td className="px-3 py-2 text-xs">
-                  {v?.errors?.map((e, i) => <div key={i} className="text-red-600">✗ {e}</div>)}
-                  {v?.warnings?.map((w, i) => <div key={i} className="text-amber-600">⚠ {w}</div>)}
-                </td>
-                <td className="px-3 py-2">
+                  </p>
+                  <dl className="mb-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
+                    {PEOPLE_FIELDS.filter((f) => f.key !== "fullName").map((f) => (
+                      <div key={f.key}>
+                        <dt className="text-xs text-gray-400">{f.label}</dt>
+                        <dd className="break-words">{m?.[f.key] || "—"}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <ValidationNotes status={r.status} validation={r.validation} />
                   {batch.status === "معاينة" && r.status !== "منفذ" && (
-                    <RowEditor
-                      rowId={r.id}
-                      batchId={batch.id}
-                      fields={PEOPLE_FIELDS}
-                      values={m}
-                      status={r.status}
-                    />
+                    <div className="mt-2 border-t border-sand-100 pt-2">
+                      <RowEditor
+                        rowId={r.id}
+                        batchId={batch.id}
+                        fields={PEOPLE_FIELDS}
+                        values={m}
+                        status={r.status}
+                        history={history}
+                      />
+                    </div>
                   )}
-                </td>
-              </tr>
-            );
-          })}
-        </Table>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* سطح المكتب: الجدول كما هو */}
+          <div className="hidden lg:block">
+            <Table headers={["#", "الحالة", ...PEOPLE_FIELDS.map((f) => f.label), "التحقق", ""]}>
+              {rows.map((r) => {
+                const m = r.mapped as Record<string, string>;
+                const history = (r.decisionHistory as RowDecisionEntry[] | null) ?? [];
+                return (
+                  <tr key={r.id} className={r.status === "مستبعد" ? "opacity-40" : ""}>
+                    <td className="px-3 py-2 tabular-nums">{r.rowIndex}</td>
+                    <td className="px-3 py-2"><Badge value={r.status} /></td>
+                    {PEOPLE_FIELDS.map((f) => (
+                      <td key={f.key} className="px-3 py-2">
+                        {f.key === "fullName" && r.status === "منفذ" && r.createdEntityId ? (
+                          <Link href={`/people/${r.createdEntityId}`} className="font-medium text-brand-700 underline-offset-2 hover:underline">
+                            {m?.[f.key] || "—"}
+                          </Link>
+                        ) : (
+                          m?.[f.key] || "—"
+                        )}
+                      </td>
+                    ))}
+                    <td className="px-3 py-2 text-xs">
+                      <ValidationNotes status={r.status} validation={r.validation} />
+                    </td>
+                    <td className="px-3 py-2">
+                      {batch.status === "معاينة" && r.status !== "منفذ" && (
+                        <RowEditor
+                          rowId={r.id}
+                          batchId={batch.id}
+                          fields={PEOPLE_FIELDS}
+                          values={m}
+                          status={r.status}
+                          history={history}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </Table>
+          </div>
+        </>
       ) : (
         <PlanPreview rows={rows} />
       )}
+    </div>
+  );
+}
+
+/**
+ * ملاحظات التحقق حسب حالة القرار: الأخطاء دائماً، والتحذيرات نشطة فقط قبل الحسم؛
+ * بعد الحسم يظهر «تمت مراجعة التصنيف» بدل تحذير التصنيف (الأصل يبقى في سجل القرارات).
+ */
+function ValidationNotes({ status, validation }: { status: string; validation: unknown }) {
+  const v = rowValidationDisplay(status, validation as { errors?: string[]; warnings?: string[] } | null);
+  if (v.errors.length === 0 && v.activeWarnings.length === 0 && v.resolvedNotes.length === 0) return null;
+  return (
+    <div className="text-xs">
+      {v.errors.map((e, i) => <div key={`e${i}`} className="text-red-600">✗ {e}</div>)}
+      {v.activeWarnings.map((w, i) => <div key={`w${i}`} className="text-amber-600">⚠ {w}</div>)}
+      {v.resolvedNotes.map((n, i) => <div key={`r${i}`} className="text-emerald-700">✓ {n}</div>)}
     </div>
   );
 }

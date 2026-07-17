@@ -1,7 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { commitBatchAction, rollbackBatchAction, correctRowAction, excludeRowAction, markRowReadyAction } from "../actions";
+import {
+  commitBatchAction,
+  rollbackBatchAction,
+  correctRowAction,
+  excludeRowAction,
+  markRowReadyAction,
+  deferRowAction,
+  returnRowToReviewAction,
+  undoRowDecisionAction,
+} from "../actions";
 import { SubmitButton } from "@/components/ui";
 
 export function BatchActions({
@@ -10,6 +19,7 @@ export function BatchActions({
   canCommit,
   canRollback,
   reviewCount,
+  deferredCount,
   fileName,
   readyCount,
   teacherCount,
@@ -21,6 +31,7 @@ export function BatchActions({
   canCommit: boolean;
   canRollback: boolean;
   reviewCount: number;
+  deferredCount: number;
   fileName: string;
   readyCount: number;
   teacherCount: number;
@@ -50,6 +61,11 @@ export function BatchActions({
             {reviewCount > 0 && (
               <span className="text-sm text-amber-700">
                 لا يمكن التنفيذ قبل تصحيح أو استبعاد {reviewCount} صفاً بحاجة إلى مراجعة
+              </span>
+            )}
+            {deferredCount > 0 && (
+              <span className="text-sm text-indigo-700">
+                لا يمكن التنفيذ قبل حسم {deferredCount} صفاً مؤجلاً (تأكيد/تصحيح/استبعاد)
               </span>
             )}
           </>
@@ -111,67 +127,120 @@ export function BatchActions({
   );
 }
 
+export type RowHistoryEntry = {
+  at: string;
+  action: string;
+  by: string;
+  from: { status: string };
+  to: { status: string };
+  resolvedWarnings?: string[];
+};
+
+/** زر إجراء موحد لأزرار الصف — هدف لمس ≥44px على الجوال ومضغوط على سطح المكتب */
+function rowBtn(extra: string) {
+  return `min-h-11 rounded border px-2 py-1 text-xs lg:min-h-0 ${extra}`;
+}
+
 export function RowEditor({
   rowId,
   batchId,
   fields,
   values,
   status,
+  history = [],
 }: {
   rowId: string;
   batchId: string;
   fields: { key: string; label: string }[];
   values: Record<string, string>;
   status: string;
+  history?: RowHistoryEntry[];
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   if (!open) {
     return (
-      <div className="flex gap-1">
-        <button onClick={() => setOpen(true)} className="rounded border border-sand-200 px-2 py-1 text-xs hover:bg-sand-100">
-          تصحيح
-        </button>
-        {status === "يحتاج مراجعة" && (
-          <button
-            onClick={() => startTransition(() => markRowReadyAction(rowId, batchId))}
-            className="rounded border border-emerald-200 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
-          >
-            تأكيد كجاهز
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center gap-1">
+          <button onClick={() => setOpen(true)} className={rowBtn("border-sand-200 hover:bg-sand-100")}>
+            تصحيح
           </button>
-        )}
-        {status !== "مستبعد" && (
-          <button
-            onClick={() => startTransition(() => excludeRowAction(rowId, batchId))}
-            className="rounded border border-sand-200 px-2 py-1 text-xs text-gray-500 hover:bg-sand-100"
-          >
-            استبعاد
-          </button>
-        )}
+          {status !== "جاهز" && (
+            <button
+              disabled={pending}
+              onClick={() => startTransition(() => markRowReadyAction(rowId, batchId))}
+              className={rowBtn("border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50")}
+            >
+              تأكيد كجاهز
+            </button>
+          )}
+          {status !== "مستبعد" && (
+            <button
+              disabled={pending}
+              onClick={() => startTransition(() => excludeRowAction(rowId, batchId))}
+              className={rowBtn("border-sand-200 text-gray-500 hover:bg-sand-100 disabled:opacity-50")}
+            >
+              استبعاد
+            </button>
+          )}
+          {status !== "مؤجل" && (
+            <button
+              disabled={pending}
+              onClick={() => startTransition(() => deferRowAction(rowId, batchId))}
+              className={rowBtn("border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50")}
+            >
+              تأجيل
+            </button>
+          )}
+          {status !== "يحتاج مراجعة" && (
+            <button
+              disabled={pending}
+              onClick={() => startTransition(() => returnRowToReviewAction(rowId, batchId))}
+              className={rowBtn("border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-50")}
+            >
+              إعادة إلى المراجعة
+            </button>
+          )}
+          {history.length > 0 && (
+            <button
+              disabled={pending}
+              onClick={() => startTransition(() => undoRowDecisionAction(rowId, batchId))}
+              className={rowBtn("border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50")}
+            >
+              تراجع عن آخر قرار
+            </button>
+          )}
+        </div>
+        {history.length > 0 && <RowHistory history={history} />}
+        {pending && <p className="text-xs text-gray-400">جارٍ التنفيذ…</p>}
       </div>
     );
   }
 
   return (
     <form
-      action={(fd) => startTransition(() => correctRowAction(rowId, batchId, fd))}
-      className="w-64 space-y-2 rounded-lg border border-sand-200 bg-sand-50 p-2"
+      action={(fd) =>
+        startTransition(async () => {
+          await correctRowAction(rowId, batchId, fd);
+          setOpen(false);
+        })
+      }
+      className="w-full max-w-64 space-y-2 rounded-lg border border-sand-200 bg-sand-50 p-2"
     >
       {fields.map((f) => (
         <div key={f.key}>
           <label className="block text-xs text-gray-500">{f.label}</label>
           {f.key === "category" ? (
-            <select name={`f_${f.key}`} defaultValue={values[f.key] ?? "موظف"} className="w-full rounded border border-gray-300 px-2 py-1 text-xs">
+            <select name={`f_${f.key}`} defaultValue={values[f.key] ?? "موظف"} className="w-full rounded border border-gray-300 px-2 py-1 text-base lg:text-xs">
               <option value="معلم">معلم</option>
               <option value="موظف">موظف</option>
             </select>
           ) : (
-            <input name={`f_${f.key}`} defaultValue={values[f.key] ?? ""} className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+            <input name={`f_${f.key}`} defaultValue={values[f.key] ?? ""} className="w-full rounded border border-gray-300 px-2 py-1 text-base lg:text-xs" />
           )}
         </div>
       ))}
-      <input type="hidden" name="newStatus" value="جاهز" />
       <div className="flex gap-2">
         <SubmitButton>حفظ كجاهز</SubmitButton>
         <button type="button" onClick={() => setOpen(false)} className="text-xs text-gray-500">
@@ -180,5 +249,32 @@ export function RowEditor({
       </div>
       {pending && <p className="text-xs text-gray-400">جارٍ الحفظ…</p>}
     </form>
+  );
+}
+
+/** سجل قرارات الصف — يعرض القرارات بترتيبها مع التحذيرات المحسومة وقت كل قرار */
+function RowHistory({ history }: { history: RowHistoryEntry[] }) {
+  return (
+    <details className="text-xs text-gray-500">
+      <summary className="cursor-pointer select-none py-1 text-gray-400 hover:text-gray-600">
+        سجل القرارات ({history.length})
+      </summary>
+      <ol className="ms-3 mt-1 space-y-1 border-s border-sand-200 ps-2">
+        {history.map((h, i) => (
+          <li key={i}>
+            <span className="font-medium text-gray-600">{h.action}</span>
+            {" — "}
+            {h.from.status} ← {h.to.status}
+            {" · "}
+            {h.by}
+            {" · "}
+            <span dir="ltr" className="tabular-nums">{h.at.slice(0, 16).replace("T", " ")}</span>
+            {h.resolvedWarnings?.map((w, j) => (
+              <div key={j} className="text-amber-600">⚠ {w}</div>
+            ))}
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }

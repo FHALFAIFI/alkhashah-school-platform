@@ -82,6 +82,105 @@ export async function updateRowCorrection(rowId: string, corrections: Record<str
 }
 
 /**
+ * قرارات المدير على صفوف المعاينة — كل قرار يحفظ لقطة الحالة السابقة كاملة
+ * (الحالة + القيم + التصحيحات) في سجل الصف، فيصبح «تراجع عن آخر قرار» استعادة تامة.
+ */
+export type RowDecisionEntry = {
+  at: string;
+  action: string; // «تأكيد كجاهز» | «تصحيح» | «استبعاد» | «تأجيل» | «إعادة إلى المراجعة»
+  by: string;
+  from: { status: string; mapped: unknown; corrections: unknown };
+  to: { status: string };
+  /** التحذيرات التي كانت نشطة لحظة القرار — تبقى هنا للسجل بعد اختفائها من العرض */
+  resolvedWarnings?: string[];
+};
+
+const DECISION_STATUS: Record<string, string> = {
+  "تأكيد كجاهز": "جاهز",
+  "تصحيح": "جاهز",
+  "استبعاد": "مستبعد",
+  "تأجيل": "مؤجل",
+  "إعادة إلى المراجعة": "يحتاج مراجعة",
+};
+
+export async function applyRowDecision(opts: {
+  rowId: string;
+  action: string;
+  corrections?: Record<string, unknown>;
+  actorId: string;
+  actorName: string;
+}) {
+  const newStatus = DECISION_STATUS[opts.action];
+  if (!newStatus) throw new Error("قرار غير معروف");
+  const [row] = await db.select().from(importRows).where(eq(importRows.id, opts.rowId));
+  if (!row) throw new Error("الصف غير موجود");
+  if (row.status === "منفذ") throw new Error("لا يمكن تعديل صف منفذ");
+  if (row.status === newStatus && !opts.corrections) return row;
+
+  const warnings = (row.validation as { warnings?: string[] } | null)?.warnings ?? [];
+  const entry: RowDecisionEntry = {
+    at: new Date().toISOString(),
+    action: opts.action,
+    by: opts.actorName,
+    from: { status: row.status, mapped: row.mapped, corrections: row.corrections },
+    to: { status: newStatus },
+    ...(row.status === "يحتاج مراجعة" && warnings.length > 0 ? { resolvedWarnings: warnings } : {}),
+  };
+  const history = [...((row.decisionHistory as RowDecisionEntry[] | null) ?? []), entry];
+  const mapped = opts.corrections
+    ? { ...(row.mapped as Record<string, unknown>), ...opts.corrections }
+    : row.mapped;
+
+  const [updated] = await db
+    .update(importRows)
+    .set({
+      mapped,
+      corrections: opts.corrections ?? row.corrections,
+      status: newStatus,
+      decisionHistory: history,
+    })
+    .where(eq(importRows.id, opts.rowId))
+    .returning();
+  await audit({
+    actorId: opts.actorId,
+    action: "import.row_decision",
+    entityType: "import_row",
+    entityId: opts.rowId,
+    summary: `قرار «${opts.action}» على الصف ${row.rowIndex} — ${row.status} ← ${newStatus}`,
+  });
+  return updated;
+}
+
+/** يتراجع عن آخر قرار مسجل: يستعيد الحالة والقيم والتصحيحات السابقة ويزيل القيد من سجل الصف. */
+export async function undoLastRowDecision(opts: { rowId: string; actorId: string; actorName: string }) {
+  const [row] = await db.select().from(importRows).where(eq(importRows.id, opts.rowId));
+  if (!row) throw new Error("الصف غير موجود");
+  if (row.status === "منفذ") throw new Error("لا يمكن تعديل صف منفذ");
+  const history = ((row.decisionHistory as RowDecisionEntry[] | null) ?? []).slice();
+  const last = history.pop();
+  if (!last) throw new Error("لا يوجد قرار مسجل للتراجع عنه");
+
+  const [updated] = await db
+    .update(importRows)
+    .set({
+      status: last.from.status,
+      mapped: last.from.mapped as object,
+      corrections: last.from.corrections as object,
+      decisionHistory: history,
+    })
+    .where(eq(importRows.id, opts.rowId))
+    .returning();
+  await audit({
+    actorId: opts.actorId,
+    action: "import.row_decision_undone",
+    entityType: "import_row",
+    entityId: opts.rowId,
+    summary: `تراجع عن قرار «${last.action}» على الصف ${row.rowIndex} — عادت الحالة إلى «${last.from.status}»`,
+  });
+  return updated;
+}
+
+/**
  * منفذو الاستيراد حسب النوع — يسجلون داخل معاملة واحدة ويعيدون ما أنشئ.
  * tx: drizzle transaction. rows: الصفوف الجاهزة فقط.
  */
@@ -104,6 +203,10 @@ export async function commitBatch(
   const pendingReview = data.rows.filter((r) => r.status === "يحتاج مراجعة");
   if (pendingReview.length > 0) {
     throw new Error(`لا يمكن التنفيذ: ${pendingReview.length} صفاً ما زال يحتاج مراجعة — صحح الصفوف أو استبعدها أولاً`);
+  }
+  const deferred = data.rows.filter((r) => r.status === "مؤجل");
+  if (deferred.length > 0) {
+    throw new Error(`لا يمكن التنفيذ: ${deferred.length} صفاً مؤجل — احسم الصفوف المؤجلة (تأكيد/تصحيح/استبعاد) أولاً`);
   }
 
   const result = await db.transaction(async (tx) => {

@@ -3,6 +3,7 @@ import { eq, inArray, and, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import { people, importRows, perfCycles } from "@/db/schema";
 import { readWorkbook, cellText, findHeaderRow } from "./xlsx";
+import { CLASSIFICATION_WARNING } from "./validation-display";
 import type { ParsedRow, CommitResult } from "./framework";
 
 /**
@@ -110,7 +111,7 @@ export async function parsePeopleWorkbook(data: Buffer): Promise<{
     const errors: string[] = [];
     const warnings: string[] = [];
     if (!jobTitle) warnings.push("المسمى الوظيفي فارغ");
-    if (!confident) warnings.push("التصنيف (معلم/موظف) غير مؤكد — يحتاج تأكيد المدير");
+    if (!confident) warnings.push(CLASSIFICATION_WARNING);
 
     const dupName = seenNames.get(fullName);
     if (dupName !== undefined) warnings.push(`اسم مكرر مع الصف ${dupName + 1}`);
