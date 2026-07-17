@@ -6,6 +6,7 @@ import { programs, documents } from "@/db/schema";
 import { PageHeader, Card, SubmitButton, Table } from "@/components/ui";
 import { generateProgramReport } from "@/lib/reports/program-report";
 import { getSetting } from "@/lib/settings";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { revalidatePath } from "next/cache";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,11 @@ export const dynamic = "force-dynamic";
 export default async function ProgramReportPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("reports.generate");
   const { id } = await params;
-  const [program] = await db.select().from(programs).where(eq(programs.id, id));
+  const excluded = await getExcludedIdSets();
+  const [program] = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.id, id), notSynthetic(programs.id, excluded.programs)));
   if (!program) notFound();
 
   const issued = await db

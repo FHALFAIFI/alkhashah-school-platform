@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import {
   programs, programMilestones, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups,
 } from "@/db/schema";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { evidenceForEntity } from "@/lib/evidence";
 import { computePackageReadiness } from "@/lib/plan/progress";
 import { isFollowupDue } from "@/lib/plan/followup";
@@ -23,7 +24,11 @@ export const dynamic = "force-dynamic";
 export default async function ProgramPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("plan.read");
   const { id } = await params;
-  const [program] = await db.select().from(programs).where(eq(programs.id, id));
+  const excluded = await getExcludedIdSets();
+  const [program] = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.id, id), notSynthetic(programs.id, excluded.programs)));
   if (!program) notFound();
 
   const [milestones, deliverables, changeRequests, roadmap, evidence, versions, followups] = await Promise.all([

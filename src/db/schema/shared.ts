@@ -128,6 +128,55 @@ export const importBatches = pgTable("import_batches", {
   rolledBackAt: timestamp("rolled_back_at", { withTimezone: true }),
 });
 
+/**
+ * دفعات الأرشفة — أرشفة السجلات الاصطناعية (تجريبية) أرشفةً غير متلفة وقابلة للتراجع الكامل.
+ * الأرشفة لا تحذف أي صف فعلياً؛ تُلتقط لقطة كاملة لكل سجل مؤرشف في archived_records
+ * ويُخفى السجل من كل الواجهات عبر مرشّح الاستبعاد المركزي. التراجع يعيد الإظهار فوراً.
+ */
+export const archiveBatches = pgTable(
+  "archive_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** سبب الأرشفة (عربي، إلزامي) */
+    reason: text("reason").notNull(),
+    /** نص التأكيد الصريح الذي كتبه المدير حرفياً قبل التنفيذ */
+    confirmationText: text("confirmation_text").notNull(),
+    status: text("status").notNull().default("مؤرشف"), // مؤرشف | مُسترجع
+    /** عدد السجلات المؤرشفة حسب النوع وقت التنفيذ (لقطة ثابتة) */
+    counts: jsonb("counts").$type<Record<string, number>>(),
+    actorId: uuid("actor_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    unarchivedAt: timestamp("unarchived_at", { withTimezone: true }),
+    unarchivedBy: uuid("unarchived_by").references(() => users.id),
+  },
+  (t) => [index("archive_batches_status_idx").on(t.status)],
+);
+
+/**
+ * السجلات المؤرشفة — لقطة JSON كاملة لكل سجل مؤرشف + نوعه ومعرّفه.
+ * ما دام السجل مُدرجاً هنا ضمن دفعة حالتها «مؤرشف» فهو مخفيّ من كل الواجهات.
+ * التراجع يحوّل حالة الدفعة إلى «مُسترجع» فيعود السجل للظهور دون فقد أي بيان.
+ */
+export const archivedRecords = pgTable(
+  "archived_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id").notNull().references(() => archiveBatches.id, { onDelete: "cascade" }),
+    /** نوع الكيان بمصطلحات المصنّف (person | program | milestone …) */
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    /** سبب بنيوي عربي يُظهِر لماذا صُنّف السجل اصطناعياً */
+    reason: text("reason"),
+    /** لقطة كاملة للصف وقت الأرشفة — أساس التراجع والتدقيق */
+    snapshot: jsonb("snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("archived_records_batch_idx").on(t.batchId),
+    index("archived_records_entity_idx").on(t.entityType, t.entityId),
+  ],
+);
+
 /** صفوف الاستيراد */
 export const importRows = pgTable(
   "import_rows",

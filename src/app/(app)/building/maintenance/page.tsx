@@ -1,8 +1,9 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { maintenanceIssues, people, rooms } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, EmptyState } from "@/components/ui";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { NewIssueForm, IssueStatusControl } from "./maintenance-ui";
 
 export const metadata = { title: "الصيانة" };
@@ -10,10 +11,11 @@ export const dynamic = "force-dynamic";
 
 export default async function MaintenancePage() {
   const user = await requirePermission("maintenance.read");
+  const excluded = await getExcludedIdSets();
   const [issues, allRooms, activePeople] = await Promise.all([
-    db.select().from(maintenanceIssues).orderBy(desc(maintenanceIssues.createdAt)),
+    db.select().from(maintenanceIssues).where(notSynthetic(maintenanceIssues.id, excluded.maintenance)).orderBy(desc(maintenanceIssues.createdAt)),
     db.select().from(rooms).where(eq(rooms.active, true)).orderBy(asc(rooms.nameAr)),
-    db.select().from(people).where(eq(people.active, true)).orderBy(asc(people.fullName)),
+    db.select().from(people).where(and(eq(people.active, true), notSynthetic(people.id, excluded.people))).orderBy(asc(people.fullName)),
   ]);
   const roomName = new Map(allRooms.map((r) => [r.id, r.nameAr]));
   const personName = new Map(activePeople.map((p) => [p.id, p.fullName]));

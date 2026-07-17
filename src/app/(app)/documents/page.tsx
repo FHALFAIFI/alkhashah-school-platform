@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
 import { PageHeader, Table, EmptyState } from "@/components/ui";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { EmailDocumentButton } from "@/components/integrations-ui";
 
 export const metadata = { title: "الوثائق الصادرة" };
@@ -18,7 +19,8 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default async function DocumentsPage() {
   await requirePermission("documents.read");
-  const docs = await db.select().from(documents).orderBy(desc(documents.issuedAt));
+  const excluded = await getExcludedIdSets();
+  const docs = await db.select().from(documents).where(notSynthetic(documents.id, excluded.documents)).orderBy(desc(documents.issuedAt));
   return (
     <div>
       <PageHeader title="الوثائق الصادرة" subtitle="لكل وثيقة رقم فريد ورمز تحقق ولقطة ثابتة لا تتغير" />

@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs } from "@/db/schema";
 import { PageHeader, Table, Badge, LinkButton, EmptyState, ProgressBar, Card } from "@/components/ui";
 import { isFollowupDue } from "@/lib/plan/followup";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { FollowupDueBadge } from "./followup-badge";
 
 export const metadata = { title: "الخطة التشغيلية" };
@@ -30,10 +31,11 @@ export default async function PlanPage() {
     );
   }
 
+  const excluded = await getExcludedIdSets();
   const progs = await db
     .select()
     .from(programs)
-    .where(eq(programs.planYearId, activeYear.id))
+    .where(and(eq(programs.planYearId, activeYear.id), notSynthetic(programs.id, excluded.programs)))
     .orderBy(asc(programs.seq));
 
   const domains = [...new Set(progs.map((p) => p.domain))];

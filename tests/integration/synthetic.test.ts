@@ -31,6 +31,7 @@ async function seedFixture() {
   const { users } = await import("@/db/schema");
   const { importBatches } = await import("@/db/schema");
   const { people, programs, planYears } = await import("@/db/schema");
+  const { programMilestones, programDeliverables, programKpis, programRisks, planBudgetItems, programFollowups, programChangeRequests, programRoadmapCells } = await import("@/db/schema");
   const { committees, committeeMembers, meetings } = await import("@/db/schema");
 
   const [u] = await db.insert(users).values({ username: "t-syn", displayName: "اختبار", passwordHash: "x" }).returning();
@@ -69,7 +70,25 @@ async function seedFixture() {
   // اجتماع للجنة الاصطناعية — يجب أن ينتشر التصنيف إليه
   const [synthMeeting] = await db.insert(meetings).values({ committeeId: synthCommittee.id, seq: 1, title: "اجتماع الاختبار" }).returning();
 
-  return { u, realYear, demoYear, synthBatch, officialPlanBatch, faresBatch, synthP1, synthP2, realP, officialProg, synthProg, demoProg, nameOnlyProg, synthCommittee, realCommittee, synthMeeting };
+  // سجلات تابعة: للبرنامج الاصطناعي (بالمفتاح programId) وللسنة العرضية (بالمفتاح planYearId)
+  const [synthMilestone] = await db.insert(programMilestones).values({ programId: synthProg.id, title: "معلم تجريبي", weight: 100 }).returning();
+  const [officialMilestone] = await db.insert(programMilestones).values({ programId: officialProg.id, title: "معلم رسمي", weight: 100 }).returning();
+  const [synthDeliverable] = await db.insert(programDeliverables).values({ programId: synthProg.id, mainOutput: "مخرج تجريبي" }).returning();
+  const [synthRoadmap] = await db.insert(programRoadmapCells).values({ programId: synthProg.id, periodKey: "w1", periodLabel: "الأسبوع 1" }).returning();
+  const [synthFollowup] = await db.insert(programFollowups).values({ programId: synthProg.id, weekKey: "2026-W01", note: "متابعة", executionStatus: "في المسار" }).returning();
+  const [synthCR] = await db.insert(programChangeRequests).values({ programId: synthProg.id, field: "name", fieldLabel: "الاسم", reason: "تجربة" }).returning();
+
+  const [demoKpi] = await db.insert(programKpis).values({ planYearId: demoYear.id, code: "K1", nameAr: "مؤشر عرض" }).returning();
+  const [realKpi] = await db.insert(programKpis).values({ planYearId: realYear.id, code: "K2", nameAr: "مؤشر رسمي" }).returning();
+  const [demoRisk] = await db.insert(programRisks).values({ planYearId: demoYear.id, code: "R1", risk: "خطر عرض" }).returning();
+  const [demoBudget] = await db.insert(planBudgetItems).values({ planYearId: demoYear.id, item: "بند عرض" }).returning();
+
+  return {
+    u, realYear, demoYear, synthBatch, officialPlanBatch, faresBatch, synthP1, synthP2, realP,
+    officialProg, synthProg, demoProg, nameOnlyProg, synthCommittee, realCommittee, synthMeeting,
+    synthMilestone, officialMilestone, synthDeliverable, synthRoadmap, synthFollowup, synthCR,
+    demoKpi, realKpi, demoRisk, demoBudget,
+  };
 }
 
 describe("classifySynthetic — أدلة بنيوية", () => {
@@ -116,6 +135,55 @@ describe("classifySynthetic — أدلة بنيوية", () => {
     // ليس ضمن المرشحين المؤكدين ولا مجموعات الاستبعاد
     expect(c.candidates.find((x) => x.id === f.nameOnlyProg.id)).toBeUndefined();
     expect(c.ids.programs.has(f.nameOnlyProg.id)).toBe(false);
+  });
+
+  it("ينتشر التصنيف للسجلات التابعة: معالم/مخرجات/متابعات/طلبات تغيير (بالبرنامج) ومؤشرات/مخاطر/ميزانية (بالسنة العرضية)", async () => {
+    const f = await seedFixture();
+    const { classifySynthetic } = await import("@/lib/synthetic");
+    const c = await classifySynthetic();
+
+    // تابعة للبرنامج الاصطناعي
+    expect(c.ids.milestones.has(f.synthMilestone.id)).toBe(true);
+    expect(c.ids.milestones.has(f.officialMilestone.id)).toBe(false);
+    expect(c.ids.deliverables.has(f.synthDeliverable.id)).toBe(true);
+    expect(c.ids.roadmapCells.has(f.synthRoadmap.id)).toBe(true);
+    expect(c.ids.followups.has(f.synthFollowup.id)).toBe(true);
+    expect(c.ids.changeRequests.has(f.synthCR.id)).toBe(true);
+
+    // تابعة للسنة العرضية (demo) — تُصنَّف؛ نظيراتها في السنة الحقيقية لا
+    expect(c.ids.kpis.has(f.demoKpi.id)).toBe(true);
+    expect(c.ids.kpis.has(f.realKpi.id)).toBe(false);
+    expect(c.ids.risks.has(f.demoRisk.id)).toBe(true);
+    expect(c.ids.budgets.has(f.demoBudget.id)).toBe(true);
+    expect(c.ids.planYears.has(f.demoYear.id)).toBe(true);
+    expect(c.ids.planYears.has(f.realYear.id)).toBe(false);
+
+    // العدّادات تعكس المجموعات
+    expect(c.counts.milestone).toBe(c.ids.milestones.size);
+    expect(c.counts.kpi).toBe(c.ids.kpis.size);
+  });
+
+  it("استعلام /plan (نفس المرشّح المركزي) يُظهر البرامج الرسمية فقط ويُخفي الاصطناعية", async () => {
+    const f = await seedFixture();
+    const { db } = await import("@/db");
+    const { programs } = await import("@/db/schema");
+    const { and, eq } = await import("drizzle-orm");
+    const { getExcludedIdSets, notSynthetic } = await import("@/lib/synthetic");
+
+    // نفس استعلام صفحة /plan: برامج السنة النشطة مع استبعاد الاصطناعي
+    const excluded = await getExcludedIdSets();
+    const shown = await db
+      .select({ id: programs.id, name: programs.name })
+      .from(programs)
+      .where(and(eq(programs.planYearId, f.realYear.id), notSynthetic(programs.id, excluded.programs)));
+
+    const shownIds = shown.map((p) => p.id);
+    // الرسمي والمسمّى-بالاسم-فقط يظهران؛ الاصطناعي (نفس السنة) لا يظهر
+    expect(shownIds).toContain(f.officialProg.id);
+    expect(shownIds).toContain(f.nameOnlyProg.id);
+    expect(shownIds).not.toContain(f.synthProg.id);
+    // برنامج سنة العرض ليس ضمن السنة النشطة أصلاً
+    expect(shownIds).not.toContain(f.demoProg.id);
   });
 
   it("getExcludedIdSets يحترم مفتاح MADRASA_INCLUDE_SYNTHETIC", async () => {

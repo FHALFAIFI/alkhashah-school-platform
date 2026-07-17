@@ -8,6 +8,7 @@ import { NewTaskForm, TaskStatusControl } from "./task-ui";
 import { asc } from "drizzle-orm";
 import Link from "next/link";
 import { resolveTaskSources } from "@/lib/worklist";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "المهام والإجراءات" };
 export const dynamic = "force-dynamic";
@@ -24,8 +25,9 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export default async function TasksPage() {
   const user = await requirePermission("tasks.read");
-  const tasks = await db.select().from(actionTasks).orderBy(desc(actionTasks.createdAt));
-  const persons = await db.select({ id: people.id, fullName: people.fullName }).from(people).orderBy(asc(people.fullName));
+  const excluded = await getExcludedIdSets();
+  const tasks = await db.select().from(actionTasks).where(notSynthetic(actionTasks.id, excluded.tasks)).orderBy(desc(actionTasks.createdAt));
+  const persons = await db.select({ id: people.id, fullName: people.fullName }).from(people).where(notSynthetic(people.id, excluded.people)).orderBy(asc(people.fullName));
   const personName = new Map(persons.map((p) => [p.id, p.fullName]));
   const sourceLinks = await resolveTaskSources(tasks);
   const today = todayIso();

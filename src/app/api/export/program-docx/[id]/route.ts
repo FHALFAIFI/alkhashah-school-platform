@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { programs, programMilestones, programDeliverables } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { buildWordReport } from "@/lib/reports/word-export";
 import { audit } from "@/lib/audit";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
 
 /** تصدير تقرير البرنامج بصيغة Word قابلة للتحرير */
@@ -18,7 +19,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: "معرف غير صالح" }, { status: 400 });
 
-  const [program] = await db.select().from(programs).where(eq(programs.id, id));
+  const excluded = await getExcludedIdSets();
+  const [program] = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.id, id), notSynthetic(programs.id, excluded.programs)));
   if (!program) return NextResponse.json({ error: "البرنامج غير موجود" }, { status: 404 });
   const milestones = await db
     .select()

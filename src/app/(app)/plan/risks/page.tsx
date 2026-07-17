@@ -3,13 +3,15 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programRisks } from "@/db/schema";
 import { PageHeader, Table, EmptyState, Badge } from "@/components/ui";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "سجل المخاطر" };
 export const dynamic = "force-dynamic";
 
 export default async function RisksPage() {
   await requirePermission("plan.read");
-  const risks = await db.select().from(programRisks).orderBy(asc(programRisks.code));
+  const excluded = await getExcludedIdSets();
+  const risks = await db.select().from(programRisks).where(notSynthetic(programRisks.id, excluded.risks)).orderBy(asc(programRisks.code));
   return (
     <div>
       <PageHeader title="سجل المخاطر" subtitle="من مصنف الخطة التشغيلية" />

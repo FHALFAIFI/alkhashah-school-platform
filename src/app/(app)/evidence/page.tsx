@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { evidenceItems, evidenceLinks } from "@/db/schema";
 import { PageHeader, Table, Badge, EmptyState } from "@/components/ui";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { EvidenceReviewControl } from "./review-ui";
 
 export const metadata = { title: "الشواهد" };
@@ -11,7 +12,12 @@ export const dynamic = "force-dynamic";
 export default async function EvidencePage() {
   const user = await requirePermission("evidence.read");
   const canReview = user.permissions.has("evidence.write");
-  const items = await db.select().from(evidenceItems).orderBy(desc(evidenceItems.createdAt));
+  const excluded = await getExcludedIdSets();
+  const items = await db
+    .select()
+    .from(evidenceItems)
+    .where(notSynthetic(evidenceItems.id, excluded.evidence))
+    .orderBy(desc(evidenceItems.createdAt));
   const links = await db.select().from(evidenceLinks);
   const linkCount = new Map<string, number>();
   for (const l of links) linkCount.set(l.evidenceId, (linkCount.get(l.evidenceId) ?? 0) + 1);

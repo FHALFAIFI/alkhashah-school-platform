@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { perfCycles, perfModels, people } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { NewCycleForm } from "./performance-ui";
 
 export const metadata = { title: "دورات الأداء" };
@@ -14,10 +15,11 @@ export default async function PerformancePage() {
   const canSeeIndividual = user.permissions.has("performance.individual.read");
   const canWrite = user.permissions.has("performance.write");
 
+  const excluded = await getExcludedIdSets();
   const [cycles, models, persons] = await Promise.all([
-    db.select().from(perfCycles).orderBy(desc(perfCycles.createdAt)),
+    db.select().from(perfCycles).where(notSynthetic(perfCycles.id, excluded.perfCycles)).orderBy(desc(perfCycles.createdAt)),
     db.select().from(perfModels).where(eq(perfModels.status, "معتمد")),
-    db.select().from(people).where(eq(people.active, true)).orderBy(asc(people.fullName)),
+    db.select().from(people).where(and(eq(people.active, true), notSynthetic(people.id, excluded.people))).orderBy(asc(people.fullName)),
   ]);
   const personName = new Map(persons.map((p) => [p.id, p.fullName]));
 

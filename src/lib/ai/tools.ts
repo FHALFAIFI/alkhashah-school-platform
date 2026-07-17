@@ -419,7 +419,8 @@ const programBrief: ReadTool = {
     const a = programBriefArgs.parse(rawArgs);
     const programId = a.programId ?? contextIdFor(context, "program");
     if (!programId) throw new Error("حدد معرف البرنامج أو افتح المساعد من صفحة البرنامج");
-    const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+    const ex = await getExcludedIdSets();
+    const [program] = await db.select().from(programs).where(and(eq(programs.id, programId), notSynthetic(programs.id, ex.programs)));
     if (!program) throw new Error("البرنامج غير موجود");
 
     const milestones = await db
@@ -494,11 +495,12 @@ const meetingBrief: ReadTool = {
     const a = meetingBriefArgs.parse(rawArgs);
     const meetingId = a.meetingId ?? contextIdFor(context, "meeting");
     if (!meetingId) throw new Error("حدد معرف الاجتماع أو افتح المساعد من صفحة الاجتماع");
+    const ex = await getExcludedIdSets();
     const [row] = await db
       .select({ m: meetings, committee: committees })
       .from(meetings)
       .innerJoin(committees, eq(meetings.committeeId, committees.id))
-      .where(eq(meetings.id, meetingId));
+      .where(and(eq(meetings.id, meetingId), notSynthetic(meetings.id, ex.meetings)));
     if (!row) throw new Error("الاجتماع غير موجود");
     const { m, committee } = row;
     const href = `/committees/${m.committeeId}/meetings/${m.id}`;
@@ -565,7 +567,8 @@ const personPerformanceBrief: ReadTool = {
       }
     }
     if (!personId) throw new Error("حدد معرف الموظف أو افتح المساعد من صفحة دورة الأداء");
-    const [person] = await db.select().from(people).where(eq(people.id, personId));
+    const ex = await getExcludedIdSets();
+    const [person] = await db.select().from(people).where(and(eq(people.id, personId), notSynthetic(people.id, ex.people)));
     if (!person) throw new Error("الشخص غير موجود");
 
     const [cycle] = await db

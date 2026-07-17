@@ -2,7 +2,42 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — TEST ISOLATION + SYNTHETIC CLEANUP (PREVIEW) (2026-07-17)
+## Latest checkpoint — UNIVERSAL EXCLUSION + SAFE ARCHIVE WORKFLOW (2026-07-18)
+- **Centralized exclusion.** `getExcludedIdSets()` (`src/lib/synthetic.ts`) is now the single
+  filter every customer-facing query uses; it unions (a) structurally-classified synthetic ids
+  (toggle via `MADRASA_INCLUDE_SYNTHETIC`) and (b) **explicitly-archived ids (always ON)**.
+  Classifier extended from 10 → **20 entity buckets** (adds plan_year, milestone, deliverable,
+  kpi, risk, budget, roadmap_cell, followup, change_request, outcome) so dependent records are
+  covered + countable. Exclusion wired into every gap: `/plan` list + `[id]` + `[id]/report`
+  (→notFound), `/plan/followup`, `/plan/kpis`, `/plan/risks`, evidence, people, tasks,
+  committees, performance, documents, maintenance, plan-XLSX + program-DOCX exports, and the AI
+  by-id brief tools. (dashboard/worklist/executive-report/AI-search were already filtered.)
+- **Safe archive workflow** (`src/lib/cleanup-archive.ts` + `admin/cleanup/actions.ts`, migration
+  `0005`: `archive_batches` + `archived_records`): preview → explicit Arabic confirmation
+  («أرشفة السجلات التجريبية») → **transactional, non-destructive** archive (snapshots each row,
+  hides via central filter, **deletes nothing**) → **immutable audit event in-tx** → full
+  **unarchive/rollback**. Name-only «تجريبي» records need explicit manual selection; wrong phrase
+  / empty reason fail-closed. **Rebuilt `/admin/cleanup`** with exact counts by bucket (الخطط/
+  المعالم/المخرجات والشواهد/التحديثات/المخاطر/الميزانية/التقارير/سجلات تابعة أخرى/الاسم-فقط),
+  structural reasons, preserved-batch assertions, and a wired execute button. **Cleanup NOT
+  executed — the agent stopped before archiving; it is the principal's manual action.**
+- **Live read-only classification on the REAL DB (SELECT-only):** 58 programs → **26 preserved
+  / 32 synthetic**; milestones 64, deliverables 16, followups 16, change-requests 16, kpi/risk/
+  budget/roadmap 0 (all under the official year), people 80 (real staff live in the uncommitted
+  Fares معاينة batch), committees 15, meetings 14, tasks 14, documents 39, evidence 149,
+  maintenance 11; name-only 0. **Official batch `385c615a` منفذة (26 programs, not synthetic) and
+  Fares `12673bed` معاينة (not synthetic) both preserved.**
+- **Gates:** typecheck/lint/build clean; `npm test` **122 passed** (+7). Playwright (madrasa_test
+  only): all specs proving this change pass — `cleanup.spec` (mobile /admin/cleanup 390×844, no
+  overflow, archive form present but not run, 0 archive batches, Fares preserved), `mobile` 5/5
+  (fixed a pre-existing `E2E_STORAGE_DIR` credential-path bug in mobile.spec), import-decisions,
+  plan-import, arabic-auth, https-pwa, workflows «حرمة دفعة فارس». Remaining failures are
+  unrelated/environmental (assistant needs local Ollama; heavy workflows-س1 is byte-identical to
+  HEAD). Added `E2E_EXTERNAL=1` to run e2e against a pre-warmed isolated server. **Real DB
+  untouched — table row-counts identical before/after; archive tables absent there.**
+  Details: `docs/UNIVERSAL_EXCLUSION_AND_CLEANUP.md`. **Stopped at the archive confirmation.**
+
+## Earlier checkpoint — TEST ISOLATION + SYNTHETIC CLEANUP (PREVIEW) (2026-07-17)
 - **Fail-closed DB guard** (`src/db/guard.ts`): when `MADRASA_ENV=test`, `DATABASE_URL` must
   name a `_test` DB or the connection is refused before opening. Wired into `src/db/index.ts`
   (inert in dev/prod). Vitest + Playwright now target `madrasa_test` only. Playwright: dedicated

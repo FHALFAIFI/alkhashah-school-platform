@@ -1,8 +1,9 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { people, importBatches } from "@/db/schema";
 import { PageHeader, Table, Badge, LinkButton, EmptyState, Card } from "@/components/ui";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "سجل المعلمين والموظفين" };
 export const dynamic = "force-dynamic";
@@ -15,9 +16,14 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const filter = params["فئة"];
   const batchId = params["دفعة"] && UUID_RE.test(params["دفعة"]) ? params["دفعة"] : undefined;
 
+  const excluded = await getExcludedIdSets();
   const all = batchId
-    ? await db.select().from(people).where(eq(people.importBatchId, batchId)).orderBy(asc(people.fullName))
-    : await db.select().from(people).orderBy(asc(people.fullName));
+    ? await db
+        .select()
+        .from(people)
+        .where(and(eq(people.importBatchId, batchId), notSynthetic(people.id, excluded.people)))
+        .orderBy(asc(people.fullName))
+    : await db.select().from(people).where(notSynthetic(people.id, excluded.people)).orderBy(asc(people.fullName));
   const batch = batchId
     ? (await db.select().from(importBatches).where(eq(importBatches.id, batchId)))[0]
     : undefined;

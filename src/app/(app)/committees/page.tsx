@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, committeeTemplates, meetings, planYears } from "@/db/schema";
 import { PageHeader, Card, Badge, LinkButton, EmptyState } from "@/components/ui";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { FormCommitteeButton, NewPlcForm } from "./committees-ui";
 
 export const metadata = { title: "اللجان والفرق" };
@@ -16,10 +17,11 @@ const RECURRENCE_DAYS: Record<string, number> = { weekly: 7, monthly: 30, term: 
 
 export default async function CommitteesPage() {
   const user = await requirePermission("committees.read");
+  const excluded = await getExcludedIdSets();
   const [templates, all, allMeetings, years] = await Promise.all([
     db.select().from(committeeTemplates).orderBy(asc(committeeTemplates.createdAt)),
-    db.select().from(committees).orderBy(desc(committees.createdAt)),
-    db.select().from(meetings),
+    db.select().from(committees).where(notSynthetic(committees.id, excluded.committees)).orderBy(desc(committees.createdAt)),
+    db.select().from(meetings).where(notSynthetic(meetings.id, excluded.meetings)),
     db.select().from(planYears),
   ]);
   const yearName = new Map(years.map((y) => [y.id, y.nameAr]));

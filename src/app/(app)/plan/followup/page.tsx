@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs, programFollowups } from "@/db/schema";
 import { PageHeader, Card, Badge, ProgressBar, LinkButton, EmptyState } from "@/components/ui";
 import { daysSince, isFollowupDue } from "@/lib/plan/followup";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { FollowupDueBadge } from "../followup-badge";
 import { FollowupForm } from "./followup-ui";
 
@@ -17,8 +18,13 @@ export default async function FollowupPage() {
 
   const years = await db.select().from(planYears).orderBy(asc(planYears.key));
   const activeYear = years.find((y) => y.status === "نشطة") ?? years[0];
+  const excluded = await getExcludedIdSets();
   const approved = activeYear
-    ? (await db.select().from(programs).where(eq(programs.planYearId, activeYear.id)).orderBy(asc(programs.seq)))
+    ? (await db
+        .select()
+        .from(programs)
+        .where(and(eq(programs.planYearId, activeYear.id), notSynthetic(programs.id, excluded.programs)))
+        .orderBy(asc(programs.seq)))
         .filter((p) => p.status === "معتمد")
     : [];
 

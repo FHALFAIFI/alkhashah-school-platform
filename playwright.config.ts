@@ -10,6 +10,10 @@ const TEST_DB_URL =
 // يتيح لملفات الاختبار قراءة بيانات الاعتماد من مجلد التخزين المعزول
 process.env.E2E_STORAGE_DIR = E2E_STORAGE_DIR;
 
+// E2E_EXTERNAL=1: لا يُشغّل Playwright خادماً؛ يفترض خادم إنتاج (next start) مُشغَّلاً مسبقاً
+// على APP_URL ببيئة الاختبار — يتفادى بطء الترجمة اللحظية في next dev فتصبح النتائج حتمية.
+const EXTERNAL = process.env.E2E_EXTERNAL === "1";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 60_000,
@@ -21,16 +25,18 @@ export default defineConfig({
     locale: "ar-SA",
     timezoneId: "Asia/Riyadh",
   },
-  webServer: {
-    // خادم معزول: بيئة اختبار + قاعدة madrasa_test + تخزين مخصص + منفذ مستقل.
-    // MADRASA_ENV=test يفعّل حارس الأمان (fail-closed) فيرفض أي قاعدة حقيقية.
-    // MADRASA_INCLUDE_SYNTHETIC=1: بيانات السيناريو اصطناعية بالتصميم ويجب أن تظهر
-    // في اللوحات للتحقق من سير العمل — استبعاد الاصطناعي يبقى مفعّلاً في التطوير/الإنتاج.
-    // STORAGE_DIR نسبي (storage-e2e) لتفادي الفراغ/الفاصلة العليا في المسار المطلق للمستودع.
-    command: `MADRASA_ENV=test MADRASA_INCLUDE_SYNTHETIC=1 DATABASE_URL=${TEST_DB_URL} STORAGE_DIR=storage-e2e npx next dev -p ${E2E_PORT}`,
-    url: `http://localhost:${E2E_PORT}`,
-    // لا تُعِد استخدام خادم قائم — قد يكون خادم التطوير على القاعدة الحقيقية
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: EXTERNAL
+    ? undefined
+    : {
+        // خادم معزول: بيئة اختبار + قاعدة madrasa_test + تخزين مخصص + منفذ مستقل.
+        // MADRASA_ENV=test يفعّل حارس الأمان (fail-closed) فيرفض أي قاعدة حقيقية.
+        // MADRASA_INCLUDE_SYNTHETIC=1: بيانات السيناريو اصطناعية بالتصميم ويجب أن تظهر
+        // في اللوحات للتحقق من سير العمل — استبعاد الاصطناعي يبقى مفعّلاً في التطوير/الإنتاج.
+        // STORAGE_DIR نسبي (storage-e2e) لتفادي الفراغ/الفاصلة العليا في المسار المطلق للمستودع.
+        command: `MADRASA_ENV=test MADRASA_INCLUDE_SYNTHETIC=1 DATABASE_URL=${TEST_DB_URL} STORAGE_DIR=storage-e2e npx next dev -p ${E2E_PORT}`,
+        url: `http://localhost:${E2E_PORT}`,
+        // لا تُعِد استخدام خادم قائم — قد يكون خادم التطوير على القاعدة الحقيقية
+        reuseExistingServer: false,
+        timeout: 120_000,
+      },
 });

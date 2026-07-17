@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { programs, programMilestones } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 /** تصدير Excel تحليلي للخطة التشغيلية */
 export async function GET() {
@@ -14,10 +15,14 @@ export async function GET() {
     return NextResponse.json({ error: "لا تملك الصلاحية" }, { status: 403 });
   }
 
-  const [allPrograms, allMilestones] = await Promise.all([
-    db.select().from(programs).orderBy(asc(programs.seq)),
+  const excluded = await getExcludedIdSets();
+  const [allPrograms, everyMilestone] = await Promise.all([
+    db.select().from(programs).where(notSynthetic(programs.id, excluded.programs)).orderBy(asc(programs.seq)),
     db.select().from(programMilestones),
   ]);
+  // المعالم تُقصر على البرامج غير الاصطناعية (المفتاح الأجنبي programId)
+  const officialProgramIds = new Set(allPrograms.map((p) => p.id));
+  const allMilestones = everyMilestone.filter((m) => officialProgramIds.has(m.programId));
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("البرامج", { views: [{ rightToLeft: true }] });
