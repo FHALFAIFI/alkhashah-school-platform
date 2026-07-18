@@ -87,4 +87,44 @@ describe("committee prerequisites — dependency on committed employee data", ()
     [row] = await db.select().from(committeeTemplates).where(eq(committeeTemplates.id, tpl.id));
     expect(row.active).toBe(true);
   });
+
+  it("new meeting requires an active Arabic type", async () => {
+    const { db } = await import("@/db");
+    const { planYears, committees, meetingTypes, meetings } = await import("@/db/schema");
+    const { createMeetingAction } = await import("@/app/(app)/committees/actions");
+    const [year] = await db.select().from(planYears);
+    const [c] = await db.insert(committees).values({ planYearId: year.id, nameAr: "لجنة اجتماعات", kind: "لجنة", status: "معتمدة", recurrence: "monthly" }).returning();
+    const [mt] = await db.insert(meetingTypes).values({ key: "t-periodic", nameAr: "دوري", sortOrder: 1 }).returning();
+
+    const noType = await createMeetingAction(c.id, null, new FormData());
+    expect(noType?.error).toContain("نوع الاجتماع");
+
+    const fd = new FormData();
+    fd.set("typeId", mt.id);
+    fd.set("title", "اجتماع");
+    await createMeetingAction(c.id, null, fd); // redirect مُموَّه
+    const [m] = await db.select().from(meetings).where(eq(meetings.committeeId, c.id));
+    expect(m.typeId).toBe(mt.id);
+  });
+
+  it("annual closure requires documented results and impact", async () => {
+    const { db } = await import("@/db");
+    const { planYears, committees, committeeImpacts } = await import("@/db/schema");
+    const { closeCommitteeAction, addImpactAction } = await import("@/app/(app)/committees/actions");
+    const [year] = await db.select().from(planYears);
+    // لجنة معتمدة بلا اجتماعات مسودة (بلا اجتماعات) لعزل بوابة الأثر
+    const [c] = await db.insert(committees).values({ planYearId: year.id, nameAr: "لجنة إقفال", kind: "لجنة", status: "معتمدة", recurrence: "term" }).returning();
+
+    const blocked = await closeCommitteeAction(c.id);
+    expect(blocked?.error).toContain("النتائج والأثر");
+
+    const fd = new FormData();
+    fd.set("result", "توحيد لوحة المتابعة الشهرية");
+    fd.set("impact", "ارتفاع نسبة إغلاق القرارات في موعدها");
+    await addImpactAction(c.id, null, fd);
+    expect((await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, c.id))).length).toBe(1);
+
+    const ok = await closeCommitteeAction(c.id);
+    expect(ok?.success).toBeTruthy();
+  });
 });

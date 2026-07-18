@@ -7,7 +7,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import {
   committees, committeeTemplates, committeeMembers, meetings, meetingOutcomes,
-  actionTasks, planYears, people,
+  actionTasks, planYears, people, meetingTypes, meetingAttachments, committeeImpacts,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
@@ -15,6 +15,7 @@ import { snapshotRecord } from "@/lib/versioning";
 import { saveUploadedFile } from "@/lib/storage";
 import { notifyAll } from "@/lib/notify";
 import { committedEmployeeCount } from "@/lib/committees/prerequisites";
+import { MEETING_ATTACHMENT_CATEGORIES } from "@/lib/committees/constants";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -178,6 +179,11 @@ export async function createMeetingAction(committeeId: string, _prev: ActionStat
   const meetingDate = String(formData.get("meetingDate") ?? "");
   const agendaText = String(formData.get("agenda") ?? "");
   const agenda = agendaText.split("\n").map((s) => s.trim()).filter(Boolean);
+  // نوع الاجتماع إلزامي للاجتماعات الجديدة ويجب أن يكون نوعاً مفعَّلاً
+  const typeId = String(formData.get("typeId") ?? "");
+  if (!typeId) return { error: "اختر نوع الاجتماع" };
+  const [mt] = await db.select().from(meetingTypes).where(eq(meetingTypes.id, typeId));
+  if (!mt || !mt.active) return { error: "نوع الاجتماع غير صالح أو غير مفعَّل" };
   const existing = await db.select().from(meetings).where(eq(meetings.committeeId, committeeId));
   const [m] = await db
     .insert(meetings)
@@ -185,6 +191,7 @@ export async function createMeetingAction(committeeId: string, _prev: ActionStat
       committeeId,
       seq: existing.length + 1,
       title: title || `الاجتماع ${existing.length + 1}`,
+      typeId,
       meetingDate: meetingDate ? new Date(meetingDate) : null,
       agenda,
     })
@@ -200,10 +207,19 @@ export async function updateMeetingAction(meetingId: string, _prev: ActionState,
   if (!m) return { error: "الاجتماع غير موجود" };
   if (m.status === "مكتمل") return { error: "الاجتماع مكتمل — لا تعديل" };
   const agendaText = String(formData.get("agenda") ?? "");
+  // تغيير النوع اختياري في التحرير؛ عند تمريره يجب أن يكون مفعَّلاً
+  const typeIdRaw = String(formData.get("typeId") ?? "");
+  let typeId = m.typeId;
+  if (typeIdRaw) {
+    const [mt] = await db.select().from(meetingTypes).where(eq(meetingTypes.id, typeIdRaw));
+    if (!mt || !mt.active) return { error: "نوع الاجتماع غير صالح أو غير مفعَّل" };
+    typeId = typeIdRaw;
+  }
   await db
     .update(meetings)
     .set({
       title: String(formData.get("title") ?? m.title ?? ""),
+      typeId,
       meetingDate: formData.get("meetingDate") ? new Date(String(formData.get("meetingDate"))) : m.meetingDate,
       location: String(formData.get("location") ?? "") || null,
       agenda: agendaText.split("\n").map((s) => s.trim()).filter(Boolean),
@@ -336,6 +352,12 @@ export async function closeCommitteeAction(committeeId: string): Promise<ActionS
   if (awaitingSignature > 0) {
     return { error: `لا يقفل — ${awaitingSignature} اجتماعاً بحالة «بانتظار التوقيع»: اعتمد اكتماله بالمحضر الموقع أولاً` };
   }
+  // الإقفال السنوي/التقرير الختامي يتطلب توثيق النتائج والأثر (سجل واحد على الأقل بنتيجة وأثر)
+  const impacts = await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, committeeId));
+  const documented = impacts.some((i) => i.result.trim().length > 0 && i.impact.trim().length > 0);
+  if (!documented) {
+    return { error: "لا يقفل قبل توثيق النتائج والأثر — سجّل «النتيجة» و«الأثر» لعمل اللجنة أولاً" };
+  }
   await db.update(committees).set({ status: "مقفلة", closedAt: new Date() }).where(eq(committees.id, committeeId));
   await audit({ actorId: user.id, action: "committee.closed", entityType: "committee", entityId: committeeId, summary: `إقفال ${c.nameAr} وأرشفتها` });
   await notifyAll({ title: "أقفلت لجنة", body: c.nameAr, link: `/committees/${committeeId}` });
@@ -362,4 +384,156 @@ export async function toggleTemplateActiveAction(templateId: string, active: boo
   revalidatePath("/committees/templates");
   revalidatePath("/committees");
   return { success: active ? "فُعِّل القالب" : "عُطِّل القالب" };
+}
+
+// ————————————————————————— أنواع الاجتماعات —————————————————————————
+
+/** إضافة نوع اجتماع جديد (المدير) */
+export async function addMeetingTypeAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("committees.approve");
+  const nameAr = String(formData.get("nameAr") ?? "").trim();
+  if (nameAr.length < 2) return { error: "اسم النوع مطلوب" };
+  const all = await db.select().from(meetingTypes);
+  if (all.some((t) => t.nameAr === nameAr)) return { error: "النوع موجود مسبقاً" };
+  const maxOrder = all.reduce((mx, t) => Math.max(mx, t.sortOrder), 0);
+  const key = `mt-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+  await db.insert(meetingTypes).values({ key, nameAr, sortOrder: maxOrder + 1 });
+  await audit({ actorId: user.id, action: "meeting_type.added", entityType: "meeting_type", summary: `إضافة نوع اجتماع «${nameAr}»` });
+  revalidatePath("/committees/meeting-types");
+  return { success: "أُضيف النوع" };
+}
+
+/** تفعيل/تعطيل نوع اجتماع */
+export async function toggleMeetingTypeActiveAction(typeId: string, active: boolean): Promise<ActionState> {
+  const user = await requirePermission("committees.approve");
+  const [t] = await db.select().from(meetingTypes).where(eq(meetingTypes.id, typeId));
+  if (!t) return { error: "النوع غير موجود" };
+  await db.update(meetingTypes).set({ active }).where(eq(meetingTypes.id, typeId));
+  await audit({ actorId: user.id, action: active ? "meeting_type.enabled" : "meeting_type.disabled", entityType: "meeting_type", entityId: typeId, summary: `${active ? "تفعيل" : "تعطيل"} نوع «${t.nameAr}»` });
+  revalidatePath("/committees/meeting-types");
+  return { success: active ? "فُعِّل النوع" : "عُطِّل النوع" };
+}
+
+/** حذف نوع اجتماع — يُمنع إن كان مستخدماً في أي اجتماع (يُعطَّل فقط) */
+export async function deleteMeetingTypeAction(typeId: string): Promise<ActionState> {
+  const user = await requirePermission("committees.approve");
+  const [t] = await db.select().from(meetingTypes).where(eq(meetingTypes.id, typeId));
+  if (!t) return { error: "النوع غير موجود" };
+  const used = await db.select({ id: meetings.id }).from(meetings).where(eq(meetings.typeId, typeId)).limit(1);
+  if (used.length > 0) return { error: "النوع مستخدم في اجتماعات — لا يُحذف نهائياً، يمكن تعطيله فقط" };
+  await db.delete(meetingTypes).where(eq(meetingTypes.id, typeId));
+  await audit({ actorId: user.id, action: "meeting_type.deleted", entityType: "meeting_type", entityId: typeId, summary: `حذف نوع اجتماع غير مستخدم «${t.nameAr}»` });
+  revalidatePath("/committees/meeting-types");
+  return { success: "حُذف النوع" };
+}
+
+// ————————————————————————— مرفقات الاجتماع —————————————————————————
+
+export async function addMeetingAttachmentAction(meetingId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("committees.write");
+  const [m] = await db.select().from(meetings).where(eq(meetings.id, meetingId));
+  if (!m) return { error: "الاجتماع غير موجود" };
+  if (m.status === "مكتمل") return { error: "الاجتماع مكتمل — لا تُضاف مرفقات" };
+  const title = String(formData.get("title") ?? "").trim();
+  if (title.length < 2) return { error: "عنوان المرفق مطلوب" };
+  const category = String(formData.get("category") ?? "");
+  if (!MEETING_ATTACHMENT_CATEGORIES.includes(category as (typeof MEETING_ATTACHMENT_CATEGORIES)[number])) {
+    return { error: "اختر فئة المرفق" };
+  }
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "ارفع ملف المرفق" };
+  try {
+    const stored = await saveUploadedFile({
+      originalName: file.name,
+      mime: file.type || "application/octet-stream",
+      data: Buffer.from(await file.arrayBuffer()),
+      scope: "attachments",
+      sensitive: true, // مرفقات خاصة — تُقدَّم فقط عبر مسار الملفات المصادق عليه
+      uploadedBy: user.id,
+    });
+    await db.insert(meetingAttachments).values({
+      meetingId,
+      title,
+      description: String(formData.get("description") ?? "") || null,
+      category,
+      fileId: stored.id,
+      uploadedBy: user.id,
+    });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "تعذر رفع المرفق" };
+  }
+  await audit({ actorId: user.id, action: "meeting.attachment_added", entityType: "meeting", entityId: meetingId, summary: `مرفق «${title}» (${category})` });
+  revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);
+  return { success: "أُضيف المرفق" };
+}
+
+export async function deleteMeetingAttachmentAction(attachmentId: string): Promise<ActionState> {
+  const user = await requirePermission("committees.write");
+  const [a] = await db.select().from(meetingAttachments).where(eq(meetingAttachments.id, attachmentId));
+  if (!a) return { error: "المرفق غير موجود" };
+  const [m] = await db.select().from(meetings).where(eq(meetings.id, a.meetingId));
+  if (m?.status === "مكتمل") return { error: "الاجتماع مكتمل — لا يُحذف المرفق" };
+  await db.delete(meetingAttachments).where(eq(meetingAttachments.id, attachmentId));
+  await audit({ actorId: user.id, action: "meeting.attachment_deleted", entityType: "meeting", entityId: a.meetingId });
+  if (m) revalidatePath(`/committees/${m.committeeId}/meetings/${a.meetingId}`);
+  return { success: "حُذف المرفق" };
+}
+
+// ————————————————————————— النتيجة والأثر —————————————————————————
+
+export async function addImpactAction(committeeId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("committees.write");
+  const [c] = await db.select().from(committees).where(eq(committees.id, committeeId));
+  if (!c) return { error: "اللجنة غير موجودة" };
+  if (c.status === "مقفلة") return { error: "اللجنة مقفلة — لا تعديل" };
+  const result = String(formData.get("result") ?? "").trim();
+  const impact = String(formData.get("impact") ?? "").trim();
+  if (result.length < 2) return { error: "«النتيجة» مطلوبة" };
+  if (impact.length < 2) return { error: "«الأثر» مطلوب" };
+  const outcomeId = String(formData.get("outcomeId") ?? "") || null;
+  const taskId = String(formData.get("taskId") ?? "") || null;
+  const observedRaw = String(formData.get("observedAt") ?? "");
+  let evidenceFileId: string | null = null;
+  const file = formData.get("evidence") as File | null;
+  if (file && file.size > 0) {
+    try {
+      const stored = await saveUploadedFile({
+        originalName: file.name,
+        mime: file.type || "application/octet-stream",
+        data: Buffer.from(await file.arrayBuffer()),
+        scope: "attachments",
+        sensitive: true,
+        uploadedBy: user.id,
+      });
+      evidenceFileId = stored.id;
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : "تعذر رفع الشاهد" };
+    }
+  }
+  await db.insert(committeeImpacts).values({
+    committeeId,
+    outcomeId,
+    taskId,
+    result,
+    impact,
+    measurement: String(formData.get("measurement") ?? "") || null,
+    observedAt: observedRaw ? new Date(observedRaw) : null,
+    evidenceFileId,
+    createdBy: user.id,
+  });
+  await audit({ actorId: user.id, action: "committee.impact_recorded", entityType: "committee", entityId: committeeId, summary: `نتيجة وأثر للجنة «${c.nameAr}»` });
+  revalidatePath(`/committees/${committeeId}`);
+  return { success: "سُجّلت النتيجة والأثر" };
+}
+
+export async function deleteImpactAction(impactId: string): Promise<ActionState> {
+  const user = await requirePermission("committees.write");
+  const [i] = await db.select().from(committeeImpacts).where(eq(committeeImpacts.id, impactId));
+  if (!i) return { error: "السجل غير موجود" };
+  const [c] = await db.select().from(committees).where(eq(committees.id, i.committeeId));
+  if (c?.status === "مقفلة") return { error: "اللجنة مقفلة — لا حذف" };
+  await db.delete(committeeImpacts).where(eq(committeeImpacts.id, impactId));
+  await audit({ actorId: user.id, action: "committee.impact_deleted", entityType: "committee", entityId: i.committeeId });
+  revalidatePath(`/committees/${i.committeeId}`);
+  return { success: "حُذف السجل" };
 }

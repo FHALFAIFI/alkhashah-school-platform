@@ -4,10 +4,10 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, meetingOutcomes, people, documents, actionTasks } from "@/db/schema";
+import { committees, committeeMembers, meetings, meetingOutcomes, people, documents, actionTasks, meetingTypes, meetingAttachments, storedFiles } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
-import { MeetingEditForm, OutcomeForm, SignedMinutesUpload, CompleteMeetingButton } from "./meeting-ui";
+import { MeetingEditForm, OutcomeForm, SignedMinutesUpload, CompleteMeetingButton, MeetingAttachmentForm, DeleteAttachmentButton } from "./meeting-ui";
 import { generateMinutesDocument } from "@/lib/reports/minutes-report";
 import { SubmitButton } from "@/components/ui";
 import { aiEnabled } from "@/lib/ai/provider";
@@ -22,7 +22,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   if (!meeting || meeting.committeeId !== id) notFound();
   const [committee] = await db.select().from(committees).where(eq(committees.id, id));
 
-  const [outcomes, members, minutesDoc] = await Promise.all([
+  const [outcomes, members, minutesDoc, types, attachments] = await Promise.all([
     db.select().from(meetingOutcomes).where(eq(meetingOutcomes.meetingId, mid)).orderBy(asc(meetingOutcomes.sortOrder)),
     db
       .select({ m: committeeMembers, name: people.fullName })
@@ -30,7 +30,16 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
       .innerJoin(people, eq(committeeMembers.personId, people.id))
       .where(eq(committeeMembers.committeeId, id)),
     meeting.minutesDocId ? db.select().from(documents).where(eq(documents.id, meeting.minutesDocId)) : Promise.resolve([]),
+    db.select().from(meetingTypes).orderBy(asc(meetingTypes.sortOrder)),
+    db
+      .select({ a: meetingAttachments, name: storedFiles.originalName })
+      .from(meetingAttachments)
+      .leftJoin(storedFiles, eq(meetingAttachments.fileId, storedFiles.id))
+      .where(eq(meetingAttachments.meetingId, mid))
+      .orderBy(asc(meetingAttachments.createdAt)),
   ]);
+  const activeTypes = types.filter((t) => t.active).map((t) => ({ id: t.id, nameAr: t.nameAr }));
+  const typeName = meeting.typeId ? (types.find((t) => t.id === meeting.typeId)?.nameAr ?? null) : null;
 
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
   const tasks = taskIds.length > 0 ? await db.select().from(actionTasks).where(inArray(actionTasks.id, taskIds)) : [];
@@ -68,6 +77,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         subtitle={committee.nameAr}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {typeName && <Badge value={typeName} />}
             <Badge value={meeting.status} />
             {user.permissions.has("ai.use") && (
               <AskAssistant type="meeting" id={mid} label={`اجتماع ${committee.nameAr}: ${meeting.title ?? meeting.seq}`} />
@@ -109,6 +119,8 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         {canWrite ? (
           <MeetingEditForm
             meetingId={mid}
+            types={activeTypes}
+            currentTypeId={meeting.typeId}
             defaults={{
               title: meeting.title ?? "",
               meetingDate: meeting.meetingDate?.toISOString().slice(0, 10) ?? "",
@@ -155,6 +167,26 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
           <OutcomeForm meetingId={mid} people={members.map((x) => ({ id: x.m.personId, fullName: x.name }))} />
         )}
         <p className="mt-2 text-xs text-gray-400">القرار ينشئ إجراءً إلزامياً تلقائياً؛ التوصية قد تنشئ إجراءً اختيارياً.</p>
+      </Card>
+
+      <Card>
+        <h2 className="mb-1 font-bold text-brand-900">مرفقات الاجتماع ({attachments.length})</h2>
+        <p className="mb-3 text-xs text-gray-400">مرفقات خاصة: مادة جدول الأعمال والمستندات الداعمة والمراسلات الخارجية وغيرها — لا علاقة لها بالحضور.</p>
+        {attachments.length > 0 && (
+          <Table headers={["العنوان", "الفئة", "الوصف", "تاريخ الرفع", "الملف", ""]}>
+            {attachments.map(({ a, name }) => (
+              <tr key={a.id}>
+                <td className="px-3 py-2 font-medium">{a.title}</td>
+                <td className="px-3 py-2"><Badge value={a.category} /></td>
+                <td className="px-3 py-2 text-xs text-gray-600">{a.description ?? "—"}</td>
+                <td className="px-3 py-2 text-xs tabular-nums">{a.createdAt.toLocaleDateString("ar-SA-u-nu-latn")}</td>
+                <td className="px-3 py-2"><a href={`/api/files/${a.fileId}`} className="text-xs text-brand-700 underline">{name ?? "تنزيل"}</a></td>
+                <td className="px-3 py-2">{canWrite && <DeleteAttachmentButton attachmentId={a.id} />}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {canWrite && <MeetingAttachmentForm meetingId={mid} />}
       </Card>
 
       {showAiMeetingAssistant && <AiMeetingAssistant meetingId={mid} />}

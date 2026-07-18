@@ -1,7 +1,7 @@
 import "server-only";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, meetingOutcomes, people, documents } from "@/db/schema";
+import { committees, committeeMembers, meetings, meetingOutcomes, people, documents, meetingTypes, meetingAttachments } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
@@ -27,6 +27,14 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
     .from(meetingOutcomes)
     .where(eq(meetingOutcomes.meetingId, opts.meetingId))
     .orderBy(asc(meetingOutcomes.sortOrder));
+  const attachments = await db
+    .select()
+    .from(meetingAttachments)
+    .where(eq(meetingAttachments.meetingId, opts.meetingId))
+    .orderBy(asc(meetingAttachments.createdAt));
+  const typeName = meeting.typeId
+    ? (await db.select({ nameAr: meetingTypes.nameAr }).from(meetingTypes).where(eq(meetingTypes.id, meeting.typeId)))[0]?.nameAr ?? null
+    : null;
 
   const chair = members.find((x) => x.m.role === "رئيس" || x.m.role === "قائد");
   const secretary = members.find((x) => x.m.role === "مقرر");
@@ -42,6 +50,7 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
   <table>
     <tr><th style="width:22%">اللجنة / الفريق</th><td>${esc(committee.nameAr)}</td></tr>
     <tr><th>الاجتماع</th><td>${esc(meeting.title ?? `الاجتماع ${meeting.seq}`)} (رقم ${meeting.seq})</td></tr>
+    ${typeName ? `<tr><th>نوع الاجتماع</th><td>${esc(typeName)}</td></tr>` : ""}
     <tr><th>التاريخ</th><td>${dateText}</td></tr>
     ${meeting.location ? `<tr><th>المكان</th><td>${esc(meeting.location)}</td></tr>` : ""}
   </table>
@@ -67,6 +76,16 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
       )
       .join("")}
   </table>
+
+  ${
+    attachments.length > 0
+      ? `<h2>المرفقات (${attachments.length})</h2>
+  <table>
+    <tr><th>العنوان</th><th>الفئة</th><th>الوصف</th></tr>
+    ${attachments.map((a) => `<tr><td>${esc(a.title)}</td><td>${esc(a.category)}</td><td>${esc(a.description ?? "—")}</td></tr>`).join("")}
+  </table>`
+      : ""
+  }
 
   <div class="signatures">
     <div class="sig-block"><div class="sig-line">رئيس اللجنة${chair ? `<br>${esc(chair.name)}` : ""}</div></div>

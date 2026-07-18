@@ -1,7 +1,7 @@
 import "server-only";
 import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, planYears } from "@/db/schema";
+import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, planYears, meetingTypes, meetingAttachments, committeeImpacts } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
@@ -32,6 +32,12 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
   const outcomes = meetingIds.length
     ? await db.select().from(meetingOutcomes).where(inArray(meetingOutcomes.meetingId, meetingIds)).orderBy(asc(meetingOutcomes.sortOrder))
     : [];
+  const attachments = meetingIds.length
+    ? await db.select().from(meetingAttachments).where(inArray(meetingAttachments.meetingId, meetingIds)).orderBy(asc(meetingAttachments.createdAt))
+    : [];
+  const impacts = await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, opts.committeeId)).orderBy(asc(committeeImpacts.createdAt));
+  const allTypes = await db.select().from(meetingTypes);
+  const typeName = new Map(allTypes.map((t) => [t.id, t.nameAr]));
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
   const tasks = taskIds.length ? await db.select().from(actionTasks).where(inArray(actionTasks.id, taskIds)) : [];
   const taskById = new Map(tasks.map((t) => [t.id, t]));
@@ -40,6 +46,12 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
     const arr = outcomesByMeeting.get(o.meetingId) ?? [];
     arr.push(o);
     outcomesByMeeting.set(o.meetingId, arr);
+  }
+  const attByMeeting = new Map<string, typeof attachments>();
+  for (const a of attachments) {
+    const arr = attByMeeting.get(a.meetingId) ?? [];
+    arr.push(a);
+    attByMeeting.set(a.meetingId, arr);
   }
 
   const now = new Date();
@@ -68,9 +80,11 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
   for (const m of ms) {
     const dateText = m.meetingDate ? `${toHijriNumeric(m.meetingDate)}هـ (${toGregorianNumeric(m.meetingDate)}م)` : "—";
     const os = outcomesByMeeting.get(m.id) ?? [];
+    const atts = attByMeeting.get(m.id) ?? [];
+    const mType = m.typeId ? typeName.get(m.typeId) ?? "" : "";
     body += `
     <div style="page-break-inside:avoid; margin-bottom:12px;">
-      <h3>الاجتماع ${m.seq}: ${esc(m.title ?? "—")} — ${dateText} — ${esc(m.status)}</h3>
+      <h3>الاجتماع ${m.seq}: ${esc(m.title ?? "—")}${mType ? ` — نوع: ${esc(mType)}` : ""} — ${dateText} — ${esc(m.status)}</h3>
       <table>
         <tr><th>النوع</th><th>النص</th><th>الإجراء المرتبط</th></tr>
         ${os
@@ -82,8 +96,29 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
           .join("")}
         ${os.length === 0 ? `<tr><td colspan="3">لا نتائج مسجلة</td></tr>` : ""}
       </table>
+      ${
+        atts.length > 0
+          ? `<p style="margin:4px 0"><strong>المرفقات:</strong></p><table>
+        <tr><th>العنوان</th><th>الفئة</th><th>الوصف</th></tr>
+        ${atts.map((a) => `<tr><td>${esc(a.title)}</td><td>${esc(a.category)}</td><td>${esc(a.description ?? "—")}</td></tr>`).join("")}
+      </table>`
+          : ""
+      }
     </div>`;
   }
+
+  body += `
+  <h2>النتائج والأثر (${impacts.length})</h2>
+  <table>
+    <tr><th>النتيجة</th><th>الأثر</th><th>القياس/المؤشر</th><th>تاريخ الملاحظة</th></tr>
+    ${impacts
+      .map(
+        (im) =>
+          `<tr><td>${esc(im.result)}</td><td>${esc(im.impact)}</td><td>${esc(im.measurement ?? "—")}</td><td>${im.observedAt ? `${toHijriNumeric(im.observedAt)}هـ` : "—"}</td></tr>`,
+      )
+      .join("")}
+    ${impacts.length === 0 ? `<tr><td colspan="4">لا نتائج أو أثر موثق</td></tr>` : ""}
+  </table>`;
 
   const chair = members.find((m) => m.role === "رئيس" || m.role === "قائد");
   const secretary = members.find((m) => m.role === "مقرر");

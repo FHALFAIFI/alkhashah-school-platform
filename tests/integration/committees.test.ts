@@ -291,8 +291,10 @@ describe("إصلاحات سير عمل اللجان", () => {
     const awaitingBlocked = await closeCommitteeAction(c.id);
     expect(awaitingBlocked?.error).toContain("بانتظار التوقيع");
 
-    // بعد اكتمال الاجتماع يقفل
+    // بعد اكتمال الاجتماع + توثيق النتائج والأثر يقفل
     await db.update(meetings).set({ status: "مكتمل" }).where(eq(meetings.id, meeting.id));
+    const { committeeImpacts } = await import("@/db/schema");
+    await db.insert(committeeImpacts).values({ committeeId: c.id, result: "نتيجة", impact: "أثر" });
     const closed = await closeCommitteeAction(c.id);
     expect(closed?.error).toBeUndefined();
     const [after] = await db.select().from(committees).where(eq(committees.id, c.id));

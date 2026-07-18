@@ -3,7 +3,7 @@
 import { useActionState, useState, useTransition } from "react";
 import {
   addMemberAction, removeMemberAction, approveCommitteeAction, reopenCommitteeAction,
-  createMeetingAction, closeCommitteeAction, type ActionState,
+  createMeetingAction, closeCommitteeAction, addImpactAction, deleteImpactAction, type ActionState,
 } from "../actions";
 import { Field, SubmitButton, TextArea } from "@/components/ui";
 
@@ -103,7 +103,7 @@ export function ReopenCommitteeForm({ committeeId }: { committeeId: string }) {
   );
 }
 
-export function NewMeetingForm({ committeeId }: { committeeId: string }) {
+export function NewMeetingForm({ committeeId, types }: { committeeId: string; types: { id: string; nameAr: string }[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createMeetingAction.bind(null, committeeId), null);
   return (
     <form action={formAction} className="mt-3 space-y-3 border-t border-sand-100 pt-3">
@@ -113,12 +113,91 @@ export function NewMeetingForm({ committeeId }: { committeeId: string }) {
           <Field label="عنوان الاجتماع" name="title" />
         </div>
         <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">نوع الاجتماع *</label>
+          <select name="typeId" required className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+            <option value="">— اختر النوع —</option>
+            {types.map((t) => (
+              <option key={t.id} value={t.id}>{t.nameAr}</option>
+            ))}
+          </select>
+        </div>
+        <div>
           <Field label="التاريخ" name="meetingDate" type="date" />
         </div>
       </div>
       <TextArea label="جدول الأعمال (بند في كل سطر)" name="agenda" rows={3} />
       <SubmitButton>إنشاء اجتماع</SubmitButton>
     </form>
+  );
+}
+
+/** تسجيل النتيجة والأثر (منفصلان) — مع قياس وتاريخ ملاحظة وشاهد، وربط اختياري بقرار/إجراء */
+export function ImpactForm({
+  committeeId,
+  outcomes,
+  tasks,
+}: {
+  committeeId: string;
+  outcomes: { id: string; text: string }[];
+  tasks: { id: string; title: string }[];
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(addImpactAction.bind(null, committeeId), null);
+  return (
+    <form key={state?.success ?? "f"} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <TextArea label="النتيجة (المخرج المباشر)" name="result" rows={2} required />
+        <TextArea label="الأثر (التغيّر الملحوظ)" name="impact" rows={2} required />
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Field label="القياس أو المؤشر" name="measurement" />
+        <Field label="تاريخ الملاحظة" name="observedAt" type="date" />
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">شاهد داعم (اختياري)</label>
+          <input name="evidence" type="file" className="w-full rounded-lg border border-dashed border-gray-300 p-2 text-sm" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">مرتبط بقرار (اختياري)</label>
+          <select name="outcomeId" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+            <option value="">— بدون —</option>
+            {outcomes.map((o) => (
+              <option key={o.id} value={o.id}>{o.text.slice(0, 60)}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">مرتبط بإجراء (اختياري)</label>
+          <select name="taskId" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+            <option value="">— بدون —</option>
+            {tasks.map((t) => (
+              <option key={t.id} value={t.id}>{t.title.slice(0, 60)}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <SubmitButton variant="secondary">تسجيل النتيجة والأثر</SubmitButton>
+    </form>
+  );
+}
+
+/** حذف سجل نتيجة/أثر */
+export function DeleteImpactButton({ impactId }: { impactId: string }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span>
+      <button
+        disabled={pending}
+        onClick={() => startTransition(async () => { const r = await deleteImpactAction(impactId); if (r?.error) setError(r.error); })}
+        className="text-xs text-red-500 hover:underline"
+      >
+        حذف
+      </button>
+      {error && <span className="ms-1 text-xs text-red-600">{error}</span>}
+    </span>
   );
 }
 

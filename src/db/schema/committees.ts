@@ -9,9 +9,22 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { users } from "./core";
-import { storedFiles, documents } from "./shared";
+import { storedFiles, documents, actionTasks } from "./shared";
 import { people } from "./school";
 import { planYears } from "./plan";
+
+/**
+ * أنواع الاجتماعات (عربية) — يديرها المدير: إضافة/تفعيل/تعطيل. النوع المستخدم لا يُحذف نهائياً.
+ * الافتراضية: دوري، طارئ، متابعة، ختامي، مجتمع تعلم مهني.
+ */
+export const meetingTypes = pgTable("meeting_types", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull().unique(),
+  nameAr: text("name_ar").notNull(),
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /** قوالب اللجان والفرق ومجتمعات التعلم — من ملف 1447 (بدون أعضاء) */
 export const committeeTemplates = pgTable("committee_templates", {
@@ -80,6 +93,8 @@ export const meetings = pgTable(
     committeeId: uuid("committee_id").notNull().references(() => committees.id, { onDelete: "cascade" }),
     seq: integer("seq").notNull().default(1),
     title: text("title"),
+    /** نوع الاجتماع (إلزامي للاجتماعات الجديدة؛ nullable للتوافق الرجعي مع السجلات القائمة) */
+    typeId: uuid("type_id").references(() => meetingTypes.id),
     meetingDate: timestamp("meeting_date", { withTimezone: true }),
     location: text("location"),
     agenda: jsonb("agenda").$type<string[]>(),
@@ -94,6 +109,49 @@ export const meetings = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("meetings_committee_idx").on(t.committeeId)],
+);
+
+/**
+ * مرفقات الاجتماع — خاصة ومصادق عليها، متعددة لكل اجتماع. الفئات: مادة جدول أعمال،
+ * مستندات داعمة، مراسلات خارجية، أخرى. (ليست حضوراً — لا حضور ولا غياب ولا نصاب.)
+ */
+export const meetingAttachments = pgTable(
+  "meeting_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    meetingId: uuid("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    category: text("category").notNull(), // مادة جدول أعمال | مستندات داعمة | مراسلات خارجية | أخرى
+    fileId: uuid("file_id").notNull().references(() => storedFiles.id),
+    uploadedBy: uuid("uploaded_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("meeting_attachments_meeting_idx").on(t.meetingId)],
+);
+
+/**
+ * سجلات النتيجة والأثر — منفصلان: «النتيجة» المخرج المباشر، و«الأثر» التغيّر الملحوظ من عمل
+ * اللجنة. متعددة ومرتبطة بقرار/إجراء اختيارياً، مع قياس/مؤشر وتاريخ ملاحظة وشاهد داعم.
+ * إقفال اللجنة السنوي/التقرير الختامي يتطلب توثيق النتائج والأثر.
+ */
+export const committeeImpacts = pgTable(
+  "committee_impacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    committeeId: uuid("committee_id").notNull().references(() => committees.id, { onDelete: "cascade" }),
+    meetingId: uuid("meeting_id").references(() => meetings.id, { onDelete: "set null" }),
+    outcomeId: uuid("outcome_id").references(() => meetingOutcomes.id, { onDelete: "set null" }),
+    taskId: uuid("task_id").references(() => actionTasks.id, { onDelete: "set null" }),
+    result: text("result").notNull(), // النتيجة — المخرج المباشر
+    impact: text("impact").notNull(), // الأثر — التغيّر الملحوظ
+    measurement: text("measurement"), // القياس أو المؤشر
+    observedAt: timestamp("observed_at", { withTimezone: true }), // تاريخ الملاحظة
+    evidenceFileId: uuid("evidence_file_id").references(() => storedFiles.id), // شاهد داعم
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("committee_impacts_committee_idx").on(t.committeeId)],
 );
 
 /** نتائج الاجتماع: قرار (إجراء إلزامي) | توصية (إجراء اختياري) | ملاحظة */

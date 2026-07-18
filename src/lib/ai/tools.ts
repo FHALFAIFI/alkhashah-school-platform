@@ -11,7 +11,7 @@ import {
   people, programs, committees, meetings, actionTasks, evidenceItems, evidenceLinks,
   rooms, assets, inspections, maintenanceIssues, documents, perfCycles, perfSessions,
   aiDrafts, programMilestones, programDeliverables, programChangeRequests,
-  committeeMembers, meetingOutcomes, readinessOverrides,
+  committeeMembers, meetingOutcomes, readinessOverrides, meetingTypes, meetingAttachments,
 } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth/session";
 import { createDraftEmail, m365Enabled } from "@/lib/email/m365";
@@ -517,11 +517,15 @@ const meetingBrief: ReadTool = {
       .from(evidenceLinks)
       .innerJoin(evidenceItems, eq(evidenceLinks.evidenceId, evidenceItems.id))
       .where(and(eq(evidenceLinks.entityType, "meeting"), eq(evidenceLinks.entityId, m.id)));
+    const meetingFiles = await db.select().from(meetingAttachments).where(eq(meetingAttachments.meetingId, m.id)).orderBy(asc(meetingAttachments.createdAt));
+    const typeName = m.typeId
+      ? (await db.select({ nameAr: meetingTypes.nameAr }).from(meetingTypes).where(eq(meetingTypes.id, m.typeId)))[0]?.nameAr ?? null
+      : null;
 
     const rows: ReadToolResult["rows"] = [
       {
         title: m.title ?? `اجتماع ${committee.nameAr} رقم ${m.seq}`,
-        detail: `${committee.nameAr} — رقم ${m.seq} — ${m.status}${m.meetingDate ? ` — ${m.meetingDate.toLocaleDateString("ar-SA-u-nu-latn")}` : ""}${m.location ? ` — ${m.location}` : ""}`,
+        detail: `${committee.nameAr} — رقم ${m.seq}${typeName ? ` — نوع: ${typeName}` : ""} — ${m.status}${m.meetingDate ? ` — ${m.meetingDate.toLocaleDateString("ar-SA-u-nu-latn")}` : ""}${m.location ? ` — ${m.location}` : ""}`,
         href,
       },
     ];
@@ -532,9 +536,12 @@ const meetingBrief: ReadTool = {
     for (const { e } of attachments) {
       rows.push({ title: `مرفق: ${e.title}`, detail: `النوع ${e.kind} — لاستخراج نصه مرر evidenceId=${e.id} إلى attachment_text` });
     }
+    for (const f of meetingFiles) {
+      rows.push({ title: `مرفق اجتماع: ${f.title}`, detail: `فئة ${f.category}${f.description ? ` — ${f.description}` : ""}` });
+    }
 
     return {
-      summary: `اجتماع ${committee.nameAr} رقم ${m.seq} (${m.status}) — بنود جدول الأعمال: ${(m.agenda ?? []).length} — النتائج: ${outcomes.length} — الأعضاء: ${members.length} — المرفقات: ${attachments.length}`,
+      summary: `اجتماع ${committee.nameAr} رقم ${m.seq} (${m.status})${typeName ? ` — نوع ${typeName}` : ""} — بنود جدول الأعمال: ${(m.agenda ?? []).length} — النتائج: ${outcomes.length} — الأعضاء: ${members.length} — مرفقات: ${attachments.length + meetingFiles.length}`,
       rows,
     };
   },

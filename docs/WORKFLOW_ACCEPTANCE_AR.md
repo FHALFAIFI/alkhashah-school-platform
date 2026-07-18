@@ -386,7 +386,46 @@ four grouped report actions; and the terminology labels («معتمد ومقفل
 
 ---
 
-## Committees & Learning Communities — acceptance — 2026-07-18
+## Committees & Learning Communities — acceptance — 2026-07-18 — STATUS: PASS
+
+**PASS (2026-07-18).** The previously-CONDITIONAL requirements are now implemented, migrated, and
+verified (desktop + 390×844), with **all pre-existing domain data proven unchanged** by content
+hash. Delivered via migration `0006` (additive/backward-compatible) after an **encrypted,
+restore-verified backup** (`restore:rehearsal` passed: 62 tables restored). No real committee was
+formed and Fares was not committed.
+
+**New requirements delivered:**
+1. **Meeting types (required, Arabic, admin-managed).** New `meeting_types` table seeded with
+   «دوري/طارئ/متابعة/ختامي/مجتمع تعلم مهني»; `meetings.type_id` (nullable → existing meetings stay
+   valid). New meetings **require** an active type (server-validated). Admin page
+   `/committees/meeting-types` to **add / activate / deactivate**; a **used type cannot be deleted**
+   (delete blocked when referenced; disable only).
+2. **Meeting attachments (multiple, private, categorized).** New `meeting_attachments` table:
+   Arabic title, description, **category** (مادة جدول أعمال / مستندات داعمة / مراسلات خارجية / أخرى),
+   file (stored `sensitive`, served only via the authenticated files route), and upload date. Listed
+   on the meeting page and in the minutes + committee reports.
+3. **Results («النتيجة») vs impact («الأثر») — separated.** New `committee_impacts` table: result,
+   impact, measurement/indicator, observation date, supporting evidence; **multiple records**,
+   optionally linked to a decision (outcome) or action (task). **Meeting completion still requires
+   only signed minutes**; **annual closure now requires** at least one documented result+impact.
+4. **Integration.** Meeting type, attachments, and results/impact flow into the minutes PDF, the
+   committee report (PDF), the committee **Word** and **Excel** exports, print, email-draft, and the
+   **AI meeting brief** context. AI may draft impact text via the contextual suggestion
+   «أنشئ مسودة أثر لعمل اللجنة» — **draft-only, preview + confirm** through `save_draft` (never writes
+   an official record). The **no-attendance / no-quorum** rule is preserved everywhere (schema, UI,
+   reports, and the new exports state «لا حضور ولا غياب ولا نصاب»).
+
+**Safety & verification:** encrypted backup + `restore:rehearsal` before migration; migration applied
+to **madrasa_test first, then the real dev schema**; new columns nullable/backward-compatible; every
+pre-existing domain table's content hash is **identical** pre/post-migration (the only change is the
+appended null `type_id`, proven via an existing-columns hash); on the real DB the new tables hold only
+the 5 seeded reference types (attachments/impacts = 0, committees = 15 unchanged). `npm test` 131
+green (incl. new meeting-type-required + closure-gate integration tests); `npm run test:e2e` 39 passed
+/ 1 skipped (C5) — s3 now exercises type + attachment + results/impact; typecheck/lint clean.
+
+---
+
+### First-pass items (delivered earlier the same day)
 
 Real DB used **read-only at 390×844** (Fares not committed, no real committee created or approved —
 formation is server-guarded and the buttons are hidden when no employees exist). Full live lifecycle

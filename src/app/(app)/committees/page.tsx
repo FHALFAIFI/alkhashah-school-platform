@@ -48,7 +48,12 @@ export default async function CommitteesPage() {
       <PageHeader
         title="اللجان والمجالس ومجتمعات التعلم"
         subtitle="تشكل اللجان سنوياً من القوالب دون نسخ عضويات الأعوام السابقة — الأعضاء من منسوبي المدرسة حصراً"
-        actions={<LinkButton href="/committees/templates" variant="secondary">عرض القوالب</LinkButton>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <LinkButton href="/committees/templates" variant="secondary">عرض القوالب</LinkButton>
+            <LinkButton href="/committees/meeting-types" variant="secondary">أنواع الاجتماعات</LinkButton>
+          </div>
+        }
       />
 
       {!employeesReady && (

@@ -361,13 +361,24 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "اعتماد التشكيل وإقفاله" }).first().click();
     await expect(page.getByText("معتمدة ومقفلة", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
-    // اجتماع جديد
+    // اجتماع جديد — نوع الاجتماع إلزامي
     await page.fill("#title", `اجتماع تجريبي آلي ${TAG}`);
+    await page.selectOption('select[name="typeId"]', { label: "دوري" });
     await page.fill("#meetingDate", todayIso);
     await page.fill("#agenda", "بند تجريبي أول\nبند تجريبي ثانٍ");
     await page.getByRole("button", { name: "إنشاء اجتماع" }).click();
     await page.waitForURL(/\/meetings\/[0-9a-f-]{36}$/, { timeout: 30_000 });
     state.meetingId = page.url().split("/").pop()!;
+    // نوع الاجتماع «دوري» يظهر على صفحة الاجتماع
+    await expect(page.getByText("دوري", { exact: true }).first()).toBeVisible();
+
+    // مرفق اجتماع خاص بفئة (ليس حضوراً)
+    const attForm = page.locator('form:has(select[name="category"])');
+    await attForm.locator('input[name="title"]').fill(`مرفق تجريبي آلي ${TAG}`);
+    await attForm.locator('select[name="category"]').selectOption("مستندات داعمة");
+    await attForm.locator('input[name="file"]').setInputFiles(FAKE_PDF);
+    await attForm.getByRole("button", { name: "إضافة المرفق" }).click();
+    await expect(page.getByRole("heading", { name: /^مرفقات الاجتماع \(1\)/ })).toBeVisible({ timeout: 20_000 });
 
     // نتيجة «قرار» تنشئ إجراءً إلزامياً — بمكلف وموعد متأخر (أمس)
     state.decisionText = `قرار تجريبي آلي ${TAG} — متابعة تنفيذ التوصيات`;
@@ -389,14 +400,26 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByText("يتطلب رفع المحضر الموقع أولاً").first()).toBeVisible();
 
     // إصدار المحضر الرسمي (PDF) ثم رفع المحضر الموقع ثم اعتماد الاكتمال
+    // (نطاق نموذج المحضر الموقع تحديداً — صفحة الاجتماع فيها حقل ملف آخر للمرفقات)
     await page.getByRole("button", { name: "إصدار المحضر الرسمي (PDF)" }).click();
     await expect(page.getByRole("link", { name: /تنزيل المحضر/ })).toBeVisible({ timeout: 120_000 });
-    await page.setInputFiles('input[name="file"]', FAKE_PDF);
-    await page.getByRole("button", { name: "رفع", exact: true }).click();
+    const minutesForm = page.locator('form:has(input[accept="application/pdf,image/*"])');
+    await minutesForm.locator('input[name="file"]').setInputFiles(FAKE_PDF);
+    await minutesForm.getByRole("button", { name: "رفع", exact: true }).click();
     await expect(page.getByText("✓ المحضر الموقع مرفوع")).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: "اعتماد الاكتمال" }).first().click();
     await expect(page.getByText("اكتمل الاجتماع واعتمد").first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("مكتمل", { exact: true }).first()).toBeVisible();
+
+    // النتيجة والأثر (منفصلان) على صفحة اللجنة — شرط الإقفال السنوي
+    await page.goto(`/committees/${state.committeeId}`);
+    const impactForm = page.locator('form:has(textarea[name="result"])');
+    await impactForm.locator('textarea[name="result"]').fill(`نتيجة تجريبي آلي ${TAG}`);
+    await impactForm.locator('textarea[name="impact"]').fill(`أثر تجريبي آلي ${TAG}`);
+    await impactForm.locator('input[name="measurement"]').fill("إغلاق 90٪ من القرارات");
+    await impactForm.getByRole("button", { name: "تسجيل النتيجة والأثر" }).click();
+    await expect(page.getByText("سُجّلت النتيجة والأثر")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(`أثر تجريبي آلي ${TAG}`)).toBeVisible();
 
     // تقرير اللجنة: الإجراءات الأربعة مجمّعة + إصدار PDF رسمي برقم وثيقة
     await page.goto(`/committees/${state.committeeId}/report`);

@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, people, planYears } from "@/db/schema";
+import { committees, committeeMembers, meetings, people, planYears, meetingTypes, meetingOutcomes, actionTasks, committeeImpacts } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
-import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton } from "./committee-ui";
+import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton, ImpactForm, DeleteImpactButton } from "./committee-ui";
 import { committeeStatusLabel } from "@/lib/plan/status-labels";
 import { getExcludedIdSets, filterOutSynthetic } from "@/lib/synthetic";
 import { dualDisplay } from "@/lib/dates";
@@ -18,12 +18,20 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
   const [c] = await db.select().from(committees).where(eq(committees.id, id));
   if (!c) notFound();
 
-  const [members, ms, persons, [year]] = await Promise.all([
+  const [members, ms, persons, [year], activeTypes, impacts] = await Promise.all([
     db.select().from(committeeMembers).where(eq(committeeMembers.committeeId, id)).orderBy(asc(committeeMembers.sortOrder)),
     db.select().from(meetings).where(eq(meetings.committeeId, id)).orderBy(asc(meetings.seq)),
     db.select().from(people).where(eq(people.active, true)).orderBy(asc(people.fullName)),
     db.select().from(planYears).where(eq(planYears.id, c.planYearId)),
+    db.select({ id: meetingTypes.id, nameAr: meetingTypes.nameAr }).from(meetingTypes).where(eq(meetingTypes.active, true)).orderBy(asc(meetingTypes.sortOrder)),
+    db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, id)).orderBy(asc(committeeImpacts.createdAt)),
   ]);
+  const meetingIds = ms.map((m) => m.id);
+  const outcomes = meetingIds.length
+    ? await db.select({ id: meetingOutcomes.id, text: meetingOutcomes.text, taskId: meetingOutcomes.taskId }).from(meetingOutcomes).where(inArray(meetingOutcomes.meetingId, meetingIds))
+    : [];
+  const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
+  const tasks = taskIds.length ? await db.select({ id: actionTasks.id, title: actionTasks.title }).from(actionTasks).where(inArray(actionTasks.id, taskIds)) : [];
   const personName = new Map(persons.map((p) => [p.id, p.fullName]));
   // منتقي الأعضاء يعرض المنسوبين المعتمدين فقط (يستبعد الاصطناعي/المؤرشف) — الخريطة الاسمية تبقى كاملة
   const excluded = await getExcludedIdSets();
@@ -151,8 +159,33 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
             })}
           </Table>
         )}
-        {canWrite && c.status === "معتمدة" && <NewMeetingForm committeeId={id} />}
+        {canWrite && c.status === "معتمدة" && <NewMeetingForm committeeId={id} types={activeTypes} />}
         {c.status === "مسودة" && <p className="text-sm text-amber-600">اعتمد التشكيل أولاً لعقد الاجتماعات</p>}
+      </Card>
+      </div>
+
+      <div id="impact" className="scroll-mt-20">
+      <Card>
+        <h2 className="mb-1 font-bold text-brand-900">النتائج والأثر ({impacts.length})</h2>
+        <p className="mb-3 text-xs text-gray-400">
+          «النتيجة» المخرج المباشر، و«الأثر» التغيّر الملحوظ من عمل اللجنة — منفصلان. توثيق النتائج والأثر شرط للإقفال السنوي والتقرير الختامي.
+        </p>
+        {impacts.length > 0 && (
+          <Table headers={["النتيجة", "الأثر", "القياس/المؤشر", "تاريخ الملاحظة", "شاهد", ""]}>
+            {impacts.map((im) => (
+              <tr key={im.id}>
+                <td className="px-3 py-2">{im.result}</td>
+                <td className="px-3 py-2">{im.impact}</td>
+                <td className="px-3 py-2 text-xs text-gray-600">{im.measurement ?? "—"}</td>
+                <td className="px-3 py-2 text-xs tabular-nums">{im.observedAt ? im.observedAt.toLocaleDateString("ar-SA-u-nu-latn") : "—"}</td>
+                <td className="px-3 py-2">{im.evidenceFileId ? <a href={`/api/files/${im.evidenceFileId}`} className="text-xs text-brand-700 underline">تنزيل</a> : "—"}</td>
+                <td className="px-3 py-2">{canWrite && <DeleteImpactButton impactId={im.id} />}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {impacts.length === 0 && <p className="text-sm text-gray-400">لا نتائج أو أثر موثق بعد</p>}
+        {canWrite && <ImpactForm committeeId={id} outcomes={outcomes.map((o) => ({ id: o.id, text: o.text }))} tasks={tasks} />}
       </Card>
       </div>
     </div>

@@ -3,7 +3,7 @@ import ExcelJS from "exceljs";
 import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people } from "@/db/schema";
+import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, meetingTypes, meetingAttachments, committeeImpacts } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 
@@ -30,6 +30,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const outcomes = meetingIds.length
     ? await db.select().from(meetingOutcomes).where(inArray(meetingOutcomes.meetingId, meetingIds)).orderBy(asc(meetingOutcomes.sortOrder))
     : [];
+  const attachments = meetingIds.length
+    ? await db.select().from(meetingAttachments).where(inArray(meetingAttachments.meetingId, meetingIds)).orderBy(asc(meetingAttachments.createdAt))
+    : [];
+  const impacts = await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, id)).orderBy(asc(committeeImpacts.createdAt));
+  const allTypes = await db.select().from(meetingTypes);
+  const typeName = new Map(allTypes.map((t) => [t.id, t.nameAr]));
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
   const tasks = taskIds.length ? await db.select().from(actionTasks).where(inArray(actionTasks.id, taskIds)) : [];
   const taskById = new Map(tasks.map((t) => [t.id, t]));
@@ -49,10 +55,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   wsMe.columns = [
     { header: "م", key: "seq", width: 6 },
     { header: "العنوان", key: "title", width: 32 },
+    { header: "النوع", key: "type", width: 16 },
     { header: "الحالة", key: "status", width: 16 },
   ];
   wsMe.getRow(1).font = { bold: true };
-  for (const m of ms) wsMe.addRow({ seq: m.seq, title: m.title ?? "—", status: m.status });
+  for (const m of ms) wsMe.addRow({ seq: m.seq, title: m.title ?? "—", type: m.typeId ? typeName.get(m.typeId) ?? "—" : "—", status: m.status });
 
   const wsO = wb.addWorksheet("النتائج", { views: [{ rightToLeft: true }] });
   wsO.columns = [
@@ -70,6 +77,30 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       text: o.text,
       action: t ? `${t.mandatory ? "إلزامي" : "اختياري"} — ${t.status}` : "—",
     });
+  }
+
+  const wsA = wb.addWorksheet("المرفقات", { views: [{ rightToLeft: true }] });
+  wsA.columns = [
+    { header: "الاجتماع", key: "meeting", width: 12 },
+    { header: "العنوان", key: "title", width: 28 },
+    { header: "الفئة", key: "category", width: 18 },
+    { header: "الوصف", key: "description", width: 40 },
+  ];
+  wsA.getRow(1).font = { bold: true };
+  for (const a of attachments) {
+    wsA.addRow({ meeting: `الاجتماع ${seqByMeeting.get(a.meetingId) ?? "—"}`, title: a.title, category: a.category, description: a.description ?? "—" });
+  }
+
+  const wsI = wb.addWorksheet("النتائج والأثر", { views: [{ rightToLeft: true }] });
+  wsI.columns = [
+    { header: "النتيجة", key: "result", width: 40 },
+    { header: "الأثر", key: "impact", width: 40 },
+    { header: "القياس/المؤشر", key: "measurement", width: 24 },
+    { header: "تاريخ الملاحظة", key: "observed", width: 16 },
+  ];
+  wsI.getRow(1).font = { bold: true };
+  for (const im of impacts) {
+    wsI.addRow({ result: im.result, impact: im.impact, measurement: im.measurement ?? "—", observed: im.observedAt ? im.observedAt.toISOString().slice(0, 10) : "—" });
   }
 
   const buf = Buffer.from(await wb.xlsx.writeBuffer());

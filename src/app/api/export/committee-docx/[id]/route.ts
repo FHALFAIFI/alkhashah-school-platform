@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, planYears } from "@/db/schema";
+import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, planYears, meetingTypes, meetingAttachments, committeeImpacts } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { buildWordReport } from "@/lib/reports/word-export";
 import { audit } from "@/lib/audit";
@@ -32,6 +32,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const outcomes = meetingIds.length
     ? await db.select().from(meetingOutcomes).where(inArray(meetingOutcomes.meetingId, meetingIds)).orderBy(asc(meetingOutcomes.sortOrder))
     : [];
+  const attachments = meetingIds.length
+    ? await db.select().from(meetingAttachments).where(inArray(meetingAttachments.meetingId, meetingIds)).orderBy(asc(meetingAttachments.createdAt))
+    : [];
+  const impacts = await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, id)).orderBy(asc(committeeImpacts.createdAt));
+  const allTypes = await db.select().from(meetingTypes);
+  const typeName = new Map(allTypes.map((t) => [t.id, t.nameAr]));
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
   const tasks = taskIds.length ? await db.select().from(actionTasks).where(inArray(actionTasks.id, taskIds)) : [];
   const taskById = new Map(tasks.map((t) => [t.id, t]));
@@ -54,8 +60,14 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       {
         heading: "الاجتماعات",
         table: {
-          headers: ["م", "العنوان", "التاريخ", "الحالة"],
-          rows: ms.map((m) => [String(m.seq), m.title ?? "—", m.meetingDate ? `${toHijriNumeric(m.meetingDate)}هـ` : "—", m.status]),
+          headers: ["م", "العنوان", "النوع", "التاريخ", "الحالة"],
+          rows: ms.map((m) => [
+            String(m.seq),
+            m.title ?? "—",
+            m.typeId ? typeName.get(m.typeId) ?? "—" : "—",
+            m.meetingDate ? `${toHijriNumeric(m.meetingDate)}هـ` : "—",
+            m.status,
+          ]),
         },
       },
       {
@@ -71,6 +83,20 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
               t ? `${t.mandatory ? "إلزامي" : "اختياري"} — ${t.status}` : "—",
             ];
           }),
+        },
+      },
+      {
+        heading: "المرفقات",
+        table: {
+          headers: ["الاجتماع", "العنوان", "الفئة", "الوصف"],
+          rows: attachments.map((a) => [`الاجتماع ${seqByMeeting.get(a.meetingId) ?? "—"}`, a.title, a.category, a.description ?? "—"]),
+        },
+      },
+      {
+        heading: "النتائج والأثر",
+        table: {
+          headers: ["النتيجة", "الأثر", "القياس/المؤشر", "تاريخ الملاحظة"],
+          rows: impacts.map((im) => [im.result, im.impact, im.measurement ?? "—", im.observedAt ? `${toHijriNumeric(im.observedAt)}هـ` : "—"]),
         },
       },
     ],

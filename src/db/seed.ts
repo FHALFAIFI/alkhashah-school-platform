@@ -124,6 +124,14 @@ async function seedCommitteeTemplates() {
   }
 }
 
+async function seedMeetingTypes() {
+  const { meetingTypes } = await import("./schema");
+  const { DEFAULT_MEETING_TYPES } = await import("./seed-data/meeting-types");
+  for (const t of DEFAULT_MEETING_TYPES) {
+    await db.insert(meetingTypes).values(t).onConflictDoNothing({ target: meetingTypes.key });
+  }
+}
+
 async function seedZonesAndFloors() {
   const zones = [
     { key: "boys", nameAr: "مجمع البنين", zoneType: "managed" },
@@ -280,6 +288,7 @@ async function main() {
   await seedCalendar();
   await seedOfficialPerfModels();
   await seedCommitteeTemplates();
+  await seedMeetingTypes();
   await seedZonesAndFloors();
   await seedSettings();
   await seedInspectionTemplates();
