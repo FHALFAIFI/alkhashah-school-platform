@@ -25,7 +25,7 @@ const PLAN_GROUP_ORDER = ["program", "deliverable", "kpi", "risk", "budget", "ro
  */
 export function buildConfirmSummary(
   importType: string,
-  readyRows: { mapped: unknown }[],
+  readyRows: { mapped: unknown; validation?: unknown }[],
   excludedCount: number,
 ): ConfirmSummary {
   if (importType === "operational_plan") {
@@ -50,10 +50,36 @@ export function buildConfirmSummary(
   const teachers = readyRows.filter(
     (r) => (r.mapped as { category?: string })?.category === "معلم",
   ).length;
+
+  // فحوصات أمان تُعرض للمدير قبل الموافقة النهائية (حساب نقي من الصفوف الجاهزة):
+  // — أرقام وظيفية مكررة: مجموع الفائض عن أول ظهور لكل رقم وظيفي غير فارغ.
+  const jobCounts = new Map<string, number>();
+  for (const r of readyRows) {
+    const jn = String((r.mapped as { jobNumber?: string })?.jobNumber ?? "").trim();
+    if (jn) jobCounts.set(jn, (jobCounts.get(jn) ?? 0) + 1);
+  }
+  let duplicateJobNumbers = 0;
+  for (const c of jobCounts.values()) if (c > 1) duplicateJobNumbers += c - 1;
+
+  // — صفوف بحقول إلزامية ناقصة (الاسم/الرقم الوظيفي/التصنيف).
+  const missingMandatory = readyRows.filter((r) => {
+    const m = r.mapped as { fullName?: string; jobNumber?: string; category?: string };
+    return !String(m?.fullName ?? "").trim() || !String(m?.jobNumber ?? "").trim() || !String(m?.category ?? "").trim();
+  }).length;
+
+  // — تصنيفات (معلم/موظف) روجعت يدوياً: صفوف حملت تنبيه «التصنيف غير مؤكد» وأكّدها المدير.
+  const reviewedClassifications = readyRows.filter((r) => {
+    const warnings = (r.validation as { warnings?: unknown[] })?.warnings;
+    return Array.isArray(warnings) && warnings.some((w) => typeof w === "string" && w.includes("التصنيف") && w.includes("غير مؤكد"));
+  }).length;
+
   const items: ConfirmItem[] = [
-    { label: "عدد الصفوف الجاهزة", value: readyRows.length },
+    { label: "عدد الصفوف الجاهزة (سجلات منسوبين ستُنشأ)", value: readyRows.length },
     { label: "عدد المعلمين", value: teachers },
     { label: "عدد الموظفين", value: readyRows.length - teachers },
+    { label: "تصنيفات روجعت يدوياً (معلم/موظف)", value: reviewedClassifications },
+    { label: "أرقام وظيفية مكررة", value: duplicateJobNumbers },
+    { label: "صفوف بحقول إلزامية ناقصة", value: missingMandatory },
     { label: "عدد المستبعدين", value: excludedCount },
   ];
   return { title: "تأكيد استيراد بيانات الموظفين — راجع ملخص الدفعة قبل الموافقة النهائية", items };

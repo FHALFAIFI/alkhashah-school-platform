@@ -9,17 +9,44 @@ function labels(items: { label: string }[]): string {
 describe("buildConfirmSummary — ملخص تأكيد الاستيراد حسب النوع", () => {
   it("دفعة الأشخاص: تعرض عدد المعلمين والموظفين والمستبعدين", () => {
     const rows = [
-      { mapped: { category: "معلم" } },
-      { mapped: { category: "معلم" } },
-      { mapped: { category: "موظف" } },
+      { mapped: { category: "معلم", fullName: "أ", jobNumber: "1" } },
+      { mapped: { category: "معلم", fullName: "ب", jobNumber: "2" } },
+      { mapped: { category: "موظف", fullName: "ج", jobNumber: "3" } },
     ];
     const s = buildConfirmSummary("people", rows, 1);
     expect(s.title).toContain("بيانات الموظفين");
     const byLabel = new Map(s.items.map((i) => [i.label, i.value]));
-    expect(byLabel.get("عدد الصفوف الجاهزة")).toBe(3);
+    expect(byLabel.get("عدد الصفوف الجاهزة (سجلات منسوبين ستُنشأ)")).toBe(3);
     expect(byLabel.get("عدد المعلمين")).toBe(2);
     expect(byLabel.get("عدد الموظفين")).toBe(1);
     expect(byLabel.get("عدد المستبعدين")).toBe(1);
+  });
+
+  it("دفعة الأشخاص: فحوصات الأمان — تصنيفات روجعت يدوياً، أرقام مكررة، حقول ناقصة", () => {
+    const rows = [
+      { mapped: { category: "معلم", fullName: "أ", jobNumber: "100" }, validation: { warnings: [] } },
+      // تصنيف روجع يدوياً (حمل التنبيه ثم أُكِّد جاهزاً)
+      { mapped: { category: "موظف", fullName: "ب", jobNumber: "200" }, validation: { warnings: ["التصنيف (معلم/موظف) غير مؤكد — يحتاج تأكيد المدير"] } },
+      // رقم وظيفي مكرر مع الأول
+      { mapped: { category: "موظف", fullName: "ج", jobNumber: "100" }, validation: { warnings: [] } },
+      // حقل إلزامي ناقص (بلا رقم وظيفي)
+      { mapped: { category: "موظف", fullName: "د", jobNumber: "" }, validation: { warnings: [] } },
+    ];
+    const byLabel = new Map(buildConfirmSummary("people", rows, 0).items.map((i) => [i.label, i.value]));
+    expect(byLabel.get("تصنيفات روجعت يدوياً (معلم/موظف)")).toBe(1);
+    expect(byLabel.get("أرقام وظيفية مكررة")).toBe(1);
+    expect(byLabel.get("صفوف بحقول إلزامية ناقصة")).toBe(1);
+  });
+
+  it("دفعة الأشخاص النظيفة: صفر مكرر وصفر ناقص", () => {
+    const rows = [
+      { mapped: { category: "معلم", fullName: "أ", jobNumber: "1" } },
+      { mapped: { category: "موظف", fullName: "ب", jobNumber: "2" } },
+    ];
+    const byLabel = new Map(buildConfirmSummary("people", rows, 0).items.map((i) => [i.label, i.value]));
+    expect(byLabel.get("أرقام وظيفية مكررة")).toBe(0);
+    expect(byLabel.get("صفوف بحقول إلزامية ناقصة")).toBe(0);
+    expect(byLabel.get("تصنيفات روجعت يدوياً (معلم/موظف)")).toBe(0);
   });
 
   it("دفعة الخطة التشغيلية: تعرض عدّادات الخطة العربية ولا تعرض أي تسمية موظفين", () => {

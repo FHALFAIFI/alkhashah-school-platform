@@ -1,5 +1,12 @@
 # تقرير جاهزية التشغيل التجريبي (Pilot Readiness) — 2026-07-18
 
+## STATUS: ACCEPTED — SOFTWARE READY; OPERATIONAL ACTIVATION PENDING
+
+**Accepted 2026-07-18.** The software capabilities are accepted (5 modules PASS). Operational activation
+is the principal's manual sequence (§3). **No release tag is created** — `v1.0.0-pilot` waits until the
+principal completes activation (starting with committing the Fares batch). Activation **step 1 (commit
+Fares) is prepared and staged to «تأكيد التنفيذ» but NOT executed** — see `docs/FARES_ACTIVATION_STEP1.md`.
+
 منصة الإدارة المدرسية المتكاملة — مجمع الخشعة التعليمي للبنين. لغة التقرير إنجليزية حسب سياسة المستودع؛
 النصوص الواجهية مقتبسة بالعربية. **لا يُنشأ وسم إصدار قبل اعتماد المدير لهذا التقرير.**
 

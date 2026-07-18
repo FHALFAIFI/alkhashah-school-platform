@@ -42,7 +42,7 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
   // ملخص التأكيد حسب نوع الاستيراد — دفعة الخطة لا تعرض تسميات الموظفين إطلاقاً
   const confirmSummary = buildConfirmSummary(
     batch.importType,
-    readyRows.map((r) => ({ mapped: r.mapped })),
+    readyRows.map((r) => ({ mapped: r.mapped, validation: r.validation })),
     counts.excluded,
   );
 
