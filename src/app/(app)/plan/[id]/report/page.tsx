@@ -4,7 +4,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programs, documents } from "@/db/schema";
 import { PageHeader, Card, SubmitButton, Table } from "@/components/ui";
-import { ReportActions } from "./report-actions";
+import { ReportActions } from "@/components/report-actions";
 import { generateProgramReport } from "@/lib/reports/program-report";
 import { getSetting } from "@/lib/settings";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
@@ -64,7 +64,8 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
         <div className="mt-3 border-t border-sand-100 pt-3">
           <p className="mb-2 text-xs font-medium text-gray-500">إجراءات التقرير</p>
           <ReportActions
-            programId={id}
+            wordHref={`/api/export/program-docx/${id}`}
+            excelHref="/api/export/plan-xlsx"
             latestDoc={issued[0] ? { id: issued[0].id, docNumber: issued[0].docNumber, pdfFileId: issued[0].pdfFileId } : null}
           />
         </div>

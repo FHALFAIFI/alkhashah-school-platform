@@ -343,6 +343,10 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     state.committeeId = page.url().split("/").pop()!;
     await expect(page.getByLabel("مراحل سير العمل")).toBeVisible();
 
+    // بلا نسخ عضويات الأعوام السابقة: التشكيل الجديد يبدأ بلا أعضاء + لا حضور/غياب/نصاب
+    await expect(page.getByRole("heading", { name: /^الأعضاء \(0\)/ })).toBeVisible();
+    await expect(page.getByText("لا حضور ولا غياب ولا نصاب")).toBeVisible();
+
     // إضافة رئيس ومقرر من سجل المنسوبين (أشخاص هذا التشغيل حصراً)
     await page.selectOption('select[name="personId"]', state.person1Id!);
     await page.selectOption('select[name="role"]', "رئيس");
@@ -379,6 +383,11 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "تسجيل النتيجة" }).click();
     await expect(page.getByText("هذه النتيجة مسجلة مسبقاً في هذا الاجتماع")).toBeVisible({ timeout: 20_000 });
 
+    // البوابة الصارمة: التوقيع للرئيس والمقرر فقط، والاكتمال معطّل قبل رفع المحضر الموقع
+    await expect(page.getByText("يوقع المحضر يدوياً").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "اعتماد الاكتمال" }).first()).toBeDisabled();
+    await expect(page.getByText("يتطلب رفع المحضر الموقع أولاً").first()).toBeVisible();
+
     // إصدار المحضر الرسمي (PDF) ثم رفع المحضر الموقع ثم اعتماد الاكتمال
     await page.getByRole("button", { name: "إصدار المحضر الرسمي (PDF)" }).click();
     await expect(page.getByRole("link", { name: /تنزيل المحضر/ })).toBeVisible({ timeout: 120_000 });
@@ -388,6 +397,15 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "اعتماد الاكتمال" }).first().click();
     await expect(page.getByText("اكتمل الاجتماع واعتمد").first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("مكتمل", { exact: true }).first()).toBeVisible();
+
+    // تقرير اللجنة: الإجراءات الأربعة مجمّعة + إصدار PDF رسمي برقم وثيقة
+    await page.goto(`/committees/${state.committeeId}/report`);
+    await expect(page.getByRole("button", { name: "طباعة" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "تنزيل Word" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "تنزيل Excel" })).toBeVisible();
+    await expect(page.getByText("فتح مسودة بريد")).toBeVisible();
+    await page.getByRole("button", { name: "إصدار تقرير اللجنة (PDF)" }).click();
+    await expect(page.getByText(/KHS-DOC-/).first()).toBeVisible({ timeout: 150_000 });
 
     // /tasks: المهمة الإلزامية بمصدر يعود للاجتماع وبشارة تأخر
     await nav(page, "المهام والإجراءات", "/tasks");
@@ -703,6 +721,11 @@ test.describe("سيناريوهات سير العمل — 390×844", () => {
     await page.waitForURL(`**/meetings/${state.meetingId}`);
     await expect(page.getByText("مكتمل", { exact: true }).first()).toBeVisible();
     await expectNoOverflow(page, "صفحة الاجتماع");
+    // تقرير اللجنة على الجوال: الإجراءات مجمّعة دون تمرير أفقي
+    await page.goto(`/committees/${state.committeeId}/report`);
+    await expect(page.getByRole("button", { name: "طباعة" })).toBeVisible();
+    await expect(page.getByText("فتح مسودة بريد")).toBeVisible();
+    await expectNoOverflow(page, "/committees/[id]/report");
   });
 
   test("ج6: دورة الأداء وجلستها عبر قائمة الدورات", async ({ page }) => {

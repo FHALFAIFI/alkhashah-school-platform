@@ -7,6 +7,7 @@ import { committees, committeeMembers, meetings, people, planYears } from "@/db/
 import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
 import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton } from "./committee-ui";
 import { committeeStatusLabel } from "@/lib/plan/status-labels";
+import { getExcludedIdSets, filterOutSynthetic } from "@/lib/synthetic";
 import { dualDisplay } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,9 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
     db.select().from(planYears).where(eq(planYears.id, c.planYearId)),
   ]);
   const personName = new Map(persons.map((p) => [p.id, p.fullName]));
+  // منتقي الأعضاء يعرض المنسوبين المعتمدين فقط (يستبعد الاصطناعي/المؤرشف) — الخريطة الاسمية تبقى كاملة
+  const excluded = await getExcludedIdSets();
+  const selectablePeople = filterOutSynthetic(persons, excluded.people);
   const canWrite = user.permissions.has("committees.write") && c.status !== "مقفلة";
   const canApprove = user.permissions.has("committees.approve");
 
@@ -43,6 +47,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Badge value={committeeStatusLabel(c.status)} />
+            <LinkButton href={`/committees/${id}/report`} variant="secondary">تقرير اللجنة</LinkButton>
             {canApprove && c.status !== "مقفلة" && <CloseCommitteeButton committeeId={id} />}
           </div>
         }
@@ -113,7 +118,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
         {canWrite && c.status === "مسودة" && (
           <AddMemberForm
             committeeId={id}
-            people={persons.map((p) => ({ id: p.id, fullName: p.fullName, jobTitle: p.jobTitle }))}
+            people={selectablePeople.map((p) => ({ id: p.id, fullName: p.fullName, jobTitle: p.jobTitle }))}
             isPlc={c.kind === "مجتمع تعلم"}
           />
         )}

@@ -383,3 +383,52 @@ Changes landed in this finalization (all covered by tests; `npm test` 127 green,
 Tests added (desktop + mobile 390×844): follow-up/change-request previews on the draft program; the
 four grouped report actions; and the terminology labels («معتمد ومقفل», «معتمدة ومقفلة», «إعادة فتح
 بسبب موثق») after approving a **synthetic test** program in `madrasa_test` (never the official plan).
+
+---
+
+## Committees & Learning Communities — acceptance — 2026-07-18
+
+Real DB used **read-only at 390×844** (Fares not committed, no real committee created or approved —
+formation is server-guarded and the buttons are hidden when no employees exist). Full live lifecycle
+run in `madrasa_test`. Real DB after: templates 6/6 active, committees=15 (unchanged), 0 committee
+report docs, Fares «معاينة», archive 0/0 — only auth artifacts (sessions/audit) changed.
+
+**Business workflow.** Committees are re-formed **annually from official templates** (never copying
+prior-year members); members are drawn **only from committed school-employee data**. A committee is
+formed → members (chair/secretary/…) added → formation approved-and-locked → meetings held → each
+meeting records decisions/recommendations/notes, where **every «قرار» automatically spawns a
+mandatory action** and a «توصية» an optional one → official minutes are issued, **signed by chair and
+secretary only**, and uploaded; a meeting **cannot complete without the signed minutes** (server-side
+hard gate) → the committee report aggregates it all. There is **no attendance, absence, or quorum**
+anywhere by design.
+
+**Verified (madrasa_test live + integration):** create-from-template with **no prior-year member
+copy** (new committee starts «الأعضاء (0)»); chair/secretary/members; formation approval; meeting with
+date/agenda; decision→**mandatory** action (owner+deadline, overdue badge, appears in /tasks +
+worklist); the AI action «أنشئ مسودة محضر لهذا الاجتماع» exists and is **draft-only** (`save_draft`,
+never writes an official record); issue minutes PDF; upload signed minutes; **hard gate** proven —
+«اعتماد الاكتمال» is disabled with «يتطلب رفع المحضر الموقع أولاً» until the signed minutes are up;
+chair+secretary-only signature text; **committee report** issued (PDF) with grouped **طباعة / تنزيل
+Word / تنزيل Excel / فتح مسودة بريد** (draft-only email). **No attendance/quorum** confirmed in
+schema, UI, minutes report, and the new committee Word/Excel exports.
+
+**Genuine gaps fixed (schema-free — real DB untouched):**
+1. **Employee-dependency prerequisite.** `/committees` now shows a prerequisite banner «متطلَّب سابق:
+   بيانات منسوبي المدرسة» with a link «فتح معاينة دفعة فارس» (→ the real Fares preview `12673bed`) when
+   no committed employees exist, and **hides/guards formation** (server guard in
+   `createCommitteeFromTemplateAction`/`createPlcAction`; member picker filtered to non-synthetic
+   committed people). On the real DB this correctly blocks all formation (0 committed employees).
+2. **Official templates enable/disable, never delete.** `/committees/templates` gained a per-template
+   «تعطيل/تفعيل القالب» toggle (`committees.approve`) using the existing `active` flag, plus an explicit
+   «القوالب الرسمية لا تُحذف نهائياً» note. No delete path exists anywhere.
+3. **Committee report.** New `/committees/[id]/report` (+ `committee-report.ts`, `committee-docx`,
+   `committee-xlsx` exports) with the grouped report actions; report link added to the committee page.
+   `ReportActions` was generalized (`src/components/report-actions.tsx`) and reused by plan + committee.
+
+**Deferred to honor "real DB unchanged" (need an additive migration):** meeting **type** and
+**attachments** (step 5) and a per-committee **impact** field (step 13) require new columns; a schema
+migration would alter the real DB (the dev server runs on it), so these are **not** applied here.
+Recommend running the migration when the principal is ready; the rest of the workflow is validated.
+
+**Gates:** `npm test` 129 green (incl. new committee-prerequisites integration test);
+`npm run test:e2e` 39 passed / 1 skipped (C5); typecheck/lint clean.

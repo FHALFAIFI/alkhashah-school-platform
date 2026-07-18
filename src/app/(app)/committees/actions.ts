@@ -14,12 +14,19 @@ import { audit } from "@/lib/audit";
 import { snapshotRecord } from "@/lib/versioning";
 import { saveUploadedFile } from "@/lib/storage";
 import { notifyAll } from "@/lib/notify";
+import { committedEmployeeCount } from "@/lib/committees/prerequisites";
 
 export type ActionState = { error?: string; success?: string } | null;
+
+/** رسالة المتطلَّب السابق: لا تشكيل قبل اعتماد بيانات المنسوبين (دفعة فارس) */
+const NO_EMPLOYEES_ERROR =
+  "لا يمكن تشكيل اللجان قبل اعتماد بيانات منسوبي المدرسة — اعتمد دفعة فارس من المعاينة أولاً، فالأعضاء من المنسوبين المعتمدين حصراً.";
 
 /** تشكيل سنوي من قالب — بلا نسخ عضويات الأعوام السابقة */
 export async function createCommitteeFromTemplateAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("committees.write");
+  // متطلَّب سابق (خادم): لا تشكيل بلا منسوبين معتمدين — يمنع تشكيل لجنة بلا أعضاء ممكنين
+  if ((await committedEmployeeCount()) === 0) return { error: NO_EMPLOYEES_ERROR };
   const templateId = String(formData.get("templateId") ?? "");
   const [template] = await db.select().from(committeeTemplates).where(eq(committeeTemplates.id, templateId));
   if (!template) return { error: "القالب غير موجود" };
@@ -59,6 +66,7 @@ const plcSchema = z.object({
 
 export async function createPlcAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("committees.write");
+  if ((await committedEmployeeCount()) === 0) return { error: NO_EMPLOYEES_ERROR };
   const parsed = plcSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const [year] = await db.select().from(planYears).where(eq(planYears.status, "نشطة"));
@@ -333,4 +341,25 @@ export async function closeCommitteeAction(committeeId: string): Promise<ActionS
   await notifyAll({ title: "أقفلت لجنة", body: c.nameAr, link: `/committees/${committeeId}` });
   revalidatePath("/committees");
   return { success: "أقفلت اللجنة" };
+}
+
+/**
+ * تفعيل/تعطيل قالب لجنة رسمي — القوالب لا تُحذف نهائياً (منقولة من قرار رسمي)، تُعطَّل فقط:
+ * القالب المعطَّل لا يظهر في «قوالب لم تشكل» ولا يُشكَّل منه، لكنه يبقى في السجل ويمكن تفعيله.
+ */
+export async function toggleTemplateActiveAction(templateId: string, active: boolean): Promise<ActionState> {
+  const user = await requirePermission("committees.approve");
+  const [t] = await db.select().from(committeeTemplates).where(eq(committeeTemplates.id, templateId));
+  if (!t) return { error: "القالب غير موجود" };
+  await db.update(committeeTemplates).set({ active }).where(eq(committeeTemplates.id, templateId));
+  await audit({
+    actorId: user.id,
+    action: active ? "committee_template.enabled" : "committee_template.disabled",
+    entityType: "committee_template",
+    entityId: templateId,
+    summary: `${active ? "تفعيل" : "تعطيل"} قالب اللجنة «${t.nameAr}»`,
+  });
+  revalidatePath("/committees/templates");
+  revalidatePath("/committees");
+  return { success: active ? "فُعِّل القالب" : "عُطِّل القالب" };
 }
