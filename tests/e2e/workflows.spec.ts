@@ -624,6 +624,13 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(row.locator("span.rounded-full", { hasText: "مغلق ومتحقق" })).toBeVisible({ timeout: 20_000 });
     await expect(row.locator('select[name="status"]')).toHaveCount(0);
 
+    // تقرير المبنى: الإجراءات المجمّعة (طباعة/تنزيل Word/تنزيل Excel/فتح مسودة بريد) دون تمرير أفقي
+    await page.goto("/building/report");
+    await expect(page.getByRole("button", { name: "طباعة" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "تنزيل Word" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "تنزيل Excel" })).toBeVisible();
+    await expect(page.getByText("فتح مسودة بريد")).toBeVisible();
+
     // لوحة مركز العمل: البلاغ المغلق لا يظهر ضمن «بلاغات الصيانة»
     await nav(page, "مركز عمل مدير المدرسة", "/dashboard");
     const maintCard = page.locator('div.rounded-xl:has(h2:has-text("بلاغات الصيانة"))');

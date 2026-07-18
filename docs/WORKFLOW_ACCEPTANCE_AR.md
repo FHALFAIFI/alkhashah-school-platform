@@ -528,3 +528,55 @@ D-014 marker + Fares final-lock gate; the 3 exact AI suggestion strings; perform
 Excel/print/email actions. **Real DB unchanged** (no cycle created, no migration; only read-only
 verification). `npm test` 136 green (incl. new D-014 unit + Fares-gate integration tests);
 `npm run test:e2e` 39 passed / 1 skipped (C5); typecheck/lint clean. **Performance = PASS.**
+
+---
+
+## Digital Twin (التوأم الرقمي للمبنى) — acceptance — 2026-07-18 — STATUS: PASS
+
+Real DB used **read-only (desktop + 390×844)** — no geometry edited/published, no real report issued,
+no asset created; building tables unchanged (geometry versions 16, rooms 17, published ground v11).
+No migration (all fixes schema-free). Full editable lifecycle verified in `madrasa_test`.
+
+**Source & campus verification (real DB).** Coordinates **17.2484051, 43.0609594** shown with
+«مجمع البنات يظهر سياقاً جغرافياً فقط». **Four building levels** (الدور الأرضي/الأول/الثاني/الثالث) +
+**external site** (الموقع الخارجي). Ground floor published (v11) with **17 rooms KHS-RM-0001..0017**,
+each with meter dimensions + area (e.g. 3.0×3.0م / 9.0 م²). **Boys building only** is managed;
+the girls' complex is a faint context shape and the server (`assertManagedZone`) rejects any room/
+asset/record there. **External 26×18 m football-field calibration** in the site geometry (from
+`أبو فهد_041337.pdf`). Source images (pptx/pdf) are preserved as **replaceable backgrounds with a
+transform (opacity/scale/rotation/visible), fully separate from the vector geometry**.
+
+**Verified (already-correct):** draft→publish creates a **new version and never overwrites** (prior
+published → «مؤرشفة»); rooms (KHS-RM-…) generated on publish, removed rooms soft-disabled not deleted;
+numeric meter editing ↔ drawing are bidirectional (one source of truth); **negative/zero dimensions
+rejected**; background replace/opacity/calibration/rotation **without touching vectors**; room open
+from plan, edit name/type/dimensions/notes + readiness override (mandatory reason); **room QR** +
+**«فتح غرفة بالرمز»** manual entry works over HTTP (C5 fallback); inspections→findings→readiness
+(computed)→evidence→follow-up with **offline dedup via `clientOpId`**; maintenance مفتوح→قيد
+الإصلاح→تم الإصلاح→**مغلق ومتحقق** (terminal, confirmed) with assignee + repair note + closure stamp;
+AI **«أنشئ مسودة طلب صيانة لهذه الغرفة»** creates a **preview requiring confirmation** and can only
+*create* an issue — it cannot close/verify/delete (no such tool). Mobile plan viewer has pinch-zoom/
+pan; report + room pages have **zero horizontal overflow** at 390×844.
+
+**Gaps fixed (schema-free):**
+1. **Reports** (were absent): `/building/report` + `building-report.ts` (PDF) + `building-docx` /
+   `building-xlsx` exports, with the shared **grouped actions طباعة / تنزيل Word / تنزيل Excel /
+   فتح مسودة بريد** (draft-only email) — covering **rooms & dimensions, assets, readiness inspections,
+   and open+completed maintenance**.
+2. **Overlap & boundary warnings** (were absent): `validateGeometry` now returns non-blocking
+   **warnings** for room overlaps and out-of-bounds (negative-coordinate) rooms, surfaced on save —
+   negative/oversize dimensions remain hard errors.
+3. **Documented rollback + compare** (were absent): the version history shows version/status/room-
+   count/reason/timestamp (compare), and a **«تراجع إلى هذه النسخة»** action creates a **new** draft
+   from a prior version with a **mandatory documented reason** (never overwrites; editor + timestamp
+   recorded), which the principal then previews and publishes.
+4. **Duplicate-asset prevention** (was absent): `createAssetAction` rejects a duplicate **serial
+   number** or a duplicate **name within the same room**.
+5. **Precise-editing desktop/tablet note**: the editor shows an Arabic explanation on small screens
+   that precise wall/room drag-editing is for larger screens, with numeric room editing on mobile.
+
+Notes: maintenance offline dedup (`clientOpId`) column exists but the online room form is the active
+path (offline execution deferred, C5/D-018); the Konva editor canvas is a fixed-size desktop/tablet
+tool (pre-existing) — mobile users are directed to numeric editing. `npm test` 142 green (new
+geometry-validation unit + rollback/asset-dedup integration); `npm run test:e2e` 39 passed / 1
+skipped (C5) — s5 now asserts the building report actions. Real DB unchanged. **Digital Twin = PASS.**

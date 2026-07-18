@@ -61,11 +61,23 @@ export function applyRoomEditToGeometry(
   return { ...geometry, rooms: geometry.rooms.map((r) => (r.key === geomKey ? next : r)) };
 }
 
-export function validateGeometry(geo: unknown): { ok: boolean; errors: string[] } {
+/** تقاطع مستطيلين محاذيين للمحاور مع هامش صغير (تفادي التلامس الحدّي) */
+function rectsOverlap(a: GeoRoom, b: GeoRoom): boolean {
+  const eps = 0.05;
+  return a.x < b.x + b.w - eps && a.x + a.w - eps > b.x && a.y < b.y + b.h - eps && a.y + a.h - eps > b.y;
+}
+
+/**
+ * تحقق الهندسة: أخطاء صلبة تمنع الحفظ (أبعاد غير موجبة/غير معقولة، مفاتيح، أسماء)،
+ * وتنبيهات لا تمنع الحفظ لكن تُعرض للمدير: **تداخل الغرف** و**خروجها عن حدود المخطط**
+ * (المخطط تشغيلي وليس رسماً هندسياً معتمداً، فالتداخل/الحدود تنبيه لا منع).
+ */
+export function validateGeometry(geo: unknown): { ok: boolean; errors: string[]; warnings: string[] } {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const g = geo as FloorGeometry;
   if (!g || g.unit !== "m" || !Array.isArray(g.rooms)) {
-    return { ok: false, errors: ["بنية الهندسة غير صحيحة"] };
+    return { ok: false, errors: ["بنية الهندسة غير صحيحة"], warnings };
   }
   const keys = new Set<string>();
   for (const r of g.rooms) {
@@ -74,8 +86,18 @@ export function validateGeometry(geo: unknown): { ok: boolean; errors: string[] 
     if (!r.name?.trim()) errors.push(`غرفة بلا اسم (${r.key})`);
     if (!(r.w > 0) || !(r.h > 0)) errors.push(`أبعاد غير موجبة للغرفة «${r.name}»`);
     if (r.w > 200 || r.h > 200) errors.push(`أبعاد غير معقولة للغرفة «${r.name}»`);
+    // حدود المخطط: إحداثيات سالبة تعني خروج الغرفة عن حدود الأصل
+    if (r.x < 0 || r.y < 0) warnings.push(`الغرفة «${r.name}» خارج حدود المخطط (إحداثيات سالبة)`);
   }
-  return { ok: errors.length === 0, errors };
+  // تداخل الغرف (مستطيلات محاذية للمحاور)
+  for (let i = 0; i < g.rooms.length; i++) {
+    for (let j = i + 1; j < g.rooms.length; j++) {
+      if (rectsOverlap(g.rooms[i], g.rooms[j])) {
+        warnings.push(`تداخل بين «${g.rooms[i].name}» و«${g.rooms[j].name}»`);
+      }
+    }
+  }
+  return { ok: errors.length === 0, errors, warnings };
 }
 
 export const ROOM_TYPES = [

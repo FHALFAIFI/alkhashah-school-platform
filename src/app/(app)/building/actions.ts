@@ -170,7 +170,39 @@ export async function saveGeometryDraftAction(floorId: string, geometryJson: str
   });
   await audit({ actorId: user.id, action: "geometry.draft_saved", entityType: "floor", entityId: floorId, summary: `مسودة هندسة نسخة ${version}` });
   revalidatePath("/building");
-  return { success: `حفظت مسودة النسخة ${version}` };
+  const warn = check.warnings.length > 0 ? ` — تنبيهات: ${check.warnings.join("؛ ")}` : "";
+  return { success: `حفظت مسودة النسخة ${version}${warn}` };
+}
+
+/**
+ * تراجع موثق إلى نسخة سابقة — يُنشئ **نسخة جديدة** من هندسة النسخة الهدف (لا يعدّل أي نسخة
+ * قائمة) بسبب إلزامي مسجّل، ثم يراجعها المدير وينشرها. يحفظ المحرّر والوقت والسبب.
+ */
+export async function rollbackGeometryAction(versionId: string, reason: string): Promise<ActionState> {
+  const user = await requirePermission("building.write");
+  if (!reason || reason.trim().length < 5) return { error: "سبب التراجع إلزامي (5 أحرف على الأقل)" };
+  const [target] = await db.select().from(floorGeometryVersions).where(eq(floorGeometryVersions.id, versionId));
+  if (!target) return { error: "النسخة غير موجودة" };
+  const zoneError = await assertManagedZone(target.floorId);
+  if (zoneError) return { error: zoneError };
+  const [latest] = await db
+    .select()
+    .from(floorGeometryVersions)
+    .where(eq(floorGeometryVersions.floorId, target.floorId))
+    .orderBy(desc(floorGeometryVersions.version))
+    .limit(1);
+  const version = (latest?.version ?? 0) + 1;
+  await db.insert(floorGeometryVersions).values({
+    floorId: target.floorId,
+    version,
+    geometry: target.geometry as object,
+    status: "مسودة",
+    createdBy: user.id,
+    note: `تراجع موثق إلى النسخة ${target.version}: ${reason.trim()}`,
+  });
+  await audit({ actorId: user.id, action: "geometry.rolled_back", entityType: "floor", entityId: target.floorId, summary: `تراجع موثق إلى النسخة ${target.version} (نسخة جديدة ${version}) — ${reason.trim()}` });
+  revalidatePath("/building");
+  return { success: `أنشئت مسودة نسخة ${version} من النسخة ${target.version} — راجعها ثم انشرها` };
 }
 
 /** نشر نسخة هندسة: أرشفة المنشورة السابقة + مزامنة سجل الغرف (بلا حذف سجلات) */
@@ -297,6 +329,19 @@ export async function createAssetAction(_prev: ActionState, formData: FormData):
   if (!room) return { error: "الغرفة غير موجودة" };
   const zoneError = await assertManagedZone(room.floorId);
   if (zoneError) return { error: zoneError };
+
+  // منع تكرار الأصول: نفس الرقم التسلسلي (إن وُجد) أو نفس الاسم في الغرفة نفسها
+  const serial = parsed.data.serialNumber?.trim();
+  if (serial) {
+    const [dupSerial] = await db.select({ code: assets.code }).from(assets).where(and(eq(assets.serialNumber, serial), eq(assets.active, true))).limit(1);
+    if (dupSerial) return { error: `أصل بالرقم التسلسلي «${serial}» مسجل مسبقاً (${dupSerial.code})` };
+  }
+  const [dupName] = await db
+    .select({ code: assets.code })
+    .from(assets)
+    .where(and(eq(assets.roomId, parsed.data.roomId), eq(assets.nameAr, parsed.data.nameAr.trim()), eq(assets.active, true)))
+    .limit(1);
+  if (dupName) return { error: `أصل باسم «${parsed.data.nameAr.trim()}» مسجل مسبقاً في هذه الغرفة (${dupName.code})` };
 
   const important = parsed.data.important === "on";
   const code = await nextAssetCode();

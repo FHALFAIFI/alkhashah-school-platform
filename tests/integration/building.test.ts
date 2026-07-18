@@ -443,4 +443,54 @@ describe("مزامنة الفحص دون اتصال (A13)", () => {
     expect(json.failed.length).toBe(1);
     expect(json.failed[0].error).toContain("سياق");
   });
+
+  it("التراجع الموثق يُنشئ نسخة جديدة (لا يستبدل)، بسبب إلزامي محفوظ", async () => {
+    const { db } = await import("@/db");
+    const { floors, floorGeometryVersions } = await import("@/db/schema");
+    const { saveGeometryDraftAction, rollbackGeometryAction } = await import("@/app/(app)/building/actions");
+    const [ground] = await db.select().from(floors).where(eq(floors.key, "ground"));
+    await saveGeometryDraftAction(ground.id, JSON.stringify(sampleGeometry("نسخة للتراجع", 4, 4)));
+    const versions = await db.select().from(floorGeometryVersions).where(eq(floorGeometryVersions.floorId, ground.id));
+    const target = versions.reduce((a, b) => (a.version < b.version ? b : a));
+    const countBefore = versions.length;
+
+    // سبب قصير يُرفض
+    expect((await rollbackGeometryAction(target.id, "لا"))?.error).toContain("إلزامي");
+
+    const res = await rollbackGeometryAction(target.id, "استعادة مخطط سابق بعد مراجعة الصورة المصدرية");
+    expect(res?.error).toBeUndefined();
+    const after = await db.select().from(floorGeometryVersions).where(eq(floorGeometryVersions.floorId, ground.id));
+    expect(after.length).toBe(countBefore + 1); // نسخة جديدة، لا استبدال
+    const newest = after.reduce((a, b) => (a.version < b.version ? b : a));
+    expect(newest.status).toBe("مسودة");
+    expect(newest.note).toContain("تراجع موثق");
+    expect(newest.note).toContain("استعادة مخطط سابق");
+  });
+
+  it("منع تكرار الأصول: نفس الرقم التسلسلي أو نفس الاسم في الغرفة نفسها", async () => {
+    const { db } = await import("@/db");
+    const { rooms } = await import("@/db/schema");
+    const { createAssetAction } = await import("@/app/(app)/building/actions");
+    const [room] = await db.select().from(rooms).limit(1);
+
+    const mk = (name: string, serial?: string) => {
+      const fd = new FormData();
+      fd.set("nameAr", name);
+      fd.set("roomId", room.id);
+      fd.set("condition", "جيدة");
+      if (serial) {
+        fd.set("important", "on"); // الرقم التسلسلي يُحفظ للأصول المهمة
+        fd.set("serialNumber", serial);
+      }
+      return fd;
+    };
+
+    expect((await createAssetAction(null, mk("سبورة ذكية", "SN-100")))?.error).toBeUndefined();
+    // نفس الرقم التسلسلي → يُرفض
+    expect((await createAssetAction(null, mk("سبورة أخرى", "SN-100")))?.error).toContain("الرقم التسلسلي");
+    // نفس الاسم في الغرفة نفسها → يُرفض
+    expect((await createAssetAction(null, mk("سبورة ذكية")))?.error).toContain("مسجل مسبقاً");
+    // اسم مختلف بلا تسلسل → يُقبل
+    expect((await createAssetAction(null, mk("كرسي معلم")))?.error).toBeUndefined();
+  });
 });

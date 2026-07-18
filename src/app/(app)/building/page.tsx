@@ -41,7 +41,8 @@ export default async function BuildingPage({ searchParams }: { searchParams: Pro
         title="التوأم الرقمي للمبنى المدرسي"
         subtitle="مخطط تشغيلي وليس رسماً هندسياً معتمداً · الإحداثيات: 17.2484051، 43.0609594 · مجمع البنات يظهر سياقاً جغرافياً فقط"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <LinkButton href="/building/report" variant="secondary">تقرير المبنى</LinkButton>
             <LinkButton href={`/building/3d?دور=${active?.key}`} variant="secondary">عرض ثلاثي الأبعاد</LinkButton>
             {canWrite && active && <LinkButton href={`/building/editor/${active.key}`}>فتح المحرر</LinkButton>}
           </div>
