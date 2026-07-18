@@ -19,6 +19,7 @@ export function BatchActions({
   status,
   canCommit,
   canRollback,
+  rollbackPreflight,
   reviewCount,
   deferredCount,
   fileName,
@@ -29,6 +30,11 @@ export function BatchActions({
   status: string;
   canCommit: boolean;
   canRollback: boolean;
+  rollbackPreflight?: {
+    importedCount: number;
+    dependencies: { type: string; labelAr: string; count: number }[];
+    blocked: boolean;
+  } | null;
   reviewCount: number;
   deferredCount: number;
   fileName: string;
@@ -121,20 +127,57 @@ export function BatchActions({
           </button>
         )}
         {canRollback && (
-          <button
-            disabled={pending}
-            onClick={() => {
-              if (!confirm("هل أنت متأكد من التراجع الكامل عن هذه الدفعة؟ ستحذف السجلات المنشأة منها.")) return;
-              startTransition(async () => {
-                setError(null);
-                const res = await rollbackBatchAction(batchId);
-                if (res?.error) setError(res.error);
-              });
-            }}
-            className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-          >
-            تراجع كامل عن الدفعة
-          </button>
+          rollbackPreflight?.blocked ? (
+            // تبعيات قائمة → التراجع الكامل غير متاح (حارس الخادم يرفضه أيضاً)
+            <div className="w-full rounded-lg border border-red-200 bg-red-50 p-4">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="font-bold text-red-900">التراجع الكامل عن الدفعة:</span>
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                  غير متاح لوجود سجلات مرتبطة
+                </span>
+              </div>
+              <p className="text-sm text-red-800">
+                يرتبط بعض موظفي هذه الدفعة بسجلات عمل لاحقة. لن تُحذف هذه السجلات ولن تُعدّل. أنواع الارتباطات وأعدادها:
+              </p>
+              <ul className="my-2 list-disc space-y-0.5 pe-6 text-sm text-red-900">
+                {rollbackPreflight.dependencies.map((d) => (
+                  <li key={d.type}>
+                    {d.labelAr}: <span className="font-medium tabular-nums">{d.count}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm text-red-800">
+                لتعديل موظف بعينه، استخدم تصحيح بياناته أو تعطيله فردياً من «سجل المعلمين والموظفين» بدلاً من التراجع الكامل عن الدفعة.
+              </p>
+              <button
+                type="button"
+                disabled
+                title="غير متاح لوجود سجلات مرتبطة"
+                className="mt-3 cursor-not-allowed rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-400 opacity-60"
+              >
+                تراجع كامل عن الدفعة
+              </button>
+            </div>
+          ) : (
+            // لا تبعيات → التراجع الكامل متاح
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                disabled={pending}
+                onClick={() => {
+                  if (!confirm("هل أنت متأكد من التراجع الكامل عن هذه الدفعة؟ ستحذف السجلات المنشأة منها.")) return;
+                  startTransition(async () => {
+                    setError(null);
+                    const res = await rollbackBatchAction(batchId);
+                    if (res?.error) setError(res.error);
+                  });
+                }}
+                className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                تراجع كامل عن الدفعة
+              </button>
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">متاح</span>
+            </div>
+          )
         )}
       </div>
     </div>

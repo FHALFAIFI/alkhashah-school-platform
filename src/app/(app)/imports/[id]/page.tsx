@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/session";
+import { db } from "@/db";
 import { getBatchWithRows, type RowDecisionEntry } from "@/lib/imports/framework";
 import { buildConfirmSummary } from "@/lib/imports/confirm-summary";
+import { peopleBatchDependencies, type PeopleRollbackPreflight } from "@/lib/imports/people-dependencies";
 import { rowValidationDisplay } from "@/lib/imports/validation-display";
 import { PEOPLE_FIELDS } from "@/lib/imports/people-fields";
 import { PageHeader, Card, Badge, Table, WorkflowSteps, LinkButton } from "@/components/ui";
@@ -38,6 +40,10 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
   };
 
   const isPeople = batch.importType === "people";
+  const canRollback = user.permissions.has("imports.rollback") && batch.status === "منفذة";
+  // تدقيق التبعيات قبل التراجع الكامل — يُحسب فقط لدفعة أشخاص منفذة (حيث يظهر زر التراجع)
+  const rollbackPreflight: PeopleRollbackPreflight | null =
+    isPeople && batch.status === "منفذة" ? await peopleBatchDependencies(db, batch.id) : null;
   const readyRows = rows.filter((r) => r.status === "جاهز");
   // ملخص التأكيد حسب نوع الاستيراد — دفعة الخطة لا تعرض تسميات الموظفين إطلاقاً
   const confirmSummary = buildConfirmSummary(
@@ -86,7 +92,8 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
         batchId={batch.id}
         status={batch.status}
         canCommit={user.permissions.has("imports.commit") && counts.review === 0 && counts.deferred === 0 && counts.ready > 0 && batch.status === "معاينة"}
-        canRollback={user.permissions.has("imports.rollback") && batch.status === "منفذة"}
+        canRollback={canRollback}
+        rollbackPreflight={rollbackPreflight}
         reviewCount={counts.review}
         deferredCount={counts.deferred}
         fileName={batch.sourceFileName}

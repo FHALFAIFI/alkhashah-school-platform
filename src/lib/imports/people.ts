@@ -1,9 +1,10 @@
 import "server-only";
-import { eq, inArray, and, isNotNull } from "drizzle-orm";
+import { eq, and, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
-import { people, importRows, perfCycles } from "@/db/schema";
+import { people, importRows } from "@/db/schema";
 import { readWorkbook, cellText, findHeaderRow } from "./xlsx";
 import { CLASSIFICATION_WARNING } from "./validation-display";
+import { peopleBatchDependencies, dependencySummaryAr } from "./people-dependencies";
 import type { ParsedRow, CommitResult } from "./framework";
 
 /**
@@ -178,18 +179,22 @@ export async function commitPeopleRows(
   return { createdSummary: { أشخاص: created } };
 }
 
-/** التراجع آمن فقط إن لم ترتبط سجلات أداء بالأشخاص المستوردين */
+/**
+ * التراجع الكامل آمن فقط إن لم يرتبط أي شخص من الدفعة بسجل عمل لاحق.
+ *
+ * الحارس النهائي (داخل المعاملة): يفحص كل مواضع الإشارة لمعرّف الشخص عبر
+ * `peopleBatchDependencies`. إن وُجدت أي تبعية يُرفض التراجع ولا يُحذف/يُعدّل أي سجل عمل
+ * (لا حذف تعاقبي) — يُوجَّه المستخدم لتصحيح/تعطيل الموظف فردياً. غياب التبعيات فقط يسمح
+ * بحذف الأشخاص وإعادة صفوف الدفعة إلى «جاهز».
+ */
 export async function rollbackPeopleBatch(tx: Tx, batchId: string): Promise<void> {
-  const imported = await tx.select({ id: people.id }).from(people).where(eq(people.importBatchId, batchId));
-  const ids = imported.map((p) => p.id);
-  if (ids.length === 0) return;
-  const linked = await tx
-    .select({ id: perfCycles.id })
-    .from(perfCycles)
-    .where(inArray(perfCycles.personId, ids))
-    .limit(1);
-  if (linked.length > 0) {
-    throw new Error("لا يمكن التراجع: توجد دورات أداء مرتبطة بأشخاص من هذه الدفعة — عطّل السجلات بدلاً من ذلك");
+  const { importedCount, dependencies, blocked } = await peopleBatchDependencies(tx, batchId);
+  if (importedCount === 0) return;
+  if (blocked) {
+    throw new Error(
+      `لا يمكن التراجع الكامل عن الدفعة — توجد سجلات عمل مرتبطة بموظفين منها (${dependencySummaryAr(dependencies)}). ` +
+        "لن تُحذف هذه السجلات ولن تُعدّل. استخدم تصحيح بيانات الموظف أو تعطيله فردياً بدلاً من التراجع الكامل عن الدفعة.",
+    );
   }
   await tx.delete(people).where(eq(people.importBatchId, batchId));
   await tx

@@ -107,14 +107,40 @@ Both modules gate on `committedEmployeeCount()` — active, **non-synthetic** pe
   become the real pool → `committedEmployeeCount() = 52`, unblocking committee formation and
   performance cycles.
 
-## 6. Transactional rollback remains available
+## 6. Transactional rollback remains available — and is dependency-guarded
 
 `rollbackBatchAction` → `rollbackBatch` requires `status = «منفذة»`, then inside a `db.transaction`:
-sets the batch to «متراجع عنها» and `rollbackPeopleBatch` **deletes the people created by this
-batch** and resets the rows to «جاهز». The UI button is **«تراجع كامل عن الدفعة»** (confirm dialog:
-«هل أنت متأكد من التراجع الكامل عن هذه الدفعة؟ ستحذف السجلات المنشأة منها»). Rollback is refused only
-if a performance cycle is already linked to an imported person (then deactivate instead) — i.e.
-rollback is fully available immediately after commit, before any cycle is created.
+sets the batch to «متراجع عنها» and `rollbackPeopleBatch` **deletes the people created by this batch**
+and resets the rows to «جاهز». The UI button is **«تراجع كامل عن الدفعة»** (confirm dialog: «هل أنت
+متأكد من التراجع الكامل عن هذه الدفعة؟ ستحذف السجلات المنشأة منها»).
+
+**Hardened dependency guard (`src/lib/imports/people-dependencies.ts`).** Full rollback is allowed
+**only when none of the imported people has any dependent business record**. Before deleting, the
+guard (inside the transaction — the final authority) counts every place a person id can be referenced:
+
+| Source table.column | Kind | Arabic label |
+|---|---|---|
+| `committee_members.person_id` | FK | عضويات لجان |
+| `perf_cycles.person_id` | FK | دورات تقييم أداء |
+| `person_stages.person_id` | FK (cascade) | مراحل تدريس مسندة |
+| `action_tasks.owner_person_id` | soft | مهام وإجراءات مسندة |
+| `maintenance_issues.owner_person_id` | soft | بلاغات صيانة مسندة |
+| `programs.owner_person_id` | soft | برامج خطة يملكها الشخص |
+| `users.person_id` | soft | حسابات دخول مرتبطة |
+
+(Meetings carry no direct person id — no attendance — so their link is covered transitively via
+committee memberships.) If **any** count is > 0, rollback is **blocked server-side** and **nothing is
+cascade-deleted or altered**; the Arabic error lists the dependency types and counts and directs the
+principal to **correct/deactivate the individual employee** from «سجل المعلمين والموظفين» instead.
+
+**UI signal on the executed-batch page**: a preflight badge shows **«متاح»** while no dependency
+exists, and **«غير متاح لوجود سجلات مرتبطة»** (with the dependency list and the individual-correction
+guidance) once any dependency exists; in the blocked state the button is disabled.
+
+Right after commit — before any committee, task, or cycle is built on the new staff — the batch has
+zero dependencies, so full rollback is available. Tests: `tests/integration/people-rollback.test.ts`
+(commit synthetic batch → rollback succeeds with no dependencies; then link a committee + task +
+performance cycle → rollback rejected and all people and business records remain intact).
 
 ## 7. Stop point
 
