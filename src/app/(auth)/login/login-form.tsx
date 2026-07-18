@@ -3,10 +3,11 @@
 import { useActionState } from "react";
 import { loginAction } from "./actions";
 
-export function LoginForm() {
+export function LoginForm({ returnTo }: { returnTo?: string | null }) {
   const [state, formAction, pending] = useActionState(loginAction, null);
   return (
     <form action={formAction} className="space-y-4">
+      {returnTo && <input type="hidden" name="returnTo" value={returnTo} />}
       {state?.error && (
         <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
           {state.error}

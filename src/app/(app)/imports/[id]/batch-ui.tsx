@@ -43,12 +43,24 @@ export function BatchActions({
   confirmItems: { label: string; value: number }[];
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpiredHref, setSessionExpiredHref] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
   return (
     <div className="mb-4 rounded-xl border border-sand-200 bg-white p-4">
+      {sessionExpiredHref && (
+        <div role="alert" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">انتهت الجلسة. لم يتم تنفيذ الاستيراد. سجّل الدخول ثم ارجع إلى الدفعة.</p>
+          <a
+            href={sessionExpiredHref}
+            className="mt-2 inline-block rounded-lg bg-brand-600 px-3 py-1.5 font-medium text-white hover:bg-brand-700"
+          >
+            تسجيل الدخول والعودة إلى الدفعة
+          </a>
+        </div>
+      )}
       {error && <div role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</div>}
       <div className="flex flex-wrap items-center gap-3">
         {status === "معاينة" && !confirming && (
@@ -93,11 +105,25 @@ export function BatchActions({
                 onClick={() =>
                   startTransition(async () => {
                     setError(null);
+                    setSessionExpiredHref(null);
                     try {
                       const res = await commitBatchAction(batchId);
+                      if (res?.code === "SESSION_EXPIRED") {
+                        // انتهت الجلسة: أوقف المؤشر، أظهر الرسالة ورابط الدخول، ولا تُعِد المحاولة
+                        setSessionExpiredHref(res.loginHref ?? "/login");
+                        return;
+                      }
+                      if (res?.code === "ALREADY_EXECUTED") {
+                        // نُفّذت مسبقاً: حالة راهنة ناجحة — أعد التحميل لعرض «تم الاستيراد» بلا خطأ مُفزع
+                        router.refresh();
+                        return;
+                      }
+                      if (res?.code === "PERMISSION_DENIED") {
+                        setError(res.error ?? "لا تملك صلاحية تنفيذ الاستيراد. لم يتم تنفيذ الاستيراد.");
+                        return;
+                      }
                       if (res?.error) {
                         // فشل مُبلَّغ من الخادم: أبقِ اللوحة مفتوحة، أظهر الخطأ، وأعد تحميل الحالة
-                        // (لو كان التنفيذ قد نجح فعلاً فستتحول الحالة إلى «منفذة» وتختفي اللوحة)
                         setError(res.error);
                         router.refresh();
                         return;
@@ -105,7 +131,7 @@ export function BatchActions({
                       // نجاح: أعد تحميل الحالة لعرض «تم الاستيراد» (الدفعة صارت «منفذة»)
                       router.refresh();
                     } catch {
-                      // استجابة غير مؤكدة (انقطاع/توجيه): لا تُعِد المحاولة تلقائياً —
+                      // استجابة غير مؤكدة (انقطاع/إجهاض): لا تُعِد المحاولة تلقائياً —
                       // أعد تحميل حالة الدفعة أولاً ووجّه المستخدم لمراجعتها قبل أي محاولة ثانية
                       setError(
                         "تعذّر تأكيد نتيجة التنفيذ. أعدنا تحميل حالة الدفعة — راجع الحالة أعلاه: إن ظهرت «منفذة» فقد تم الاستيراد ولا تُعد المحاولة، وإلا فأعد المحاولة.",

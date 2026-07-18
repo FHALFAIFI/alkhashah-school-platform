@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requirePermission } from "@/lib/auth/session";
+import { requirePermission, getCurrentUser } from "@/lib/auth/session";
 import { saveUploadedFile } from "@/lib/storage";
 import { createBatch, commitBatch, rollbackBatch, applyRowDecision, undoLastRowDecision, getBatchWithRows, findLiveBatchesForFile, cancelBatch } from "@/lib/imports/framework";
 import { parsePeopleWorkbook, commitPeopleRows, rollbackPeopleBatch } from "@/lib/imports/people";
@@ -14,7 +14,15 @@ import { planYears } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
-export type ImportActionState = { error?: string } | null;
+export type ImportActionState =
+  | {
+      error?: string;
+      /** نتيجة نوعية للتنفيذ: انتهاء الجلسة، رفض الصلاحية، أو دفعة نُفّذت مسبقاً */
+      code?: "SESSION_EXPIRED" | "PERMISSION_DENIED" | "ALREADY_EXECUTED";
+      /** رابط تسجيل دخول مع returnTo مُتحقَّق منه للدفعة نفسها (عند انتهاء الجلسة) */
+      loginHref?: string;
+    }
+  | null;
 
 export async function uploadImportAction(_prev: ImportActionState, formData: FormData): Promise<ImportActionState> {
   const user = await requirePermission("imports.read", "people.import");
@@ -127,12 +135,25 @@ export async function cancelBatchAction(batchId: string): Promise<ImportActionSt
 }
 
 export async function commitBatchAction(batchId: string): Promise<ImportActionState> {
-  // المصادقة/الصلاحية قبل أي شيء (قد تعيد التوجيه لتسجيل الدخول عند انتهاء الجلسة)
-  const user = await requirePermission("imports.commit");
+  // مصادقة غير رامية: فعلٌ يُستدعى عبر startTransition يجب ألا يُطلق NEXT_REDIRECT
+  // (يُبتلع بصمت فيبقى المؤشر يدور بلا أثر). نُعيد نتيجة نوعية بدل التوجيه.
+  const user = await getCurrentUser();
+  if (!user) {
+    return {
+      code: "SESSION_EXPIRED",
+      loginHref: `/login?returnTo=${encodeURIComponent(`/imports/${batchId}`)}`,
+    };
+  }
+  if (!user.permissions.has("imports.commit")) {
+    return { code: "PERMISSION_DENIED", error: "لا تملك صلاحية تنفيذ الاستيراد. لم يتم تنفيذ الاستيراد." };
+  }
+
   const data = await getBatchWithRows(batchId);
   if (!data) return { error: "الدفعة غير موجودة" };
+  // دفعة نُفّذت مسبقاً (محاولة سابقة نجحت/نافذة أخرى): حالة راهنة ناجحة — لا خطأ مُفزع
+  if (data.batch.status === "منفذة") return { code: "ALREADY_EXECUTED" };
 
-  // معرّف ارتباط لتتبّع كل محاولة تصل الخادم عبر أحداث التدقيق (بدء/نجاح/فشل)
+  // معرّف ارتباط لتتبّع كل محاولة مُصرَّح بها تصل الخادم عبر أحداث التدقيق (بدء/نجاح/فشل)
   const correlationId = randomUUID();
   const ref = correlationId.slice(0, 8);
   // حدث «بدء التنفيذ» — يُسجَّل لأي طلب مُصرَّح يصل الخادم، فيبقى أثر حتى لو فشل التنفيذ لاحقاً
@@ -166,6 +187,11 @@ export async function commitBatchAction(batchId: string): Promise<ImportActionSt
       return { error: "نوع استيراد غير مدعوم" };
     }
   } catch (e) {
+    // سباق: نُفِّذت الدفعة أثناء محاولتنا (نافذة/نقرة متزامنة) → حالة راهنة ناجحة لا فشل
+    const fresh = await getBatchWithRows(batchId);
+    if (fresh?.batch.status === "منفذة") {
+      return { code: "ALREADY_EXECUTED" };
+    }
     // حدث «فشل التنفيذ» برسالة معقّمة ومعرّف مرجعي — لا يُسرَّب تفاصيل داخلية
     const message = e instanceof Error ? e.message : "فشل التنفيذ";
     await audit({

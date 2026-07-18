@@ -9,6 +9,7 @@ import { verifyPassword } from "@/lib/auth/password";
 import { createSession, destroySession, clientIp } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
+import { safeImportsReturnTo } from "@/lib/auth/return-to";
 
 type LoginState = { error: string } | null;
 
@@ -67,7 +68,9 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   await db.update(users).set({ failedLogins: 0, lockedUntil: null }).where(eq(users.id, user.id));
   await createSession(user.id, ip);
   await audit({ actorId: user.id, action: "login.success", ip });
-  redirect("/dashboard");
+  // returnTo مُتحقَّق منه فقط (دفعة استيراد داخلية) — وإلا اللوحة الرئيسية
+  const returnTo = safeImportsReturnTo(String(formData.get("returnTo") ?? ""));
+  redirect(returnTo ?? "/dashboard");
 }
 
 export async function logoutAction() {

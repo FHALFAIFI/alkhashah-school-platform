@@ -185,6 +185,22 @@ server-reaching attempt observable, and hardens execution so a retry is always s
   principal is told to check the status (if it shows `«منفذة»`, the import succeeded — **do not
   retry**) — no automatic retry.
 
+**Session-expiry path closed (the exact suspected failure).** A mutation invoked through
+`startTransition` must not silently lose a `NEXT_REDIRECT`, so `commitBatchAction` no longer calls
+`requirePermission` (which would `redirect("/login")` and be swallowed). It now authenticates
+**without throwing** and returns a **typed result**:
+- **`SESSION_EXPIRED`** → the spinner stops and an Arabic notice appears — «انتهت الجلسة. لم يتم تنفيذ
+  الاستيراد. سجّل الدخول ثم ارجع إلى الدفعة.» — with a login link carrying a **validated `returnTo`**
+  (`/login?returnTo=/imports/<id>`; `safeImportsReturnTo` accepts only the exact batch path, blocking
+  open-redirects). After re-login the principal lands back on the batch. **No auto-retry.**
+- **`PERMISSION_DENIED`** → a plain Arabic notice «لا تملك صلاحية تنفيذ الاستيراد. لم يتم تنفيذ الاستيراد.»
+- **`ALREADY_EXECUTED`** → an already-committed submission (a prior success, another window, or a
+  concurrent race caught inside the transaction) is treated as a **successful current state**, not a
+  frightening generic error: the page simply reloads to show `«منفذة» / «تم الاستيراد»`.
+
+Unauthenticated requests are **not** given a fabricated audit actor; correlation ids are preserved
+only for authenticated attempts (started/committed/failed).
+
 **Tests.** `tests/integration/import-commit-hardening.test.ts` (52 ready → exactly 52 people + one
 commit event; repeat/concurrent submit → single success, no duplicates; committer failure → 0 people
 + `«معاينة»`). `tests/e2e/import-commit.spec.ts` (390×844: mobile UI confirm → 52 people + one
