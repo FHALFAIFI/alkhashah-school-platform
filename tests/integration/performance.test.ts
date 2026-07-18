@@ -319,4 +319,58 @@ describe("إدارة الأداء (A3, A4 وبوابة المرحلة 3)", () =>
     expect(done.status).toBe("مكتملة");
     expect((await advanceImprovementPlanAction(plan.id))?.error).toContain("لا حالة تالية");
   });
+
+  it("بوابة D-014: لا يُقفَل التقييم النهائي على نموذج رسمي أصلي فيه خلية بانتظار مطابقة فارس (رغم استيفاء بقية الشروط)", async () => {
+    const { db } = await import("@/db");
+    const { people, perfModels, perfIndicators, perfCycles, perfSessions, storedFiles, documents } = await import("@/db/schema");
+    const { completeSessionAction, saveRatingsAction } = await import("@/app/(app)/performance/actions");
+    const suffix = Math.floor(Math.random() * 1e9);
+    const [person] = await db.insert(people).values({ fullName: `وكيل تجريبي ${suffix}`, category: "معلم" }).returning();
+    // نموذج رسمي أصلي (النسخة 1) فيه خلية D-014 «ينفذ إجراءات علمية…» بوزن 5٪
+    const [model] = await db
+      .insert(perfModels)
+      .values({ key: "school-vice", nameAr: "وكيل المدرسة", audience: "معلم", official: true, status: "معتمد", version: 1 })
+      .returning();
+    const inds = await db
+      .insert(perfIndicators)
+      .values([
+        { modelId: model.id, nameAr: "ينفذ إجراءات علمية لتحسين نتائج التعلم", weight: "5", requiresEvidence: false, sortOrder: 0 },
+        { modelId: model.id, nameAr: "أداء الواجبات الوظيفية", weight: "95", requiresEvidence: false, sortOrder: 1 },
+      ])
+      .returning();
+    const [cycle] = await db
+      .insert(perfCycles)
+      .values({
+        personId: person.id,
+        cycleType: "معلم",
+        yearKey: `d014-${suffix}`,
+        modelId: model.id,
+        calendarSnapshot: { events: [] },
+        modelSnapshot: { model: { id: model.id, key: model.key, nameAr: model.nameAr, official: true, version: 1 }, indicators: inds },
+      })
+      .returning();
+    const { session } = await createSessionViaAction(cycle.id, "نهائي");
+
+    // استيفاء بقية الشروط: تقرير صادر + نسخة موقعة + تقييم كل المؤشرات (لا شواهد مطلوبة)
+    const [doc] = await db
+      .insert(documents)
+      .values({ docNumber: `DF-${Math.random()}`, verificationCode: `VF-${Math.random()}`, docType: "performance_report", title: "ت", issuedBy: testUserId })
+      .returning();
+    const [f] = await db
+      .insert(storedFiles)
+      .values({ originalName: "موقع.pdf", mime: "application/pdf", size: 10, sha256: "x", storagePath: `attachments/d014-${Math.random()}.pdf` })
+      .returning();
+    await db.update(perfSessions).set({ reportDocId: doc.id, signedReportFileId: f.id }).where(eq(perfSessions.id, session!.id));
+    const fd = new FormData();
+    fd.set(`rating_${inds[0].id}`, "4");
+    fd.set(`rating_${inds[1].id}`, "5");
+    await saveRatingsAction(session!.id, null, fd);
+
+    // كل الشروط مستوفاة عدا D-014 → تُرفض بوابة فارس
+    const res = await completeSessionAction(session!.id);
+    expect(res?.error).toContain("D-014");
+    expect(res?.error).toContain("فارس");
+    const [still] = await db.select().from(perfSessions).where(eq(perfSessions.id, session!.id));
+    expect(still.status).not.toBe("مقفلة");
+  });
 });

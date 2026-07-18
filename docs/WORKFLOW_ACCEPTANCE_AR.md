@@ -471,3 +471,60 @@ Recommend running the migration when the principal is ready; the rest of the wor
 
 **Gates:** `npm test` 129 green (incl. new committee-prerequisites integration test);
 `npm run test:e2e` 39 passed / 1 skipped (C5); typecheck/lint clean.
+
+---
+
+## Performance Management (الأداء الوظيفي) — acceptance — 2026-07-18 — STATUS: PASS
+
+Real DB used **read-only at 390×844** (Fares not committed, no real performance cycle created —
+`perf_cycles` unchanged). No schema migration this turn (all fixes are schema-free). Both teacher and
+employee cycles verified in `madrasa_test`.
+
+**1. Source accuracy (vs the two official PDFs).** `docs/PERFORMANCE_MODEL_VALIDATION.md` records a
+page-by-page visual check. Confirmed on the live DB: **8 official models** (all audience «معلم»,
+status «معتمد»), **123 indicators total**, **every model sums to 100%**. Counts: teacher 11,
+activity-leader 15, health-advisor 14, kindergarten-teacher 19, lab-technician 13, student-advisor
+13, school-vice 19, school-principal 20 (per-model), all Σ=100٪. **D-014** preserved as a documented
+source conflict in exactly 3 cells (kindergarten-teacher «تهيئ بيئة تعلمية…», school-vice and
+school-principal «ينفذ إجراءات علمية…»): models file **5%**, guidance p30/44/45 **15%** (15% makes
+the table total **110%**). The platform uses **5%** provisionally.
+
+**D-014 — now marked and gated (was doc-only; gap fixed, schema-free):**
+- A code helper (`src/lib/performance/d014.ts`) marks those 3 cells **«بانتظار المطابقة مع نظام فارس»**
+  on the model detail page (visible read-only on the real DB), with an explanatory D-014 note. No DB
+  write — the marker is derived (official model, version 1, weight 5%).
+- **Real final locking is blocked** while a cycle's frozen model snapshot contains an awaiting-Fares
+  cell: `completeSessionAction` refuses the final lock with a Fares message. Reconciliation = the
+  principal matches the value with نظام فارس and issues **a new audited model version** (existing
+  reopen→re-approve, which bumps `version` and is no longer flagged); **existing cycle snapshots are
+  never altered** (they are frozen at cycle start).
+
+**2/3. Teacher & employee lifecycles (madrasa_test).** Teacher cycle is anchored to the school
+calendar's `teacher_return` event and freezes calendar + model snapshots at start; employee cycle
+uses the **full Gregorian year (1 Jan–31 Dec)** — both asserted in integration tests. Objectives/
+indicators/targets/evidence/notes and planning/mid/final/visit/followup sessions; **rating 1–5**
+validated server-side; **weighted total computed server-side only** as `(rating÷5)×weight`, any
+client-sent total ignored (anti-tamper). **Final lock requires** all indicators rated + required
+evidence per indicator + an issued report + an uploaded signed report. Reopen/correction needs a
+documented reason and snapshots the prior version.
+
+**4. Evidence & signatures.** Evidence attaches per indicator (subKey=indicatorId) as file/note/
+link/internal/external; required evidence cannot be bypassed (gated at final lock); optional evidence
+is principal-controlled (attach/remove). The final report has **two independent checkboxes** —
+«توقيع المدير» and «ختم المدرسة» — recorded per issued document with a version/audit history.
+
+**5. AI controls.** Contextual Arabic suggestions now read exactly **«لخّص أداء هذا الموظف» /
+«افحص اكتمال شواهد التقييم» / «جهز مسودة ملاحظات المراجعة»**. The orchestrator guardrail forbids the AI
+from rating, changing weights, approving, signing, stamping, or locking (no such tools exist); AI
+output is draft/summary only, preview+confirm for any write.
+
+**6. Completion/output.** Arabic stepper + next-action hint; correction request + documented reopen;
+report actions now grouped: **طباعة / تنزيل Word / تنزيل Excel / فتح مسودة بريد** (draft-only email,
+never auto-sends) via the shared `ReportActions` + new `perf-session-docx` / `perf-session-xlsx`
+exports. Desktop + 390×844 with zero horizontal overflow.
+
+**Gaps fixed:** employee-dependency prerequisite banner on `/performance` (Fares link `12673bed`);
+D-014 marker + Fares final-lock gate; the 3 exact AI suggestion strings; performance report Word/
+Excel/print/email actions. **Real DB unchanged** (no cycle created, no migration; only read-only
+verification). `npm test` 136 green (incl. new D-014 unit + Fares-gate integration tests);
+`npm run test:e2e` 39 passed / 1 skipped (C5); typecheck/lint clean. **Performance = PASS.**

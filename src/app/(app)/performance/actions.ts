@@ -15,6 +15,7 @@ import { snapshotRecord } from "@/lib/versioning";
 import { saveUploadedFile } from "@/lib/storage";
 import { getSetting } from "@/lib/settings";
 import { sessionResult, validRating } from "@/lib/performance/scoring";
+import { snapshotAwaitingFaresCells } from "@/lib/performance/d014";
 import { evidenceForEntity } from "@/lib/evidence";
 
 export type ActionState = { error?: string; success?: string } | null;
@@ -200,7 +201,7 @@ export async function createCycleAction(_prev: ActionState, formData: FormData):
         yearKey: parsed.data.yearKey,
         modelId: model.id,
         calendarSnapshot: calendarSnapshot as object,
-        modelSnapshot: { model: { id: model.id, nameAr: model.nameAr, official: model.official, version: model.version }, indicators },
+        modelSnapshot: { model: { id: model.id, key: model.key, nameAr: model.nameAr, official: model.official, version: model.version }, indicators },
         startDate,
         endDate,
         planningDeadline: parsed.data.planningDeadline || null,
@@ -383,6 +384,13 @@ export async function completeSessionAction(sessionId: string): Promise<ActionSt
     const missingEvidence = snapshot.indicators.filter((i) => i.requiresEvidence && !evidenceByIndicator.has(i.id));
     if (missingEvidence.length > 0) {
       return { error: `الشواهد المطلوبة غير مكتملة للمؤشرات: ${missingEvidence.map((i) => i.nameAr).join("، ")}` };
+    }
+    // بوابة D-014: لا إقفال نهائي على نموذج رسمي أصلي فيه خلية بانتظار مطابقة فارس
+    const awaitingFares = snapshotAwaitingFaresCells(cycle.modelSnapshot);
+    if (awaitingFares.length > 0) {
+      return {
+        error: `لا يُقفَل التقييم النهائي نهائياً حتى تُطابَق قيمة المؤشر مع نظام فارس (D-014) — طابِق القيمة ثم أصدر نسخة نموذج معتمدة جديدة. المؤشرات المعلّقة: ${awaitingFares.join("، ")}`,
+      };
     }
   }
 

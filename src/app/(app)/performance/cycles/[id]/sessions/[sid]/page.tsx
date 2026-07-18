@@ -7,6 +7,7 @@ import { perfCycles, perfSessions, perfRatings, people, documents } from "@/db/s
 import { PageHeader, Card, Badge, SubmitButton } from "@/components/ui";
 import { RatingsForm, SignedReportUpload, CompleteSessionButton, ReopenSessionForm } from "./session-ui";
 import { EvidencePanel } from "@/components/evidence-panel";
+import { ReportActions } from "@/components/report-actions";
 import { evidenceForEntity } from "@/lib/evidence";
 import { generateSessionReport } from "@/lib/reports/session-report";
 import { getSetting } from "@/lib/settings";
@@ -170,6 +171,14 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
               </a>
             )}
           </form>
+          <div className="border-t border-sand-100 pt-2">
+            <p className="mb-2 text-xs font-medium text-gray-500">إجراءات التقرير</p>
+            <ReportActions
+              wordHref={`/api/export/perf-session-docx/${sid}`}
+              excelHref={`/api/export/perf-session-xlsx/${sid}`}
+              latestDoc={reportDoc ? { id: reportDoc.id, docNumber: reportDoc.docNumber, pdfFileId: reportDoc.pdfFileId } : null}
+            />
+          </div>
           <p className="text-xs text-gray-500">توقيع المعلم/الموظف يدوي على النسخة الورقية، ثم يرفع التقرير الموقع هنا.</p>
           {session.signedReportFileId ? (
             <p className="text-emerald-700">

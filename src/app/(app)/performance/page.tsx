@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { perfCycles, perfModels, people } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { faresPreviewBatchId } from "@/lib/committees/prerequisites";
 import { NewCycleForm } from "./performance-ui";
 
 export const metadata = { title: "دورات الأداء" };
@@ -16,12 +17,15 @@ export default async function PerformancePage() {
   const canWrite = user.permissions.has("performance.write");
 
   const excluded = await getExcludedIdSets();
-  const [cycles, models, persons] = await Promise.all([
+  const [cycles, models, persons, faresBatchId] = await Promise.all([
     db.select().from(perfCycles).where(notSynthetic(perfCycles.id, excluded.perfCycles)).orderBy(desc(perfCycles.createdAt)),
     db.select().from(perfModels).where(eq(perfModels.status, "معتمد")),
     db.select().from(people).where(and(eq(people.active, true), notSynthetic(people.id, excluded.people))).orderBy(asc(people.fullName)),
+    faresPreviewBatchId(),
   ]);
   const personName = new Map(persons.map((p) => [p.id, p.fullName]));
+  // متطلَّب سابق: التقييم يحتاج بيانات المنسوبين المعتمدة — دورة التقييم للمنسوبين المعتمدين حصراً
+  const employeesReady = persons.length > 0;
 
   const teacherCycles = cycles.filter((c) => c.cycleType === "معلم");
   const staffCycles = cycles.filter((c) => c.cycleType === "موظف");
@@ -37,6 +41,23 @@ export default async function PerformancePage() {
       {!canSeeIndividual && (
         <Card className="border-amber-200 bg-amber-50">
           <p className="text-sm text-amber-900">تفاصيل الأداء الفردي متاحة لمدير المدرسة فقط — تعرض هنا الحالة العامة دون التفاصيل.</p>
+        </Card>
+      )}
+
+      {canWrite && !employeesReady && (
+        <Card className="border-amber-300 bg-amber-50">
+          <h2 className="mb-1 font-bold text-amber-900">متطلَّب سابق: بيانات منسوبي المدرسة</h2>
+          <p className="text-sm text-amber-800">
+            تقييم الأداء يعتمد على بيانات المنسوبين المعتمدة — الدورة تُنشأ لمنسوب معتمد حصراً. لا يوجد منسوبون
+            معتمدون بعد؛ اعتمد دفعة فارس من المعاينة أولاً ثم عد لبدء دورات التقييم.
+          </p>
+          <div className="mt-3">
+            {faresBatchId ? (
+              <LinkButton href={`/imports/${faresBatchId}`}>فتح معاينة دفعة فارس</LinkButton>
+            ) : (
+              <LinkButton href="/imports" variant="secondary">فتح الاستيراد</LinkButton>
+            )}
+          </div>
         </Card>
       )}
 

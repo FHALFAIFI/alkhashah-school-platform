@@ -163,6 +163,11 @@ async function rateAllIndicators(page: Page) {
 async function issueAndSignSessionReport(page: Page) {
   await page.getByRole("button", { name: "إصدار تقرير الجلسة (PDF)" }).click();
   await expect(page.getByRole("button", { name: "إعادة إصدار تقرير الجلسة (PDF)" })).toBeVisible({ timeout: 120_000 });
+  // إجراءات التقرير المجمّعة: طباعة/تنزيل Word/تنزيل Excel/فتح مسودة بريد
+  await expect(page.getByRole("button", { name: "طباعة" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "تنزيل Word" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "تنزيل Excel" })).toBeVisible();
+  await expect(page.getByText("فتح مسودة بريد")).toBeVisible();
   await page.setInputFiles('input[name="file"]', FAKE_PDF);
   await page.getByRole("button", { name: "رفع", exact: true }).click();
   await expect(page.getByText("✓ التقرير الموقع مرفوع")).toBeVisible({ timeout: 20_000 });
