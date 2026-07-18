@@ -29,15 +29,27 @@ export function AiMeetingAssistant({ meetingId }: { meetingId: string }) {
 }
 
 /** إرسال وثيقة بالبريد: مسودة M365 عند التفعيل، وإلا بديل يدوي واضح */
-export function EmailDocumentButton({ docId, docNumber, pdfFileId }: { docId: string; docNumber: string; pdfFileId: string | null }) {
+export function EmailDocumentButton({
+  docId,
+  docNumber,
+  pdfFileId,
+  label = "بريد",
+  triggerClassName = "text-xs text-brand-700 underline",
+}: {
+  docId: string;
+  docNumber: string;
+  pdfFileId: string | null;
+  label?: string;
+  triggerClassName?: string;
+}) {
   const [state, setState] = useState<EmailState>(null);
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-xs text-brand-700 underline">
-        بريد
+      <button onClick={() => setOpen(true)} className={triggerClassName}>
+        {label}
       </button>
     );
   }

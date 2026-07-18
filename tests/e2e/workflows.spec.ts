@@ -133,9 +133,9 @@ async function importPeopleBatch(page: Page, fileName: string): Promise<string> 
   await reviewRow.getByRole("button", { name: "استبعاد" }).click();
   await expect(reviewRow.getByText("مستبعد", { exact: true })).toBeVisible({ timeout: 20_000 });
 
-  // الموافقة الصريحة مع لوحة الملخص المفصلة
+  // الموافقة الصريحة مع لوحة الملخص المفصلة (عنوان التأكيد نوعيّ: دفعة موظفين)
   await page.getByRole("button", { name: "موافقة صريحة وتنفيذ الاستيراد" }).click();
-  await expect(page.getByText("تأكيد التنفيذ — راجع ملخص الدفعة")).toBeVisible();
+  await expect(page.getByText("تأكيد استيراد بيانات الموظفين")).toBeVisible();
   await expect(page.locator("li", { hasText: "عدد الصفوف الجاهزة" })).toContainText("5");
   // «موجه طلابي» يصنف معلماً وفق دلالات الكادر التعليمي — لذلك 3 معلمين و2 موظفين
   await expect(page.locator("li", { hasText: "عدد المعلمين" })).toContainText("3");
@@ -235,7 +235,8 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
 
     // الموافقة الصريحة والتنفيذ (ينشئ السنة النشطة والبرنامجين)
     await page.getByRole("button", { name: "موافقة صريحة وتنفيذ الاستيراد" }).click();
-    await expect(page.getByText("تأكيد التنفيذ — راجع ملخص الدفعة")).toBeVisible();
+    // عنوان التأكيد نوعيّ: دفعة خطة تشغيلية (عدّادات الخطة لا تسميات موظفين)
+    await expect(page.getByText("تأكيد استيراد الخطة التشغيلية")).toBeVisible();
     await page.getByRole("button", { name: "تأكيد التنفيذ", exact: true }).click();
     await expect(page.getByText("منفذة", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
 
@@ -250,9 +251,14 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByLabel("مراحل سير العمل")).toBeVisible();
     await expect(page.getByText("مجموع الأوزان: 100٪")).toBeVisible();
 
-    // اعتماد البرنامج
+    // معاينة النماذج المعطّلة على المسودة: المتابعة الأسبوعية وطلب التغيير (تظهر قبل الاعتماد)
+    await expect(page.getByText("معاينة نموذج المتابعة الأسبوعية")).toBeVisible();
+    await expect(page.getByText("معاينة نموذج طلب التغيير")).toBeVisible();
+
+    // اعتماد البرنامج — الحالة تُعرض «معتمد ومقفل» وإعادة الفتح «إعادة فتح بسبب موثق»
     await page.getByRole("button", { name: "اعتماد وإقفال", exact: true }).first().click();
-    await expect(page.getByText("معتمد", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("معتمد ومقفل", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "إعادة فتح بسبب موثق" })).toBeVisible();
 
     // إرفاق شاهد (نوع نص، دور تنفيذ) من لوحة شواهد البرنامج
     await page.getByRole("button", { name: "إضافة شاهد" }).click();
@@ -293,6 +299,13 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(crItem.locator("span.rounded-full", { hasText: "معتمد" })).toBeVisible({ timeout: 20_000 });
     // القيمة الجديدة طبقت على بطاقة البرنامج
     await expect(page.getByText(newValue).first()).toBeVisible();
+
+    // شاشة تقرير البرنامج تجمع الإجراءات الأربعة: طباعة/تنزيل Word/تنزيل Excel/فتح مسودة بريد
+    await page.goto(`/plan/${state.programId}/report`);
+    await expect(page.getByRole("button", { name: "طباعة" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "تنزيل Word" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "تنزيل Excel" })).toBeVisible();
+    await expect(page.getByText("فتح مسودة بريد")).toBeVisible();
 
     // التقرير التنفيذي — يصدر وثيقة PDF برقم
     await nav(page, "التقارير", "/reports");
@@ -340,9 +353,9 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "إضافة عضو" }).click();
     await expect(page.locator("tr", { hasText: "تجريبي ثانٍ مثال" }).getByText("مقرر", { exact: true })).toBeVisible({ timeout: 20_000 });
 
-    // اعتماد التشكيل
+    // اعتماد التشكيل — الحالة تُعرض «معتمدة ومقفلة» (قرار المصطلحات الموحّد)
     await page.getByRole("button", { name: "اعتماد التشكيل وإقفاله" }).first().click();
-    await expect(page.getByText("معتمدة", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("معتمدة ومقفلة", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
     // اجتماع جديد
     await page.fill("#title", `اجتماع تجريبي آلي ${TAG}`);
@@ -653,7 +666,14 @@ test.describe("سيناريوهات سير العمل — 390×844", () => {
     await page.locator(`a[href="/plan/${state.programId}"]`).first().click();
     await page.waitForURL(`**/plan/${state.programId}`);
     await expect(page.getByLabel("مراحل سير العمل")).toBeVisible();
+    // البرنامج معتمد من السيناريو الثاني — الحالة «معتمد ومقفل» تظهر على الجوال دون تمرير أفقي
+    await expect(page.getByText("معتمد ومقفل", { exact: true }).first()).toBeVisible();
     await expectNoOverflow(page, "/plan/[id]");
+    // شاشة تقرير البرنامج على الجوال: الإجراءات الأربعة مجمّعة دون تمرير أفقي
+    await page.goto(`/plan/${state.programId}/report`);
+    await expect(page.getByRole("button", { name: "طباعة" })).toBeVisible();
+    await expect(page.getByText("فتح مسودة بريد")).toBeVisible();
+    await expectNoOverflow(page, "/plan/[id]/report");
   });
 
   test("ج4: المتابعة الأسبوعية — تسجيل متابعة من الجوال (تحديث أسبوع قائم)", async ({ page }) => {

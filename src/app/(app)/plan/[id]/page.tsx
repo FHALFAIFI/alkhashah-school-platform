@@ -8,7 +8,8 @@ import {
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { evidenceForEntity } from "@/lib/evidence";
 import { computePackageReadiness } from "@/lib/plan/progress";
-import { isFollowupDue } from "@/lib/plan/followup";
+import { isFollowupDue, FOLLOWUP_STATUSES } from "@/lib/plan/followup";
+import { programStatusLabel } from "@/lib/plan/status-labels";
 import { getVersions } from "@/lib/versioning";
 import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps } from "@/components/ui";
 import { FollowupDueBadge } from "../followup-badge";
@@ -86,7 +87,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         subtitle={program.domain}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge value={program.status} />
+            <Badge value={programStatusLabel(program.status)} />
             {user.permissions.has("ai.use") && <AskAssistant type="program" id={id} label={`برنامج: ${program.name}`} />}
             <LinkButton href={`/plan/${id}/report`} variant="secondary">تقرير البرنامج</LinkButton>
           </div>
@@ -246,6 +247,28 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           <h2 className="font-bold text-brand-900">المتابعة الأسبوعية</h2>
           <LinkButton href="/plan/followup" variant="secondary">صفحة المتابعة الأسبوعية</LinkButton>
         </div>
+        {program.status === "مسودة" && (
+          // معاينة ثابتة معطّلة لنموذج المتابعة — يراها المدير قبل الاعتماد دون أي إدخال أو حفظ.
+          // لا فعل خادم مرتبط ولا حقول قابلة للإرسال؛ النموذج الفعلي يظهر في «/plan/followup» بعد الاعتماد.
+          <div className="mb-3 rounded-lg border border-dashed border-sand-300 bg-sand-50/60 p-3">
+            <p className="mb-2 text-xs font-medium text-gray-500">
+              معاينة نموذج المتابعة الأسبوعية — يُفعَّل بعد اعتماد البرنامج (غير قابل للإدخال الآن)
+            </p>
+            <div className="flex flex-wrap items-end gap-2 opacity-60">
+              <div className="min-w-0 flex-1 basis-56">
+                <label className="mb-1 block text-xs text-gray-500">متابعة هذا الأسبوع</label>
+                <input disabled placeholder="ماذا أنجز؟ وما العوائق؟" className="w-full min-w-0 rounded-lg border border-gray-300 bg-gray-100 px-3 py-1.5 text-sm" />
+              </div>
+              <div className="basis-36">
+                <label className="mb-1 block text-xs text-gray-500">حالة التنفيذ</label>
+                <select disabled className="w-full min-w-0 rounded-lg border border-gray-300 bg-gray-100 px-2 py-1.5 text-sm">
+                  {FOLLOWUP_STATUSES.map((s) => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <span className="rounded-lg border border-gray-300 bg-gray-100 px-3 py-1.5 text-sm text-gray-400">تسجيل المتابعة</span>
+            </div>
+          </div>
+        )}
         {followups.length === 0 ? (
           <p className="text-sm text-gray-400">
             {program.status === "معتمد"
@@ -276,6 +299,30 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         <h2 className="mb-3 font-bold text-brand-900">طلبات التغيير</h2>
         {program.status !== "مسودة" && program.status !== "مقفل" && (
           <ChangeRequestForm programId={id} />
+        )}
+        {program.status === "مسودة" && (
+          // معاينة ثابتة معطّلة لنموذج طلب التغيير — مسودة البرنامج تُحرَّر مباشرة، وطلب التغيير
+          // الموثق يُفعَّل بعد الاعتماد. لا فعل خادم مرتبط ولا حقول قابلة للإرسال.
+          <div className="rounded-lg border border-dashed border-sand-300 bg-sand-50/60 p-3">
+            <p className="mb-2 text-xs font-medium text-gray-500">
+              معاينة نموذج طلب التغيير — يُفعَّل بعد الاعتماد (المسودة تُحرَّر مباشرة؛ الطلب الموثق للبرامج المعتمدة)
+            </p>
+            <div className="flex flex-wrap items-end gap-2 opacity-60">
+              <div>
+                <label className="block text-xs text-gray-500">الحقل</label>
+                <select disabled className="rounded border border-gray-300 bg-gray-100 px-2 py-1.5 text-sm"><option>الهدف الخاص</option></select>
+              </div>
+              <div className="min-w-0 flex-1 basis-52">
+                <label className="block text-xs text-gray-500">القيمة الجديدة</label>
+                <input disabled className="w-full min-w-0 rounded border border-gray-300 bg-gray-100 px-2 py-1.5 text-sm" />
+              </div>
+              <div className="min-w-0 flex-1 basis-52">
+                <label className="block text-xs text-gray-500">السبب (إلزامي)</label>
+                <input disabled className="w-full min-w-0 rounded border border-gray-300 bg-gray-100 px-2 py-1.5 text-sm" />
+              </div>
+              <span className="rounded-lg border border-gray-300 bg-gray-100 px-3 py-1.5 text-sm text-gray-400">طلب تغيير</span>
+            </div>
+          </div>
         )}
         {changeRequests.length === 0 ? (
           <p className="mt-2 text-sm text-gray-400">لا طلبات تغيير — تعديل برنامج معتمد يتم حصراً عبر طلب تغيير موثق</p>

@@ -182,7 +182,7 @@ export function ReopenSessionForm({ sessionId }: { sessionId: string }) {
       {error && <span className="w-full text-xs text-red-600">{error}</span>}
       <input name="reason" required placeholder="سبب إعادة الفتح (إلزامي)" className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
       <button disabled={pending} className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-50">
-        إعادة فتح مع حفظ النسخة
+        إعادة فتح بسبب موثق
       </button>
     </form>
   );

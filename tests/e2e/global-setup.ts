@@ -27,6 +27,12 @@ export default async function globalSetup(): Promise<void> {
 
   // بذرة إنتاجية معزولة (idempotent) — تكتب بيانات الاعتماد في storage-e2e
   execSync("npx tsx src/db/seed.ts", { env, stdio: "pipe" });
+  // بذرة هندسة المبنى: تنشئ مسودة الدور الأرضي «مسودة» التي ينشرها سيناريو التوأم الرقمي (س5)
+  // لتوليد غرف KHS-RM. تستورد وحدات server-only (@/lib/storage) فتلزم شرط react-server.
+  execSync("npx tsx src/db/seed-geometry.ts", {
+    env: { ...env, NODE_OPTIONS: "--conditions=react-server" },
+    stdio: "pipe",
+  });
   // دفعة فارس بديلة اصطناعية بحالة «معاينة» لسيناريو حرمة الدفعة (بلا بيانات حقيقية)
   execSync("npx tsx scripts/e2e-fixtures.ts", { env, stdio: "pipe" });
 }

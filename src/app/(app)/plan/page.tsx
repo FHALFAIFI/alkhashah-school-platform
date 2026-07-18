@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { planYears, programs } from "@/db/schema";
 import { PageHeader, Table, Badge, LinkButton, EmptyState, ProgressBar, Card } from "@/components/ui";
 import { isFollowupDue } from "@/lib/plan/followup";
+import { programStatusLabel } from "@/lib/plan/status-labels";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { FollowupDueBadge } from "./followup-badge";
 
@@ -82,7 +83,7 @@ export default async function PlanPage() {
             <td className="px-3 py-2"><ProgressBar value={p.progress} /></td>
             <td className="px-3 py-2">
               <span className="inline-flex flex-wrap items-center gap-1">
-                <Badge value={p.status} />
+                <Badge value={programStatusLabel(p.status)} />
                 {p.status === "معتمد" && isFollowupDue(p.lastReviewAt) && <FollowupDueBadge />}
               </span>
             </td>

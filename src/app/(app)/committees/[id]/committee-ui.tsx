@@ -98,7 +98,7 @@ export function ReopenCommitteeForm({ committeeId }: { committeeId: string }) {
       {state?.error && <span role="alert" className="w-full text-xs text-red-600">{state.error}</span>}
       {state?.success && <span role="status" className="w-full text-xs text-emerald-700">{state.success}</span>}
       <input name="reason" required placeholder="سبب إعادة الفتح (إلزامي)" className="min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-      <SubmitButton variant="secondary">إعادة فتح التشكيل</SubmitButton>
+      <SubmitButton variant="secondary">إعادة فتح بسبب موثق</SubmitButton>
     </form>
   );
 }

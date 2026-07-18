@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programs, documents } from "@/db/schema";
 import { PageHeader, Card, SubmitButton, Table } from "@/components/ui";
+import { ReportActions } from "./report-actions";
 import { generateProgramReport } from "@/lib/reports/program-report";
 import { getSetting } from "@/lib/settings";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
@@ -60,9 +61,12 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
           <SubmitButton>إصدار تقرير PDF جديد</SubmitButton>
           <p className="text-xs text-gray-400">يتضمن التقرير مضمون الشواهد (صور، أول صفحة PDF، نصوص، معاينات جداول) وليس أسماء الملفات فقط.</p>
         </form>
-        <div className="mt-3 flex gap-3 border-t border-sand-100 pt-3 text-sm">
-          <a href={`/api/export/program-docx/${id}`} className="text-brand-700 underline">تصدير Word قابل للتحرير</a>
-          <a href="/api/export/plan-xlsx" className="text-brand-700 underline">تصدير Excel تحليلي للخطة كاملة</a>
+        <div className="mt-3 border-t border-sand-100 pt-3">
+          <p className="mb-2 text-xs font-medium text-gray-500">إجراءات التقرير</p>
+          <ReportActions
+            programId={id}
+            latestDoc={issued[0] ? { id: issued[0].id, docNumber: issued[0].docNumber, pdfFileId: issued[0].pdfFileId } : null}
+          />
         </div>
       </Card>
       <Card>

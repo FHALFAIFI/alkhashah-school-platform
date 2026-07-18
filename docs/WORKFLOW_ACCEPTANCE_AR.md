@@ -233,3 +233,153 @@
 - **D-014 يبقى قضية مصادر أداء منفصلة غير محسومة** (خلايا الأوزان الثلاث: ملف النماذج 5٪ مقابل الدليل ص30/44/45 ‏15٪) — لا علاقة لها باستيراد الموظفين، وتُحسم بمطابقة نظام فارس عند أول دورة تقييم فعلية كما هو موثق في «سابعاً» و`docs/PERFORMANCE_MODEL_VALIDATION.md` §3.
 
 **تحقق سلامة سجل التدقيق (نفس اليوم — الالتزام `945d209`):** جرى التحقق عبر واجهة `/admin/audit` (لا عبر قاعدة البيانات) أن تسلسل العرض الكامل على الصف 3 محفوظ بلا أي حذف: 12 حدثاً إلحاقياً بترتيبها الزمني، وكل «تراجع» حدث مستقل `import.row_decision_undone` لا يمس الأحداث السابقة. سُدت فجوة واحدة: الأحداث كانت تحمل الحالة قبل/بعد دون **القيم** — الآن كل قرار وتراجع يسجل لقطة كاملة (الحالة + القيم + التصحيحات + التحذير المحسوم) وتعرضها الواجهة العربية في بند «قبل / بعد» قابل للفتح لكل حدث. أُثبت ذلك بدورة تحقق عبر الواجهة على الصف 3 (إعادة إلى المراجعة ← تصحيح ← تراجع ← تراجع) انتهت باستعادة تامة، والدفعة باقية «معاينة» دون تنفيذ. الحصيلة: ‏93 vitest + ‏34 Playwright (+1 C5) خضراء.
+
+---
+
+## Synthetic-data archive — 2026-07-18 — STATUS: NOT EXECUTED (DEFERRED by product owner)
+
+**Decision (2026-07-18):** the synthetic-data archive/cleanup is **deferred** and recorded as
+**NOT EXECUTED**. No further cleanup work is to be spent. The read-only verification below
+confirms the archive is absent on the connected environment; it stands as the evidence for this
+NOT-EXECUTED status. Synthetic residue therefore remains excluded only by the structural
+classifier (toggle-based), not by an explicit archive — acceptable until the archive is run.
+
+### Post-archive verification detail — RESULT: NOT CONFIRMED (archive not executed on the connected environment)
+
+Read-only verification was requested after a report that the principal manually executed the
+synthetic-data archive. Every check below is read-only: SELECT-only queries and unauthenticated
+HTTP GETs. **No rollback/unarchive was performed and the Fares batch was not committed.**
+
+**Environment verified:** app at `http://localhost:3080`; real DB
+`postgresql://…@localhost:5544/madrasa` (the app's configured `DATABASE_URL`). Migration `0005`
+(`archive_batches` + `archived_records`) is applied — the tables exist and are empty.
+
+**Headline finding:** the archive is **not present** on this database. Every domain **and**
+archive table is byte-for-byte identical to this session's pre-archive baseline (all 62 tables).
+`audit_log` contains **no** archive/cleanup event; the latest audit entry is a `login.success`
+at `2026-07-17 22:46` — there is no activity on `2026-07-18`.
+
+| # | Expected (post-archive) | Observed | Verdict |
+|---|---|---|---|
+| 1 | `archive_batches` = 1, status «مؤرشف» | 0 rows | ✗ not executed |
+| 2 | `archived_records` = 520 | 0 | ✗ not executed |
+| 3 | `/plan` shows exactly 26 official programs | `programs` = 58 rows; no archive exclusion set applied | ✗ not verifiable as an archive outcome |
+| 4 | Official plan batch `385c615a` committed, not approved/locked | «منفذة», 108 rows — intact | ✓ intact |
+| 5 | Fares `12673bed` Preview, 52 rows, 0 materialized people | «معاينة», 52 rows, 0 people | ✓ intact |
+| 6 | Synthetic absent from dashboards/follow-up/reports/exports/search/AI | archive exclusion set is empty; only the structural classifier (toggle-based) is active | ✗ not an archive outcome |
+| 7 | Rollback/unarchive available | no «مؤرشف» batch exists → nothing to roll back | ✗ N/A |
+| 8 | No domain rows deleted or modified | identical to baseline across all 62 tables | ✓ |
+| 9 | `/login`, `/dashboard` return normally on :3080 | `/login` → HTTP 200; `/dashboard` → 307 → `/login` (healthy, protected) | ✓ |
+
+**Conclusion.** On the connected local environment the synthetic-data archive **has not been
+executed**: there is no «مؤرشف» batch, no archived records, and no archive audit event. Items 4,
+5, 8, 9 are intact (trivially — nothing changed). Items 1, 2, 7 fail; items 3, 6 cannot be
+attributed to an archive that did not run. **No PASS is recorded.** If the archive was executed
+on a different deployment (e.g., the Ubuntu server), it is outside the reach of this verification
+and must be re-verified there against that database. Fares remains «معاينة» and uncommitted; no
+rollback was attempted.
+
+---
+
+## Operational-plan workflow walkthrough — 2026-07-18 (official plan, 390×844, read-only/draft)
+
+Guided acceptance pass over the operational-plan lifecycle on an official program, driven through
+the real Arabic UI at 390×844 (iPhone). **No fake records, no approve/lock/reopen/rollback, no
+form submitted.** The only writes were auth artifacts (one login session + login audit); every
+plan table is byte-identical to baseline and the walked program stays «مسودة». Representative
+program: **seq 1 «متابعة الأداء المبنية على البيانات»** (`e58e4f1e`, domain «الإدارة المدرسية»),
+one of the 26 official programs from committed batch `385c615a`. Every screen measured **0 px**
+horizontal overflow at 390 px.
+
+| Stage | Screen (Arabic) | Result |
+|---|---|---|
+| 1 Program details | `/plan/{id}` «بطاقة البرنامج (القيم الرسمية من المصدر)» | ✓ all official fields render (goal/domain/owner «المدير»/dates 1448/3/2هـ–1449/1/5هـ/target «إغلاق ≥85٪…»/KPI «نسبة القرارات المغلقة في موعدها») |
+| 2 Milestones + weighted progress | «المعالم الموزونة — أساس حساب التقدم» | ✓ 5 milestones × 20٪ = «مجموع الأوزان: 100٪»; progress = Σ(weight×%)/100 = 0٪; per-milestone «تحديث الإنجاز» present |
+| 3 Weekly follow-up | program «المتابعة الأسبوعية» + `/plan/followup` | ✓ (fixed) draft now renders a **disabled labeled preview** «معاينة نموذج المتابعة الأسبوعية — يُفعَّل بعد اعتماد البرنامج» (note + status select), so the principal sees the form without approving; live form still opens post-approval at `/plan/followup` |
+| 4 Evidence package (تنفيذ/مخرج/أثر/خارجي) | «الشواهد المرتبطة» → «إضافة شاهد» | ✓ draft form opens; role options «خط أساس/تنفيذ/مخرج/أثر/خارجي», kinds ملف/رابط/نص. Not submitted |
+| 5 Completeness + missing warnings | «المخرجات وحزمة الشواهد» | ✓ readiness 0٪ «غير مكتملة»; «ينقص الحزمة: شاهد تنفيذ، شاهد مخرج، شاهد أثر» (external not required for this deliverable) |
+| 6 Correction request | «طلبات التغيير» | ✓ (fixed) draft now renders a **disabled labeled preview** «معاينة نموذج طلب التغيير — يُفعَّل بعد الاعتماد» (field/newValue/reason); live documented-request form still activates only for «معتمد» |
+| 7 Reports | `/plan/{id}/report` + `/reports/executive` | ✓ program report (PDF issue + snapshot/doc-number/verification-code) and executive report «التقرير التنفيذي الشامل» (monthly/term/annual) both present. PDF issue not triggered (write) |
+| 8 Print / Word / Excel / email | report screen + `/documents` | ✓ «تصدير Word قابل للتحرير» + «تصدير Excel تحليلي للخطة كاملة» on report screen; email «بريد»/«إنشاء مسودة» (M365-off fallback = download PDF) on the documents register; print = browser print / issued PDF |
+
+**Findings logged (no code changed — see reasoning):**
+1. **Approval gates stages 3 & 6 — FIXED (disabled preview added).** All 26 official programs are
+   «مسودة»; the live weekly-follow-up and change-request forms only open after «اعتماد» (correct
+   business logic — you follow up on / formally amend an *approved* program). The gap was that a
+   draft program showed **nothing** of these forms, so the workflow was invisible before approval.
+   **Fix (`src/app/(app)/plan/[id]/page.tsx`):** draft programs now render a static, **disabled,
+   clearly-labeled preview** of both forms («معاينة … يُفعَّل بعد الاعتماد»). No `<form>`/server
+   action is attached and every field is `disabled`, so nothing can be submitted or written and no
+   program is approved. Verified: preview inputs report `disabled`, previews are not wrapped in any
+   form, 0 px overflow at 390 px, program stays «مسودة», plan tables unchanged. The actual approve
+   step remains the principal's manual action.
+2. **Terminology ambiguity: «إقفال».** The approve button reads «اعتماد وإقفال» while the stepper's
+   step 4 is also «الإقفال» (year lock → read-only «مقفل»). Same word, two meanings on one screen.
+   **Not changed:** «اعتماد وإقفال» is a deliberate platform-wide convention (the permission is
+   named «اعتماد وإقفال البرامج»; committees use «اعتماد التشكيل وإقفاله»; performance «اعتماد وإقفال
+   التقييم النهائي»), and renaming one instance would break consistency and the acceptance e2e.
+   **Recommend** the product owner decide whether to disambiguate the approve action (e.g. «اعتماد
+   البرنامج (نهائي)») platform-wide.
+3. **Email-draft placement.** Email lives on `/documents` per issued document, not on the plan
+   report screen. Minor: a principal on the report screen may expect an email option there.
+4. **Synthetic-visibility — CLARIFIED/CORRECTED (2026-07-18).** The earlier line "16 synthetic
+   programs still visible" was **wrong wording**. Verified read-only against the real DB:
+   - **`/plan` shows exactly 26 official programs.** The active year (`1448-1449`) holds 58 programs;
+     32 are structurally synthetic (all from «تجريبي» import batches) and excluded, leaving exactly
+     **26** on `/plan` — no archive execution required. `SELECT`-only proof recorded below.
+   - **No synthetic program is visible in any customer route.** `/plan`, the `/reports/executive`
+     content, and `/documents` all apply `notSynthetic(...)` via the central `getExcludedIdSets()`.
+     Entity-linked synthetic docs are hidden too: all 25 `performance_report` (→ synthetic
+     `perf_session`) and 14 `meeting_minutes` (→ synthetic `meeting`) are excluded.
+   - **What is actually visible** in `/documents` and the `/reports/executive` «الإصدارات السابقة»
+     list is **16 `executive_report` documents** (KHS-DOC-…) with **`entity_type = NULL`**, all
+     issued by the real `principal` against the real active year. They are **not programs** and are
+     **not structurally synthetic** (no entity/batch/demo-year anchor; the classifier never flags by
+     name/type alone). They are plan-wide report artifacts left over from earlier test runs and are
+     out of scope for the structural classifier — only the **manual archive** (deferred by the
+     owner) removes them. This is **not** a failure of the centralized program-exclusion guarantee.
+
+   Read-only SQL proof (real DB, no writes):
+   ```
+   active_year=1448-1449 | programs_in_year=58 | synthetic_in_year=32 | visible_on_/plan=26
+   executive_report docs: 16 (entity_type NULL, issued_by principal) — not synthetic, visible
+   performance_report docs: 25/25 synthetic → excluded ; meeting_minutes: entity-linked → excluded
+   ```
+5. **Pre-existing:** Hijri-date header hydration warning (comma placement) — non-failing, noted.
+
+No workflow step was broken; all screens render correctly at 390×844 with zero horizontal
+overflow. The walkthrough is read-only/draft; nothing in the official plan was modified.
+
+---
+
+## Operational-plan workflow — FINALIZATION — 2026-07-18
+
+**PASS — workflow validated; the real approval gate is intentionally reserved for the principal.**
+The official plan (batch `385c615a`, 26 programs) stays «مسودة»; no program was approved, locked,
+reopened, rolled back, or modified. Real DB unchanged (only auth artifacts — login sessions/audit —
+from read-only UI verification; every domain table byte-identical to baseline; archive tables 0/0).
+
+Changes landed in this finalization (all covered by tests; `npm test` 127 green, `npm run test:e2e`
+39 passed / 1 skipped=C5 on `madrasa_test`; typecheck/lint clean):
+
+1. **Terminology decision applied** (visible copy only; stored status values and permission keys
+   unchanged). For an action that both approves and locks: action «اعتماد وإقفال», **status shown
+   «معتمد ومقفل» / «معتمدة ومقفلة»**, reopen **«إعادة فتح بسبب موثق»** — standardized across plans
+   (`programStatusLabel`), committees (`committeeStatusLabel`), and performance (reopen; models were
+   already «معتمدة ومقفلة»). No standalone «إقفال» is used for a combined approve-and-lock action;
+   genuine standalone closes (committee «إقفال وأرشفة», year «مقفل») are left as-is. Display helpers:
+   `src/lib/plan/status-labels.ts`; unit test `tests/unit/status-labels.test.ts`.
+2. **Report actions grouped** on `/plan/[id]/report`: **«طباعة» · «تنزيل Word» · «تنزيل Excel» ·
+   «فتح مسودة بريد»** (`report-actions.tsx`). Email reuses the existing **draft-only** workflow
+   (M365 draft or `mailto` fallback) on the latest issued report — never sends automatically; if no
+   report is issued yet it shows a hint to issue first.
+3. **Draft-preview fix** (from the prior turn) committed: draft programs show disabled, labeled
+   previews of the weekly-follow-up and change-request forms so the workflow is visible before
+   approval — no `<form>`/action, nothing writable.
+4. **Synthetic-visibility corrected** (see the section above): `/plan` proven to show exactly the 26
+   official programs with no archive execution; the 16 visible items are entity-less
+   `executive_report` documents, not programs, and not structurally synthetic.
+
+Tests added (desktop + mobile 390×844): follow-up/change-request previews on the draft program; the
+four grouped report actions; and the terminology labels («معتمد ومقفل», «معتمدة ومقفلة», «إعادة فتح
+بسبب موثق») after approving a **synthetic test** program in `madrasa_test` (never the official plan).

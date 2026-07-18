@@ -145,7 +145,7 @@ export function ReopenForm({ programId }: { programId: string }) {
         className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
       />
       <button disabled={pending} className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-50">
-        إعادة فتح مع حفظ النسخة السابقة
+        إعادة فتح بسبب موثق
       </button>
     </form>
   );

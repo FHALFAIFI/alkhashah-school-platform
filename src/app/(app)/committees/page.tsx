@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { committees, committeeTemplates, meetings, planYears } from "@/db/schema";
 import { PageHeader, Card, Badge, LinkButton, EmptyState } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { committeeStatusLabel } from "@/lib/plan/status-labels";
 import { FormCommitteeButton, NewPlcForm } from "./committees-ui";
 
 export const metadata = { title: "اللجان والفرق" };
@@ -96,7 +97,7 @@ export default async function CommitteesPage() {
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <Badge value={c.status} />
+                      <Badge value={committeeStatusLabel(c.status)} />
                       <Badge value={c.kind} />
                       {isDue && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">اجتماع مستحق</span>}
                     </div>

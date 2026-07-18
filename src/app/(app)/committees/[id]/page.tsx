@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { committees, committeeMembers, meetings, people, planYears } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
 import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton } from "./committee-ui";
+import { committeeStatusLabel } from "@/lib/plan/status-labels";
 import { dualDisplay } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
         subtitle={`${c.kind} — ${year?.nameAr ?? ""}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge value={c.status} />
+            <Badge value={committeeStatusLabel(c.status)} />
             {canApprove && c.status !== "مقفلة" && <CloseCommitteeButton committeeId={id} />}
           </div>
         }

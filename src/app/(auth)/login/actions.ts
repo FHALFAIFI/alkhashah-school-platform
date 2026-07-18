@@ -19,7 +19,10 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const ip = await clientIp();
 
   if (!username || !password) return { error: "أدخل اسم المستخدم وكلمة المرور" };
-  if (!rateLimit(`login:${ip ?? "local"}`, 10)) {
+  // الحد الافتراضي 10/دقيقة للإنتاج؛ قابل للتهيئة بمتغير بيئة حتى لا تتراكم عمليات
+  // الدخول المتتابعة في بيئة الاختبار المعزولة وتُفعّل المحدد خطأً (لا يغيّر سلوك الإنتاج).
+  const loginRateLimit = Number(process.env.LOGIN_RATE_LIMIT_PER_MIN ?? 10);
+  if (!rateLimit(`login:${ip ?? "local"}`, loginRateLimit)) {
     return { error: "محاولات كثيرة — انتظر دقيقة ثم أعد المحاولة" };
   }
 
