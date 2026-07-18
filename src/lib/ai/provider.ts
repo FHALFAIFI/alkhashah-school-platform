@@ -25,6 +25,24 @@ function timeoutSignal(ms: number, extra?: AbortSignal): AbortSignal {
   return extra ? AbortSignal.any([AbortSignal.timeout(ms), extra]) : AbortSignal.timeout(ms);
 }
 
+/**
+ * fetch يحوّل أخطاء الشبكة/المهلة (خدمة متوقفة أو غير قابلة للوصول) إلى رسالة عربية واضحة —
+ * حتى لا يظهر خطأ تقني إنجليزي «fetch failed» عند تعطل أولاما/AnythingLLM المحلي.
+ */
+async function netFetch(url: string, opts: RequestInit, local: boolean): Promise<Response> {
+  try {
+    return await fetch(url, opts);
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    const svc = local ? "خدمة الذكاء الاصطناعي المحلية (أولاما/AnythingLLM)" : "المزود الخارجي";
+    throw new Error(
+      timedOut
+        ? `انتهت مهلة الاتصال بـ${svc} — تأكد من تشغيل الخدمة على هذا الجهاز ثم أعد المحاولة.`
+        : `تعذّر الاتصال بـ${svc} — الخدمة متوقفة أو غير قابلة للوصول. شغّلها ثم أعد المحاولة.`,
+    );
+  }
+}
+
 class OllamaProvider implements AiProvider {
   readonly key = "ollama" as const;
   readonly nameAr = providerNameAr("ollama");
@@ -34,7 +52,7 @@ class OllamaProvider implements AiProvider {
     return this.cfg.ollamaModel;
   }
   async chat(messages: AiMessage[], opts?: { json?: boolean }): Promise<string> {
-    const res = await fetch(`${this.cfg.ollamaBaseUrl}/api/chat`, {
+    const res = await netFetch(`${this.cfg.ollamaBaseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -47,18 +65,18 @@ class OllamaProvider implements AiProvider {
         options: { num_predict: this.cfg.maxTokens },
       }),
       signal: timeoutSignal(this.cfg.timeoutMs),
-    });
+    }, true);
     if (!res.ok) throw new Error(`تعذر الاتصال بمزود الذكاء الاصطناعي المحلي (${res.status})`);
     const json = (await res.json()) as { message?: { content?: string } };
     return json.message?.content ?? "";
   }
   async chatStream(messages: AiMessage[], onToken: (t: string) => void, signal?: AbortSignal): Promise<string> {
-    const res = await fetch(`${this.cfg.ollamaBaseUrl}/api/chat`, {
+    const res = await netFetch(`${this.cfg.ollamaBaseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: this.model, messages, stream: true, think: false, options: { num_predict: this.cfg.maxTokens } }),
       signal: timeoutSignal(this.cfg.timeoutMs, signal),
-    });
+    }, true);
     if (!res.ok || !res.body) throw new Error(`تعذر الاتصال بمزود الذكاء الاصطناعي المحلي (${res.status})`);
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -98,12 +116,12 @@ class AnythingLlmProvider implements AiProvider {
   }
   async chat(messages: AiMessage[]): Promise<string> {
     const prompt = messages.map((m) => m.content).join("\n\n");
-    const res = await fetch(`${this.cfg.anythingllmBaseUrl}/api/v1/workspace/${this.cfg.anythingllmWorkspace}/chat`, {
+    const res = await netFetch(`${this.cfg.anythingllmBaseUrl}/api/v1/workspace/${this.cfg.anythingllmWorkspace}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
       body: JSON.stringify({ message: prompt, mode: "chat" }),
       signal: timeoutSignal(this.cfg.timeoutMs),
-    });
+    }, true);
     if (!res.ok) throw new Error(`تعذر الاتصال بمزود الذكاء الاصطناعي المحلي (${res.status})`);
     const json = (await res.json()) as { textResponse?: string };
     return json.textResponse ?? "";

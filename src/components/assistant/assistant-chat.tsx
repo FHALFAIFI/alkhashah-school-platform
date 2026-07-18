@@ -286,7 +286,11 @@ export function AssistantChat({
             {m.role === "error" && (
               <div role="alert" className="me-8 rounded-2xl bg-red-50 p-3 text-sm text-red-700">
                 {m.content}
-                <button onClick={retry} className="ms-2 font-medium underline">إعادة المحاولة</button>
+                <div className="mt-1 flex flex-wrap gap-3">
+                  <button onClick={retry} className="font-medium underline">إعادة المحاولة</button>
+                  <a href="/admin/settings/ai" className="font-medium underline">إعدادات الذكاء الاصطناعي وتشخيصه</a>
+                </div>
+                <p className="mt-1 text-xs text-red-600">بقية المنصة تعمل بشكل طبيعي — المساعد اختياري.</p>
               </div>
             )}
             {m.role === "assistant" && !m.proposal && (m.content || m.sources?.length) && (

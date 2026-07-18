@@ -6,6 +6,7 @@ import { programs, people, evidenceItems } from "@/db/schema";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
 import { toHijriLong, toGregorianLong } from "@/lib/dates";
 import { getWorkCenter, type WorkItem } from "@/lib/worklist";
+import { strategicPendingDecisions } from "@/lib/strategic-decisions";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "مركز عمل مدير المدرسة" };
@@ -80,8 +81,9 @@ export default async function DashboardPage() {
 
   // إحصاءات لوحة القيادة تستبعد السجلات الاصطناعية (مفعّل في التطوير/الإنتاج)
   const excluded = await getExcludedIdSets();
-  const [work, progCount, peopleCount, evidenceCount] = await Promise.all([
+  const [work, strategic, progCount, peopleCount, evidenceCount] = await Promise.all([
     getWorkCenter(user),
+    strategicPendingDecisions(),
     db.select({ c: sql<number>`count(*)::int` }).from(programs).where(notSynthetic(programs.id, excluded.programs)),
     db
       .select({ c: sql<number>`count(*)::int`, category: people.category })
@@ -113,6 +115,30 @@ export default async function DashboardPage() {
         title="مركز عمل مدير المدرسة"
         subtitle={`مرحباً ${user.displayName} — ${toHijriLong(today)} · ${toGregorianLong(today)}`}
       />
+
+      {/* القرارات الاستراتيجية المعلّقة أمام المدير — كل عنصر يربط بالسجل/الإجراء مباشرة */}
+      {strategic.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50/60">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="font-bold text-amber-900">قرارات مدير المدرسة الاستراتيجية</h2>
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold tabular-nums text-amber-800">{strategic.length}</span>
+          </div>
+          <ul className="divide-y divide-amber-100">
+            {strategic.map((s) => (
+              <li key={s.key} className="py-2">
+                <Link href={s.href} className="block hover:bg-amber-100/50">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-amber-950">{s.title}</span>
+                    <Badge value={s.status} />
+                  </div>
+                  <p className="mt-0.5 text-xs text-amber-800">{s.detail}</p>
+                  <p className="mt-0.5 text-xs font-medium text-brand-700">← {s.action}</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {/* ما يحتاج إجراء الآن */}
       <Card className="border-brand-300 bg-brand-50/40">

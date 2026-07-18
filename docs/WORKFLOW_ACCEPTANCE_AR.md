@@ -580,3 +580,12 @@ path (offline execution deferred, C5/D-018); the Konva editor canvas is a fixed-
 tool (pre-existing) — mobile users are directed to numeric editing. `npm test` 142 green (new
 geometry-validation unit + rollback/asset-dedup integration); `npm run test:e2e` 39 passed / 1
 skipped (C5) — s5 now asserts the building report actions. Real DB unchanged. **Digital Twin = PASS.**
+
+---
+
+## Status record — 2026-07-18
+
+- **Digital Twin capability: PASS** (commit `a36fd8b`).
+- **Real school configuration: PARTIAL** — ground floor published (17 rooms KHS-RM-0001..0017);
+  upper floors (الأول/الثاني/الثالث) remain drafts pending principal review/publish.
+- **C5 (real HTTPS / camera / PWA / offline): DEFERRED_BY_PRODUCT_OWNER (D-018).**
