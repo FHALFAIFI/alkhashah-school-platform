@@ -246,44 +246,49 @@ export async function commitBatch(
   batchId: string,
   actorId: string,
   committer: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], rows: { id: string; mapped: Record<string, unknown> }[]) => Promise<CommitResult>,
+  opts?: { correlationId?: string },
 ) {
-  // فحوص مسبقة لرسائل ودية فقط — الادعاء الذري داخل المعاملة هو الحكم النهائي
-  const data = await getBatchWithRows(batchId);
-  if (!data) throw new Error("الدفعة غير موجودة");
-  if (data.batch.status === "منفذة") throw new Error("الدفعة منفذة مسبقاً");
-  if (data.batch.status === "متراجع عنها" || data.batch.status === "ملغاة") {
+  // فحص مسبق ودي فقط لرسالة مبكرة — الحكم النهائي داخل المعاملة تحت قفل الصف
+  const pre = await getBatchWithRows(batchId);
+  if (!pre) throw new Error("الدفعة غير موجودة");
+  if (pre.batch.status === "منفذة") throw new Error("الدفعة منفذة مسبقاً");
+  if (pre.batch.status === "متراجع عنها" || pre.batch.status === "ملغاة") {
     throw new Error("لا يمكن تنفيذ دفعة ملغاة أو متراجع عنها");
-  }
-  const ready = data.rows.filter((r) => r.status === "جاهز");
-  if (ready.length === 0) throw new Error("لا توجد صفوف جاهزة للتنفيذ");
-  const pendingReview = data.rows.filter((r) => r.status === "يحتاج مراجعة");
-  if (pendingReview.length > 0) {
-    throw new Error(`لا يمكن التنفيذ: ${pendingReview.length} صفاً ما زال يحتاج مراجعة — صحح الصفوف أو استبعدها أولاً`);
-  }
-  const deferred = data.rows.filter((r) => r.status === "مؤجل");
-  if (deferred.length > 0) {
-    throw new Error(`لا يمكن التنفيذ: ${deferred.length} صفاً مؤجل — احسم الصفوف المؤجلة (تأكيد/تصحيح/استبعاد) أولاً`);
   }
 
   const result = await db.transaction(async (tx) => {
-    // ادعاء ذري للدفعة أولاً: يمنع التنفيذ المزدوج من نافذتين متزامنتين (TOCTOU)
-    const claimed = await tx
+    // 1) قفل صف الدفعة داخل المعاملة (SELECT … FOR UPDATE): يُسلسل أي تنفيذ/تراجع متزامن،
+    //    فيتوقف أي طلب ثانٍ حتى تنتهي هذه المعاملة ثم يجد الحالة «منفذة» (لا ازدواج، لا تكرار).
+    const [locked] = await tx.select().from(importBatches).where(eq(importBatches.id, batchId)).for("update");
+    if (!locked) throw new Error("الدفعة غير موجودة");
+    // تكرار/نقرة مزدوجة: بعد أول تنفيذ ناجح تصبح الحالة «منفذة» → نُرجع خطأً واضحاً دون إنشاء مكرر
+    if (locked.status === "منفذة") throw new Error("الدفعة منفذة مسبقاً");
+    if (locked.status !== "معاينة") throw new Error("الدفعة ليست في حالة معاينة — ربما نُفذت أو أُلغيت من نافذة أخرى");
+
+    // 2) إعادة قراءة الصفوف الجاهزة داخل القفل (لقطة متسقة، لا قراءة قديمة من قبل المعاملة)
+    const rowsNow = await tx.select().from(importRows).where(eq(importRows.batchId, batchId));
+    const pendingReview = rowsNow.filter((r) => r.status === "يحتاج مراجعة");
+    if (pendingReview.length > 0) {
+      throw new Error(`لا يمكن التنفيذ: ${pendingReview.length} صفاً ما زال يحتاج مراجعة — صحح الصفوف أو استبعدها أولاً`);
+    }
+    const deferred = rowsNow.filter((r) => r.status === "مؤجل");
+    if (deferred.length > 0) {
+      throw new Error(`لا يمكن التنفيذ: ${deferred.length} صفاً مؤجل — احسم الصفوف المؤجلة (تأكيد/تصحيح/استبعاد) أولاً`);
+    }
+    const ready = rowsNow.filter((r) => r.status === "جاهز");
+    if (ready.length === 0) throw new Error("لا توجد صفوف جاهزة للتنفيذ");
+
+    // 3) ادعاء الحالة تحت القفل ثم التنفيذ ضمن نفس المعاملة (كل شيء أو لا شيء)
+    await tx
       .update(importBatches)
       .set({ status: "منفذة", committedAt: new Date(), committedBy: actorId })
-      .where(and(eq(importBatches.id, batchId), eq(importBatches.status, "معاينة")))
-      .returning();
-    if (claimed.length === 0) {
-      throw new Error("الدفعة ليست في حالة معاينة — ربما نفذت من نافذة أخرى");
-    }
+      .where(eq(importBatches.id, batchId));
     const res = await committer(
       tx,
       ready.map((r) => ({ id: r.id, mapped: r.mapped as Record<string, unknown> })),
     );
-    // الملخص النهائي يكتب في نهاية المعاملة بعد اكتمال التنفيذ
-    await tx
-      .update(importBatches)
-      .set({ summary: res.createdSummary })
-      .where(eq(importBatches.id, batchId));
+    // الملخص النهائي يُكتب في نهاية المعاملة بعد اكتمال التنفيذ
+    await tx.update(importBatches).set({ summary: res.createdSummary }).where(eq(importBatches.id, batchId));
     return res;
   });
 
@@ -293,7 +298,7 @@ export async function commitBatch(
     entityType: "import_batch",
     entityId: batchId,
     summary: `تنفيذ دفعة الاستيراد`,
-    detail: result.createdSummary,
+    detail: { ...result.createdSummary, correlationId: opts?.correlationId },
   });
   return result;
 }

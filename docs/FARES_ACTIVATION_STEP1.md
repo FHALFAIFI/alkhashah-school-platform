@@ -142,12 +142,60 @@ zero dependencies, so full rollback is available. Tests: `tests/integration/peop
 (commit synthetic batch → rollback succeeds with no dependencies; then link a committee + task +
 performance cycle → rollback rejected and all people and business records remain intact).
 
-## 7. Stop point
+## 7. Confirmation reliability — root cause of the failed attempt and the fix
+
+**Proven state of the failed attempt.** The batch remained `«معاينة»` with `committed_at = null`, 0
+people materialized, all 52 rows still `«جاهز»`, and — critically — the audit log contained **no
+commit event of any kind** for this batch (only `import.batch_created` from 2026-07-16). The only
+activity on the attempt day was `login.success` / `ai.prompt`. The happy-path UI commit is proven to
+work by the existing e2e (`importPeopleBatch`), so this was **not** a happy-path logic defect.
+
+**Root cause (evidence-based, not a claimed "timeout").** The confirmation action had **no
+server-side observability** and did authorization / side-effects **outside** the audited,
+error-handled region:
+- `requirePermission("imports.commit")` ran **before** any audit and **outside** the `try`. On an
+  **expired session** `requireUser()` calls `redirect("/login")` (throws `NEXT_REDIRECT`), which the
+  client `startTransition` swallows — the principal is silently bounced to `/login` with **no error
+  shown and no audit trace**. The batch page is long-lived (the principal reviews the summary before
+  clicking), so session expiry at click-time is the most plausible trigger.
+- A thrown transaction error was caught but **only returned to the client** — **no audit** was
+  written, so any server-side failure was invisible.
+- `notifyAll` ran **after** the commit but **outside** the `try`, so a notification failure could
+  reject an already-successful commit.
+
+An expired session and a lost/aborted request produce the **identical fingerprint** (no change, no
+trace); the missing "started/failed" audit is itself the defect — so the fix makes every
+server-reaching attempt observable, and hardens execution so a retry is always safe.
+
+**The fix (committed).**
+- **Observability**: `commitBatchAction` now writes a sanitized `import.batch_commit_started` audit
+  as soon as an authorized request reaches the server, and `import.batch_commit_failed` on any thrown
+  error — each carrying a **correlation id**; the user-facing Arabic error includes a **reference id**
+  (`… (مرجع الخطأ: XXXXXXXX)`). Success still writes `import.batch_committed` (now carrying the same
+  correlation id).
+- **Execution hardening** (`commitBatch`): the batch row is **locked inside the transaction**
+  (`SELECT … FOR UPDATE`); ready rows are **re-read under the lock**; a second/concurrent submit finds
+  `«منفذة»` and is rejected — **no duplicate people**. All-or-nothing is preserved (a failing
+  committer rolls back the status flip, leaving 0 people and `«معاينة»`).
+- **Side-effect isolation**: `notifyAll` is wrapped in its own `try/catch` — a notification failure
+  can never fail a committed import.
+- **UI** (`batch-ui.tsx`): the confirm/cancel buttons are explicit `type="button"`; the execute button
+  shows **«جارٍ تنفيذ الاستيراد…»** and is disabled while pending; on any error or **uncertain
+  response** the panel stays open, the batch status is **reloaded** (`router.refresh()`), and the
+  principal is told to check the status (if it shows `«منفذة»`, the import succeeded — **do not
+  retry**) — no automatic retry.
+
+**Tests.** `tests/integration/import-commit-hardening.test.ts` (52 ready → exactly 52 people + one
+commit event; repeat/concurrent submit → single success, no duplicates; committer failure → 0 people
++ `«معاينة»`). `tests/e2e/import-commit.spec.ts` (390×844: mobile UI confirm → 52 people + one
+`commit_started` + one `import.batch_committed`; page reload shows `«منفذة»` and does not re-commit).
+
+## 8. Stop point
 
 The agent stopped at the **«تأكيد التنفيذ»** button (the red execute button) **without clicking it**.
 Post-check confirms nothing was committed:
 
-- Batch status: **«معاينة»** (unchanged).
+- Batch status: **«معاينة»** (unchanged), `committed_at` **null**.
 - People from this batch: **0**. Total `people`: **80** (unchanged; all synthetic).
 - Source rows: **52 «جاهز»**, 0 «منفذ».
 - Git tags: **none** (no release tag created).

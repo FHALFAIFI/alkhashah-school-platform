@@ -8,9 +8,11 @@ import { createBatch, commitBatch, rollbackBatch, applyRowDecision, undoLastRowD
 import { parsePeopleWorkbook, commitPeopleRows, rollbackPeopleBatch } from "@/lib/imports/people";
 import { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch } from "@/lib/imports/plan";
 import { notifyAll } from "@/lib/notify";
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { planYears } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 
 export type ImportActionState = { error?: string } | null;
 
@@ -125,31 +127,65 @@ export async function cancelBatchAction(batchId: string): Promise<ImportActionSt
 }
 
 export async function commitBatchAction(batchId: string): Promise<ImportActionState> {
+  // المصادقة/الصلاحية قبل أي شيء (قد تعيد التوجيه لتسجيل الدخول عند انتهاء الجلسة)
   const user = await requirePermission("imports.commit");
   const data = await getBatchWithRows(batchId);
   if (!data) return { error: "الدفعة غير موجودة" };
+
+  // معرّف ارتباط لتتبّع كل محاولة تصل الخادم عبر أحداث التدقيق (بدء/نجاح/فشل)
+  const correlationId = randomUUID();
+  const ref = correlationId.slice(0, 8);
+  // حدث «بدء التنفيذ» — يُسجَّل لأي طلب مُصرَّح يصل الخادم، فيبقى أثر حتى لو فشل التنفيذ لاحقاً
+  await audit({
+    actorId: user.id,
+    action: "import.batch_commit_started",
+    entityType: "import_batch",
+    entityId: batchId,
+    summary: "بدء تنفيذ دفعة استيراد",
+    detail: { correlationId, importType: data.batch.importType },
+  });
+
   try {
     if (data.batch.importType === "people") {
-      await commitBatch(batchId, user.id, (tx, rows) => commitPeopleRows(tx, rows, batchId, user.id));
+      await commitBatch(batchId, user.id, (tx, rows) => commitPeopleRows(tx, rows, batchId, user.id), { correlationId });
     } else if (data.batch.importType === "operational_plan") {
       // السنة التخطيطية النشطة هي الوجهة — لا سنة مثبتة في الشيفرة
       const [activeYear] = await db.select().from(planYears).where(eq(planYears.status, "نشطة")).limit(1);
-      await commitBatch(batchId, user.id, (tx, rows) =>
-        commitPlanRows(tx, rows, batchId, {
-          planYearKey: activeYear?.key ?? "1448-1449",
-          planYearName: activeYear?.nameAr ?? "العام الدراسي 1448/1449هـ",
-          createdBy: user.id,
-        }),
+      await commitBatch(
+        batchId,
+        user.id,
+        (tx, rows) =>
+          commitPlanRows(tx, rows, batchId, {
+            planYearKey: activeYear?.key ?? "1448-1449",
+            planYearName: activeYear?.nameAr ?? "العام الدراسي 1448/1449هـ",
+            createdBy: user.id,
+          }),
+        { correlationId },
       );
     } else {
       return { error: "نوع استيراد غير مدعوم" };
     }
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "فشل التنفيذ" };
+    // حدث «فشل التنفيذ» برسالة معقّمة ومعرّف مرجعي — لا يُسرَّب تفاصيل داخلية
+    const message = e instanceof Error ? e.message : "فشل التنفيذ";
+    await audit({
+      actorId: user.id,
+      action: "import.batch_commit_failed",
+      entityType: "import_batch",
+      entityId: batchId,
+      summary: "فشل تنفيذ دفعة استيراد",
+      detail: { correlationId, error: message.slice(0, 300) },
+    });
+    return { error: `${message} (مرجع الخطأ: ${ref})` };
   }
-  // استيراد الأشخاص يوجه إلى سجل الموظفين مصفى بالدفعة؛ باقي الأنواع تبقى على صفحة الدفعة
-  const notifyLink = data.batch.importType === "people" ? `/people?دفعة=${batchId}` : `/imports/${batchId}`;
-  await notifyAll({ title: "تم تنفيذ دفعة استيراد", body: `نفذت دفعة ${data.batch.sourceFileName} بنجاح`, link: notifyLink });
+
+  // آثار جانبية بعد نجاح المعاملة — يجب ألا يُفشل إخفاقُها نتيجةَ تنفيذٍ نجح فعلاً
+  try {
+    const notifyLink = data.batch.importType === "people" ? `/people?دفعة=${batchId}` : `/imports/${batchId}`;
+    await notifyAll({ title: "تم تنفيذ دفعة استيراد", body: `نفذت دفعة ${data.batch.sourceFileName} بنجاح`, link: notifyLink });
+  } catch {
+    // التنفيذ نجح والدفعة «منفذة» — تجاهل فشل الإشعار (غير حرج)
+  }
   revalidatePath(`/imports/${batchId}`);
   revalidatePath("/imports");
   revalidatePath("/people");

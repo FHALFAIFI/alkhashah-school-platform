@@ -22,6 +22,33 @@ export async function syntheticPeopleWorkbook(): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/**
+ * دفعة أشخاص اصطناعية من 52 صفاً جاهزاً بالكامل (بلا تكرار وبلا صفوف مراجعة) —
+ * لاختبار تأكيد التنفيذ عبر الواجهة: يجب أن يُنشئ 52 شخصاً بالضبط. الكل معلمون بسلك واضح
+ * حتى لا يظهر تنبيه «التصنيف غير مؤكد» (الذي يحوّل الصف إلى «يحتاج مراجعة»)، فتبقى الصفوف
+ * الاثنان والخمسون جميعها «جاهز». أرقام وأسماء مختلقة بالكامل.
+ */
+export async function synthetic52PeopleWorkbook(): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("بيانات الموظفين");
+  ws.addRow(["الاسم", "الوظيفة الحالية", "السلك", "حالة الموظف", "المرحلة", "رقم الوظيفة", "رقم الهوية", "تاريخ الميلاد", "رقم الجوال", "هوية المدير المباشر"]);
+  for (let i = 1; i <= 52; i++) {
+    ws.addRow([
+      `تجريبي رقم ${i} مثال`,
+      "معلم ممارس",
+      "المعلمين",
+      "على رأس العمل",
+      "المرحلة الابتدائية",
+      String(300000 + i), // أرقام وظيفية فريدة
+      String(1200000000 + i),
+      "1400/01/01",
+      `05010000${String(i).padStart(2, "0")}`,
+      "1099999999",
+    ]);
+  }
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
 export async function syntheticPlanWorkbook(): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
 
