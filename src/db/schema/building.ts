@@ -109,6 +109,11 @@ export const assets = pgTable(
     notes: text("notes"),
     importBatchId: uuid("import_batch_id"),
     active: boolean("active").notNull().default(true),
+    /** دورة حياة الأصل: الأرشفة إخفاء غير مدمّر مع سبب عربي وقابلية الاستعادة.
+     *  active=false مع archivedAt مضبوط = مؤرشف؛ الحذف النهائي مشروط ومحظور عند وجود تبعيات. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedReason: text("archived_reason"),
+    archivedBy: uuid("archived_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

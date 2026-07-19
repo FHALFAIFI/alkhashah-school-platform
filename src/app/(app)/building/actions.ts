@@ -14,6 +14,8 @@ import { audit } from "@/lib/audit";
 import { saveUploadedFile } from "@/lib/storage";
 import { validateGeometry, applyRoomEditToGeometry, roomArea, roomPerimeter, round1, type FloorGeometry } from "@/lib/building/geometry";
 import { nextRoomCode, nextAssetCode, nextMaintenanceCode, findRoomByCode } from "@/lib/building/codes";
+import { getAssetDependencies, ASSET_EVENT } from "@/lib/building/asset-lifecycle";
+import { ASSET_DELETE_CONFIRM } from "@/lib/building/asset-constants";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -376,6 +378,106 @@ export async function updateAssetConditionAction(assetId: string, formData: Form
     await audit({ actorId: user.id, action: "asset.condition_changed", entityType: "asset", entityId: assetId });
   }
   revalidatePath("/building/assets");
+}
+
+// ————————————————— دورة حياة الأصل: أرشفة / استعادة / حذف نهائي —————————————————
+
+/**
+ * أرشفة الأصل — الإجراء الافتراضي غير المدمّر. يخفيه من القوائم التشغيلية (active=false)
+ * ويحفظ سبباً عربياً إلزامياً؛ يبقى كل شيء (الفحوصات، الصيانة، سجل الغرفة، رمز QR،
+ * سجل التدقيق) على حاله وقابلاً للاستعادة. يسجّل القيمة قبل/بعد في سجل التدقيق.
+ */
+export async function archiveAssetAction(assetId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("assets.write");
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (reason.length < 3) return { error: "اذكر سبب الأرشفة (٣ أحرف على الأقل)" };
+  const [asset] = await db.select().from(assets).where(eq(assets.id, assetId));
+  if (!asset) return { error: "الأصل غير موجود" };
+  if (!asset.active && asset.archivedAt) return { error: "الأصل مؤرشف بالفعل" };
+
+  const now = new Date();
+  await db
+    .update(assets)
+    .set({ active: false, archivedAt: now, archivedReason: reason, archivedBy: user.id, updatedAt: now })
+    .where(eq(assets.id, assetId));
+  await db.insert(assetHistory).values({ assetId, event: ASSET_EVENT.archived, detail: reason, actorId: user.id });
+  await audit({
+    actorId: user.id,
+    action: "asset.archived",
+    entityType: "asset",
+    entityId: assetId,
+    summary: `${asset.code} — ${asset.nameAr}`,
+    detail: { before: { active: asset.active }, after: { active: false, archivedReason: reason } },
+  });
+  revalidatePath("/building/assets");
+  return { success: `أُرشف الأصل ${asset.code} — يمكن استعادته في أي وقت` };
+}
+
+/** استعادة الأصل المؤرشف إلى القوائم التشغيلية (يعكس الأرشفة، non-destructive). */
+export async function restoreAssetAction(assetId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("assets.write");
+  void formData;
+  const [asset] = await db.select().from(assets).where(eq(assets.id, assetId));
+  if (!asset) return { error: "الأصل غير موجود" };
+  if (asset.active) return { error: "الأصل نشط بالفعل" };
+
+  const now = new Date();
+  await db
+    .update(assets)
+    .set({ active: true, archivedAt: null, archivedReason: null, archivedBy: null, updatedAt: now })
+    .where(eq(assets.id, assetId));
+  await db.insert(assetHistory).values({ assetId, event: ASSET_EVENT.restored, detail: null, actorId: user.id });
+  await audit({
+    actorId: user.id,
+    action: "asset.restored",
+    entityType: "asset",
+    entityId: assetId,
+    summary: `${asset.code} — ${asset.nameAr}`,
+    detail: { before: { active: false }, after: { active: true } },
+  });
+  revalidatePath("/building/assets");
+  return { success: `استُعيد الأصل ${asset.code}` };
+}
+
+/**
+ * الحذف النهائي — متاح فقط للأصل المُنشأ بالخطأ وبلا أي تبعية، وبعد كتابة عبارة التأكيد
+ * «حذف الأصل نهائياً» حرفياً وإقرار أنه أُنشئ بالخطأ. يُحظر من الخادم عند وجود تبعيات
+ * (بلاغات صيانة/شواهد/وثائق) مع بيان أنواعها وأعدادها بالعربية. لا حذف بالسلسلة لأي
+ * سجل أعمال — فقط سجل الأصل نفسه وأثره الداخلي (asset_history) يُزالان في معاملة واحدة.
+ */
+export async function deleteAssetAction(assetId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("assets.delete");
+  const confirm = String(formData.get("confirm") ?? "").trim();
+  const createdByMistake = String(formData.get("createdByMistake") ?? "") === "on";
+  if (!createdByMistake) return { error: "الحذف النهائي متاح فقط للأصل المُنشأ بالخطأ — أكّد ذلك" };
+  if (confirm !== ASSET_DELETE_CONFIRM) return { error: `اكتب عبارة التأكيد حرفياً: «${ASSET_DELETE_CONFIRM}»` };
+
+  const [asset] = await db.select().from(assets).where(eq(assets.id, assetId));
+  if (!asset) return { error: "الأصل غير موجود" };
+
+  const deps = await getAssetDependencies(assetId);
+  if (deps.length > 0) {
+    const list = deps.map((d) => `${d.labelAr} (${d.count})`).join("، ");
+    return {
+      error: `لا يمكن الحذف النهائي — يوجد سجلات مرتبطة: ${list}. أرشف الأصل بدلاً من حذفه للحفاظ على هذه السجلات.`,
+    };
+  }
+
+  // معاملة واحدة: احذف الأثر الداخلي ثم سجل الأصل. سجل التدقيق العام (audit_log) يبقى.
+  await db.transaction(async (tx) => {
+    await tx.delete(assetHistory).where(eq(assetHistory.assetId, assetId));
+    await tx.delete(assets).where(eq(assets.id, assetId));
+  });
+  await audit({
+    actorId: user.id,
+    action: "asset.deleted",
+    entityType: "asset",
+    entityId: assetId,
+    summary: `${asset.code} — ${asset.nameAr}`,
+    detail: { reason: "أُنشئ بالخطأ", snapshot: { code: asset.code, nameAr: asset.nameAr, roomId: asset.roomId } },
+  });
+  revalidatePath("/building/assets");
+  return { success: `حُذف الأصل ${asset.code} نهائياً (لا تبعيات)` };
 }
 
 // ————————————————— قوالب الفحص والفحص —————————————————

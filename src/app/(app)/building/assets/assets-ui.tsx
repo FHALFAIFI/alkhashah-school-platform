@@ -1,7 +1,15 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { createAssetAction, updateAssetConditionAction, type ActionState } from "../actions";
+import {
+  createAssetAction,
+  updateAssetConditionAction,
+  archiveAssetAction,
+  restoreAssetAction,
+  deleteAssetAction,
+  type ActionState,
+} from "../actions";
+import { ASSET_DELETE_CONFIRM } from "@/lib/building/asset-constants";
 import { Field, SubmitButton } from "@/components/ui";
 
 export function NewAssetForm({ rooms }: { rooms: { id: string; label: string }[] }) {
@@ -51,6 +59,113 @@ export function NewAssetForm({ rooms }: { rooms: { id: string; label: string }[]
           </select>
         </div>
         <SubmitButton>إضافة</SubmitButton>
+      </div>
+    </form>
+  );
+}
+
+/** أرشفة الأصل — الإجراء الافتراضي غير المدمّر (سبب عربي إلزامي، قابل للاستعادة). */
+export function ArchiveAssetControl({ assetId }: { assetId: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(archiveAssetAction.bind(null, assetId), null);
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+      >
+        أرشفة الأصل
+      </button>
+    );
+  }
+  return (
+    <form action={formAction} className="flex flex-col gap-1">
+      {state?.error && <span role="alert" className="text-xs text-red-700">{state.error}</span>}
+      <input
+        name="reason"
+        required
+        placeholder="سبب الأرشفة (إلزامي)"
+        className="w-44 rounded border border-gray-300 px-2 py-1 text-xs"
+      />
+      <div className="flex gap-1">
+        <SubmitButton variant="secondary" confirmText="أرشفة هذا الأصل؟ يمكن استعادته لاحقاً.">
+          تأكيد الأرشفة
+        </SubmitButton>
+        <button type="button" onClick={() => setOpen(false)} className="rounded px-2 py-1 text-xs text-gray-500">
+          إلغاء
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** استعادة الأصل المؤرشف. */
+export function RestoreAssetControl({ assetId }: { assetId: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(restoreAssetAction.bind(null, assetId), null);
+  return (
+    <form action={formAction} className="inline-flex flex-col gap-1">
+      {state?.error && <span role="alert" className="text-xs text-red-700">{state.error}</span>}
+      <SubmitButton variant="secondary">استعادة الأصل</SubmitButton>
+    </form>
+  );
+}
+
+/**
+ * حذف نهائي — متاح فقط بلا تبعيات؛ يتطلب إقرار «أُنشئ بالخطأ» وكتابة عبارة التأكيد حرفياً.
+ * عند وجود تبعيات تُعرض أنواعها وأعدادها ويُمنع الحذف.
+ */
+export function DeleteAssetControl({
+  assetId,
+  deletable,
+  deps,
+}: {
+  assetId: string;
+  deletable: boolean;
+  deps: { labelAr: string; count: number }[];
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(deleteAssetAction.bind(null, assetId), null);
+  const [open, setOpen] = useState(false);
+
+  if (!deletable) {
+    return (
+      <div className="text-xs text-gray-500">
+        <span className="font-medium text-gray-600">الحذف النهائي غير متاح</span> — سجلات مرتبطة:{" "}
+        {deps.map((d) => `${d.labelAr} (${d.count})`).join("، ")}. استخدم الأرشفة.
+      </div>
+    );
+  }
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+      >
+        حذف نهائي
+      </button>
+    );
+  }
+  return (
+    <form action={formAction} className="flex flex-col gap-1">
+      {state?.error && <span role="alert" className="text-xs text-red-700">{state.error}</span>}
+      <label className="flex items-center gap-1 text-xs text-gray-700">
+        <input type="checkbox" name="createdByMistake" />
+        أقرّ أن هذا الأصل أُنشئ بالخطأ
+      </label>
+      <input
+        name="confirm"
+        required
+        placeholder={`اكتب: ${ASSET_DELETE_CONFIRM}`}
+        className="w-44 rounded border border-red-300 px-2 py-1 text-xs"
+      />
+      <div className="flex gap-1">
+        <SubmitButton variant="danger" confirmText="حذف نهائي لا يمكن التراجع عنه. متابعة؟">
+          حذف نهائي
+        </SubmitButton>
+        <button type="button" onClick={() => setOpen(false)} className="rounded px-2 py-1 text-xs text-gray-500">
+          إلغاء
+        </button>
       </div>
     </form>
   );

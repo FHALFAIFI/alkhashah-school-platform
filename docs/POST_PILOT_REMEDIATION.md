@@ -175,3 +175,52 @@ were found and fixed:
   `src/app/(app)/building/rooms/[id]/page.tsx` (uuid guard),
   `src/app/(app)/layout.tsx` (mount PwaManager), `tests/e2e/https-pwa.spec.ts` (assertion for
   the redesigned SW), `docs/UI_ACTION_AUDIT.md` (new).
+
+---
+
+## PHASE 2 — Safe asset lifecycle  ✅ (archive/restore + guarded permanent delete)
+
+### Design
+
+Additive **migration 0008** adds `archived_at` / `archived_reason` / `archived_by` to `assets`
+(no data touched; `active=false` + `archived_at` set = archived). New permission **`assets.delete`**
+(seeded to principal + sysadmin via `permissionsSeed`; idempotent retrofit
+`seedAssetLifecycleRbac` for already-seeded DBs). Lifecycle logic isolated in
+`src/lib/building/asset-lifecycle.ts` (server-only, testable); shared confirm phrase in
+`src/lib/building/asset-constants.ts` (importable by client + server).
+
+- **«أرشفة الأصل»** (default, non-destructive): requires an Arabic reason, sets `active=false`
+  + archive metadata, writes an `أرشفة` event to `asset_history`, audits with before/after
+  (`asset.archived`). Hides the asset from active operational lists via the existing
+  `active=true` filter — **preserves** inspections, maintenance, room history, QR identity
+  (code unchanged), and audit history. Reversible via **«استعادة الأصل»** (`asset.restored`).
+- **«حذف نهائي»** (guarded): requires `assets.delete`, an explicit **«أُنشئ بالخطأ»** affirmation,
+  and the typed confirmation phrase **«حذف الأصل نهائياً»**. Server re-checks dependencies via
+  `getAssetDependencies` (maintenance issues, evidence/attachments, issued documents) and
+  **blocks server-side** with the Arabic dependency types + counts when any exist. Only the
+  asset row + its own `asset_history` are removed, in one transaction — **never cascades**
+  inspections/maintenance/evidence/documents; the school-wide `audit_log` entry is retained.
+- UI (`assets/page.tsx` + `assets-ui.tsx`): active/archived filter, **«مؤرشف» badge**, archive
+  reason column, per-asset **history** (`<details>`), and the lifecycle controls. When
+  dependencies exist the delete control shows «الحذف النهائي غير متاح — …» instead of a button.
+
+### Verification
+
+- **Integration** `tests/integration/asset-lifecycle.test.ts` (3 tests, exercise the real
+  server actions): archive is non-destructive + reason-required + reversible; permanent delete
+  blocked by a maintenance dependency (asset + issue both survive, Arabic dependency shown);
+  delete requires the mistake affirmation + exact phrase, then removes a dependency-free asset.
+- **Real UI** (production build on `madrasa_test`, principal): active→archive (reason) →
+  archived view shows badge + reason → removed from active → restore → back in active;
+  guarded permanent delete of a dependency-free archived asset removes it. **390×844 zero
+  horizontal overflow, no page errors.**
+- `npm test` **174/174** (171 + 3), typecheck / lint (0 errors) / build clean.
+
+### Artifacts
+
+- `drizzle/0008_careless_payback.sql`, `src/db/schema/building.ts` (+3 cols),
+  `src/db/seed-data/permissions.ts` (`assets.delete`),
+  `src/lib/building/asset-lifecycle.ts` + `asset-constants.ts` (new),
+  `src/app/(app)/building/actions.ts` (archive/restore/delete actions),
+  `src/app/(app)/building/assets/{page,assets-ui}.tsx`,
+  `tests/integration/asset-lifecycle.test.ts` (new).

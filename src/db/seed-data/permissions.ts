@@ -39,6 +39,7 @@ export const permissionsSeed: { key: string; nameAr: string; module: string }[] 
   { key: "assets.read", nameAr: "عرض العهدة والأصول", module: "building" },
   { key: "assets.write", nameAr: "إدارة العهدة والأصول", module: "building" },
   { key: "assets.import", nameAr: "استيراد العهدة", module: "building" },
+  { key: "assets.delete", nameAr: "حذف الأصول نهائياً", module: "building" },
   { key: "inspections.read", nameAr: "عرض عمليات الفحص", module: "building" },
   { key: "inspections.write", nameAr: "تنفيذ عمليات الفحص", module: "building" },
   { key: "maintenance.read", nameAr: "عرض بلاغات الصيانة", module: "building" },
