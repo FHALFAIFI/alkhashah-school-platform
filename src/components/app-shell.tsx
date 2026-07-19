@@ -13,6 +13,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: "عام",
     items: [
       { href: "/dashboard", label: "مركز عمل مدير المدرسة", icon: "◧" },
+      { href: "/pilot", label: "مركز التشغيل التجريبي", icon: "✦" },
       { href: "/assistant", label: "مساعد المدير الذكي", permission: "ai.use", icon: "✦" },
       { href: "/tasks", label: "المهام والإجراءات", permission: "tasks.read", icon: "☑" },
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },
@@ -65,6 +66,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: "/imports", label: "الاستيراد", permission: "imports.read", icon: "⇪" },
       { href: "/admin/users", label: "المستخدمون والأدوار", permission: "admin.users", icon: "⚙" },
       { href: "/admin/settings", label: "الإعدادات", permission: "admin.settings", icon: "⚙" },
+      { href: "/admin/feedback", label: "ملاحظات التشغيل", permission: "feedback.manage", icon: "✎" },
       { href: "/admin/audit", label: "سجل التدقيق", permission: "admin.audit.read", icon: "≡" },
       { href: "/admin/cleanup", label: "تنظيف السجلات التجريبية", permission: "admin.settings", icon: "⌫" },
       { href: "/admin/backup", label: "النسخ الاحتياطي", permission: "admin.backup", icon: "⛁" },

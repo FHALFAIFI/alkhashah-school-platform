@@ -2,7 +2,49 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — UNIVERSAL EXCLUSION + SAFE ARCHIVE WORKFLOW (2026-07-18)
+## Latest checkpoint — PILOT FEEDBACK + /pilot CENTER + GUIDES (2026-07-19)
+- **In-app pilot feedback workflow (Phase 3).** Additive **migration 0007** (`feedback` table +
+  `feedback_ref_seq` — human refs `FB-0001…` from a DB sequence default, race-safe). New RBAC
+  perms `feedback.create` / `feedback.manage` (granted to principal + sysadmin; idempotent
+  `seedFeedbackRbac` in `src/lib/feedback/service.ts` + `src/db/seed-feedback-rbac.ts`).
+  Floating «إرسال ملاحظة» button on every page (`src/components/feedback/feedback-dock.tsx`,
+  wired in `(app)/layout.tsx`) — bottom-`end` corner, opposite the AI button (bottom-`start`),
+  never overlaps; vertical form usable at 390×844; success shows «تم تسجيل ملاحظتك» + ref.
+  **Privacy:** captures only page path, module, viewport, coarse browser family (from UA
+  header, server-side), app version — NO page HTML/cookies/tokens/form contents/DOM; text
+  sanitized (`sanitizeFeedbackText`, control-char strip); attachments are sensitive private
+  files via `saveUploadedFile` + dedicated `/api/feedback/[id]/attachment` (feedback.manage).
+  Management `/admin/feedback` (+`[id]`): filters (module/category/severity/status/date/archived),
+  open linked page, view attachment, status+resolution workflow («لن تُنفذ»/«تم الحل» require a
+  documented reason), Arabic print, Excel export (`/api/export/feedback-xlsx`). **No permanent
+  delete — archive-only with reason + reversible unarchive**; all mutations audited
+  (`feedback.created|status_changed|archived|unarchived|attachment_download`).
+- **Dynamic Arabic /pilot center (Phase 4)** (`src/lib/pilot-status.ts`, `(app)/pilot/page.tsx`;
+  linked from dashboard header + nav). Live-computed (no hardcoded numbers), handles both Fares
+  states: preview → «بانتظار تأكيد استيراد بيانات فارس» + link to the real batch, committees/
+  performance marked waiting, status «SOFTWARE READY — AWAITING ONE PRINCIPAL ACTIVATION ACTION»;
+  committed → 52/42/10 + no-accounts + 7 rollback deps + modules unblocked. Shows plan (26 draft),
+  D-014, floors, local-AI connection (live), latest backup, feedback counts, C5 + archive deferred.
+  First-week checklist (guidance only), the rollback warning verbatim, boundaries (not failures).
+- **Guides (Phase 5):** `docs/PILOT_USER_GUIDE_AR.md` (Arabic, principal-facing) +
+  `docs/PILOT_OPERATIONS.md` (English technical ops: startup/shutdown, ports/DB, Tailscale,
+  backup/restore, Ollama health, logs, feedback triage, post-restart checks, data provenance,
+  failed-Fares recovery, migration apply order).
+- **Tests (Phase 6):** +18 vitest (`tests/unit/feedback.test.ts` 9, `tests/integration/feedback.test.ts`
+  7, `tests/integration/pilot-status.test.ts` 2) → **171 vitest pass**; e2e `tests/e2e/feedback.spec.ts`
+  (desktop + 390×844: create→«تم تسجيل ملاحظتك»+ref, admin list, Excel download, /pilot Fares-waiting,
+  no h-overflow, feedback/AI buttons don't overlap). Full Playwright **46 passed / 1 skipped (C5 only)**.
+  typecheck + lint (0 errors) + production build clean. No existing test weakened/skipped.
+- **Phase 7 — additive migration applied to REAL DB (authorized).** Fresh encrypted backup +
+  `restore:rehearsal` PASS (65 tables) first; migration 0007 applied to madrasa_test then real
+  `madrasa`; `seedFeedbackRbac` run. **Real-DB integrity proof (baseline vs post):** ONLY changes
+  are new empty `feedback` table (0 rows), permissions 53→55, role_permissions 104→108 (feedback
+  grants), migrations 7→8. users 2, people 80, programs 58, audit_log 1205, sessions — ALL
+  identical. **No real feedback record created. Fares batch STILL «معاينة» / 0 people / untouched
+  — never committed.** 3080 dev server restarted healthy (all routes 307 auth-gated, no 500s);
+  read-only smoke confirms /pilot + feedback queries run on real data (AI connected). No git tag.
+
+## Earlier checkpoint — UNIVERSAL EXCLUSION + SAFE ARCHIVE WORKFLOW (2026-07-18)
 - **Centralized exclusion.** `getExcludedIdSets()` (`src/lib/synthetic.ts`) is now the single
   filter every customer-facing query uses; it unions (a) structurally-classified synthetic ids
   (toggle via `MADRASA_INCLUDE_SYNTHETIC`) and (b) **explicitly-archived ids (always ON)**.

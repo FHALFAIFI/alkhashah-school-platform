@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { AppShell } from "@/components/app-shell";
 import { AssistantDock } from "@/components/assistant/assistant-dock";
+import { FeedbackDock } from "@/components/feedback/feedback-dock";
 import { getAiConfig } from "@/lib/ai/settings";
 import { db } from "@/db";
 import { notifications } from "@/db/schema";
@@ -29,6 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     >
       {children}
       {showAssistant && <AssistantDock csrfToken={user.csrfToken} />}
+      <FeedbackDock enabled={user.permissions.has("feedback.create")} />
     </AppShell>
   );
 }

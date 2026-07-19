@@ -114,6 +114,15 @@ export default async function DashboardPage() {
       <PageHeader
         title="مركز عمل مدير المدرسة"
         subtitle={`مرحباً ${user.displayName} — ${toHijriLong(today)} · ${toGregorianLong(today)}`}
+        actions={
+          <Link
+            href="/pilot"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0"
+          >
+            <span aria-hidden>✦</span>
+            مركز التشغيل التجريبي
+          </Link>
+        }
       />
 
       {/* القرارات الاستراتيجية المعلّقة أمام المدير — كل عنصر يربط بالسجل/الإجراء مباشرة */}
