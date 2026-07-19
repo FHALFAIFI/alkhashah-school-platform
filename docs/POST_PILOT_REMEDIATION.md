@@ -113,7 +113,65 @@ git-ignored `.env` / `storage/private`).
 
 ---
 
-## PHASE 1 — System-wide button failure investigation  (in progress)
+## PHASE 1 — System-wide button failure investigation  (fixes landed; Gate 1 partial)
 
-_Investigation, root causes, PWA cache-safety rework, and `docs/UI_ACTION_AUDIT.md` are
-recorded here and in the audit file as the phase proceeds._
+### Method
+
+Investigated against a real **production build** (`next build` + `next start` on port 3082),
+on the isolated `madrasa_test` DB (never the real data). A headless Chromium logged in as
+principal and swept all 37 authenticated routes capturing status, page/console errors, failed
+requests, an interactive-element census, and a click-blocking-overlay detector. Full inventory
+and per-route evidence: **`docs/UI_ACTION_AUDIT.md`**.
+
+### Root-cause finding
+
+The report "all buttons don't work" is **not** a universal per-button code defect. Every route
+renders **200 with functioning interactive elements**, the shared `SubmitButton` is correct
+(pending state, double-click-safe, Arabic confirm), and no click-blocking overlay exists. The
+real-world failure is consistent with **stale PWA/browser cache after a redeploy** (dead JS
+chunks → no interactivity), aggravated by a hydration break on one page. Four concrete causes
+were found and fixed:
+
+1. **Hydration mismatch — `/building/offline` (React #418).** `useState` lazy initializer read
+   `navigator.onLine` during hydration. **Fixed** (deterministic initial value + `useEffect`).
+   Confirmed gone in the post-fix production sweep.
+2. **Unsafe service worker.** Constant cache name (never purged across deploys), registered at
+   scope `/` from a single offline-page visit. **Rewrote `public/sw.js`:** navigations / RSC /
+   server actions are **network-first, never cached**; cache-first only for immutable hashed
+   `/_next/static/` + the offline page; versioned cache (`madrasa-v2`) purged on activate.
+3. **No update path / no chunk recovery.** New global **`PwaManager`** (mounted in
+   `(app)/layout.tsx`): app-wide SW registration, Arabic update notice «يتوفر تحديث جديد
+   للمنصة» + «تحديث الآن», reload on `controllerchange`, and a **guarded one-time**
+   `ChunkLoadError` recovery (clear caches + unregister SW + reload; `sessionStorage` guard
+   against loops). New root **`global-error.tsx`** Arabic recovery screen for chunk/layout errors.
+4. **Malformed `[id]` → server error.** `/building/rooms/x` threw a Postgres uuid-cast error
+   before the `notFound()` guard. New `isUuid` guard (`src/lib/validation.ts`) → clean 404
+   (verified authenticated: no console/server error, not-found page shown). Same sweep to be
+   applied to other `[id]` routes in Phase 9.
+
+### Verification
+
+- Post-fix production sweep: all 37 routes 200, **no page errors, no blocking overlays**; the
+  only prior console error (`/building/rooms/x`) resolved. `_rsc … ERR_ABORTED` entries are
+  benign Next.js prefetch cancellations, not user-facing failures.
+- `npm test` → **171/171 vitest pass** (no regression).
+- `npm run typecheck` clean; `npm run lint` 0 errors; `npm run build` clean.
+- e2e `https-pwa` (SW served, PWA manifest RTL, Secure cookie) + `arabic-and-auth` → pass
+  against the production server (C5 physical-HTTPS test remains the single deferred skip).
+
+### Gate 1 status
+
+- Automated production-build render + interactive census + error/overlay capture (principal,
+  valid session) — **PASS**.
+- **Deferred to Phase 9:** scripted per-action click matrix across desktop / tablet / 390×844,
+  principal + administrator roles, and valid / expired-session / validation-failure /
+  server-failure / repeated-click states, extending the existing 48 Playwright action tests.
+
+### Artifacts added / changed in Phase 1
+
+- `public/sw.js` (rewritten), `src/components/pwa-manager.tsx` (new),
+  `src/app/global-error.tsx` (new), `src/lib/validation.ts` (new),
+  `src/app/(app)/building/offline/offline-ui.tsx` (hydration fix),
+  `src/app/(app)/building/rooms/[id]/page.tsx` (uuid guard),
+  `src/app/(app)/layout.tsx` (mount PwaManager), `tests/e2e/https-pwa.spec.ts` (assertion for
+  the redesigned SW), `docs/UI_ACTION_AUDIT.md` (new).

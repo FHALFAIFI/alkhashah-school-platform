@@ -63,7 +63,10 @@ test("عامل الخدمة مقدم من الجذر بنوع JavaScript (C4)", 
   const res = await request.get("/sw.js");
   expect(res.ok()).toBe(true);
   expect(res.headers()["content-type"]).toMatch(/javascript/);
-  expect(await res.text()).toContain("madrasa-offline");
+  const sw = await res.text();
+  // عامل الخدمة المعاد تصميمه (Phase 1): مخبأ إصدار madrasa-vN + قدرة الفحص دون اتصال
+  expect(sw).toMatch(/madrasa-v\d/);
+  expect(sw).toContain("/building/offline");
 });
 
 // تعمل فقط عند توجيه الاختبارات لعنوان HTTPS الفعلي: APP_URL=https://<device>.<tailnet>.ts.net npm run test:e2e

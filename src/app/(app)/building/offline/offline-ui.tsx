@@ -80,7 +80,9 @@ async function idbDelete(store: string, key: string): Promise<void> {
 }
 
 export function OfflineInspection() {
-  const [online, setOnline] = useState(() => (typeof navigator !== "undefined" ? navigator.onLine : true));
+  // يبدأ «متصل» على الخادم وأول رسم للعميل (قيمة حتمية تمنع عدم تطابق الإماهة/hydration #418)؛
+  // ثم تُقرأ الحالة الحقيقية بعد التركيب في useEffect أدناه.
+  const [online, setOnline] = useState(true);
   const [data, setData] = useState<OfflineData | null>(null);
   const [queue, setQueue] = useState<QueuedOp[]>([]);
   const [roomId, setRoomId] = useState("");
@@ -93,6 +95,9 @@ export function OfflineInspection() {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
+    // قراءة حالة الاتصال الحقيقية بعد التركيب (قيمة العميل فقط) — لا تسبب عدم تطابق إماهة
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOnline(navigator.onLine);
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener("online", on);

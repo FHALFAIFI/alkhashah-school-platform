@@ -9,6 +9,7 @@ import {
 } from "@/db/schema";
 import { PageHeader, Card, Badge, LinkButton, Table, ProgressBar } from "@/components/ui";
 import { computeRoomReadiness } from "@/lib/building/readiness";
+import { isUuid } from "@/lib/validation";
 import { InspectionRunForm, ReadinessOverrideForm, RoomEditForm, RoomIssueForm } from "./room-ui";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { headers } from "next/headers";
@@ -18,6 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function RoomPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("building.read");
   const { id } = await params;
+  if (!isUuid(id)) notFound(); // معرّف غير صالح ⇒ 404 نظيف بدل خطأ تحويل uuid في القاعدة
   const [room] = await db.select().from(rooms).where(eq(rooms.id, id));
   if (!room) notFound();
   const [floor] = await db.select().from(floors).where(eq(floors.id, room.floorId));
