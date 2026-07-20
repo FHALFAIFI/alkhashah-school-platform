@@ -101,7 +101,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
       )}
 
       {(canEdit || canReport) && (
-        <div className="flex flex-wrap items-start gap-2">
+        <div id="صيانة" className="flex flex-wrap items-start gap-2 scroll-mt-20">
           {canEdit && (
             <RoomEditForm
               roomId={id}

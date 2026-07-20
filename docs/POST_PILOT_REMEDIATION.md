@@ -326,3 +326,45 @@ documented limitation; rotate + grayscale/contrast enhance are provided.
 - `src/lib/building/document-scan.ts`, `src/app/api/building/scan/route.ts`,
   `src/app/(app)/building/documents/{page,document-scanner}.tsx`,
   `src/app/(app)/building/page.tsx` (links), `tests/integration/document-scan.test.ts`.
+
+---
+
+## PHASE 5 — QR scanning (room / asset) with manual fallback  ✅
+
+### Design
+
+New `/building/scan` page. Room/asset QR identity is **stable**: room QR encodes a URL with the
+room's uuid; asset QR encodes a URL with the asset's stable `code` — neither changes when the
+item is moved on the sketch (they are not geometry-derived).
+
+- **Pure parser** `src/lib/building/qr-parse.ts` (client + server safe, tested): recognizes room
+  URLs (`/building/rooms/<uuid>`), asset URLs (`?رمز=<code>`, incl. percent-encoded), and raw
+  codes (`KHS-RM-…`, `KHS-AST-…`).
+- **Scanner** (`qr-scanner.tsx`, client): «مسح رمز غرفة» / «مسح رمز أصل» start the camera and use
+  the native **`BarcodeDetector`** (secure-context) to read QR frames; where unsupported it shows
+  an Arabic notice and relies on **«إدخال الرمز يدوياً»** (always available). **No write happens
+  from scanning** — results render as navigation links only.
+- **Resolver** (`scan-actions.ts`, `resolveScanAction`, read-only): requires `building.read`,
+  resolves to a typed room/asset result, and returns Arabic errors for **invalid/unknown**
+  codes, **archived** rooms (blocked) / assets (flagged), and surfaces permission-gated actions.
+- **Result actions**: room → «فتح الغرفة», «بدء فحص» (→ room `#inspection`), «إنشاء بلاغ صيانة»
+  (→ room `#صيانة`); asset → «فتح الأصل» (archived opens the archived view), «إنشاء بلاغ صيانة»
+  (its room) when active. Deep-link anchors added to the room page.
+
+### Verification
+
+- **Unit** `tests/unit/qr-parse.test.ts` (5) + **integration** `tests/integration/qr-scan.test.ts`
+  (5): URL/raw parsing; resolve room-by-uuid/raw-code with permissions; asset resolve + archived
+  flag; archived room blocked with Arabic message; unknown code error.
+- **Real UI** (production build, principal): both scan buttons present; manual room + asset codes
+  resolve and render the correct action links; «فتح الغرفة» targets the room; unknown code shows
+  an Arabic alert; camera-unsupported (headless) degrades to the Arabic manual-entry notice; 390×844
+  zero overflow, no page errors.
+- `npm test` **191/191** (181 + 10), typecheck / lint (0 errors) / build clean.
+
+### Artifacts
+
+- `src/lib/building/qr-parse.ts`, `src/app/(app)/building/scan-actions.ts`,
+  `src/app/(app)/building/scan/{page,qr-scanner}.tsx`,
+  `src/app/(app)/building/rooms/[id]/page.tsx` (anchor), `src/app/(app)/building/page.tsx` (link),
+  `tests/unit/qr-parse.test.ts`, `tests/integration/qr-scan.test.ts`.
