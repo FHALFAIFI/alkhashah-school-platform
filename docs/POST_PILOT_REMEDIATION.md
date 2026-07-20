@@ -454,3 +454,42 @@ Docker stack** (clean DB + persistent volumes): stopped the legacy dev server (r
 rebound the clean app to 3080, verified healthy. **Rollback** documented (restart legacy dev server
 against the untouched legacy DB, or restore the pre-cutover backup). No Fares/plan import committed;
 D-014 unresolved. **No release tag created.**
+
+---
+
+## PHASE 9 — Acceptance testing  ✅ (all gates green; C5 physical-camera deferred)
+
+### Repairs from Phases 3 & 6
+- `tests/e2e/workflows.spec.ts` **س5**: rewired to the new SVG editor (publish the seeded draft via
+  **«نشر هذه النسخة»** in the version list) and to the pre-active system templates (no manual
+  «اعتماد» step; the general «السلامة العامة» template matches all room types).
+- **Fixed a real Phase-1 regression**: `PwaManager` reloaded the page on the **initial**
+  `controllerchange` (the `clients.claim()` first-visit claim), causing an unwanted reload on first
+  load — annoying in production and flaky in e2e. Now it reloads only on a **genuine update**
+  (skips the initial claim). This fixed intermittent navigation failures.
+
+### New coverage
+- `tests/e2e/building-remediation.spec.ts` (5): template create→preview→activate→duplicate (P3);
+  manual editor create-room→tray→place→save-draft (P6); QR manual unknown-code Arabic error (P5);
+  document-scan upload fallback always present (P4); asset active/archived filter + 390×844 no
+  overflow (P2). The full asset lifecycle + template versioning/snapshot + scan attach + QR resolve
+  are additionally covered by the integration suites.
+
+### Gate results
+- `npm run typecheck` clean · `npm run lint` **0 errors** · `npm run build` clean.
+- `npm test` (unit + integration) **193 passed**.
+- Playwright: **workflows 15/15**; full prior suite **46 passed / 1 skipped**; new
+  building-remediation **5/5**. The single skip is the **C5 real-HTTPS physical-camera** test,
+  explicitly deferred (D-018) — all camera/permission/error/fallback **logic** is tested (fake
+  media stream for document scan; BarcodeDetector-unsupported path for QR).
+- **Stale service-worker recovery** verified by design + the redesigned `sw.js`
+  (network-first navigations, versioned cache) and `PwaManager` (`ChunkLoadError` self-recovery +
+  Arabic update notice) — exercised in the production-build sweep (Phase 1) and https-pwa spec.
+
+Acceptance-list mapping (27 items): routes-load / prod-build-buttons / loading+double-click /
+session-expiry / Arabic-errors / mobile-docks (Phase 1 + existing e2e); asset archive/restore +
+guarded delete (P2 integration + e2e); template CRUD/version/activate + frozen historical (P3
+integration + e2e); document camera fallback + scan-to-PDF (P4 integration + ad-hoc fake-camera UI);
+QR scan/manual (P5 unit+integration+e2e); room create + tray + drag/resize/rename + numeric↔drawing +
+draft/publish/rollback (P6 UI-verified + unit); Docker clean start / persistence / backup+restore /
+no-demo / no-public-pg / Ollama-unavailable (Phase 8 Gate 8); RTL 390×844 no overflow (throughout).

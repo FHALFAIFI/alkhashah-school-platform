@@ -84,9 +84,15 @@ export function PwaManager() {
         })
         .catch(() => {});
 
-      // عند تفعيل عامل الخدمة الجديد فعلاً، أعد التحميل مرة واحدة لتطبيقه
+      // إعادة التحميل فقط عند تفعيل تحديث فعلي — لا عند أول استحواذ (clients.claim) لصفحة
+      // لم تكن متحكَّماً بها بعد؛ وإلا لأعدنا تحميل الصفحة عند أول زيارة (سلوك مزعج وكسر تنقّل).
+      let controlled = !!navigator.serviceWorker.controller;
       let refreshing = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!controlled) {
+          controlled = true; // الاستحواذ الأولي — لا تُعِد التحميل
+          return;
+        }
         if (refreshing) return;
         refreshing = true;
         location.reload();

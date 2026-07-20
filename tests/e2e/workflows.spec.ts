@@ -545,12 +545,11 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.waitForURL((u) => decodeURIComponent(u.toString()).includes("دور=ground"));
     await page.getByRole("link", { name: "فتح المحرر" }).click();
     await page.waitForURL("**/building/editor/ground");
-    const publishBtn = page.getByRole("button", { name: /^نشر النسخة/ });
-    await expect(publishBtn.or(page.getByText("لا مسودة بانتظار النشر"))).toBeVisible({ timeout: 30_000 });
-    if (await publishBtn.count()) {
-      await publishBtn.click();
-      await expect(page.getByText("لا مسودة بانتظار النشر")).toBeVisible({ timeout: 60_000 });
-    }
+    // المحرر اليدوي الجديد (Phase 6): تُنشر مسودة الهندسة المبذورة من «سجل نسخ الهندسة»
+    const publishBtn = page.getByRole("button", { name: "نشر هذه النسخة" }).first();
+    await expect(publishBtn).toBeVisible({ timeout: 30_000 });
+    await publishBtn.click(); // حوار التأكيد يُقبل تلقائياً
+    await expect(page.locator("span.rounded-full", { hasText: "منشورة" }).first()).toBeVisible({ timeout: 60_000 });
 
     // سجل الغرف أنشئ برموز KHS-RM — التقط رمز أول غرفة
     await nav(page, "مخطط المبنى", "/building");
@@ -574,16 +573,9 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByText("حُفظت بيانات الغرفة")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("التعديل محفوظ في مسودة المخطط")).toBeVisible({ timeout: 20_000 });
 
-    // اعتماد قالب فحص (حوار تأكيد) — «فحص السلامة العام» يطابق كل الأنواع
+    // قوالب الفحص المرجعية (Phase 3) مُفعّلة مسبقاً كقوالب نظام — «السلامة العامة» يطابق كل الأنواع
     await nav(page, "الفحص والجاهزية", "/building/inspections");
-    const generalRow = page.locator("tr", { hasText: "فحص السلامة العام" });
-    await expect(generalRow).toBeVisible({ timeout: 20_000 });
-    if (await generalRow.getByRole("button", { name: "اعتماد" }).count()) {
-      await generalRow.getByRole("button", { name: "اعتماد" }).click();
-      await expect(generalRow.locator("span.rounded-full", { hasText: "معتمد" })).toBeVisible({ timeout: 20_000 });
-    } else {
-      await expect(generalRow.locator("span.rounded-full", { hasText: "معتمد" })).toBeVisible();
-    }
+    await expect(page.locator("tr", { hasText: "السلامة العامة" }).first()).toBeVisible({ timeout: 20_000 });
 
     // العودة للغرفة بالرمز وتنفيذ فحص
     await nav(page, "مخطط المبنى", "/building");
