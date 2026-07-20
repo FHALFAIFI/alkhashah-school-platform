@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth/session";
 import { getPilotStatus } from "@/lib/pilot-status";
 import { PageHeader, Card, Badge } from "@/components/ui";
+import { RetestChecklist } from "./retest-checklist";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,33 @@ export default async function PilotPage() {
         title="مركز التشغيل التجريبي"
         subtitle="حالة حيّة محسوبة من بيانات المنصة الفعلية — لا أرقام ثابتة."
       />
+
+      {/* دعوة إعادة الاختبار + لوحة إعادة اختبار المدير (Phase 10) */}
+      <Card className="mb-5 border-brand-200 bg-brand-50/50">
+        <h2 className="mb-2 text-lg font-bold text-brand-900">دعوة لإعادة اختبار المنصة</h2>
+        <div className="space-y-1.5 text-sm text-brand-900">
+          <p>عزيزنا مدير المجمع، تم تنفيذ التحسينات التالية وإعداد بيئة نظيفة لإعادة الاختبار:</p>
+          <ul className="list-inside list-disc space-y-1 ps-1 text-gray-700">
+            <li>تم تنظيف المنصة من كل البيانات التجريبية — لا توجد بيانات تشغيلية وهمية.</li>
+            <li>يمكنك استيراد ملفات فارس والخطة التشغيلية الرسمية من جديد يدوياً (لن يُنفَّذ الاستيراد تلقائياً).</li>
+            <li>يمكنك الآن إنشاء غرف المبنى وترتيبها يدوياً على مخطط ثنائي الأبعاد بسيط.</li>
+            <li>أصبح بالإمكان إنشاء قوالب الفحص وتحريرها وتفعيلها.</li>
+            <li>يمكن أرشفة الأصول بأمان واستعادتها، والحذف النهائي محروس بلا تبعيات.</li>
+            <li>أُضيف مسح المستندات بالكاميرا ومسح رموز QR للغرف والأصول (مع بديل الإدخال اليدوي/الرفع).</li>
+            <li>الوصول عن بُعد يتم عبر Tailscale الخاص (HTTPS) — بلا تعريض عام.</li>
+            <li>أرسل ملاحظاتك من زر «إرسال ملاحظة» الظاهر في كل صفحة، أو من كل مهمة في القائمة أدناه.</li>
+          </ul>
+          <p className="pt-1 text-xs text-gray-500">لن يُعتبر أنك «قبِلت» التحديثات إلا بعد إرسالك ملاحظة فعلية تُسجَّل في قناة الملاحظات.</p>
+        </div>
+      </Card>
+
+      <Card className="mb-5">
+        <h2 className="mb-1 font-bold text-brand-900">قائمة إعادة اختبار المدير</h2>
+        <p className="mb-3 text-xs text-gray-500">
+          خمس عشرة مهمة تغطّي الأزرار والقوالب والمسح ورموز QR والغرف والمخطط والأصول والفحص والملاحظات.
+        </p>
+        <RetestChecklist />
+      </Card>
 
       {/* شريط الحالة العامة — يتبدّل حسب حالة دفعة فارس */}
       {overallReady ? (

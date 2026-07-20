@@ -493,3 +493,34 @@ integration + e2e); document camera fallback + scan-to-PDF (P4 integration + ad-
 QR scan/manual (P5 unit+integration+e2e); room create + tray + drag/resize/rename + numeric↔drawing +
 draft/publish/rollback (P6 UI-verified + unit); Docker clean start / persistence / backup+restore /
 no-demo / no-public-pg / Ollama-unavailable (Phase 8 Gate 8); RTL 390×844 no overflow (throughout).
+
+---
+
+## PHASE 10 — Principal retest package  ✅
+
+### /pilot retest panel + invitation
+- Added an Arabic **invitation** card to `/pilot` (platform cleaned, no demo data, re-import official
+  files manually, manual building rooms, editable templates, safe asset archive, private Tailscale
+  HTTPS access, feedback via «إرسال ملاحظة») — with the explicit note that **acceptance is not
+  claimed until the principal actually submits feedback**.
+- Added a **15-task retest checklist** (`retest-checklist.tsx`): open pages/buttons; create/edit/
+  activate a template; open the editor; add rooms manually; arrange on the sketch; edit names/dims;
+  save + publish; create asset; archive + restore; scan QR; scan/upload a document; complete an
+  inspection; submit feedback. Each task has a deep link, a **status** (لم أبدأ/نجح/واجهت مشكلة), a
+  **comment**, an **optional screenshot**, **«حفظ كمسودة»** (localStorage), and **«إرسال ملاحظة»**
+  which posts through the existing feedback channel (`submitFeedbackAction`) and returns an `FB-` ref.
+
+### Verification
+- `tests/e2e/pilot-retest.spec.ts`: invitation + 15 tasks render; set status + comment + save draft;
+  submit a task's feedback → `FB-` ref; the record appears in `/admin/feedback`.
+- typecheck / lint (0 errors) / build clean.
+
+### Acceptance state
+- **No release tag created** — and none will be until the clean Docker deployment is verified (done),
+  the **principal completes the retest**, the principal **imports the official data he chooses to
+  activate**, and the principal **explicitly accepts** the pilot. Acceptance is recorded only when the
+  principal's feedback is actually submitted; the agent does not mark it accepted.
+
+### Exact principal retest route
+`https://school-server.<tailnet>.ts.net/pilot` (private Tailscale HTTPS) — locally `http://127.0.0.1:3080/pilot`.
+Login: `principal` (temporary password in the container at `/data/storage/private/initial-credentials.txt`).
