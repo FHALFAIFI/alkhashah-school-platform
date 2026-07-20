@@ -12,10 +12,13 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 pg_dump --dbname="$DATABASE_URL" --format=custom --file="$TMP/db.dump"
-# الإعدادات: مثال البيئة (بلا أسرار) وقائمة الإصدارات
-cp "$ROOT_DIR/.env.example" "$TMP/env.example" 2>/dev/null || true
+# الإعدادات: package.json دائماً، ومثال البيئة (بلا أسرار) إن وُجد — قد لا يكون في صورة الإنتاج
 cp "$ROOT_DIR/package.json" "$TMP/package.json"
-tar -czf "$TMP/full.tar.gz" -C "$TMP" db.dump env.example package.json -C "$(dirname "$STORAGE_DIR")" "$(basename "$STORAGE_DIR")"
+EXTRA=""
+for ex in ".env.example" ".env.production.example"; do
+  if [ -f "$ROOT_DIR/$ex" ]; then cp "$ROOT_DIR/$ex" "$TMP/env.example" && EXTRA="env.example"; break; fi
+done
+tar -czf "$TMP/full.tar.gz" -C "$TMP" db.dump package.json $EXTRA -C "$(dirname "$STORAGE_DIR")" "$(basename "$STORAGE_DIR")"
 encrypt_file "$TMP/full.tar.gz" "$BACKUP_DIR/weekly/full-$STAMP.tar.gz.enc"
 chmod 600 "$BACKUP_DIR/weekly/full-$STAMP.tar.gz.enc"
 prune_old "$BACKUP_DIR/weekly" "$RETENTION" "full-*.tar.gz.enc"

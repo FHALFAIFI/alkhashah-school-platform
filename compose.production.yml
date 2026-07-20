@@ -1,0 +1,100 @@
+# مجمع الإنتاج للمنزل-المخبر (homelab) — التطبيق + PostgreSQL في شبكة Docker داخلية.
+# القواعد الأمنية: PostgreSQL غير منشور إطلاقاً، والتطبيق يرتبط بـ 127.0.0.1 فقط،
+# والوصول عن بُعد عبر Tailscale Serve على المضيف (لا Funnel). Ollama يبقى على المضيف
+# (Mac) أو خدمة اختيارية (Ubuntu) — انظر docs/DOCKER_HOMELAB_DEPLOYMENT.md.
+#
+# الاستخدام:
+#   docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod up -d --build
+# يشغّل init (هجرة + بذر مرجعي) مرة، ثم التطبيق. البيانات في وحدات تخزين دائمة.
+
+name: madrasa-prod
+
+x-app-build: &app-build
+  build:
+    context: .
+    dockerfile: Dockerfile.production
+  image: madrasa-app:${APP_VERSION:-0.1.0}
+  environment: &app-env
+    DATABASE_URL: postgresql://${POSTGRES_USER:-madrasa}:${POSTGRES_PASSWORD:?set in .env.production}@db:5432/${POSTGRES_DB:-madrasa}
+    SESSION_SECRET: ${SESSION_SECRET:?set in .env.production}
+    STORAGE_DIR: /data/storage
+    BACKUP_DIR: /data/backups
+    BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+    APP_URL: ${APP_URL:-http://localhost:3080}
+    APP_VERSION: ${APP_VERSION:-0.1.0}
+    TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-*.ts.net}
+    AI_ENABLED: ${AI_ENABLED:-false}
+    AI_PROVIDER: ${AI_PROVIDER:-ollama}
+    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    NODE_ENV: production
+  logging: &logging
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-madrasa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:-madrasa}
+    # لا ports — PostgreSQL غير منشور (يُوصل فقط عبر الشبكة الداخلية)
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-madrasa} -d ${POSTGRES_DB:-madrasa}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging: *logging
+
+  # خدمة لمرة واحدة: تطبيق الهجرات + بذر البيانات المرجعية فقط (لا بيانات تشغيلية تجريبية)
+  init:
+    <<: *app-build
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "npx tsx src/db/migrate.ts && npx tsx src/db/seed.ts"]
+    volumes:
+      - storage:/data/storage
+      - backups:/data/backups
+    restart: "no"
+    logging: *logging
+
+  app:
+    <<: *app-build
+    depends_on:
+      db:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    # يرتبط بالمضيف المحلي فقط — الوصول عبر Tailscale Serve على المضيف
+    ports:
+      - "127.0.0.1:${APP_PORT:-3080}:3080"
+    # للوصول إلى Ollama على المضيف (Mac Apple Silicon أو Ubuntu بلا تسريع حاوية)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - storage:/data/storage
+      - backups:/data/backups
+    # نظام ملفات القراءة فقط حيث أمكن + مساحات كتابة مؤقتة للضروري
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3080/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging: *logging
+
+volumes:
+  pgdata:
+  storage:
+  backups:

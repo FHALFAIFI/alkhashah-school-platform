@@ -29,9 +29,18 @@ export default async function SettingsPage() {
     revalidatePath("/admin/settings");
   }
 
+  const appVersion = process.env.APP_VERSION ?? process.env.npm_package_version ?? "0.1.0";
+
   return (
     <div className="max-w-2xl space-y-4">
       <PageHeader title="إعدادات النظام" />
+      <Card>
+        <h2 className="mb-1 font-bold text-gray-800">معلومات النظام</h2>
+        <p className="text-sm text-gray-600">
+          إصدار التطبيق: <span className="tabular-nums" dir="ltr">{appVersion}</span>
+        </p>
+        <p className="mt-1 text-xs text-gray-400">يظهر هذا الإصدار أيضاً في بيانات كل ملاحظة تشغيلية.</p>
+      </Card>
       <Card>
         <form action={save} className="space-y-4">
           <div>

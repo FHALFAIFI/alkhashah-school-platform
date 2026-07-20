@@ -12,6 +12,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # Original reference files (school data) — never commit
 reference_files/

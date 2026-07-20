@@ -1,0 +1,67 @@
+# منصة الإدارة المدرسية المتكاملة — صورة إنتاج متعددة المراحل.
+# Chromium (لتوليد PDF العربي) مثبّت في مسار مشترك يقرأه المستخدم غير الجذر.
+# الهجرة والبذر يُنفَّذان من خدمة init في compose.production.yml (ليس عند كل إقلاع).
+# syntax=docker/dockerfile:1
+FROM node:24-bookworm-slim AS base
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# ————— التبعيات —————
+FROM base AS deps
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# ————— البناء —————
+FROM deps AS build
+COPY . .
+RUN npm run build
+
+# ————— التشغيل —————
+FROM base AS runner
+ENV NODE_ENV=production
+ENV PORT=3080
+ENV HOSTNAME=0.0.0.0
+
+# تبعيات النظام: Chromium + خطوطه، poppler لمعاينة PDF، وعميل postgres 16 (يطابق الخادم)
+# من مستودع PGDG — إصدار bookworm الافتراضي هو 15 ويرفض dump لخادم 16.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+  && install -d /usr/share/postgresql-common/pgdg \
+  && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+  && apt-get update && apt-get install -y --no-install-recommends \
+      poppler-utils postgresql-client-16 openssl \
+      fonts-noto-core fonts-noto-color-emoji \
+  && rm -rf /var/lib/apt/lists/*
+
+# متصفح Playwright في مسار مشترك عالمي القراءة (يعمل للمستخدم غير الجذر)
+RUN npx --yes playwright@1 install --with-deps chromium \
+  && chmod -R a+rx /ms-playwright
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/next.config.ts ./next.config.ts
+COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY --from=build /app/drizzle ./drizzle
+COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=build /app/src ./src
+COPY --from=build /app/scripts ./scripts
+
+# مستخدم غير جذر يملك /app ومجلدات البيانات القابلة للكتابة
+RUN useradd -m -u 1001 madrasa \
+  && mkdir -p /data/storage /data/backups \
+  && chown -R madrasa:madrasa /data /app
+USER madrasa
+
+ENV STORAGE_DIR=/data/storage
+ENV BACKUP_DIR=/data/backups
+EXPOSE 3080
+
+# فحص صحة الحاوية عبر نقطة /api/health
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 \
+  CMD curl -fsS http://127.0.0.1:3080/api/health || exit 1
+
+# الافتراضي: تشغيل خادم الإنتاج فقط (الهجرة/البذر من خدمة init)
+CMD ["npm", "run", "start"]

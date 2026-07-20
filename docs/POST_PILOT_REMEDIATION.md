@@ -415,3 +415,42 @@ horizontal overflow. Background-image calibration is a documented deferred optio
 - `src/lib/building/geometry.ts` (unplaced), `src/app/(app)/building/editor/[floorKey]/manual-editor.tsx`
   (new), `.../rollback-ui.tsx` (PublishButton), `.../page.tsx` (wire new editor + publish),
   removed `editor-loader.tsx` + `plan-editor.tsx`, `tests/unit/geometry-validation.test.ts`.
+
+---
+
+## PHASES 7 & 8 — Clean production baseline + Docker homelab deployment  ✅ (cutover done, reversible)
+
+Coupled per the engagement: the clean environment **is** the Docker stack. Full detail in
+`docs/CLEAN_PRODUCTION_BASELINE.md`, `docs/DOCKER_HOMELAB_DEPLOYMENT.md`, `docs/DOCKER_OPERATIONS.md`.
+
+### Docker artifacts
+- `Dockerfile.production` — multi-stage, non-root, Chromium at a shared world-readable path (Arabic
+  PDF), **postgresql-client-16** (PGDG; the default bookworm pg15 refused to dump a pg16 server),
+  poppler, `/api/health` HEALTHCHECK, start-only (migration/seed via compose `init`).
+- `compose.production.yml` (project `madrasa-prod`): `db` (**no published ports**), one-shot `init`
+  (migrate + reference seed), `app` (**`127.0.0.1:3080` only**, read-only fs + tmpfs, healthcheck,
+  json-file log rotation, `restart: unless-stopped`, `host.docker.internal` for host Ollama).
+- `.dockerignore`, `.env.production.example` (no secrets), `src/app/api/health/route.ts`,
+  app-version card in `/admin/settings`, `scripts/backup-weekly.sh` fix (optional env example).
+
+### Cold checkpoint (nothing destroyed)
+Pre-cutover encrypted DB-only + full DB+files backups (checksummed) + **passing** restore rehearsal of
+the legacy DB; legacy `madrasa-db` container + `fathersfile_madrasa_pgdata` volume + all 17 encrypted
+backups + manifests **retained**. Legacy stays at migrations 0–7 (0008/0009 never applied there).
+
+### Clean environment (verified — Gate 8)
+Built from **empty volumes**; `db` healthy → `init` applied **all 10 migrations** + seeded **reference
+data only** → `app` healthy. Verified: `/api/health` ok; **principal login + Arabic RTL**; **zero demo
+operational records** (people/programs/committees/meetings/rooms/assets/inspections/maintenance/
+documents/imports/feedback/geometry all 0) with reference data present (2 users, 56 perms incl.
+`assets.delete`, official calendar/committee-templates/8 perf models+D-014/10 system inspection
+templates/settings); import pages present; **restart persistence** (data survives `restart`);
+**encrypted backup + disposable restore rehearsal PASS inside the container**; **PostgreSQL not
+published** (our `db` maps no host port); app **localhost-only**; Ollama disabled → app fully works.
+
+### Cutover (authorized, reversible)
+Active service on `127.0.0.1:3080` switched from the legacy dev server (legacy DB) to the **clean
+Docker stack** (clean DB + persistent volumes): stopped the legacy dev server (retained legacy DB),
+rebound the clean app to 3080, verified healthy. **Rollback** documented (restart legacy dev server
+against the untouched legacy DB, or restore the pre-cutover backup). No Fares/plan import committed;
+D-014 unresolved. **No release tag created.**

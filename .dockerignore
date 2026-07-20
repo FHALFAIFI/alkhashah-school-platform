@@ -1,0 +1,37 @@
+# لا تُرسل هذه إلى سياق بناء الصورة (أمان + حجم أصغر + بناء أسرع)
+.git
+node_modules
+.next
+out
+dist
+build
+
+# البيانات الحساسة والأسرار — يجب ألا تدخل الصورة أبداً
+.env
+.env.*
+!.env.production.example
+storage/
+storage-e2e/
+backups/
+reference_files/
+local_data/
+
+# مخرجات الاختبار والتغطية (ملفات الاختبار نفسها تبقى في سياق البناء لتفادي
+# مشاكل فحص الأنواع، لكنها لا تُنسخ إلى صورة التشغيل)
+coverage/
+playwright-report/
+test-results/
+
+# ملفات المطوّر ونظام التشغيل
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.tsbuildinfo
+next-env.d.ts
+
+# وثائق ومطالبات لا يحتاجها التشغيل
+docs/
+*.md
+!README.md
+CLAUDE_CODE_MASTER_BUILD_PROMPT_EN.md
