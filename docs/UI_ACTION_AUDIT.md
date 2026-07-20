@@ -62,7 +62,8 @@ the pending state and shows the required Arabic message («انتهت الجلس
 | Building | `/building` | 8 btns / 36 links | AUTO |
 | Rooms | `/building/rooms/[id]` | 5 btns; malformed id → clean 404 (fixed) | AUTO + CODE |
 | Assets | `/building/assets` | active/archived filter, condition, «أرشفة الأصل», «استعادة الأصل», «حذف نهائي», history | AUTO + E2E-verified + integration (`asset-lifecycle`) — **Phase 2 done** |
-| Inspections | `/building/inspections` | 8 btns / 47 links | AUTO → **Phase 3 rebuild (template CRUD)** |
+| Inspections | `/building/inspections` | readiness + «قوالب الفحص» link + approve draft | AUTO |
+| Inspection templates | `/building/inspections/templates` (+`new`,`[id]`,`[id]/edit`) | create/edit/preview/duplicate/activate/deactivate/new-version/delete + section/item editor | E2E-verified + integration (`inspection-templates`) — **Phase 3 done** |
 | Maintenance | `/building/maintenance` | 5 btns | AUTO |
 | Building 3D | `/building/3d` | 4 btns | AUTO |
 | Building editor | `/building/editor/[floorKey]` | canvas editor | **Phase 6 rebuild** |

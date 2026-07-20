@@ -524,6 +524,9 @@ export async function submitInspectionAction(_prev: ActionState, formData: FormD
     results,
     notes: parsed.data.notes || null,
     inspectorId: user.id,
+    // تجميد تاريخي: نسخة القالب المستخدَمة الآن — لا تغيّرها تعديلات القالب اللاحقة
+    templateSnapshot: template.sections ?? template.items,
+    templateVersion: template.version,
   });
   await audit({ actorId: user.id, action: "inspection.submitted", entityType: "room", entityId: parsed.data.roomId, summary: `فحص ${room.nameAr}` });
   revalidatePath("/building/inspections");

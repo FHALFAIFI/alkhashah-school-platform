@@ -17,6 +17,7 @@ import { permissionsSeed, rolesSeed } from "./seed-data/permissions";
 import { committeeTemplatesSeed } from "./seed-data/committee-templates";
 import { calendar1448Seed } from "./seed-data/calendar-1448-1449";
 import { seedOfficialPerfModels } from "./seed-official-models";
+import { systemTemplates, flattenItems } from "@/lib/building/inspection-template-defs";
 
 const STORAGE_DIR = process.env.STORAGE_DIR ?? "./storage";
 
@@ -216,68 +217,30 @@ async function seedBranding() {
 async function seedInspectionTemplates() {
   const existing = await db.select().from(inspectionTemplates);
   if (existing.length > 0) return;
-  const t = (key: string, label: string, required = true) => ({ key, label, required });
-  const defs: { nameAr: string; roomType: string | null; items: { key: string; label: string; required: boolean }[] }[] = [
-    {
-      nameAr: "فحص الفصل الدراسي",
-      roomType: "فصل دراسي",
-      items: [
-        t("lighting", "الإضاءة تعمل بالكامل"),
-        t("ac", "التكييف يعمل"),
-        t("board", "السبورة سليمة"),
-        t("seats", "المقاعد والطاولات كافية وسليمة"),
-        t("windows", "النوافذ والأبواب سليمة"),
-        t("cleanliness", "النظافة العامة مقبولة"),
-        t("electrical", "الأفياش والتمديدات الكهربائية آمنة"),
-      ],
-    },
-    {
-      nameAr: "فحص المعمل",
-      roomType: "معمل",
-      items: [
-        t("devices", "الأجهزة تعمل"),
-        t("safety", "أدوات السلامة متوفرة (طفاية، إسعافات)"),
-        t("network", "الشبكة/الإنترنت تعمل", false),
-        t("ventilation", "التهوية سليمة"),
-        t("storage", "تخزين المواد آمن"),
-        t("electrical", "التمديدات الكهربائية آمنة"),
-      ],
-    },
-    {
-      nameAr: "فحص دورات المياه",
-      roomType: "دورة مياه",
-      items: [
-        t("water", "المياه متوفرة"),
-        t("drainage", "التصريف سليم"),
-        t("doors", "الأبواب والأقفال سليمة"),
-        t("cleanliness", "النظافة مقبولة"),
-        t("ventilation", "التهوية سليمة"),
-      ],
-    },
-    {
-      nameAr: "فحص الملعب والساحات",
-      roomType: "ملعب",
-      items: [
-        t("surface", "أرضية الملعب سليمة وخالية من المخاطر"),
-        t("goals", "المرامي/التجهيزات مثبتة بأمان"),
-        t("shade", "المظلات سليمة", false),
-        t("fencing", "الأسوار سليمة"),
-      ],
-    },
-    {
-      nameAr: "فحص السلامة العام",
-      roomType: null,
-      items: [
-        t("extinguisher", "طفايات الحريق متوفرة وصالحة"),
-        t("exit", "مخارج الطوارئ سالكة ومعلمة"),
-        t("alarm", "جهاز الإنذار يعمل", false),
-        t("firstaid", "حقيبة الإسعافات متوفرة"),
-        t("hazards", "لا مخاطر ظاهرة (تمديدات، زجاج مكسور، تسريبات)"),
-      ],
-    },
-  ];
+  // قوالب النظام المرجعية (Phase 3): أقسام غنية بأنواع إجابات وخطورة وإجراء تصحيحي؛
+  // تُبذر «مُفعّلة» (معتمد) وكـ isSystem، برمز عائلة KHS-TPL وإصدار 1 (rootId=self).
+  // هذه قوالب نظام مرجعية قابلة للتحرير/التكرار/التفعيل — وليست نتائج فحص وهمية.
+  const defs = systemTemplates();
+  const prefix = "KHS-TPL-";
+  let i = 0;
   for (const d of defs) {
-    await db.insert(inspectionTemplates).values({ nameAr: d.nameAr, roomType: d.roomType, items: d.items, status: "مسودة" });
+    i += 1;
+    const code = `${prefix}${String(i).padStart(4, "0")}`;
+    const [created] = await db
+      .insert(inspectionTemplates)
+      .values({
+        code,
+        version: 1,
+        nameAr: d.nameAr,
+        roomType: d.roomType,
+        purpose: d.purpose,
+        items: flattenItems(d.sections),
+        sections: d.sections,
+        isSystem: true,
+        status: "معتمد",
+      })
+      .returning();
+    await db.update(inspectionTemplates).set({ rootId: created.id }).where(eq(inspectionTemplates.id, created.id));
   }
 }
 

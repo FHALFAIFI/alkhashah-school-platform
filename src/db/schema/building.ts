@@ -133,16 +133,29 @@ export const assetHistory = pgTable(
   (t) => [index("asset_history_asset_idx").on(t.assetId)],
 );
 
-/** قوالب الفحص حسب نوع الغرفة — تبقى مسودة حتى اعتماد المدير */
+/**
+ * قوالب الفحص — عائلة إصدارات (code ثابت + rootId + version تصاعدي).
+ * status: مسودة | معتمد (=مُفعّل/قابل للاستخدام) | معطّل. `sections` هي المصدر الغني للتحرير
+ * والمعاينة والتجميد؛ `items` قائمة مسطّحة مشتقة للتوافق مع الفحص/الجاهزية/عدم الاتصال.
+ */
 export const inspectionTemplates = pgTable("inspection_templates", {
   id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code"), // KHS-TPL-0001 — ثابت عبر إصدارات العائلة
+  rootId: uuid("root_id"), // معرّف أول إصدار في العائلة (self لأول إصدار)
+  version: integer("version").notNull().default(1),
   nameAr: text("name_ar").notNull(),
   roomType: text("room_type"),
+  purpose: text("purpose"),
+  instructions: text("instructions"),
   items: jsonb("items").$type<{ key: string; label: string; required: boolean }[]>().notNull(),
-  status: text("status").notNull().default("مسودة"), // مسودة | معتمد
+  sections: jsonb("sections").$type<unknown[]>(),
+  assignment: jsonb("assignment").$type<Record<string, unknown>>(),
+  isSystem: boolean("is_system").notNull().default(false),
+  status: text("status").notNull().default("مسودة"), // مسودة | معتمد | معطّل
   approvedBy: uuid("approved_by").references(() => users.id),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 /** عمليات الفحص — تدعم الالتقاط دون اتصال (clientOpId يمنع التكرار عند المزامنة) */
@@ -156,6 +169,9 @@ export const inspections = pgTable(
     inspectionDate: timestamp("inspection_date", { withTimezone: true }).notNull().defaultNow(),
     results: jsonb("results").$type<{ key: string; ok: boolean; note?: string }[]>(),
     photos: jsonb("photos").$type<string[]>(), // stored file ids
+    /** تجميد تاريخي: نسخة القالب المستخدَمة وقت الفحص — لا تغيّرها تعديلات القالب اللاحقة. */
+    templateSnapshot: jsonb("template_snapshot").$type<unknown>(),
+    templateVersion: integer("template_version"),
     status: text("status").notNull().default("مكتمل"),
     scheduled: boolean("scheduled").notNull().default(false),
     inspectorId: uuid("inspector_id").references(() => users.id),

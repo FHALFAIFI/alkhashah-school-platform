@@ -224,3 +224,59 @@ Additive **migration 0008** adds `archived_at` / `archived_reason` / `archived_b
   `src/app/(app)/building/actions.ts` (archive/restore/delete actions),
   `src/app/(app)/building/assets/{page,assets-ui}.tsx`,
   `tests/integration/asset-lifecycle.test.ts` (new).
+
+---
+
+## PHASE 3 — Editable inspection templates  ✅ (CRUD + versioning + historical snapshot)
+
+### Design
+
+Additive **migration 0009** extends `inspection_templates` (code, root_id, version, purpose,
+instructions, sections jsonb, assignment jsonb, is_system) and `inspections`
+(template_snapshot jsonb, template_version). A template is a **family of versions** keyed by a
+stable `code` + `root_id` with an ascending `version`. Status values: مسودة | معتمد (=مُفعّل,
+kept for back-compat with the offline/run/readiness readers) | معطّل. `sections` is the rich
+edit/preview/snapshot source; `items` is a derived flat list for those legacy readers.
+
+Pure defs (types, response-type labels, severities, `flattenItems`, `validateSections`,
+`systemTemplates`) live in `inspection-template-defs.ts` (no `server-only`, importable by
+client + server + seed); `nextTemplateCode` (db) stays in the `server-only`
+`inspection-templates.ts` which re-exports the defs.
+
+- **Routes** (`/building/inspections/templates`): list (grouped by family, versions + status +
+  usage), `new` (create), `[id]` (preview + versions + usage history + activate/deactivate/
+  duplicate/delete/new-version), `[id]/edit` (editor).
+- **Editor** (`template-editor.tsx`): add/edit/remove/**reorder** sections and items; each item
+  carries label, instructions, required, **response type** (yes/no, compliant, numeric, rating,
+  text, date, photo, attachment), **severity on fail**, and **corrective-action required**.
+  Serializes sections to a hidden JSON field; server `validateSections` re-checks.
+- **Actions** (`template-actions.ts`): create (draft v1, family), update (in place if an unused
+  draft; **otherwise creates a new draft version** — historical integrity), activate (sets
+  مُفعّل, deactivates sibling active versions), deactivate, duplicate (new family), delete
+  (draft + unused only — **used versions cannot be hard-deleted**).
+- **Historical integrity**: `submitInspectionAction` freezes `template_snapshot` +
+  `template_version` on the inspection row, so later template edits never alter past inspections.
+- **System defaults**: 10 Arabic reference templates (general readiness, safety, cleanliness,
+  electrical, lab, computer lab, fire equipment, elevator, toilets, outdoor) seeded as `is_system`
+  + active with rich sections — clearly **system reference templates, not fake inspection
+  results** — and are editable/duplicable/activatable/deactivatable by the principal.
+
+### Verification
+
+- **Integration** `tests/integration/inspection-templates.test.ts` (5 tests): create→draft v1
+  (code/root/derived items); edit-in-place vs new-version-when-active; activate deactivates
+  siblings; used template can't be deleted **and** the inspection froze snapshot+version;
+  draft-unused delete works.
+- **Real UI** (production build on `madrasa_test`, principal): 10 system templates listed;
+  create→redirect to detail + preview; activate→«مُفعّل»; new-version edit→v2; duplicate→«(نسخة)».
+  **No page errors; 390×844 zero horizontal overflow.**
+- `npm test` **179/179** (174 + 5), typecheck / lint (0 errors) / build clean.
+
+### Artifacts
+
+- `drizzle/0009_orange_krista_starr.sql`, `src/db/schema/building.ts`,
+  `src/lib/building/inspection-template-defs.ts` + `inspection-templates.ts`,
+  `src/app/(app)/building/template-actions.ts`,
+  `src/app/(app)/building/inspections/templates/**` (list/new/[id]/[id]/edit + editor/preview/controls),
+  `src/app/(app)/building/actions.ts` (snapshot freeze), `src/db/seed.ts` (system templates),
+  `src/app/api/sync/offline-data/route.ts`, `tests/integration/inspection-templates.test.ts`.

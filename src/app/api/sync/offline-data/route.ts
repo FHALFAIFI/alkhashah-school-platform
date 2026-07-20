@@ -17,7 +17,7 @@ export async function GET() {
   return NextResponse.json({
     floors: allFloors.map((f) => ({ id: f.id, key: f.key, nameAr: f.nameAr })),
     rooms: allRooms.map((r) => ({ id: r.id, floorId: r.floorId, code: r.code, nameAr: r.nameAr, roomType: r.roomType })),
-    templates: templates.map((t) => ({ id: t.id, nameAr: t.nameAr, roomType: t.roomType, items: t.items })),
+    templates: templates.map((t) => ({ id: t.id, nameAr: t.nameAr, roomType: t.roomType, items: t.items, version: t.version })),
     csrfToken: user.csrfToken,
   });
 }
