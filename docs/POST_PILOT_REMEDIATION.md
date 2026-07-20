@@ -280,3 +280,49 @@ client + server + seed); `nextTemplateCode` (db) stays in the `server-only`
   `src/app/(app)/building/inspections/templates/**` (list/new/[id]/[id]/edit + editor/preview/controls),
   `src/app/(app)/building/actions.ts` (snapshot freeze), `src/db/seed.ts` (system templates),
   `src/app/api/sync/offline-data/route.ts`, `tests/integration/inspection-templates.test.ts`.
+
+---
+
+## PHASE 4 — Phone document scanning → PDF  ✅ (with upload fallback)
+
+### Design
+
+New building-module hub `/building/documents`. All processing is **local** (no external AI/cloud).
+
+- **Scanner** (`document-scanner.tsx`, client): «مسح مستند» opens the rear camera via
+  `getUserMedia({facingMode:'environment'})`; «التقاط صفحة» captures frames to canvas with an
+  optional **تحسين الوضوح** (grayscale + contrast) pass; captured pages support **إعادة الالتقاط**
+  (remove), reorder, and **تدوير** (rotate 90°). «إنشاء ملف PDF وحفظ وإرفاق» renders rotations,
+  posts ordered JPEG pages as JSON with the CSRF token.
+- **Camera denial / unavailable** is handled gracefully with an Arabic notice explaining the
+  secure-context (HTTPS/Tailscale) requirement, and a **«رفع ملف بدلاً من استخدام الكاميرا»**
+  fallback (image → PDF, or a ready PDF used as-is) is **always** present.
+- **API** `POST /api/building/scan` (`route.ts`): login + a building-module write permission +
+  CSRF + rate limit; accepts JSON pages (camera) or multipart (upload); builds one A4 PDF per
+  page via the existing local Playwright renderer (`buildScanPdf`); saves it as a **sensitive**
+  private stored file; creates an evidence item (kind=file, source «مسح مستند») linked to the
+  target and **audits** (`document.scanned`). Max 30 pages.
+- **Attach targets**: building (resolved to the school record's id — `evidence_links.entity_id`
+  is a uuid), floor, room, asset (route also supports inspection/maintenance). Title + category
+  + sensitive flag. Downloads go through the existing authenticated, audited `/api/files/[id]`
+  (sensitive → authorized-only).
+
+Not implemented (within the brief's "if technically reliable" allowance): freehand crop —
+documented limitation; rotate + grayscale/contrast enhance are provided.
+
+### Verification
+
+- **Integration** `tests/integration/document-scan.test.ts` (2 tests): `validateTarget`
+  accepts existing entities + building-without-id and rejects a missing uuid;
+  `attachScannedDocument` saves a sensitive PDF, creates the «مسح مستند» evidence + link, audits,
+  and `listScannedDocuments` returns it.
+- **Real UI** (production build, fake camera stream, principal): camera capture (2 pages +
+  rotate) → PDF built server-side → attached → listed → **download returns a valid `%PDF-`**;
+  image **upload fallback** → PDF attached; **fallback always present** without camera; no page errors.
+- `npm test` **181/181** (179 + 2), typecheck / lint (0 errors) / build clean.
+
+### Artifacts
+
+- `src/lib/building/document-scan.ts`, `src/app/api/building/scan/route.ts`,
+  `src/app/(app)/building/documents/{page,document-scanner}.tsx`,
+  `src/app/(app)/building/page.tsx` (links), `tests/integration/document-scan.test.ts`.
