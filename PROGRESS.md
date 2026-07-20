@@ -2,7 +2,31 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — PILOT FEEDBACK + /pilot CENTER + GUIDES (2026-07-19)
+## Latest checkpoint — POST-PILOT REMEDIATION (Phases 0–10) COMPLETE (2026-07-20)
+- Full engagement in `docs/POST_PILOT_REMEDIATION.md` (per-phase design + verification), plus
+  `docs/UI_ACTION_AUDIT.md`, `docs/CLEAN_PRODUCTION_BASELINE.md`, `docs/DOCKER_HOMELAB_DEPLOYMENT.md`,
+  `docs/DOCKER_OPERATIONS.md`. Commits `957b976`..`5ed65fa`.
+- **P0** cold-checkpoint backup + restore rehearsal (PASS). **P1** button-failure root cause (stale
+  PWA + one hydration break) fixed: SW rewrite (network-first navigations, versioned cache),
+  `PwaManager` (Arabic update notice + ChunkLoadError self-recovery; reload only on genuine update),
+  `global-error.tsx`, `isUuid` guard. **P2** asset lifecycle (archive/restore + guarded delete,
+  migration 0008). **P3** editable inspection templates (CRUD + versioning + frozen snapshot,
+  migration 0009, 10 system templates). **P4** phone document scanning → PDF (+ upload fallback).
+  **P5** QR scanning (room/asset) + manual fallback. **P6** rebuilt manual SVG 2D editor (create/
+  tray/place/drag/resize/numeric-sync/undo-redo/draft-publish/rollback; removed Konva). **P7+P8**
+  clean production baseline + Docker homelab stack (`compose.production.yml`, project `madrasa-prod`);
+  **reversible cutover done** — active service on 127.0.0.1:3080 is now the clean Docker stack
+  (clean DB, zero operational records, pg not published). Legacy retained as cold checkpoint. **P9**
+  acceptance: typecheck/lint(0)/build clean, **vitest 193**, **Playwright 52 passed / 1 skipped**
+  (only C5 physical-camera, D-018 deferred). **P10** `/pilot` Arabic invitation + 15-task retest
+  checklist (feedback-backed).
+- **Safety honored:** legacy DB/volume/files/backups never deleted; migrations 0008/0009 applied only
+  to `madrasa_test` + the clean Docker DB (legacy stays at 0–7); **no Fares/plan import committed**,
+  **no floor published in production**, **no employee accounts**, **D-014 unresolved**, **no release
+  tag**, no public Postgres/Ollama, no Tailscale Funnel. Acceptance is NOT marked until the principal
+  submits feedback. Retest route: `/pilot` (Tailscale HTTPS; local `http://127.0.0.1:3080/pilot`).
+
+## Earlier checkpoint — PILOT FEEDBACK + /pilot CENTER + GUIDES (2026-07-19)
 - **In-app pilot feedback workflow (Phase 3).** Additive **migration 0007** (`feedback` table +
   `feedback_ref_seq` — human refs `FB-0001…` from a DB sequence default, race-safe). New RBAC
   perms `feedback.create` / `feedback.manage` (granted to principal + sysadmin; idempotent
