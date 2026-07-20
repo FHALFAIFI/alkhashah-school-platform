@@ -368,3 +368,50 @@ item is moved on the sketch (they are not geometry-derived).
   `src/app/(app)/building/scan/{page,qr-scanner}.tsx`,
   `src/app/(app)/building/rooms/[id]/page.tsx` (anchor), `src/app/(app)/building/page.tsx` (link),
   `tests/unit/qr-parse.test.ts`, `tests/integration/qr-scan.test.ts`.
+
+---
+
+## PHASE 6 — Manual 2D floor-plan editor  ✅ (rebuilt, SVG, not CAD/BIM)
+
+### Design
+
+Replaced the heavy Konva editor with a **lightweight SVG editor** (`manual-editor.tsx`) matching
+the principal's workflow. Removed `editor-loader.tsx` + `plan-editor.tsx` (Konva). Geometry model
+extended with an `unplaced` tray (`geometry.ts`); `validateGeometry` now checks unplaced name/dims
+and duplicate keys without coordinate checks. Reuses the existing version system
+(`saveGeometryDraftAction`, `publishGeometryAction`, `rollbackGeometryAction`).
+
+Workflow: **create room** (Arabic form: name, type, width, length → computed area) → appears in
+the **«الغرف غير الموضوعة»** tray → **«ضع في المخطط»** places it → **drag** to move / **corner
+handle** to resize (pointer events) → **numeric ↔ drawing sync** (editing width/length/name/type in
+the side panel updates the SVG live, and vice-versa) → **save draft** → **publish** a new version
+from the page's version list (explicit confirm). Also: grid, **snap 0.5m**, zoom in/out, **fit to
+screen**, **undo/redo**, **unsaved-change** warning (`beforeunload`), **overlap** + **out-of-boundary**
+warnings (from `validateGeometry`), return-to-tray, delete-unplaced. Publishing never overwrites older
+versions; **documented rollback** (existing `RollbackButton`) creates a new documented draft. Phone
+shows the Arabic **«تحرير المخطط بدقة متاح على الحاسب أو الجهاز اللوحي»** note (view-only) with no
+horizontal overflow. Background-image calibration is a documented deferred optional (not rebuilt).
+
+### Verification (Quality Gate 6 core)
+
+- **Real UI** (production build, principal, 1300px): create 5 rooms → tray shows 5 → place all → 5
+  rects on canvas → numeric width change reflects on the drawing (`7×…` label) → rename reflects →
+  **undo removes placements, redo restores** → **drag moves a room** → save draft → **publish → 5
+  rooms synced** to the building page (KHS-RM). Second run: **prior published version is unchanged
+  after a new unpublished draft**. **390×844: Arabic editing note shown, zero horizontal overflow,
+  no page errors.** (QR/asset/archive/restore/template/scan already verified in Phases 2–5.)
+- **Unit** `tests/unit/geometry-validation.test.ts` (+2): unplaced validation + duplicate-key detection.
+- `npm test` **193/193**, typecheck / lint (0 errors) / build clean.
+
+### Known follow-up
+
+- `tests/e2e/workflows.spec.ts` scenario **س5** (digital twin) and its template step reference the
+  **old** editor's publish text and the pre-Phase-3 template name «فحص السلامة العام»; they will be
+  updated to the new editor + seeded system templates in **Phase 9** (acceptance), where the full
+  Playwright suite is run and repaired.
+
+### Artifacts
+
+- `src/lib/building/geometry.ts` (unplaced), `src/app/(app)/building/editor/[floorKey]/manual-editor.tsx`
+  (new), `.../rollback-ui.tsx` (PublishButton), `.../page.tsx` (wire new editor + publish),
+  removed `editor-loader.tsx` + `plan-editor.tsx`, `tests/unit/geometry-validation.test.ts`.

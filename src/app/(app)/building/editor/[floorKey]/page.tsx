@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
-import { floors, floorGeometryVersions, floorBackgrounds, siteZones } from "@/db/schema";
+import { floors, floorGeometryVersions, siteZones } from "@/db/schema";
 import { PageHeader, Badge, Card } from "@/components/ui";
-import { EditorLoader } from "./editor-loader";
-import { RollbackButton } from "./rollback-ui";
+import { ManualEditor } from "./manual-editor";
+import { RollbackButton, PublishButton } from "./rollback-ui";
 import type { FloorGeometry } from "@/lib/building/geometry";
 
 export const dynamic = "force-dynamic";
@@ -24,13 +24,6 @@ export default async function EditorPage({ params }: { params: Promise<{ floorKe
     .where(eq(floorGeometryVersions.floorId, floor.id))
     .orderBy(desc(floorGeometryVersions.version));
   const latest = versions[0] ?? null;
-
-  const [bg] = await db
-    .select()
-    .from(floorBackgrounds)
-    .where(and(eq(floorBackgrounds.floorId, floor.id), eq(floorBackgrounds.active, true)))
-    .orderBy(desc(floorBackgrounds.createdAt))
-    .limit(1);
 
   const emptyGeometry: FloorGeometry = { unit: "m", rooms: [] };
 
@@ -53,24 +46,9 @@ export default async function EditorPage({ params }: { params: Promise<{ floorKe
             أكبر للتحرير الدقيق. على الجوال يمكنك تعديل بيانات الغرفة وأبعادها رقمياً من صفحة الغرفة، والفحص والصيانة.
           </p>
         </Card>
-        <EditorLoader
+        <ManualEditor
           floorId={floor.id}
-          floorName={floor.nameAr}
-          isSite={floor.key === "site"}
-          isContext={isContext}
           initialGeometry={(latest?.geometry as unknown as FloorGeometry) ?? emptyGeometry}
-          latestVersion={latest?.version ?? 0}
-          latestVersionId={latest?.id ?? null}
-          latestStatus={latest?.status ?? "—"}
-          background={
-            bg
-              ? {
-                  id: bg.id,
-                  url: `/api/files/${bg.fileId}`,
-                  transform: bg.transform as { x: number; y: number; scale: number; rotation: number; opacity: number; visible: boolean },
-                }
-              : null
-          }
           canPublish={user.permissions.has("building.publish")}
         />
         </>
@@ -90,6 +68,7 @@ export default async function EditorPage({ params }: { params: Promise<{ floorKe
                 <span className="text-xs text-gray-400 tabular-nums">
                   {v.createdAt.toLocaleString("ar-SA-u-nu-latn", { dateStyle: "short", timeStyle: "short" })}
                 </span>
+                {v.status === "مسودة" && user.permissions.has("building.publish") && <PublishButton versionId={v.id} version={v.version} />}
                 {v.status !== "منشورة" && <RollbackButton versionId={v.id} version={v.version} />}
               </div>
             ))}

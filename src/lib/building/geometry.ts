@@ -16,9 +16,14 @@ export type GeoRoom = {
   doors?: { side: "top" | "bottom" | "left" | "right"; offset: number }[];
 };
 
+/** غرفة أُنشئت يدوياً ولم تُوضع على المخطط بعد (صينية «الغرف غير الموضوعة»). */
+export type UnplacedRoom = { key: string; name: string; type: string; w: number; h: number; notes?: string };
+
 export type FloorGeometry = {
   unit: "m";
   rooms: GeoRoom[];
+  /** الغرف المُنشأة يدوياً بانتظار الوضع على المخطط — تُحفظ في المسودة ولا تُنشر */
+  unplaced?: UnplacedRoom[];
   /** عناصر سياقية ترسم باهتة ولا تقبل سجلات (مثل مجمع البنات في الموقع الخارجي) */
   contextShapes?: { key: string; name: string; x: number; y: number; w: number; h: number }[];
   note?: string;
@@ -95,6 +100,15 @@ export function validateGeometry(geo: unknown): { ok: boolean; errors: string[];
       if (rectsOverlap(g.rooms[i], g.rooms[j])) {
         warnings.push(`تداخل بين «${g.rooms[i].name}» و«${g.rooms[j].name}»`);
       }
+    }
+  }
+  // الغرف غير الموضوعة: تحقق الاسم والأبعاد فقط (لا إحداثيات) وضمّ مفاتيحها لكشف التكرار
+  if (Array.isArray(g.unplaced)) {
+    for (const r of g.unplaced) {
+      if (!r.key || keys.has(r.key)) errors.push(`مفتاح غرفة مكرر أو مفقود: ${r.key ?? "?"}`);
+      keys.add(r.key);
+      if (!r.name?.trim()) errors.push("غرفة غير موضوعة بلا اسم");
+      if (!(r.w > 0) || !(r.h > 0)) errors.push(`أبعاد غير موجبة للغرفة «${r.name}»`);
     }
   }
   return { ok: errors.length === 0, errors, warnings };

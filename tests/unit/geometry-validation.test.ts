@@ -38,3 +38,27 @@ describe("validateGeometry — أخطاء صلبة + تنبيهات (تداخل/
     expect(r.warnings).toEqual([]);
   });
 });
+
+describe("validateGeometry — الغرف غير الموضوعة (صينية Phase 6)", () => {
+  it("يتحقق الاسم والأبعاد للغرف غير الموضوعة دون التحقق من الإحداثيات", () => {
+    const geo = {
+      unit: "m" as const,
+      rooms: [],
+      unplaced: [{ key: "u1", name: "غرفة جديدة", type: "فصل", w: 4, h: 3 }],
+    };
+    const r = validateGeometry(geo);
+    expect(r.ok).toBe(true);
+  });
+
+  it("يرفض غرفة غير موضوعة بأبعاد غير موجبة، ويكشف تكرار المفاتيح مع الموضوعة", () => {
+    const bad = validateGeometry({ unit: "m" as const, rooms: [], unplaced: [{ key: "u1", name: "غرفة", type: "فصل", w: 0, h: 3 }] });
+    expect(bad.ok).toBe(false);
+    const dup = validateGeometry({
+      unit: "m" as const,
+      rooms: [{ key: "k", name: "أ", type: "فصل", x: 0, y: 0, w: 3, h: 3 }],
+      unplaced: [{ key: "k", name: "ب", type: "فصل", w: 3, h: 3 }],
+    });
+    expect(dup.ok).toBe(false);
+    expect(dup.errors.join(" ")).toMatch(/مكرر/);
+  });
+});

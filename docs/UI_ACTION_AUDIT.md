@@ -68,7 +68,7 @@ the pending state and shows the required Arabic message («انتهت الجلس
 | Document scanning | `/building/documents` | camera capture/rotate/reorder/enhance, create-PDF, upload fallback, download | E2E-verified + integration (`document-scan`) — **Phase 4 done** |
 | QR scanning | `/building/scan` | «مسح رمز غرفة/أصل», «إدخال الرمز يدوياً», resolve→open/inspect/maintain, camera fallback | E2E-verified + unit + integration (`qr-scan`) — **Phase 5 done** |
 | Building 3D | `/building/3d` | 4 btns | AUTO |
-| Building editor | `/building/editor/[floorKey]` | canvas editor | **Phase 6 rebuild** |
+| Building editor | `/building/editor/[floorKey]` | create-room, unplaced tray, place, drag/resize, numeric↔drawing, undo/redo, grid/snap/zoom/fit, save-draft, publish, rollback; mobile view-note | E2E-verified + unit (`geometry-validation`) — **Phase 6 done** |
 | Offline inspection | `/building/offline` | 6 btns; **hydration #418 fixed** | AUTO |
 | AI assistant | `/assistant`, `/assistant/drafts` | 4 btns | AUTO + E2E (`assistant`) |
 | Admin — users | `/admin/users` | 5 btns | AUTO |
