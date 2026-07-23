@@ -1,8 +1,10 @@
 import "server-only";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { programs, programMilestones, programDeliverables, storedFiles } from "@/db/schema";
+import { programs, programDeliverables, budgetExpenses, storedFiles } from "@/db/schema";
 import { evidenceForEntity } from "@/lib/evidence";
+import { getProgramOverview } from "@/lib/plan/program-service";
+import { num } from "@/lib/budget/calc";
 import { renderEvidenceContent } from "@/lib/evidence-render";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
@@ -28,15 +30,14 @@ export async function generateProgramReport(opts: {
   withStamp: boolean;
   issuedBy: string;
 }) {
-  const [program] = await db.select().from(programs).where(eq(programs.id, opts.programId));
-  if (!program) throw new Error("البرنامج غير موجود");
-  const milestones = await db
-    .select()
-    .from(programMilestones)
-    .where(eq(programMilestones.programId, opts.programId))
-    .orderBy(asc(programMilestones.sortOrder));
+  const overview = await getProgramOverview(opts.programId);
+  if (!overview) throw new Error("البرنامج غير موجود");
+  const program = overview.program;
+  const { activities, progress, readiness } = overview;
   const deliverables = await db.select().from(programDeliverables).where(eq(programDeliverables.programId, opts.programId));
   const evidence = await evidenceForEntity("program", opts.programId);
+  const expenses = await db.select().from(budgetExpenses).where(eq(budgetExpenses.programId, opts.programId));
+  const spent = expenses.reduce((s, e) => s + num(e.amount), 0);
 
   const now = new Date();
   const issuedAtText = `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`;
@@ -65,19 +66,33 @@ export async function generateProgramReport(opts: {
       .filter(([, v]) => v)
       .map(([k, v]) => `<tr><th style="width:22%">${esc(k)}</th><td>${esc(v!)}</td></tr>`)
       .join("")}
-    <tr><th>الحالة</th><td>${esc(program.status)} — نسبة الإنجاز ${program.progress}٪ (محسوبة من المعالم الموزونة)</td></tr>
+    <tr><th>الحالة</th><td>${esc(program.status)} — نسبة الإنجاز ${progress.display}٪ (محسوبة من الأنشطة الموزونة)</td></tr>
+    <tr><th>جاهزية الإقفال</th><td>${readiness.percent}٪ — ${esc(readiness.statusAr)}</td></tr>
+    ${
+      program.completedAt
+        ? `<tr><th>الاكتمال</th><td>${program.completionOverride ? `مكتمل بتجاوز موثّق — الجاهزية وقت الإقفال ${program.overrideReadiness}٪. المبرر: ${esc(program.overrideReason ?? "")}` : "مكتمل بجاهزية كاملة"}</td></tr>`
+        : ""
+    }
+    <tr><th>المصروف الفعلي</th><td>${spent.toLocaleString("ar")} (${expenses.length} مصروفاً مرتبطاً)</td></tr>
   </table>
 
-  <h2>المعالم الموزونة</h2>
+  <h2>الأنشطة (${activities.length})</h2>
   <table>
-    <tr><th>المعلم</th><th>الوزن</th><th>الإنجاز</th><th>الحالة</th><th>الموعد</th></tr>
-    ${milestones
+    <tr><th>النشاط</th><th>المسؤول</th><th>الوزن الفعلي</th><th>الإنجاز</th><th>الحالة</th><th>الموعد</th></tr>
+    ${activities
       .map(
-        (m) =>
-          `<tr><td>${esc(m.title)}</td><td>${m.weight}٪</td><td>${m.progress}٪</td><td>${esc(m.status)}</td><td>${esc(m.dueText ?? "—")}</td></tr>`,
+        (a) =>
+          `<tr><td>${esc(a.name)}</td><td>${esc(a.ownerName ?? "—")}</td><td>${a.effectiveWeight.toFixed(1)}٪</td><td>${a.progress}٪</td><td>${esc(a.status)}${a.requiredForCompletion ? " (إلزامي)" : ""}</td><td>${esc(a.plannedEnd ?? "—")}</td></tr>`,
       )
       .join("")}
   </table>
+
+  ${
+    readiness.missing.length > 0
+      ? `<h2>المتطلبات الناقصة (${readiness.missing.length})</h2>
+         <ul>${readiness.missing.map((m) => `<li>${esc(m.labelAr)}</li>`).join("")}</ul>`
+      : ""
+  }
 
   <h2>المخرجات وحزم الشواهد</h2>
   <table>
