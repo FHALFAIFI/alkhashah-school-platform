@@ -7,6 +7,8 @@ import {
   programDeliverables,
   programKpis,
   planBudgetItems,
+  budgetIncome,
+  budgetExpenses,
   meetings,
   committees,
   perfSessions,
@@ -33,6 +35,8 @@ export type LinkableEntityKey =
   | "deliverable"
   | "kpi"
   | "budget_item"
+  | "budget_income"
+  | "budget_expense"
   | "committee"
   | "meeting"
   | "perf_session"
@@ -162,6 +166,34 @@ const DEFS: Record<LinkableEntityKey, EntityDef> = {
         .from(planBudgetItems)
         .where(inArray(planBudgetItems.id, ids));
       return rows.map((r) => ({ id: r.id, labelAr: r.name, locked: false }));
+    },
+  },
+  budget_income: {
+    key: "budget_income",
+    labelAr: "إيراد ميزانية",
+    pluralAr: "إيرادات الميزانية",
+    permission: "budget.read",
+    route: (id) => `/budget?إيراد=${id}`,
+    resolve: async (ids) => {
+      const rows = await db
+        .select({ id: budgetIncome.id, source: budgetIncome.source, amount: budgetIncome.amount })
+        .from(budgetIncome)
+        .where(inArray(budgetIncome.id, ids));
+      return rows.map((r) => ({ id: r.id, labelAr: `${r.source} — ${r.amount}`, locked: false }));
+    },
+  },
+  budget_expense: {
+    key: "budget_expense",
+    labelAr: "مصروف ميزانية",
+    pluralAr: "مصروفات الميزانية",
+    permission: "budget.read",
+    route: (id) => `/budget?مصروف=${id}`,
+    resolve: async (ids) => {
+      const rows = await db
+        .select({ id: budgetExpenses.id, category: budgetExpenses.category, amount: budgetExpenses.amount })
+        .from(budgetExpenses)
+        .where(inArray(budgetExpenses.id, ids));
+      return rows.map((r) => ({ id: r.id, labelAr: `${r.category ?? "مصروف"} — ${r.amount}`, locked: false }));
     },
   },
   committee: {

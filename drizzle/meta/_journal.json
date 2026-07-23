@@ -99,6 +99,13 @@
       "when": 1784831755583,
       "tag": "0013_late_sunfire",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784832224447,
+      "tag": "0014_clammy_jubilee",
+      "breakpoints": true
     }
   ]
 }

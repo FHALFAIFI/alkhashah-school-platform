@@ -69,6 +69,9 @@ export const permissionsSeed: { key: string; nameAr: string; module: string }[] 
 
   { key: "feedback.create", nameAr: "إرسال ملاحظات التشغيل", module: "feedback" },
   { key: "feedback.manage", nameAr: "إدارة ومعالجة ملاحظات التشغيل", module: "feedback" },
+
+  { key: "budget.read", nameAr: "عرض الميزانية والمصروفات", module: "budget" },
+  { key: "budget.write", nameAr: "إدارة الإيرادات والمصروفات", module: "budget" },
 ];
 
 /**
