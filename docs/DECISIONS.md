@@ -93,3 +93,28 @@ The product owner explicitly deferred gate C5 (real-origin Tailscale HTTPS: came
 - Camera-dependent steps (room QR scan, in-room photo capture) must never block a workflow: manual room/QR-code entry and normal file upload are the supported paths under HTTP.
 - `v1.0.0-pilot` is **not** tagged until the workflow acceptance (see below) is completed — the tag no longer waits on C5.
 - Current priority: principal-centered workflow audit and remediation («مركز عمل مدير المدرسة» + end-to-end scenario validation of imports, plan, committees, performance, digital twin, in-workflow AI), with scenario Playwright tests on desktop and 390×844.
+
+## D-019 — Employee type labelling under scope v2 (OPEN — 2026-07-23)
+The approved product scope v2 names the two employee types **«معلم»** and **«موظف إداري»**. The
+`people.category` column stores `معلم` / `موظف`, and those stored tokens are what the *uncommitted*
+Fares preview batch classification (42 معلم / 10 موظف) is expressed in. Rewriting stored values
+would modify a protected preview batch, which the agent must not touch.
+**Recommendation (not yet approved):** additive nullable `people.employee_type` column defaulted
+from `category`, plus a display-layer relabel `موظف` → `موظف إداري`. Fares preview rows untouched.
+Awaiting the principal's confirmation.
+
+## D-020 — Activity progress model under scope v2 (OPEN — 2026-07-23)
+Scope v2 introduces «الأنشطة» between البرنامج and المخرجات. Program progress is currently computed
+from weighted `program_milestones` (`src/lib/plan/progress.ts`; 64 milestone rows exist under the
+official year). It is not specified whether activities become the weighted progress unit (absorbing
+or replacing milestones) or coexist alongside them. This determines whether migration 0010 stays
+purely additive or requires a milestone data-migration path.
+**Blocked on:** the truncated portion of the scope prompt (section 3 rules onward). No schema change
+made until resolved.
+
+## D-021 — Scope v2 prompt received truncated (2026-07-23)
+The product-scope-refinement prompt terminates inside section 3's code fence, immediately after the
+approved hierarchy diagram. Sections 1, 2 and the section-3 hierarchy are analyzed in
+`docs/SCOPE_IMPACT_V2.md`. Section 3's rules and all subsequent sections (implied by section 2's
+references to KPI cycles, budget expenses, committees, meetings, rooms and assets) were not received.
+Work stopped at the analysis gate rather than guessing the missing workflow requirements.
