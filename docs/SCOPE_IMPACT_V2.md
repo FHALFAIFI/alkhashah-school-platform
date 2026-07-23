@@ -312,7 +312,91 @@ so the currently-deployed app is unaffected by it (Drizzle emits explicit column
 
 ---
 
-## 7. Discipline checklist for this engagement
+## 7. Pre-implementation checkpoint (required by scope §15) — 2026-07-23
+
+| Item | Finding |
+|---|---|
+| **D-020 recorded** | Yes — `docs/DECISIONS.md`, canonical-activity migration. Activities absorb milestones functionally; `program_milestones` kept physically as a read-only rollback source. |
+| **Migration 0010 contents** | `evidence_versions` table; `evidence_items.version / archived_at / archived_reason / archived_by`; `people.employee_type`. Additive only. |
+| **0010 conflict with D-020?** | **None.** It touches only the evidence and people tables — nothing in the plan module. No corrective migration needed. |
+| **0010 applied to test?** | **Yes** — `madrasa_test` is at 11 migrations, `evidence_versions` and `people.employee_type` present. Treated as immutable. |
+| **0010 applied to development?** | **No** — local dev `madrasa` is at 8 migrations (it never received 0008/0009/0010). |
+| **0010 applied to production?** | **No** — production is at 10 records (0000–0009). `evidence_versions` absent. |
+| **Next migration number** | **0011** — created and applied to `madrasa_test`. |
+| **Legacy count expected** | 64 (per scope) |
+| **Legacy count actual** | **129 in production**, 194 in local dev, 1 residual in test. See **D-022** — the 64 figure is stale (it counted local dev on 2026-07-18, before the principal committed the plan batch on 2026-07-21). |
+| **Expected activity count after backfill** | Equal to the live legacy count at run time — reconciliation asserts the observed number, never a hardcoded 64. |
+| **Rollback strategy** | 0011 is additive: rollback = drop the 4 new tables and 12 new `programs` columns; every existing row keeps working. `program_milestones` is never written to, so the legacy calculation remains available as a fallback. Encrypted backup + verified restore precede any production step. |
+
+## 8. Section 3 delivery — operational plan (commit `29bc2aa`)
+
+**Schema (migration 0011, additive):** `program_activities` (with UNIQUE nullable
+`migrated_from_milestone_id`, restrictive FKs, archive/cancel/completion columns),
+`activity_deliverables`, `activity_evidence_requirements`, `activity_state_history`, plus
+`programs.weighting_mode / completed_* / override_* / archived_*`.
+
+**Milestones fully retired as a write path.** All four milestone write actions removed; the
+approval gate validates activity weights; `recomputeProgress` reads activities only; the UI
+renders activities. `program_milestones` has no remaining write path in the application.
+
+**Reconciliation** (`src/lib/plan/milestone-backfill.ts`) proves every legacy milestone maps
+exactly once, no orphans, no duplicates, no dangling references, program association
+unchanged, weight/progress carried without drift, legacy table untouched, and re-running the
+backfill is a no-op. Nothing is fabricated — milestones carry no owner, planned start or
+description, so those stay `NULL`.
+
+**Progress ≠ readiness.** Progress: draft/not-started 0%, completed 100%, in-progress uses an
+explicitly recorded 1–99% with no invented default, no activities = 0%. Readiness: computed
+from applicable mandatory checks, never from uploaded-file count, each miss carrying Arabic
+text and a direct link. Normal completion requires 100% readiness; otherwise only the
+principal may override (`plan.override`, principal role only) with a mandatory justification,
+and the override stores user, date, reason, readiness and the exact missing list.
+
+**Invalid custom weights are never silently normalized** — they surface in the readiness
+checklist and block normal completion. The one production program whose milestones sum to 80
+will therefore appear as a readiness item under custom weighting, and is valid under the
+default equal mode. That is the designed behaviour.
+
+**Evidence reuse:** `activity` is a registered linkable entity, so one uploaded document
+serves the activity, its program and a budget expense with no second upload and no second store.
+
+**Tests:** +42 → **250 vitest**. `activity-progress` (16), `readiness` (11),
+`milestone-migration` (7, seeded to the real production shape of 129), `activity-workflow` (8).
+`plan-workflow.test.ts` migrated to the activity model rather than weakened.
+
+## 9. Implementation sequence status (scope §11)
+
+| # | Step | Status |
+|---|---|---|
+| 1 | Record D-020 | ✅ `153518e` |
+| 2 | Inspect 0010 + report | ✅ §7 above |
+| 3 | Leave applied migration immutable | ✅ 0010 untouched; forward migration 0011 |
+| 4 | Implement + reconcile activities on `madrasa_test` | ✅ `29bc2aa` |
+| 5 | Operational-plan vertical slice | ✅ `29bc2aa` |
+| 6 | KPI cycles and signed reports | ⬜ not started |
+| 7 | Committees and assignment forms | ⬜ not started |
+| 8 | Header settings | ⬜ not started |
+| 9 | Simplified building workflow | ⬜ not started |
+| 10 | Budget and plan integration | ⬜ not started |
+| 11 | Reports | ⬜ not started |
+| 12 | Cross-module RTL/mobile/button/permission audit | ⬜ not started |
+| 13 | Full verification | ⬜ not started |
+| 14 | Backup, disposable restore, rollback rehearsal | ⬜ partial — backup + restore rehearsal PASSED 2026-07-23 |
+| 15 | Safe production deployment | ⛔ **blocked** — see below |
+| 16 | Updated principal retest | ⬜ not started |
+
+**Step 15 is blocked by two independent conditions:**
+1. The scope's own stop rule — the live legacy count is 129, not 64 (D-022). Reported here;
+   awaiting acknowledgement before any production migration.
+2. The environment denies production-database writes without operator authorization.
+
+Per scope §13, no migration is applied to production merely because it exists. 0010 and 0011
+both wait on their application code, reconciliation, backup, restore, rollback and
+production-build gates — and on the D-022 acknowledgement.
+
+---
+
+## 10. Discipline checklist for this engagement
 
 - [x] Repository, schema, migrations, routes, tests, Docker production inspected before any change
 - [x] Requirements mapped against existing implementation

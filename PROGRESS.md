@@ -2,7 +2,41 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — PRODUCT SCOPE v2, SECTION 2 DELIVERED (2026-07-23)
+## Latest checkpoint — PRODUCT SCOPE v2, SECTIONS 2–3 DELIVERED (2026-07-23)
+- **D-020 LOCKED + implemented:** activities are the canonical, sole weighted execution unit.
+  `program_activities` absorbs `program_milestones` functionally; the legacy table stays
+  physically intact as a **read-only rollback source** with **no write path left in the app**
+  (all four milestone write actions removed, approval gate + progress now read activities).
+  Physical removal is a later, separately approved cleanup migration. Commit `29bc2aa`.
+- **⚠️ D-022 — STOP CONDITION HIT (production only).** The scope expects a 64-milestone
+  baseline; production actually holds **129** (local dev 194). The 64 figure is stale — it
+  counted local dev on 2026-07-18, before the principal committed the plan batch on 2026-07-21.
+  Distribution is regular (25 programs × 5 + 1 × 4, all weight 20, all «لم يبدأ»), so this is a
+  stale expectation, not corruption. **Nothing applied to production; awaiting acknowledgement.**
+  Reconciliation asserts the observed live count, never a hardcoded 64.
+- **Migration 0011** (additive, forward — 0010 left immutable because it is applied to
+  `madrasa_test`): `program_activities`, `activity_deliverables`,
+  `activity_evidence_requirements`, `activity_state_history` + `programs` weighting-mode,
+  completion, override-snapshot and archive columns. Applied to `madrasa_test` only.
+- **Migration state:** `madrasa_test` 0000–0011 · production 0000–**0009** · local dev 0000–0007.
+  Neither 0010 nor 0011 is in production.
+- **Backfill + reconciliation** (`src/lib/plan/milestone-backfill.ts`): unique
+  `migrated_from_milestone_id` makes each legacy milestone map to exactly one activity and the
+  backfill idempotent. Reconciliation proves no orphans, no duplicates, no dangling refs,
+  unchanged program association, no weight/progress drift, untouched legacy table.
+- **Progress ≠ readiness.** Progress from activities only (0% draft, 100% completed, explicit
+  1–99% in progress — no invented 50%; no activities = 0%). Readiness from applicable mandatory
+  checks with an Arabic missing-items checklist and links — never from file count. Normal
+  completion needs 100% readiness; otherwise principal-only override (`plan.override`) with a
+  mandatory justification that stores user/date/reason/readiness/missing list permanently.
+  Invalid custom weight totals are never silently normalized.
+- **Gates:** typecheck clean, lint 0/0, production build clean, **vitest 250 passed** (was 208).
+  Backup + `restore:rehearsal` PASSED. No release tag. No production change.
+- **Sequence (§11):** steps 1–5 done. Steps 6–13 (KPI, committees, headers, building, budget,
+  reports, audits) not started. Step 15 (production deploy) blocked on D-022 acknowledgement +
+  operator authorization for prod-DB writes.
+
+## Earlier checkpoint — PRODUCT SCOPE v2, SECTION 2 DELIVERED (2026-07-23)
 - Engagement doc: **`docs/SCOPE_IMPACT_V2.md`** (inspection, mapping, migration plan, delivery log).
   Commits `0c16f66` (analysis gate) and `8b70305` (section 2).
 - **⚠️ Production is no longer a clean baseline.** The principal manually committed **both** real
