@@ -78,5 +78,33 @@ describe("الصلاحيات المرنة (A2)", () => {
     expect(perms.has("plan.read")).toBe(true);
     expect(perms.has("performance.individual.read")).toBe(false);
     expect(perms.has("branding.use")).toBe(false);
+    // الميزانية متاحة لمسؤول النظام، لكن تجاوز إقفال البرنامج قرار المدير وحده
+    expect(perms.has("budget.read")).toBe(true);
+    expect(perms.has("budget.write")).toBe(true);
+    expect(perms.has("plan.override")).toBe(false);
+  });
+
+  it("المدير يملك تجاوز الإقفال والميزانية؛ الصلاحيات الجديدة مبذورة", async () => {
+    const { db } = await import("@/db");
+    const { users, roles, userRoles, permissions } = await import("@/db/schema");
+    const { permissionsSeed } = await import("@/db/seed-data/permissions");
+
+    // الصلاحيات الجديدة موجودة في البذرة
+    const seededKeys = new Set(permissionsSeed.map((p) => p.key));
+    expect(seededKeys.has("budget.read")).toBe(true);
+    expect(seededKeys.has("budget.write")).toBe(true);
+    expect(seededKeys.has("plan.override")).toBe(true);
+
+    const [principalRole] = await db.select().from(roles).where(eq(roles.key, "principal"));
+    const [principalUser] = await db.insert(users).values({ username: "t-principal2", displayName: "مدير", passwordHash: "x" }).returning();
+    await db.insert(userRoles).values({ userId: principalUser.id, roleId: principalRole.id });
+
+    const perms = await permissionsForUser(principalUser.id);
+    expect(perms.has("plan.override")).toBe(true);
+    expect(perms.has("budget.write")).toBe(true);
+
+    // كل مفاتيح البذرة مسجّلة فعلياً في قاعدة البيانات
+    const dbKeys = new Set((await db.select({ key: permissions.key }).from(permissions)).map((p) => p.key));
+    for (const k of ["budget.read", "budget.write", "plan.override"]) expect(dbKeys.has(k)).toBe(true);
   });
 });
