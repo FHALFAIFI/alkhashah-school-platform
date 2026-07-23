@@ -2,7 +2,47 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — PRODUCT SCOPE v2, SECTIONS 2–3 DELIVERED (2026-07-23)
+## Latest checkpoint — PRODUCT SCOPE v2, STEPS 1–14 DELIVERED (2026-07-23)
+- **Continuation parts 1–3 received and implemented.** D-022 approved (129 baseline);
+  D-023 rollback correction. Steps 6–14 of the sequence delivered; step 15 (production
+  deploy) awaits owner authorization; production writes are NOT attempted (owner instruction).
+- **Step 6 — KPI/performance (§4):** migration 0012 — `perf_signed_report_versions` +
+  session narrative/`evaluation_completed_at`. Signed-report replacement preserves prior
+  versions; "evaluation completed" distinguished from "signed report received"; missing-signed
+  dashboard panel. Existing teacher-academic/staff-Gregorian cycles, 3 mandatory sessions,
+  duplicate-cycle prevention unchanged.
+- **Steps 7–8 — committees + headers (§5,§6):** migration 0013 — committee assignment doc +
+  effective-dated membership. `generateAssignmentForm` (one committee-level تكليف via shared
+  doc pipeline + central identity); ending an approved member is effective-dated, never
+  rewrites history. `src/lib/document-identity.ts` — central header defaults with per-element
+  include/exclude + per-document override; issued docs snapshot the identity used.
+- **Step 9 — building (§7):** migration 0015 — `facility_checklist` + `facility_room_links`.
+  New `/building/facilities` primary workflow (موجود/غير موجود/غير مطلوب → link to room);
+  standard + custom types. QR/scan/inspections stay optional.
+- **Step 10 — budget (§8):** migration 0014 — `budget_income` + `budget_expenses` +
+  `budget.*` perms. New `/budget`: summary, planned-vs-actual, unlinked/missing-receipt/
+  overspend flags. Overspend recorded with mandatory acknowledgement, never silently
+  normalized. Receipts via shared evidence (budget_income/expense are linkable types).
+- **Step 11 — reports (§9):** per-program report rebuilt on activities/readiness/budget;
+  `/reports` reorganized into the 3 scope levels.
+- **D-020 completion:** milestones have NO write path; plan **imports now create activities**
+  (rollback deletes a batch's activities explicitly, restrict FK). New `plan.override`
+  permission (principal only) for completion override with permanent missing-items snapshot.
+- **Steps 12–14 — verification + pilot:** vitest **273 pass**, typecheck/lint/build clean.
+  Empty-DB migration (16→76 tables) and current-schema migration (0010–0015 onto a prod
+  clone, milestones untouched) both verified on disposable DBs. Playwright vs a next-start
+  prod server: mobile RTL (5), scope-v2 smoke (3), arabic-auth, import-decisions (4) — green;
+  **e2e caught a real use-server bug in facilities actions (fixed).** Fresh encrypted backup
+  + sha256 + **restore rehearsal PASS**. `/pilot` retest checklist rewritten to the v2
+  workflows (employee, program+activities, progress/readiness, blocked completion, KPI+signed
+  report, committee membership+assignment, header settings, facility, room, asset, income,
+  linked expense, program report, executive report, feedback). Docs: `docs/DEPLOYMENT_PLAN_V2.md`,
+  `docs/VERIFICATION_V2.md`, `docs/SCOPE_IMPACT_V2.md`, `docs/DECISIONS.md` (D-019..D-023).
+- **Safety honored:** no production write, no reseed/reset, no official import by the agent,
+  no release tag, Postgres/Ollama unexposed, retained pilot data intact (129 milestones).
+  Migrations 0010–0015 applied to `madrasa_test` only.
+
+## Earlier checkpoint — PRODUCT SCOPE v2, SECTIONS 2–3 DELIVERED (2026-07-23)
 - **D-020 LOCKED + implemented:** activities are the canonical, sole weighted execution unit.
   `program_activities` absorbs `program_milestones` functionally; the legacy table stays
   physically intact as a **read-only rollback source** with **no write path left in the app**

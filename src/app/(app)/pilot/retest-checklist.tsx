@@ -11,21 +11,21 @@ import { submitFeedbackAction, type FeedbackSubmitState } from "../feedback/acti
  */
 
 const TASKS: { id: string; text: string; href: string }[] = [
-  { id: "t1", text: "افتح عدة صفحات واختبر أزرارها الرئيسية", href: "/dashboard" },
-  { id: "t2", text: "أنشئ قالب فحص جديداً", href: "/building/inspections/templates/new" },
-  { id: "t3", text: "عدّل القالب (يُنشئ إصداراً جديداً إن كان مُفعّلاً)", href: "/building/inspections/templates" },
-  { id: "t4", text: "فعّل القالب", href: "/building/inspections/templates" },
-  { id: "t5", text: "افتح محرر المخطط لدور", href: "/building" },
-  { id: "t6", text: "أضف غرفاً يدوياً (تظهر في «الغرف غير الموضوعة»)", href: "/building" },
-  { id: "t7", text: "رتّب الغرف على المخطط (ضع، اسحب، غيّر الحجم)", href: "/building" },
-  { id: "t8", text: "عدّل أسماء الغرف وأبعادها رقمياً", href: "/building" },
-  { id: "t9", text: "احفظ المسودة وانشر نسخة", href: "/building" },
-  { id: "t10", text: "أنشئ أصلاً", href: "/building/assets" },
-  { id: "t11", text: "أرشف الأصل ثم استعده", href: "/building/assets" },
-  { id: "t12", text: "امسح رمز QR (أو أدخله يدوياً)", href: "/building/scan" },
-  { id: "t13", text: "امسح مستنداً بالكاميرا أو ارفع ملفاً", href: "/building/documents" },
-  { id: "t14", text: "أكمل فحصاً باستخدام القالب الجديد", href: "/building/inspections" },
-  { id: "t15", text: "أرسل ملاحظة عبر «إرسال ملاحظة»", href: "/dashboard" },
+  { id: "t1", text: "افتح سجل المنسوبين وراجع منسوباً واحداً (النوع: معلم/موظف إداري)", href: "/people" },
+  { id: "t2", text: "افتح برنامجاً وأضف نشاطاً واحداً بمسؤول وموعد", href: "/plan" },
+  { id: "t3", text: "حدّث نسبة إنجاز النشاط ولاحظ تغيّر تقدم البرنامج (من الأنشطة)", href: "/plan" },
+  { id: "t4", text: "راجع لوحة «جاهزية الإقفال» والنواقص، وجرّب أن الإقفال محجوب حتى تكتمل الجاهزية", href: "/plan" },
+  { id: "t5", text: "افتح دورة أداء، وسجّل جلسة، وارفع تقريرها الموقّع (لاحظ تمييز اكتمال التقييم عن استلام التوقيع)", href: "/performance" },
+  { id: "t6", text: "افتح لجنة معتمدة، ولّد نموذج التكليف واطبعه، ثم ارفع الأصل الموقّع", href: "/committees" },
+  { id: "t7", text: "اضبط هوية الوثائق (الترويسة والتواقيع) من الإعدادات، وأصدر وثيقة ولاحظ ثبات لقطتها", href: "/admin/settings" },
+  { id: "t8", text: "افتح قائمة المرافق: علّم مرفقاً «موجود» واربطه بغرفة فعلية", href: "/building/facilities" },
+  { id: "t9", text: "افتح غرفة واحدة وراجع بياناتها وأصولها المهمة", href: "/building" },
+  { id: "t10", text: "أنشئ أصلاً مهماً ثم أرشفه واستعده", href: "/building/assets" },
+  { id: "t11", text: "افتح الميزانية وسجّل إيراداً واحداً", href: "/budget" },
+  { id: "t12", text: "سجّل مصروفاً مرتبطاً ببرنامج، واربط إيصاله من سجل الشواهد (بلا رفع مكرر)", href: "/budget" },
+  { id: "t13", text: "أصدر تقرير برنامج واحد (يشمل الأنشطة والجاهزية والميزانية) وراجعه", href: "/plan" },
+  { id: "t14", text: "أصدر التقرير التنفيذي الشامل من مركز التقارير", href: "/reports" },
+  { id: "t15", text: "أرسل ملاحظة تشغيل واحدة عبر «إرسال ملاحظة»", href: "/dashboard" },
 ];
 
 const STATUSES = ["لم أبدأ", "نجح", "واجهت مشكلة"] as const;
