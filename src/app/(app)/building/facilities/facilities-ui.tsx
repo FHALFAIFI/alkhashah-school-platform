@@ -8,9 +8,9 @@ import {
   linkFacilityRoomAction,
   unlinkFacilityRoomAction,
   deleteFacilityAction,
-  FACILITY_STATUSES,
   type ActionState,
 } from "./actions";
+import { FACILITY_STATUSES } from "./constants";
 import { Field, SubmitButton, Badge } from "@/components/ui";
 
 type Room = { id: string; label: string };
@@ -26,7 +26,8 @@ export type FacilityView = {
 
 export function AddFacilityForm({ hasStandard }: { hasStandard: boolean }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addFacilityAction, null);
-  const [seedState, seedAction] = useActionState<ActionState, FormData>(async () => seedStandardFacilitiesAction(), null);
+  const [seedNotice, setSeedNotice] = useState<string | null>(null);
+  const [seedPending, startSeed] = useTransition();
   return (
     <div className="flex flex-wrap items-start gap-3">
       <form action={formAction} className="flex flex-wrap items-end gap-2">
@@ -38,10 +39,21 @@ export function AddFacilityForm({ hasStandard }: { hasStandard: boolean }) {
         <SubmitButton variant="secondary">إضافة مرفق</SubmitButton>
       </form>
       {!hasStandard && (
-        <form action={seedAction}>
-          {seedState?.success && <div role="status" className="mb-1 rounded bg-emerald-50 p-2 text-xs text-emerald-700">{seedState.success}</div>}
-          <SubmitButton>إضافة القائمة المعيارية</SubmitButton>
-        </form>
+        <div>
+          {seedNotice && <div role="status" className="mb-1 rounded bg-emerald-50 p-2 text-xs text-emerald-700">{seedNotice}</div>}
+          <button
+            disabled={seedPending}
+            onClick={() =>
+              startSeed(async () => {
+                const res = await seedStandardFacilitiesAction();
+                if (res?.success) setSeedNotice(res.success);
+              })
+            }
+            className="min-h-11 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60 lg:min-h-0"
+          >
+            إضافة القائمة المعيارية
+          </button>
+        </div>
       )}
     </div>
   );

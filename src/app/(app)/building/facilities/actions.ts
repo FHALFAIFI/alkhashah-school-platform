@@ -7,29 +7,9 @@ import { db } from "@/db";
 import { facilityChecklist, facilityRoomLinks, rooms } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { FACILITY_STATUSES, STANDARD_FACILITIES } from "./constants";
 
 export type ActionState = { error?: string; success?: string } | null;
-
-export const FACILITY_STATUSES = ["موجود", "غير موجود", "غير مطلوب"] as const;
-
-/** القائمة المعيارية المقترحة — يمكن للمدير إضافة أنواع مخصصة أيضاً. */
-export const STANDARD_FACILITIES = [
-  "فصول دراسية",
-  "مختبر علوم",
-  "مختبر حاسب",
-  "مصدر تعلم/مكتبة",
-  "مصلى",
-  "عيادة/غرفة إسعاف",
-  "مقصف",
-  "ملعب",
-  "ساحة طابور",
-  "غرفة نشاط",
-  "دورات مياه",
-  "غرفة إدارة",
-  "غرفة معلمين",
-  "مستودع",
-  "موقف سيارات",
-];
 
 const addSchema = z.object({
   facilityType: z.string().min(2, "نوع المرفق مطلوب"),

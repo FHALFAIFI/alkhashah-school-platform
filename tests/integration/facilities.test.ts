@@ -98,7 +98,8 @@ describe("قائمة المرافق (§7)", () => {
     const { users, facilityChecklist } = await import("@/db/schema");
     const [u] = await db.insert(users).values({ username: "fac3", passwordHash: "x", displayName: "ف" }).returning();
     testUserId = u.id;
-    const { seedStandardFacilitiesAction, STANDARD_FACILITIES } = await import("@/app/(app)/building/facilities/actions");
+    const { seedStandardFacilitiesAction } = await import("@/app/(app)/building/facilities/actions");
+    const { STANDARD_FACILITIES } = await import("@/app/(app)/building/facilities/constants");
 
     await seedStandardFacilitiesAction();
     const first = await db.select().from(facilityChecklist);

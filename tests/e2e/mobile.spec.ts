@@ -24,10 +24,10 @@ function principalCredentials(): { username: string; password: string } {
 
 const ROUTES = [
   "/dashboard", "/tasks", "/notifications",
-  "/plan", "/plan/followup", "/plan/kpis", "/plan/risks", "/evidence",
+  "/plan", "/plan/followup", "/plan/kpis", "/plan/risks", "/budget", "/evidence",
   "/performance", "/performance/models",
   "/committees", "/committees/templates",
-  "/building", "/building/assets", "/building/inspections", "/building/maintenance", "/building/offline",
+  "/building", "/building/facilities", "/building/assets", "/building/inspections", "/building/maintenance", "/building/offline",
   "/people", "/calendar", "/reports", "/reports/executive", "/documents",
   "/imports", "/imports/new", "/admin/users", "/admin/settings", "/admin/audit", "/admin/backup",
 ];
