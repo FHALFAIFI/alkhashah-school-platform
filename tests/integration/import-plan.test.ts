@@ -44,7 +44,7 @@ describe("استيراد الخطة التشغيلية (A9, A10)", () => {
     const { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch, deriveMilestones } = await import("@/lib/imports/plan");
     const { createBatch, commitBatch, rollbackBatch } = await import("@/lib/imports/framework");
     const { db } = await import("@/db");
-    const { users, programs, programMilestones, programKpis, planYears } = await import("@/db/schema");
+    const { users, programs, programActivities, programKpis, planYears } = await import("@/db/schema");
 
     const [u] = await db.insert(users).values({ username: "t-plan", displayName: "اختبار", passwordHash: "x" }).returning();
 
@@ -67,10 +67,11 @@ describe("استيراد الخطة التشغيلية (A9, A10)", () => {
     expect(p1.name).toBe("برنامج تجريبي أول");
     expect(p1.status).toBe("مسودة");
 
-    // المعالم مشتقة بأوزان مجموعها 100
-    const ms = await db.select().from(programMilestones).where(eq(programMilestones.programId, p1.id));
-    expect(ms.length).toBe(3);
-    expect(ms.reduce((s, m) => s + m.weight, 0)).toBe(100);
+    // الاستيراد يُنشئ أنشطةً (D-020) لا معالم — الوزن المشتق محفوظ للتتبع والبرنامج بوضع متساوٍ
+    const acts = await db.select().from(programActivities).where(eq(programActivities.programId, p1.id));
+    expect(acts.length).toBe(3);
+    expect(acts.reduce((s, a) => s + (a.weight ?? 0), 0)).toBe(100);
+    expect(p1.weightingMode).toBe("متساوٍ");
 
     const kpis = await db.select().from(programKpis);
     expect(kpis[0].code).toBe("مؤشر-01");

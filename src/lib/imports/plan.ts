@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  planYears, programs, programMilestones, programDeliverables, programKpis,
+  planYears, programs, programActivities, programDeliverables, programKpis,
   programRisks, planBudgetItems, programRoadmapCells, importRows,
   calendars, calendarEvents, evidenceLinks,
 } from "@/db/schema";
@@ -117,7 +117,7 @@ export async function parsePlanWorkbook(data: Buffer): Promise<{ rows: ParsedRow
     const warnings: string[] = [];
     if (!name) errors.push("اسم البرنامج فارغ");
     if (!cellText(r[mCol.domain])) errors.push("المجال فارغ");
-    if (!details.milestones) warnings.push("لا توجد معالم في المصدر — أضف معالم موزونة يدوياً بعد الاستيراد");
+    if (!details.milestones) warnings.push("لا توجد أنشطة في المصدر — أضف أنشطة يدوياً بعد الاستيراد");
 
     rows.push({
       rowIndex: rowCounter++,
@@ -438,16 +438,21 @@ export async function commitPlanRows(
     programIdBySeq.set(seq, p.id);
     bump("برامج");
 
-    const milestones = deriveMilestones(String(m.milestones ?? ""));
+    // الأنشطة هي وحدة التنفيذ والوزن الوحيدة (D-020). الاستيراد يُنشئ أنشطةً مباشرةً —
+    // لا معالم — فتظهر الخطة كـ الخطة ← البرنامج ← الأنشطة دون تسطيح صامت. البرنامج يبقى
+    // في وضع الوزن المتساوي؛ الوزن المشتق يُحفظ على النشاط للتتبع فقط.
+    const derived = deriveMilestones(String(m.milestones ?? ""));
     let order = 0;
-    for (const ms of milestones) {
-      await tx.insert(programMilestones).values({
+    for (const a of derived) {
+      await tx.insert(programActivities).values({
         programId: p.id,
         sortOrder: order++,
-        title: ms.title,
-        weight: ms.weight,
+        name: a.title,
+        weight: a.weight,
+        requiredForCompletion: true,
+        createdBy: opts.createdBy,
       });
-      bump("معالم");
+      bump("أنشطة");
     }
     await tx
       .update(importRows)
@@ -598,8 +603,14 @@ export async function rollbackPlanBatch(tx: Tx, batchId: string): Promise<void> 
   if (riskIds.length > 0) await tx.delete(programRisks).where(inArray(programRisks.id, riskIds));
   const budgetIds = byType("plan_budget_item");
   if (budgetIds.length > 0) await tx.delete(planBudgetItems).where(inArray(planBudgetItems.id, budgetIds));
-  // حذف البرامج يتسلسل تلقائياً إلى المعالم والمخرجات وخلايا الخارطة (FK cascade)
-  if (programIds.length > 0) await tx.delete(programs).where(inArray(programs.id, programIds));
+  // الأنشطة قيدها restrict (لمنع الحذف التعاقبي الصامت للتاريخ التشغيلي). التراجع عن الدفعة
+  // عكسٌ صريح ومقصود، فتُحذف أنشطة برامج الدفعة أولاً (وتتسلسل مخرجاتها ومتطلباتها وسجل
+  // حالاتها) قبل حذف البرامج. المصروفات/الإيرادات المرتبطة تُفكّ إلى null بقيد set null.
+  if (programIds.length > 0) {
+    await tx.delete(programActivities).where(inArray(programActivities.programId, programIds));
+    // حذف البرامج يتسلسل إلى المخرجات وخلايا الخارطة والمتابعات (FK cascade)
+    await tx.delete(programs).where(inArray(programs.id, programIds));
+  }
 
   await tx
     .update(importRows)
