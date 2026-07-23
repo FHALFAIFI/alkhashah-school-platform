@@ -2,11 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
-  perfModels, perfIndicators, perfCycles, perfSessions, perfRatings, improvementPlans,
+  perfModels, perfIndicators, perfCycles, perfSessions, perfRatings, perfSignedReportVersions, improvementPlans,
   people, calendars, calendarEvents,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
@@ -308,8 +308,11 @@ export async function saveRatingsAction(sessionId: string, _prev: ActionState, f
     .update(perfSessions)
     .set({
       notes: String(formData.get("notes") ?? "") || null,
+      principalComment: String(formData.get("principalComment") ?? "") || null,
+      employeeComment: String(formData.get("employeeComment") ?? "") || null,
       strengths: String(formData.get("strengths") ?? "") || null,
       improvementAreas: String(formData.get("improvementAreas") ?? "") || null,
+      recommendations: String(formData.get("recommendations") ?? "") || null,
       actionsText: String(formData.get("actionsText") ?? "") || null,
       nextFollowupDate: String(formData.get("nextFollowupDate") ?? "") || null,
       sessionDate: String(formData.get("sessionDate") ?? "") || session.sessionDate,
@@ -332,12 +335,19 @@ export async function saveRatingsAction(sessionId: string, _prev: ActionState, f
 }
 
 /** رفع التقرير الموقع — شرط الاكتمال */
+/**
+ * رفع التقرير الموقع أو استبداله مع حفظ النسخة السابقة.
+ * الاستبدال لا يفقد النسخة القديمة: تُنقل إلى `perf_signed_report_versions` قبل استبدالها،
+ * فتبقى كل النسخ محفوظة ومدققة كما يتطلب النطاق.
+ */
 export async function uploadSignedReportAction(sessionId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("performance.write", "performance.individual.read");
   const [session] = await db.select().from(perfSessions).where(eq(perfSessions.id, sessionId));
   if (!session) return { error: "الجلسة غير موجودة" };
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { error: "ارفع ملف التقرير الموقع" };
+  const reason = String(formData.get("reason") ?? "").trim() || null;
+  const isReplacement = !!session.signedReportFileId;
   try {
     const stored = await saveUploadedFile({
       originalName: file.name,
@@ -347,13 +357,62 @@ export async function uploadSignedReportAction(sessionId: string, _prev: ActionS
       sensitive: true,
       uploadedBy: user.id,
     });
-    await db.update(perfSessions).set({ signedReportFileId: stored.id }).where(eq(perfSessions.id, sessionId));
+    await db.transaction(async (tx) => {
+      if (session.signedReportFileId) {
+        // احفظ النسخة الحالية في السجل قبل استبدالها
+        const [{ n }] = await tx
+          .select({ n: sql<number>`coalesce(max(version), 0)::int` })
+          .from(perfSignedReportVersions)
+          .where(eq(perfSignedReportVersions.sessionId, sessionId));
+        await tx.insert(perfSignedReportVersions).values({
+          sessionId,
+          version: (n ?? 0) + 1,
+          fileId: session.signedReportFileId,
+          reason,
+          replacedBy: user.id,
+        });
+      }
+      await tx.update(perfSessions).set({ signedReportFileId: stored.id }).where(eq(perfSessions.id, sessionId));
+    });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "تعذر الرفع" };
   }
-  await audit({ actorId: user.id, action: "perf_session.signed_report_uploaded", entityType: "perf_session", entityId: sessionId });
+  await audit({
+    actorId: user.id,
+    action: isReplacement ? "perf_session.signed_report_replaced" : "perf_session.signed_report_uploaded",
+    entityType: "perf_session",
+    entityId: sessionId,
+    summary: isReplacement ? `استبدال التقرير الموقع${reason ? ` — ${reason}` : ""}` : "رفع التقرير الموقع",
+  });
   revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
-  return { success: "رفع التقرير الموقع" };
+  return { success: isReplacement ? "استُبدل التقرير الموقع — النسخة السابقة محفوظة" : "رفع التقرير الموقع" };
+}
+
+/**
+ * تمييز «اكتمل التقييم» عن «استُلم التقرير الموقع».
+ * يُعلّم أن التقييم أُنجز وأُصدر التقرير غير الموقع؛ يبقى الاكتمال النهائي مشروطاً برفع
+ * التقرير الموقع عبر `completeSessionAction`.
+ */
+export async function markEvaluationCompletedAction(sessionId: string): Promise<ActionState> {
+  const user = await requirePermission("performance.write", "performance.individual.read");
+  const [session] = await db.select().from(perfSessions).where(eq(perfSessions.id, sessionId));
+  if (!session) return { error: "الجلسة غير موجودة" };
+  if (session.status === "مكتملة" || session.status === "مقفلة") return { error: "الجلسة مكتملة بالفعل" };
+  if (!session.reportDocId) return { error: "أصدر تقرير الجلسة (غير الموقع) أولاً" };
+
+  await db
+    .update(perfSessions)
+    .set({ evaluationCompletedAt: new Date(), status: "بانتظار التقرير الموقع", updatedAt: new Date() })
+    .where(eq(perfSessions.id, sessionId));
+  await audit({
+    actorId: user.id,
+    action: "perf_session.evaluation_completed",
+    entityType: "perf_session",
+    entityId: sessionId,
+    summary: "اكتمل التقييم — بانتظار التقرير الموقع",
+  });
+  revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
+  return { success: "سُجّل اكتمال التقييم — يبقى رفع التقرير الموقع لإتمام الجلسة" };
 }
 
 /**

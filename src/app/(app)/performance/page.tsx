@@ -6,6 +6,7 @@ import { perfCycles, perfModels, people } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { faresPreviewBatchId } from "@/lib/committees/prerequisites";
+import { missingSignedReports } from "@/lib/performance/signed-reports";
 import { NewCycleForm } from "./performance-ui";
 
 export const metadata = { title: "دورات الأداء" };
@@ -17,11 +18,12 @@ export default async function PerformancePage() {
   const canWrite = user.permissions.has("performance.write");
 
   const excluded = await getExcludedIdSets();
-  const [cycles, models, persons, faresBatchId] = await Promise.all([
+  const [cycles, models, persons, faresBatchId, missingSigned] = await Promise.all([
     db.select().from(perfCycles).where(notSynthetic(perfCycles.id, excluded.perfCycles)).orderBy(desc(perfCycles.createdAt)),
     db.select().from(perfModels).where(eq(perfModels.status, "معتمد")),
     db.select().from(people).where(and(eq(people.active, true), notSynthetic(people.id, excluded.people))).orderBy(asc(people.fullName)),
     faresPreviewBatchId(),
+    canSeeIndividual ? missingSignedReports() : Promise.resolve([]),
   ]);
   const personName = new Map(persons.map((p) => [p.id, p.fullName]));
   // متطلَّب سابق: التقييم يحتاج بيانات المنسوبين المعتمدة — دورة التقييم للمنسوبين المعتمدين حصراً
@@ -41,6 +43,21 @@ export default async function PerformancePage() {
       {!canSeeIndividual && (
         <Card className="border-amber-200 bg-amber-50">
           <p className="text-sm text-amber-900">تفاصيل الأداء الفردي متاحة لمدير المدرسة فقط — تعرض هنا الحالة العامة دون التفاصيل.</p>
+        </Card>
+      )}
+
+      {canSeeIndividual && missingSigned.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50">
+          <h2 className="mb-2 font-bold text-amber-900">تقارير موقّعة ناقصة ({missingSigned.length})</h2>
+          <p className="mb-2 text-sm text-amber-800">جلسات اكتمل تقييمها ولم يُرفع تقريرها الموقع بعد — لا تكتمل الجلسة دون رفعه.</p>
+          <ul className="space-y-1">
+            {missingSigned.map((m) => (
+              <li key={m.sessionId} className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-100 bg-white/60 px-3 py-1.5 text-sm">
+                <span>{m.personName} — جلسة {m.sessionType}</span>
+                <LinkButton href={`/performance/cycles/${m.cycleId}/sessions/${m.sessionId}`} variant="secondary">رفع التقرير الموقع</LinkButton>
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 

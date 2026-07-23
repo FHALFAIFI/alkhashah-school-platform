@@ -95,10 +95,22 @@ export const perfSessions = pgTable(
     sessionDate: text("session_date"),
     status: text("status").notNull().default("مسودة"), // مسودة | بانتظار التقرير الموقع | مكتملة | مقفلة
     notes: text("notes"),
+    /** تعليق المدير (اختياري) — لا يمنع الحفظ */
+    principalComment: text("principal_comment"),
+    /** تعليق الموظف (اختياري) — لا يمنع الحفظ */
+    employeeComment: text("employee_comment"),
     strengths: text("strengths"),
     improvementAreas: text("improvement_areas"),
+    /** التوصيات (اختياري) منفصلة عن إجراءات المتابعة */
+    recommendations: text("recommendations"),
     actionsText: text("actions_text"),
     nextFollowupDate: text("next_followup_date"),
+    /**
+     * تمييز «اكتمل التقييم» عن «استُلم التقرير الموقع»:
+     * evaluationCompletedAt يُضبط عند إتمام التقييم وإصدار التقرير غير الموقع،
+     * والاكتمال النهائي يبقى مشروطاً برفع التقرير الموقع.
+     */
+    evaluationCompletedAt: timestamp("evaluation_completed_at", { withTimezone: true }),
     /** computed: sum((rating/5)*weight) over rated indicators — server-side only */
     sessionResult: numeric("session_result"),
     /** computed: rated indicators / total indicators */
@@ -114,6 +126,28 @@ export const perfSessions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("sessions_cycle_idx").on(t.cycleId)],
+);
+
+/**
+ * نسخ التقرير الموقع للجلسة — سجل الاستبدال.
+ * استبدال التقرير الموقع لا يفقد النسخة السابقة: تُحفظ هنا كاملةً، ويبقى
+ * `perf_sessions.signed_report_file_id` مشيراً إلى النسخة الحالية.
+ */
+export const perfSignedReportVersions = pgTable(
+  "perf_signed_report_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").notNull().references(() => perfSessions.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    fileId: uuid("file_id").notNull().references(() => storedFiles.id),
+    reason: text("reason"),
+    replacedBy: uuid("replaced_by").references(() => users.id),
+    replacedAt: timestamp("replaced_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("perf_signed_versions_session_idx").on(t.sessionId),
+    uniqueIndex("perf_signed_versions_unique").on(t.sessionId, t.version),
+  ],
 );
 
 /** تقديرات المؤشرات داخل الجلسة — التقدير 1..5 فقط، والنتيجة تحسب في الخادم */
