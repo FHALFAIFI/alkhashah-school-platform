@@ -3,7 +3,8 @@
 import { useActionState, useState, useTransition } from "react";
 import {
   addMemberAction, removeMemberAction, approveCommitteeAction, reopenCommitteeAction,
-  createMeetingAction, closeCommitteeAction, addImpactAction, deleteImpactAction, type ActionState,
+  createMeetingAction, closeCommitteeAction, addImpactAction, deleteImpactAction,
+  generateAssignmentFormAction, uploadSignedAssignmentAction, type ActionState,
 } from "../actions";
 import { Field, SubmitButton, TextArea } from "@/components/ui";
 
@@ -66,6 +67,68 @@ export function RemoveMemberButton({ memberId }: { memberId: string }) {
       </button>
       {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
     </span>
+  );
+}
+
+export function AssignmentFormCard({
+  committeeId,
+  assignmentPdfFileId,
+  signedAssignmentFileId,
+  canManage,
+}: {
+  committeeId: string;
+  assignmentPdfFileId: string | null;
+  signedAssignmentFileId: string | null;
+  canManage: boolean;
+}) {
+  const hasAssignmentDoc = !!assignmentPdfFileId;
+  const hasSignedAssignment = !!signedAssignmentFileId;
+  const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
+  const [uploadState, uploadAction] = useActionState<ActionState, FormData>(
+    uploadSignedAssignmentAction.bind(null, committeeId),
+    null,
+  );
+  const [, startTransition] = useTransition();
+
+  return (
+    <div className="space-y-2">
+      {notice && (
+        <div role={notice.kind === "error" ? "alert" : "status"} className={`rounded p-2 text-xs ${notice.kind === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+          {notice.text}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {canManage && (
+          <button
+            onClick={() =>
+              startTransition(async () => {
+                setNotice(null);
+                const res = await generateAssignmentFormAction(committeeId);
+                if (res?.error) setNotice({ kind: "error", text: res.error });
+                else if (res?.success) setNotice({ kind: "ok", text: res.success });
+              })
+            }
+            className="min-h-11 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100 lg:min-h-0"
+          >
+            {hasAssignmentDoc ? "إعادة توليد نموذج التكليف" : "توليد نموذج التكليف"}
+          </button>
+        )}
+        {hasAssignmentDoc && assignmentPdfFileId && (
+          <a href={`/api/files/${assignmentPdfFileId}`} className="text-sm text-brand-700 underline">تنزيل نموذج التكليف</a>
+        )}
+        {hasSignedAssignment && signedAssignmentFileId && (
+          <a href={`/api/files/${signedAssignmentFileId}`} className="text-sm text-emerald-700 underline">التكليف الموقّع</a>
+        )}
+      </div>
+      {canManage && hasAssignmentDoc && (
+        <form action={uploadAction} className="flex flex-wrap items-end gap-2">
+          {uploadState?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{uploadState.error}</div>}
+          {uploadState?.success && <div role="status" className="w-full rounded bg-emerald-50 p-2 text-xs text-emerald-700">{uploadState.success}</div>}
+          <input name="file" type="file" accept="application/pdf,image/*" className="rounded-lg border border-dashed border-gray-300 p-2 text-xs" />
+          <SubmitButton variant="secondary">{hasSignedAssignment ? "استبدال التكليف الموقّع" : "رفع التكليف الموقّع"}</SubmitButton>
+        </form>
+      )}
+    </div>
   );
 }
 

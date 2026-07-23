@@ -63,6 +63,10 @@ export const committees = pgTable(
     status: text("status").notNull().default("مسودة"), // مسودة | معتمدة | مقفلة
     version: integer("version").notNull().default(1),
     formationDocId: uuid("formation_doc_id").references(() => documents.id),
+    /** نموذج التكليف المولّد على مستوى اللجنة (§5) */
+    assignmentDocId: uuid("assignment_doc_id").references(() => documents.id),
+    /** نموذج التكليف الموقّع المرفوع */
+    signedAssignmentFileId: uuid("signed_assignment_file_id").references(() => storedFiles.id),
     approvedBy: uuid("approved_by").references(() => users.id),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -81,6 +85,13 @@ export const committeeMembers = pgTable(
     position: text("position"),
     role: text("role").notNull().default("عضو"), // رئيس | نائب | مقرر | عضو | قائد
     sortOrder: integer("sort_order").notNull().default(0),
+    /**
+     * سريان العضوية (§5): تغييرات العضوية مؤرّخة ولا تعيد كتابة حضور اجتماعات سابقة أو
+     * تقارير مولّدة. إنهاء العضوية يضبط `effectiveTo` و`endReason` بدل حذف الصف.
+     */
+    effectiveFrom: text("effective_from"),
+    effectiveTo: text("effective_to"),
+    endReason: text("end_reason"),
   },
   (t) => [index("committee_members_committee_idx").on(t.committeeId)],
 );

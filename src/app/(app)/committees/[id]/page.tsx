@@ -5,7 +5,8 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, committeeMembers, meetings, people, planYears, meetingTypes, meetingOutcomes, actionTasks, committeeImpacts } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
-import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton, ImpactForm, DeleteImpactButton } from "./committee-ui";
+import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton, ImpactForm, DeleteImpactButton, AssignmentFormCard } from "./committee-ui";
+import { documents } from "@/db/schema";
 import { committeeStatusLabel } from "@/lib/plan/status-labels";
 import { getExcludedIdSets, filterOutSynthetic } from "@/lib/synthetic";
 import { dualDisplay } from "@/lib/dates";
@@ -38,6 +39,13 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
   const selectablePeople = filterOutSynthetic(persons, excluded.people);
   const canWrite = user.permissions.has("committees.write") && c.status !== "مقفلة";
   const canApprove = user.permissions.has("committees.approve");
+
+  // ملف PDF لنموذج التكليف المولّد (إن وُجد)
+  let assignmentPdfFileId: string | null = null;
+  if (c.assignmentDocId) {
+    const [doc] = await db.select({ pdf: documents.pdfFileId }).from(documents).where(eq(documents.id, c.assignmentDocId));
+    assignmentPdfFileId = doc?.pdf ?? null;
+  }
 
   // مؤشر المرحلة: التشكيل → الاعتماد → الاجتماعات → الإقفال
   const formationComplete =
@@ -77,7 +85,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
           )}
           {c.status === "معتمدة" && (
             <>
-              <p className="text-sm font-medium text-brand-900">الخطوة التالية: عقد الاجتماعات وتوثيقها</p>
+              <p className="text-sm font-medium text-brand-900">الخطوة التالية: توليد نموذج التكليف وتوقيعه، ثم عقد الاجتماعات وتوثيقها</p>
               {canWrite && <LinkButton href="#meetings">اجتماع جديد</LinkButton>}
             </>
           )}
@@ -86,6 +94,22 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
           )}
         </div>
       </Card>
+
+      {c.status !== "مسودة" && (
+        <Card>
+          <h2 className="mb-2 font-bold text-brand-900">نموذج التكليف</h2>
+          <p className="mb-3 text-xs text-gray-500">
+            نموذج تكليف واحد على مستوى اللجنة يُطبع ويُوقّع ثم يُرفع الأصل الموقّع — عضوية اللجنة تُعاد استخدامها في
+            الاجتماعات والمحاضر والنتائج والتقارير دون إعادة إدخال.
+          </p>
+          <AssignmentFormCard
+            committeeId={id}
+            assignmentPdfFileId={assignmentPdfFileId}
+            signedAssignmentFileId={c.signedAssignmentFileId}
+            canManage={canApprove}
+          />
+        </Card>
+      )}
 
       {c.goal && (
         <Card>

@@ -102,9 +102,11 @@ export async function addMemberAction(committeeId: string, _prev: ActionState, f
   if (!person.active) return { error: "الشخص موقوف — فعّله أولاً" };
 
   const members = await db.select().from(committeeMembers).where(eq(committeeMembers.committeeId, committeeId));
-  if (members.some((m) => m.personId === personId)) return { error: "العضو مضاف مسبقاً" };
-  if (role === "رئيس" && members.some((m) => m.role === "رئيس")) return { error: "للجنة رئيس واحد" };
-  if (role === "مقرر" && members.some((m) => m.role === "مقرر")) return { error: "للجنة مقرر واحد" };
+  // العضويات المنتهية (effectiveTo) لا تمنع إعادة تكليف الشخص أو شغل الدور من جديد
+  const active = members.filter((m) => !m.effectiveTo);
+  if (active.some((m) => m.personId === personId)) return { error: "العضو مضاف مسبقاً" };
+  if (role === "رئيس" && active.some((m) => m.role === "رئيس")) return { error: "للجنة رئيس واحد" };
+  if (role === "مقرر" && active.some((m) => m.role === "مقرر")) return { error: "للجنة مقرر واحد" };
 
   await db.insert(committeeMembers).values({
     committeeId,
@@ -112,23 +114,101 @@ export async function addMemberAction(committeeId: string, _prev: ActionState, f
     role,
     position: position || person.jobTitle,
     sortOrder: members.length,
+    effectiveFrom: new Date().toISOString().slice(0, 10),
   });
   await audit({ actorId: user.id, action: "committee.member_added", entityType: "committee", entityId: committeeId, summary: `إضافة ${person.fullName} (${role})` });
   revalidatePath(`/committees/${committeeId}`);
   return { success: "أضيف العضو" };
 }
 
-export async function removeMemberAction(memberId: string): Promise<ActionState> {
+/**
+ * إنهاء أو إزالة عضوية.
+ * قبل الاعتماد: العضو أُضيف بالخطأ ولا تاريخ له — يُحذف صفه.
+ * بعد الاعتماد: العضوية جزء من تاريخ اللجنة — تُنهى بتأريخ (`effectiveTo` + سبب) بدل الحذف،
+ * فلا يُعاد كتابة أي اجتماع سابق أو تقرير مولّد.
+ */
+export async function removeMemberAction(memberId: string, formData?: FormData): Promise<ActionState> {
   const user = await requirePermission("committees.write");
   const [m] = await db.select().from(committeeMembers).where(eq(committeeMembers.id, memberId));
   if (!m) return { error: "العضو غير موجود" };
   const [c] = await db.select().from(committees).where(eq(committees.id, m.committeeId));
   if (!c) return { error: "اللجنة غير موجودة" };
   if (c.status === "مقفلة") return { error: "اللجنة مقفلة — لا تعديل على الأعضاء" };
-  await db.delete(committeeMembers).where(eq(committeeMembers.id, memberId));
-  await audit({ actorId: user.id, action: "committee.member_removed", entityType: "committee", entityId: m.committeeId });
+
+  if (c.status === "مسودة") {
+    // تشكيل غير معتمد بعد — لا تاريخ يُحفظ، الحذف آمن
+    await db.delete(committeeMembers).where(eq(committeeMembers.id, memberId));
+    await audit({ actorId: user.id, action: "committee.member_removed", entityType: "committee", entityId: m.committeeId });
+    revalidatePath(`/committees/${m.committeeId}`);
+    return { success: "أزيل العضو" };
+  }
+
+  // تشكيل معتمد — إنهاء مؤرّخ يحافظ على التاريخ
+  if (m.effectiveTo) return { error: "عضوية هذا العضو منتهية بالفعل" };
+  const effectiveTo = String(formData?.get("effectiveTo") ?? "").trim() || new Date().toISOString().slice(0, 10);
+  const reason = String(formData?.get("reason") ?? "").trim();
+  await db
+    .update(committeeMembers)
+    .set({ effectiveTo, endReason: reason || null })
+    .where(eq(committeeMembers.id, memberId));
+  await audit({
+    actorId: user.id,
+    action: "committee.member_ended",
+    entityType: "committee",
+    entityId: m.committeeId,
+    summary: `إنهاء عضوية بتاريخ ${effectiveTo}${reason ? ` — ${reason}` : ""}`,
+    detail: { memberId, effectiveTo, reason },
+  });
   revalidatePath(`/committees/${m.committeeId}`);
-  return { success: "أزيل العضو" };
+  return { success: "أُنهيت العضوية مع حفظ التاريخ — لم يُعد كتابة أي اجتماع أو تقرير سابق" };
+}
+
+/** توليد نموذج تكليف واحد على مستوى اللجنة (§5) — بعد اعتماد التشكيل. */
+export async function generateAssignmentFormAction(committeeId: string): Promise<ActionState> {
+  const user = await requirePermission("committees.approve");
+  const [c] = await db.select().from(committees).where(eq(committees.id, committeeId));
+  if (!c) return { error: "اللجنة غير موجودة" };
+  if (c.status === "مسودة") return { error: "اعتمد التشكيل أولاً قبل توليد نموذج التكليف" };
+
+  const { generateAssignmentForm } = await import("@/lib/reports/assignment-form");
+  const result = await generateAssignmentForm({ committeeId, issuedBy: user.id });
+  await db.update(committees).set({ assignmentDocId: result.docId }).where(eq(committees.id, committeeId));
+  await audit({
+    actorId: user.id,
+    action: "committee.assignment_form_generated",
+    entityType: "committee",
+    entityId: committeeId,
+    summary: `توليد نموذج تكليف ${result.docNumber}`,
+  });
+  revalidatePath(`/committees/${committeeId}`);
+  return { success: `صدر نموذج التكليف ${result.docNumber} — اطبعه ووقّعه ثم ارفع الأصل الموقّع` };
+}
+
+/** رفع نموذج التكليف الموقّع. */
+export async function uploadSignedAssignmentAction(committeeId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("committees.write");
+  const [c] = await db.select().from(committees).where(eq(committees.id, committeeId));
+  if (!c) return { error: "اللجنة غير موجودة" };
+  if (!c.assignmentDocId) return { error: "ولّد نموذج التكليف أولاً" };
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "ارفع نموذج التكليف الموقّع" };
+
+  try {
+    const stored = await saveUploadedFile({
+      originalName: file.name,
+      mime: file.type || "application/pdf",
+      data: Buffer.from(await file.arrayBuffer()),
+      scope: "attachments",
+      sensitive: true,
+      uploadedBy: user.id,
+    });
+    await db.update(committees).set({ signedAssignmentFileId: stored.id }).where(eq(committees.id, committeeId));
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "تعذر الرفع" };
+  }
+  await audit({ actorId: user.id, action: "committee.signed_assignment_uploaded", entityType: "committee", entityId: committeeId });
+  revalidatePath(`/committees/${committeeId}`);
+  return { success: "رُفع نموذج التكليف الموقّع" };
 }
 
 /** اعتماد التشكيل — المدير */

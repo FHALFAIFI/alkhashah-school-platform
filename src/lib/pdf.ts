@@ -21,6 +21,16 @@ function getFontCss(): string {
   return fontCss;
 }
 
+/** ترويسة محلولة من هوية الوثائق المركزية (§6) — تُحقن هنا وتُجمّد ضمن لقطة الوثيقة. */
+export type PageHeaderIdentity = {
+  orgLines: string[];
+  headerNote?: string;
+  footerNote?: string;
+  principalName?: string;
+  academicYear?: string;
+  signerTitle?: string;
+};
+
 export function officialPageHtml(opts: {
   title: string;
   bodyHtml: string;
@@ -29,7 +39,19 @@ export function officialPageHtml(opts: {
   issuedAtText?: string;
   signatureDataUri?: string | null;
   stampDataUri?: string | null;
+  /** الهوية المركزية؛ عند غيابها تُستعمل القيم الرسمية الافتراضية للمجمع (توافق رجعي) */
+  identity?: PageHeaderIdentity;
 }): string {
+  const org = opts.identity?.orgLines?.length
+    ? opts.identity.orgLines
+        .map((l, i) => (i === opts.identity!.orgLines.length - 1 ? `<strong>${l}</strong>` : l))
+        .join("<br>")
+    : "المملكة العربية السعودية<br>وزارة التعليم<br>إدارة التعليم في محافظة صبيا<br>مكتب تعليم العيدابي<br><strong>مجمع الخشعة التعليمي للبنين</strong>";
+  const metaNote = opts.identity?.footerNote ?? "منصة الإدارة المدرسية المتكاملة";
+  const headerNote = opts.identity?.headerNote ? `<br>${opts.identity.headerNote}` : "";
+  const yearLine = opts.identity?.academicYear ? `<br>العام الدراسي: ${opts.identity.academicYear}` : "";
+  const signerTitle = opts.identity?.signerTitle ?? "مدير المجمع";
+  const principalLine = opts.identity?.principalName ? `<br>${opts.identity.principalName}` : "";
   return `<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
@@ -61,11 +83,11 @@ th { background: #f2f0eb; font-weight: 700; }
 <body>
 <div class="header">
   <div class="org">
-    المملكة العربية السعودية<br>وزارة التعليم<br>إدارة التعليم في محافظة صبيا<br>مكتب تعليم العيدابي<br><strong>مجمع الخشعة التعليمي للبنين</strong>
+    ${org}${headerNote}
   </div>
   <div class="title">
     <h1>${opts.title}</h1>
-    <div class="meta">منصة الإدارة المدرسية المتكاملة</div>
+    <div class="meta">${metaNote}${yearLine}</div>
   </div>
   <div class="org meta">
     ${opts.docNumber ? `رقم الوثيقة: <strong>${opts.docNumber}</strong><br>` : ""}
@@ -79,7 +101,7 @@ ${
     ? `<div class="signatures">
         <div class="sig-block">
           ${opts.signatureDataUri ? `<img class="sig-img" src="${opts.signatureDataUri}" alt="">` : ""}
-          <div class="sig-line">مدير المجمع</div>
+          <div class="sig-line">${signerTitle}${principalLine}</div>
         </div>
         <div class="sig-block">
           ${opts.stampDataUri ? `<img class="stamp-img" src="${opts.stampDataUri}" alt="">` : ""}
