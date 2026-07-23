@@ -41,7 +41,7 @@ afterAll(async () => {
 /** برنامج تجريبي بمعالم اختيارية — بيانات صناعية تنشأ وتنظف داخل الاختبار */
 async function seedProgram(opts?: { status?: string; weights?: number[] }) {
   const { db } = await import("@/db");
-  const { planYears, programs, programMilestones } = await import("@/db/schema");
+  const { planYears, programs, programActivities } = await import("@/db/schema");
   const suffix = Math.floor(Math.random() * 1e9);
   const [year] = await db.insert(planYears).values({ key: `pl-yr-${suffix}`, nameAr: `سنة خطة ${suffix}` }).returning();
   const [program] = await db
@@ -55,23 +55,27 @@ async function seedProgram(opts?: { status?: string; weights?: number[] }) {
       status: opts?.status ?? "مسودة",
     })
     .returning();
-  const milestones = [];
+  // الأنشطة هي وحدة الوزن الوحيدة (D-020) — البذر بوضع الوزن المخصص لاختبار بوابة الأوزان
+  const activities = [];
   for (const [i, weight] of (opts?.weights ?? []).entries()) {
-    const [m] = await db
-      .insert(programMilestones)
-      .values({ programId: program.id, title: `معلم ${i + 1}`, weight, sortOrder: i })
+    const [a] = await db
+      .insert(programActivities)
+      .values({ programId: program.id, name: `نشاط ${i + 1}`, weight, sortOrder: i })
       .returning();
-    milestones.push(m);
+    activities.push(a);
   }
-  return { year, program, milestones };
+  if ((opts?.weights ?? []).length > 0) {
+    await db.update(programs).set({ weightingMode: "مخصص" }).where(eq(programs.id, program.id));
+  }
+  return { year, program, activities };
 }
 
 describe("سير عمل الخطة التشغيلية: اعتماد، إعادة فتح، طلبات تغيير، متابعة أسبوعية، إقفال السنة", () => {
   it("(أ) الاعتماد يرفض عندما لا يساوي مجموع الأوزان 100 وينجح عنده مع رفع النسخة", async () => {
     const { db } = await import("@/db");
-    const { programs, programMilestones } = await import("@/db/schema");
+    const { programs, programActivities } = await import("@/db/schema");
     const { approveProgramAction } = await import("@/app/(app)/plan/actions");
-    const { program, milestones } = await seedProgram({ weights: [60, 30] }); // المجموع 90
+    const { program, activities } = await seedProgram({ weights: [60, 30] }); // المجموع 90
 
     const rejected = await approveProgramAction(program.id);
     expect(rejected?.error).toContain("100");
@@ -79,7 +83,7 @@ describe("سير عمل الخطة التشغيلية: اعتماد، إعادة
     expect(still.status).toBe("مسودة");
     expect(still.version).toBe(1);
 
-    await db.update(programMilestones).set({ weight: 40 }).where(eq(programMilestones.id, milestones[1].id));
+    await db.update(programActivities).set({ weight: 40 }).where(eq(programActivities.id, activities[1].id));
     const accepted = await approveProgramAction(program.id);
     expect(accepted?.error).toBeUndefined();
     const [approved] = await db.select().from(programs).where(eq(programs.id, program.id));

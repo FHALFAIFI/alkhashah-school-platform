@@ -1,122 +1,40 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
-  programs, programMilestones, programChangeRequests, programDeliverables, planYears, programFollowups,
+  programs, programActivities, programChangeRequests, programDeliverables, planYears, programFollowups,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { assessDeletion } from "@/lib/safe-delete";
 import { snapshotRecord } from "@/lib/versioning";
-import { computeProgramProgress } from "@/lib/plan/progress";
+import { recomputeProgramProgress } from "@/lib/plan/program-service";
+import { validateWeights, type WeightingMode } from "@/lib/plan/activity-progress";
 import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
 import { notifyAll, notifyUser } from "@/lib/notify";
 
 export type ActionState = { error?: string; success?: string } | null;
 
+/**
+ * تقدم البرنامج يُحسب من الأنشطة حصراً (D-020). المعالم القديمة مصدر تراجع للقراءة فقط
+ * ولا تُسهم في أي حساب — فلا احتساب مزدوج ولا وحدة تقدم موازية.
+ */
 async function recomputeProgress(programId: string) {
-  const ms = await db.select().from(programMilestones).where(eq(programMilestones.programId, programId));
-  const progress = computeProgramProgress(ms.map((m) => ({ weight: m.weight, progress: m.progress })));
-  await db.update(programs).set({ progress, updatedAt: new Date() }).where(eq(programs.id, programId));
-}
-
-/** تحديث معلم — التقدم يحسب من المعالم الموزونة حصراً */
-export async function updateMilestoneAction(milestoneId: string, formData: FormData): Promise<void> {
-  const user = await requirePermission("plan.write");
-  const progress = Math.max(0, Math.min(100, Number(formData.get("progress") ?? 0)));
-  const status = progress >= 100 ? "مكتمل" : progress > 0 ? "قيد التنفيذ" : "لم يبدأ";
-  const [ms] = await db
-    .update(programMilestones)
-    .set({ progress, status, completedAt: progress >= 100 ? new Date() : null, notes: String(formData.get("notes") ?? "") || null })
-    .where(eq(programMilestones.id, milestoneId))
-    .returning();
-  if (ms) {
-    await recomputeProgress(ms.programId);
-    await audit({ actorId: user.id, action: "program.milestone_updated", entityType: "program", entityId: ms.programId, summary: `تحديث معلم «${ms.title}» إلى ${progress}٪` });
-    revalidatePath(`/plan/${ms.programId}`);
-    revalidatePath("/plan");
-  }
-}
-
-const milestoneSchema = z.object({
-  title: z.string().min(2, "عنوان المعلم مطلوب"),
-  weight: z.coerce.number().int().min(0).max(100),
-  dueText: z.string().optional(),
-});
-
-export async function addMilestoneAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
-  const user = await requirePermission("plan.write");
-  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
-  if (!program) return { error: "البرنامج غير موجود" };
-  if (program.status !== "مسودة") return { error: "البرنامج معتمد — استخدم طلب تغيير لتعديل المعالم" };
-  const parsed = milestoneSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const existing = await db.select().from(programMilestones).where(eq(programMilestones.programId, programId));
-  if (existing.some((m) => m.title.trim() === parsed.data.title.trim())) {
-    return { error: "يوجد معلم بنفس العنوان في هذا البرنامج" };
-  }
-  await db.insert(programMilestones).values({
-    programId,
-    title: parsed.data.title,
-    weight: parsed.data.weight,
-    dueText: parsed.data.dueText || null,
-    sortOrder: existing.length,
-  });
-  await recomputeProgress(programId);
-  await audit({ actorId: user.id, action: "program.milestone_added", entityType: "program", entityId: programId });
-  revalidatePath(`/plan/${programId}`);
-  return { success: "أضيف المعلم" };
-}
-
-export async function updateMilestoneWeightAction(milestoneId: string, formData: FormData): Promise<void> {
-  const user = await requirePermission("plan.write");
-  const weight = Math.max(0, Math.min(100, Number(formData.get("weight") ?? 0)));
-  const title = String(formData.get("title") ?? "").trim();
-  const [ms] = await db.select().from(programMilestones).where(eq(programMilestones.id, milestoneId));
-  if (!ms) return;
-  const [program] = await db.select().from(programs).where(eq(programs.id, ms.programId));
-  if (!program || program.status !== "مسودة") return;
-  await db
-    .update(programMilestones)
-    .set({ weight, ...(title ? { title } : {}) })
-    .where(eq(programMilestones.id, milestoneId));
-  await recomputeProgress(ms.programId);
-  await audit({ actorId: user.id, action: "program.milestone_weight_updated", entityType: "program", entityId: ms.programId });
-  revalidatePath(`/plan/${ms.programId}`);
+  await recomputeProgramProgress(programId);
 }
 
 /**
- * حذف معلم — يمر بطبقة الحذف الآمن ويشرح المنع بالعربية بدل الفشل الصامت.
- * الشروط: البرنامج ما زال مسودة، والمعلم لا يحمل شواهد أو وثائق مرتبطة.
+ * إجراءات المعالم أُزيلت عمداً (D-020).
+ *
+ * الأنشطة (`program_activities`) هي وحدة التنفيذ والوزن الوحيدة، وإجراءاتها في
+ * `activity-actions.ts`. جدول `program_milestones` يبقى فيزيائياً **للقراءة فقط**
+ * كمصدر تراجع ومطابقة، فلا يوجد في التطبيق أي مسار كتابة إليه — وبذلك لا تبقى
+ * وحدة تقدم ثانية قابلة للتحرير أو للتقرير. إزالته الفعلية تتم بهجرة تنظيف
+ * منفصلة معتمدة بعد التحقق في الإنتاج وقبول المدير.
  */
-export async function deleteMilestoneAction(milestoneId: string): Promise<ActionState> {
-  const user = await requirePermission("plan.write");
-  const [ms] = await db.select().from(programMilestones).where(eq(programMilestones.id, milestoneId));
-  if (!ms) return { error: "المعلم غير موجود" };
-  const [program] = await db.select().from(programs).where(eq(programs.id, ms.programId));
-  if (!program) return { error: "البرنامج غير موجود" };
-  if (program.status !== "مسودة") {
-    return { error: `لا يمكن حذف معلم من برنامج حالته «${program.status}» — أعد فتح البرنامج بطلب تغيير موثّق أولاً.` };
-  }
-
-  const assessment = await assessDeletion("milestone", milestoneId);
-  if (assessment.blocked) return { error: assessment.messageAr };
-
-  await db.delete(programMilestones).where(eq(programMilestones.id, milestoneId));
-  await recomputeProgress(ms.programId);
-  await audit({
-    actorId: user.id,
-    action: "program.milestone_deleted",
-    entityType: "program",
-    entityId: ms.programId,
-    summary: `حذف معلم «${ms.title}» من برنامج مسودة`,
-  });
-  revalidatePath(`/plan/${ms.programId}`);
-  return { success: "حُذف المعلم" };
-}
 
 /** اعتماد وإقفال حزمة البرنامج كاملة — المدير يعتمد الحزمة وليس كل مرفق على حدة */
 export async function approveProgramAction(programId: string): Promise<ActionState> {
@@ -125,17 +43,21 @@ export async function approveProgramAction(programId: string): Promise<ActionSta
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.status !== "مسودة") return { error: "البرنامج معتمد مسبقاً" };
 
-  const ms = await db.select().from(programMilestones).where(eq(programMilestones.programId, programId));
-  const totalWeight = ms.reduce((s, m) => s + m.weight, 0);
-  if (ms.length > 0 && totalWeight !== 100) {
-    return { error: `مجموع أوزان المعالم ${totalWeight}٪ ويجب أن يساوي 100٪ قبل الاعتماد` };
+  // بوابة الاعتماد تتحقق من أوزان الأنشطة — لا المعالم القديمة (D-020)
+  const acts = await db
+    .select()
+    .from(programActivities)
+    .where(and(eq(programActivities.programId, programId), isNull(programActivities.archivedAt)));
+  const weights = validateWeights(acts, program.weightingMode as WeightingMode);
+  if (!weights.valid) {
+    return { error: `أوزان الأنشطة غير صالحة قبل الاعتماد: ${weights.problemsAr.join("، ")}` };
   }
 
   await snapshotRecord({
     entityType: "program",
     entityId: programId,
     action: "approved",
-    snapshot: { program, milestones: ms },
+    snapshot: { program, activities: acts },
     actorId: user.id,
   });
   await db
@@ -155,12 +77,12 @@ export async function reopenProgramAction(programId: string, formData: FormData)
   if (reason.length < 5) return { error: "سبب إعادة الفتح إلزامي (5 أحرف على الأقل)" };
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program || program.status === "مسودة") return { error: "البرنامج غير معتمد" };
-  const ms = await db.select().from(programMilestones).where(eq(programMilestones.programId, programId));
+  const acts = await db.select().from(programActivities).where(eq(programActivities.programId, programId));
   await snapshotRecord({
     entityType: "program",
     entityId: programId,
     action: "reopened",
-    snapshot: { program, milestones: ms },
+    snapshot: { program, activities: acts },
     reason,
     actorId: user.id,
   });

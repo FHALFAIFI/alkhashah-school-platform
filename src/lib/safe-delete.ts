@@ -9,6 +9,9 @@ import {
   programRoadmapCells,
   programFollowups,
   programChangeRequests,
+  programActivities,
+  activityDeliverables,
+  activityEvidenceRequirements,
 
   committees,
   committeeMembers,
@@ -53,6 +56,7 @@ export type Dependency = {
 export type SafeDeleteEntity =
   | "person"
   | "program"
+  | "activity"
   | "milestone"
   | "deliverable"
   | "budget_item"
@@ -79,7 +83,8 @@ export type DeleteAssessment = {
 /** البديل المناسب لكل نوع حين يكون الحذف ممنوعاً. */
 const ALTERNATIVE_AR: Record<SafeDeleteEntity, string> = {
   person: "أوقف المنسوب (إيقاف قابل للإعادة) بدل حذفه — تبقى سجلاته التاريخية كما هي.",
-  program: "أرشف البرنامج بدل حذفه — تبقى مخرجاته وشواهده ومتابعاته محفوظة.",
+  program: "أرشف البرنامج بدل حذفه — تبقى أنشطته وشواهده ومتابعاته محفوظة.",
+  activity: "أرشف النشاط بدل حذفه — يخرج من حساب التقدم وتبقى مخرجاته وشواهده وسجل حالاته محفوظة.",
   milestone: "عدّل المعلم أو صفّر وزنه بدل حذفه — يبقى أثره في تقارير التقدم.",
   deliverable: "أرشف المخرج بدل حذفه — تبقى حزمة شواهده المعتمدة محفوظة.",
   budget_item: "أرشف بند الميزانية بدل حذفه — تبقى مصروفاته وشواهده محفوظة.",
@@ -139,7 +144,8 @@ export async function personDependencies(personId: string): Promise<Dependency[]
 }
 
 async function programDependencies(programId: string): Promise<Dependency[]> {
-  const [milestones, deliverables, roadmap, followups, changeRequests, tasks, poly] = await Promise.all([
+  const [activities, milestones, deliverables, roadmap, followups, changeRequests, tasks, poly] = await Promise.all([
+    countWhere(programActivities, eq(programActivities.programId, programId)),
     countWhere(programMilestones, eq(programMilestones.programId, programId)),
     countWhere(programDeliverables, eq(programDeliverables.programId, programId)),
     countWhere(programRoadmapCells, eq(programRoadmapCells.programId, programId)),
@@ -149,12 +155,31 @@ async function programDependencies(programId: string): Promise<Dependency[]> {
     polymorphicDeps("program", programId),
   ]);
   return [
-    { type: "milestones", labelAr: "معالم موزونة", count: milestones },
+    { type: "activities", labelAr: "أنشطة", count: activities },
+    // المعالم القديمة للقراءة فقط (D-020) لكنها ما زالت أثراً تاريخياً يمنع الحذف النهائي
+    { type: "milestones", labelAr: "معالم قديمة (مصدر تراجع)", count: milestones },
     { type: "deliverables", labelAr: "مخرجات ومتطلبات", count: deliverables },
     { type: "roadmap_cells", labelAr: "خلايا خارطة التنفيذ", count: roadmap },
     { type: "followups", labelAr: "متابعات أسبوعية", count: followups },
     { type: "change_requests", labelAr: "طلبات تغيير", count: changeRequests },
     { type: "action_tasks", labelAr: "مهام ناتجة عن البرنامج", count: tasks },
+    ...poly,
+  ];
+}
+
+/**
+ * تبعيات النشاط. سجل الحالات أثر داخلي للنشاط (يُحذف معه) وليس سجل أعمال مستقلاً،
+ * لكن أي مخرج أو متطلب شاهد أو شاهد مرتبط يعني أن النشاط استُخدم فعلياً.
+ */
+async function activityDependencies(activityId: string): Promise<Dependency[]> {
+  const [dels, reqs, poly] = await Promise.all([
+    countWhere(activityDeliverables, eq(activityDeliverables.activityId, activityId)),
+    countWhere(activityEvidenceRequirements, eq(activityEvidenceRequirements.activityId, activityId)),
+    polymorphicDeps("activity", activityId),
+  ]);
+  return [
+    { type: "activity_deliverables", labelAr: "مخرجات النشاط", count: dels },
+    { type: "activity_evidence_requirements", labelAr: "متطلبات شواهد", count: reqs },
     ...poly,
   ];
 }
@@ -251,6 +276,9 @@ export async function assessDeletion(entity: SafeDeleteEntity, entityId: string)
       break;
     case "program":
       all = await programDependencies(entityId);
+      break;
+    case "activity":
+      all = await activityDependencies(entityId);
       break;
     case "committee":
       all = await committeeDependencies(entityId);

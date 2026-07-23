@@ -12,7 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { users } from "./core";
 import { importBatches } from "./shared";
-import { calendars } from "./school";
+import { calendars, people } from "./school";
 
 /** السنة التخطيطية */
 export const planYears = pgTable("plan_years", {
@@ -69,12 +69,29 @@ export const programs = pgTable(
     version: integer("version").notNull().default(1),
     approvedBy: uuid("approved_by").references(() => users.id),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
-    /** تقدم محسوب من المعالم الموزونة */
+    /** تقدم محسوب من الأنشطة الموزونة حصراً (D-020) — المعالم القديمة لا تُحتسب */
     progress: integer("progress").notNull().default(0),
     executionStatus: text("execution_status").notNull().default("لم يبدأ"),
     lastReviewAt: timestamp("last_review_at", { withTimezone: true }),
     importBatchId: uuid("import_batch_id").references(() => importBatches.id),
     stageTargets: jsonb("stage_targets").$type<string[]>(),
+    /** وضع الوزن: «متساوٍ» (افتراضي) أو «مخصص» (مجموع الأوزان يجب أن يساوي 100 بالضبط) */
+    weightingMode: text("weighting_mode").notNull().default("متساوٍ"),
+    /** الاكتمال — مسموح فقط عند جاهزية 100٪ أو بتجاوز موثّق من المدير */
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedBy: uuid("completed_by").references(() => users.id),
+    /** اكتمل بتجاوز: يبقى ظاهراً في التقارير التاريخية ولا تختفي النواقص */
+    completionOverride: boolean("completion_override").notNull().default(false),
+    overrideReason: text("override_reason"),
+    overrideBy: uuid("override_by").references(() => users.id),
+    overrideAt: timestamp("override_at", { withTimezone: true }),
+    /** لقطة الجاهزية والنواقص لحظة التجاوز — دليل تاريخي ثابت */
+    overrideReadiness: integer("override_readiness"),
+    overrideMissing: jsonb("override_missing").$type<string[]>(),
+    /** الأرشفة — إخفاء غير مدمّر قابل للاستعادة */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id),
+    archivedReason: text("archived_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -84,7 +101,132 @@ export const programs = pgTable(
   ],
 );
 
-/** المعالم الموزونة — أساس حساب التقدم */
+/**
+ * الأنشطة — وحدة التنفيذ والوزن الوحيدة في الخطة التشغيلية (D-020).
+ *
+ * الهرم المعتمد: الخطة التشغيلية ← البرنامج ← الأنشطة ← المخرجات والمتطلبات والشواهد.
+ * لا برامج متداخلة ولا برنامج داخل نشاط.
+ *
+ * الأنشطة تستوعب `program_milestones` وظيفياً: تقدم البرنامج يُحسب من الأنشطة حصراً،
+ * والجدول القديم يبقى فيزيائياً للقراءة فقط كمصدر تراجع ومطابقة، ويُزال لاحقاً بهجرة
+ * تنظيف منفصلة معتمدة. `migratedFromMilestoneId` مرجع فريد يثبت أن كل معلم قديم
+ * انتقل إلى نشاط واحد بالضبط — وهو أيضاً ما يجعل إعادة تشغيل النقل آمنة (لا تكرار).
+ */
+export const programActivities = pgTable(
+  "program_activities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // restrict: لا حذف تعاقبي لسجل تنفيذ — حذف البرنامج يمر بطبقة الحذف الآمن
+    programId: uuid("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "restrict" }),
+    /** مرجع المعلم القديم — فريد ويقبل الفراغ (الأنشطة الجديدة بلا أصل قديم) */
+    migratedFromMilestoneId: uuid("migrated_from_milestone_id"),
+    name: text("name").notNull(),
+    description: text("description"),
+    /** المسؤول من سجل المنسوبين المعتمد — مصدر واحد للموظفين */
+    ownerPersonId: uuid("owner_person_id").references(() => people.id, { onDelete: "restrict" }),
+    /** التواريخ المخططة والفعلية — نصية لأن المصدر الرسمي هجري حرفي */
+    plannedStart: text("planned_start"),
+    plannedEnd: text("planned_end"),
+    actualStart: text("actual_start"),
+    actualEnd: text("actual_end"),
+    /** مسودة | لم يبدأ | قيد التنفيذ | مكتمل | أعيد فتحه | ملغى | مؤرشف */
+    status: text("status").notNull().default("لم يبدأ"),
+    /** 0..100 — لا قيمة افتراضية مخترعة عند «قيد التنفيذ» */
+    progress: integer("progress").notNull().default(0),
+    /** وزن مخصص اختياري؛ يُستعمل فقط في وضع الوزن المخصص للبرنامج */
+    weight: integer("weight"),
+    /** نشاط إلزامي لاكتمال البرنامج */
+    requiredForCompletion: boolean("required_for_completion").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    completedBy: uuid("completed_by").references(() => users.id),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    /** الإلغاء يتطلب سبباً مدققاً وإعادة تحقق من الأوزان */
+    cancelReason: text("cancel_reason"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id),
+    archivedReason: text("archived_reason"),
+    notes: text("notes"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("activities_program_idx").on(t.programId),
+    index("activities_owner_idx").on(t.ownerPersonId),
+    // يمنع ازدواج النقل: كل معلم قديم ينتقل إلى نشاط واحد بالضبط
+    uniqueIndex("activities_migrated_milestone_unique").on(t.migratedFromMilestoneId),
+  ],
+);
+
+/**
+ * سجل حالات النشاط — تاريخ قابل للاستعلام للاكتمال والتجاوز وإعادة الفتح والإلغاء،
+ * بالمستخدم والوقت والسبب والقيمة السابقة. سجل التدقيق العام يبقى، لكن هذا الجدول
+ * يجعل تاريخ النشاط قابلاً للعرض والتقرير مباشرةً دون تنقيب في `audit_log`.
+ */
+export const activityStateHistory = pgTable(
+  "activity_state_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    activityId: uuid("activity_id")
+      .notNull()
+      .references(() => programActivities.id, { onDelete: "cascade" }),
+    /** status_changed | progress_changed | completed | reopened | cancelled | archived | restored */
+    event: text("event").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    fromProgress: integer("from_progress"),
+    toProgress: integer("to_progress"),
+    reason: text("reason"),
+    actorId: uuid("actor_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("activity_history_activity_idx").on(t.activityId)],
+);
+
+/** مخرجات النشاط — ما يجب إنتاجه فعلياً ليُعدّ النشاط مكتملاً */
+export const activityDeliverables = pgTable(
+  "activity_deliverables",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    activityId: uuid("activity_id")
+      .notNull()
+      .references(() => programActivities.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    required: boolean("required").notNull().default(true),
+    completed: boolean("completed").notNull().default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedBy: uuid("completed_by").references(() => users.id),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("activity_deliverables_activity_idx").on(t.activityId)],
+);
+
+/**
+ * متطلبات الشواهد للنشاط — تصف الشاهد المطلوب لا الملف نفسه.
+ * الملفات تبقى في سجل الشواهد الموحد (`evidence_items` + `evidence_links`) — لا مخزن رفع ثانٍ.
+ * التحقق من الاستيفاء يتم بعدّ الروابط من نوع `activity` بمفتاح فرعي = معرّف المتطلب.
+ */
+export const activityEvidenceRequirements = pgTable(
+  "activity_evidence_requirements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    activityId: uuid("activity_id")
+      .notNull()
+      .references(() => programActivities.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    /** التصنيف المطلوب: شاهد تنفيذ | شاهد مخرج | شاهد أثر | شاهد خارجي (أو فارغ = أي تصنيف) */
+    requiredRole: text("required_role"),
+    minCount: integer("min_count").notNull().default(1),
+    required: boolean("required").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("activity_evidence_req_activity_idx").on(t.activityId)],
+);
+
+/** المعالم الموزونة — مُستوعَبة في الأنشطة (D-020). للقراءة فقط: مصدر تراجع ومطابقة لا غير. */
 export const programMilestones = pgTable(
   "program_milestones",
   {

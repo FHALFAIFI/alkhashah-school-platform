@@ -2,115 +2,11 @@
 
 import { useActionState, useState, useTransition } from "react";
 import {
-  updateMilestoneAction, addMilestoneAction, updateMilestoneWeightAction, deleteMilestoneAction,
   approveProgramAction, reopenProgramAction, createChangeRequestAction, decideChangeRequestAction,
   approvePackageAction,
   type ActionState,
 } from "../actions";
 import { Field, SubmitButton, ProgressBar } from "@/components/ui";
-
-type Milestone = {
-  id: string;
-  title: string;
-  weight: number;
-  progress: number;
-  status: string;
-  dueText: string | null;
-  notes: string | null;
-};
-
-export function MilestoneRow({ milestone, editable, draftMode }: { milestone: Milestone; editable: boolean; draftMode: boolean }) {
-  const [pending, startTransition] = useTransition();
-  const [editing, setEditing] = useState(false);
-  // سبب منع الحذف يُعرض للمستخدم بدل الفشل الصامت
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  return (
-    <div className="rounded-lg border border-sand-200 p-3">
-      {deleteError && (
-        <div role="alert" className="mb-2 rounded bg-red-50 p-2 text-xs text-red-700">{deleteError}</div>
-      )}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 flex-1 basis-48">
-          <div className="text-sm font-medium">{milestone.title}</div>
-          <div className="text-xs text-gray-400">
-            الوزن: {milestone.weight}٪ {milestone.dueText && `· الموعد: ${milestone.dueText}`}
-          </div>
-        </div>
-        <ProgressBar value={milestone.progress} />
-        {editable && (
-          <form
-            action={(fd) => startTransition(() => updateMilestoneAction(milestone.id, fd))}
-            className="flex flex-wrap items-center gap-2"
-          >
-            <label className="text-xs text-gray-500" htmlFor={`p-${milestone.id}`}>تحديث الإنجاز</label>
-            <input
-              id={`p-${milestone.id}`}
-              name="progress"
-              type="number"
-              min={0}
-              max={100}
-              defaultValue={milestone.progress}
-              className="w-16 rounded border border-gray-300 px-2 py-1 text-xs tabular-nums"
-            />
-            <button className="rounded bg-brand-600 px-2 py-1 text-xs text-white" disabled={pending}>حفظ</button>
-          </form>
-        )}
-        {editable && draftMode && (
-          <button onClick={() => setEditing(!editing)} className="text-xs text-gray-500 underline">تعديل الوزن</button>
-        )}
-      </div>
-      {editing && (
-        <form
-          action={(fd) => startTransition(() => { updateMilestoneWeightAction(milestone.id, fd); setEditing(false); })}
-          className="mt-2 flex flex-wrap items-end gap-2 border-t border-sand-100 pt-2"
-        >
-          <div className="min-w-0 flex-1 basis-40">
-            <label className="block text-xs text-gray-500">العنوان</label>
-            <input name="title" defaultValue={milestone.title} className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500">الوزن ٪</label>
-            <input name="weight" type="number" min={0} max={100} defaultValue={milestone.weight} className="w-16 rounded border border-gray-300 px-2 py-1 text-xs" />
-          </div>
-          <button className="rounded bg-brand-600 px-2 py-1 text-xs text-white">حفظ</button>
-          <button
-            type="button"
-            onClick={() =>
-              startTransition(async () => {
-                setDeleteError(null);
-                const res = await deleteMilestoneAction(milestone.id);
-                if (res?.error) setDeleteError(res.error);
-              })
-            }
-            className="rounded border border-red-200 px-2 py-1 text-xs text-red-600"
-          >
-            حذف
-          </button>
-        </form>
-      )}
-    </div>
-  );
-}
-
-export function AddMilestoneForm({ programId }: { programId: string }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(addMilestoneAction.bind(null, programId), null);
-  return (
-    <form action={formAction} className="mt-3 flex flex-wrap items-end gap-2 border-t border-sand-100 pt-3">
-      {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
-      <div className="min-w-0 flex-1 basis-56">
-        <Field label="معلم جديد" name="title" required />
-      </div>
-      <div className="w-24">
-        <Field label="الوزن ٪" name="weight" type="number" required />
-      </div>
-      <div className="w-40">
-        <Field label="الموعد (نص)" name="dueText" />
-      </div>
-      <SubmitButton variant="secondary">إضافة معلم</SubmitButton>
-    </form>
-  );
-}
 
 export function ApproveProgramButton({ programId, disabled, totalWeight }: { programId: string; disabled: boolean; totalWeight: number }) {
   const [error, setError] = useState<string | null>(null);

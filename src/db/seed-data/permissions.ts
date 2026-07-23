@@ -22,6 +22,7 @@ export const permissionsSeed: { key: string; nameAr: string; module: string }[] 
   { key: "plan.import", nameAr: "استيراد الخطة التشغيلية", module: "plan" },
   { key: "plan.approve", nameAr: "اعتماد وإقفال البرامج", module: "plan" },
   { key: "plan.close_year", nameAr: "إقفال السنة وأرشفتها", module: "plan" },
+  { key: "plan.override", nameAr: "إقفال البرنامج بتجاوز موثّق رغم النواقص", module: "plan" },
 
   { key: "committees.read", nameAr: "عرض اللجان والمجالس", module: "committees" },
   { key: "committees.write", nameAr: "إدارة اللجان والاجتماعات", module: "committees" },
@@ -86,6 +87,9 @@ export const rolesSeed = [
     key: "sysadmin",
     nameAr: "مسؤول النظام",
     system: true,
-    permissions: permissionsSeed.map((p) => p.key).filter((k) => k !== "performance.individual.read" && k !== "branding.use"),
+    permissions: permissionsSeed
+      .map((p) => p.key)
+      // تفاصيل الأداء الفردي والتوقيع للمدير (D-013)، وتجاوز إقفال البرنامج قرار المدير وحده
+      .filter((k) => k !== "performance.individual.read" && k !== "branding.use" && k !== "plan.override"),
   },
 ];

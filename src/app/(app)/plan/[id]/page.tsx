@@ -3,7 +3,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import {
-  programs, programMilestones, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups,
+  programs, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups, people,
 } from "@/db/schema";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { evidenceForEntity } from "@/lib/evidence";
@@ -14,9 +14,11 @@ import { getVersions } from "@/lib/versioning";
 import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps } from "@/components/ui";
 import { FollowupDueBadge } from "../followup-badge";
 import {
-  MilestoneRow, AddMilestoneForm, ApproveProgramButton, ReopenForm, ChangeRequestForm,
+  ApproveProgramButton, ReopenForm, ChangeRequestForm,
   ChangeRequestDecision, ApprovePackageButton,
 } from "./program-ui";
+import { ActivityRow, AddActivityForm, WeightingModeForm, ReadinessPanel } from "./activities-ui";
+import { getProgramOverview } from "@/lib/plan/program-service";
 import { EvidencePanel } from "@/components/evidence-panel";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
 
@@ -32,25 +34,36 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
     .where(and(eq(programs.id, id), notSynthetic(programs.id, excluded.programs)));
   if (!program) notFound();
 
-  const [milestones, deliverables, changeRequests, roadmap, evidence, versions, followups] = await Promise.all([
-    db.select().from(programMilestones).where(eq(programMilestones.programId, id)).orderBy(asc(programMilestones.sortOrder)),
+  const [overview, deliverables, changeRequests, roadmap, evidence, versions, followups, staff] = await Promise.all([
+    getProgramOverview(id),
     db.select().from(programDeliverables).where(eq(programDeliverables.programId, id)),
     db.select().from(programChangeRequests).where(eq(programChangeRequests.programId, id)),
     db.select().from(programRoadmapCells).where(eq(programRoadmapCells.programId, id)).orderBy(asc(programRoadmapCells.sortOrder)),
     evidenceForEntity("program", id),
     getVersions("program", id),
     db.select().from(programFollowups).where(eq(programFollowups.programId, id)).orderBy(desc(programFollowups.createdAt)).limit(8),
+    db
+      .select({ id: people.id, fullName: people.fullName })
+      .from(people)
+      .where(eq(people.active, true))
+      .orderBy(asc(people.fullName)),
   ]);
+  if (!overview) notFound();
+
+  // التقدم والجاهزية من الأنشطة حصراً (D-020) — لا قراءة للمعالم القديمة هنا
+  const activities = overview.activities;
+  const progress = overview.progress;
+  const readiness = overview.readiness;
 
   const canWrite = user.permissions.has("plan.write") && program.status === "مسودة";
   const canApprove = user.permissions.has("plan.approve");
-  const totalWeight = milestones.reduce((s, m) => s + m.weight, 0);
+  const canOverride = user.permissions.has("plan.override");
   const evidenceRoles = evidence.map((e) => e.item.role ?? "").filter(Boolean);
 
   /** مراحل سير عمل البرنامج: الإعداد ← الاعتماد ← التنفيذ والمتابعة ← الإقفال */
-  const weightsReady = milestones.length > 0 && totalWeight === 100;
+  const weightsReady = activities.length > 0 && progress.weights.valid;
   const workflowCurrent =
-    program.status === "مقفل" ? 4 : program.status === "معتمد" ? 2 : weightsReady ? 1 : 0;
+    program.completedAt ? 4 : program.status === "معتمد" ? 2 : weightsReady ? 1 : 0;
   const packagesWithGaps = deliverables.filter(
     (d) => computePackageReadiness({ requiresExternal: d.requiresExternal, evidenceRoles }).missing.length > 0,
   ).length;
@@ -100,17 +113,16 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           {program.status === "مسودة" && !weightsReady && (
             <p className="text-amber-700">
               <span className="font-medium">الخطوة التالية:</span>{" "}
-              {milestones.length === 0
-                ? "أضف معالم موزونة ثم اضبط أوزانها لتساوي 100"
-                : "اضبط أوزان المعالم لتساوي 100"}{" "}
-              <span className="text-xs text-amber-600">(المجموع الحالي: {totalWeight}٪)</span>
+              {activities.length === 0
+                ? "أضف أنشطة للبرنامج — بلا أنشطة يبقى التقدم 0٪"
+                : `اضبط أوزان الأنشطة: ${progress.weights.problemsAr.join("، ")}`}
             </p>
           )}
           {program.status === "مسودة" && weightsReady && (
             canApprove ? (
               <div className="flex flex-wrap items-center gap-3">
                 <span className="font-medium text-gray-700">الخطوة التالية: البرنامج جاهز للاعتماد</span>
-                <ApproveProgramButton programId={id} disabled={false} totalWeight={totalWeight} />
+                <ApproveProgramButton programId={id} disabled={false} totalWeight={progress.weights.total} />
               </div>
             ) : (
               <p className="text-gray-700">
@@ -148,7 +160,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         <Card>
           <h2 className="mb-2 text-sm font-bold text-gray-600">الاعتماد</h2>
           {program.status === "مسودة" && canApprove ? (
-            <ApproveProgramButton programId={id} disabled={milestones.length > 0 && totalWeight !== 100} totalWeight={totalWeight} />
+            <ApproveProgramButton programId={id} disabled={activities.length > 0 && !progress.weights.valid} totalWeight={progress.weights.total} />
           ) : program.status === "معتمد" && canApprove ? (
             <ReopenForm programId={id} />
           ) : (
@@ -170,20 +182,44 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
       </Card>
 
       <Card>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-bold text-brand-900">المعالم الموزونة — أساس حساب التقدم</h2>
-          <span className={`text-sm ${totalWeight === 100 ? "text-emerald-600" : "text-amber-600"}`}>
-            مجموع الأوزان: {totalWeight}٪ {totalWeight !== 100 && "(يجب أن يساوي 100٪ قبل الاعتماد)"}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold text-brand-900">الأنشطة — أساس حساب تقدم التنفيذ</h2>
+          <span className="text-sm tabular-nums text-gray-600">
+            التقدم: {progress.display}٪ · {progress.countedActivities} نشاطاً محتسباً
           </span>
         </div>
+        {user.permissions.has("plan.write") && (
+          <div className="mb-3">
+            <WeightingModeForm programId={id} mode={program.weightingMode} problems={progress.weights.problemsAr} />
+          </div>
+        )}
         <div className="space-y-2">
-          {milestones.map((m) => (
-            <MilestoneRow key={m.id} milestone={m} editable={user.permissions.has("plan.write")} draftMode={program.status === "مسودة"} />
+          {activities.map((a) => (
+            <ActivityRow
+              key={a.id}
+              activity={a}
+              editable={user.permissions.has("plan.write") && !program.completedAt}
+              people={staff}
+            />
           ))}
-          {milestones.length === 0 && <p className="text-sm text-gray-400">لا معالم — أضف معالم موزونة لحساب التقدم</p>}
+          {activities.length === 0 && (
+            <p className="text-sm text-gray-400">لا أنشطة بعد — أضف أنشطة لتُحسب نسبة التقدم (بلا أنشطة يبقى التقدم 0٪)</p>
+          )}
         </div>
-        {canWrite && <AddMilestoneForm programId={id} />}
+        {user.permissions.has("plan.write") && !program.completedAt && <AddActivityForm programId={id} people={staff} />}
       </Card>
+
+      <ReadinessPanel
+        programId={id}
+        readiness={readiness}
+        completed={!!program.completedAt}
+        override={program.completionOverride}
+        overrideReason={program.overrideReason}
+        overrideReadiness={program.overrideReadiness}
+        overrideMissing={program.overrideMissing}
+        canApprove={canApprove}
+        canOverride={canOverride}
+      />
 
       <div id="evidence" className="scroll-mt-20">
       <Card>

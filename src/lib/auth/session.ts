@@ -43,8 +43,14 @@ export async function createSession(userId: string, ip?: string, userAgent?: str
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    // آمن دائماً في الإنتاج، وفي التطوير عندما يصل الطلب عبر HTTPS (مثل Tailscale Serve)
-    secure: process.env.NODE_ENV === "production" || (await requestIsHttps()),
+    // آمن دائماً في الإنتاج، وفي التطوير عندما يصل الطلب عبر HTTPS (مثل Tailscale Serve).
+    // TEMPORARY escape hatch: ALLOW_INSECURE_LAN_HTTP=true lets a plain-HTTP request on the
+    // trusted LAN (no x-forwarded-proto=https) receive a non-Secure cookie so login works over
+    // http://<LAN-IP>:3080 during the principal retest. HTTPS requests stay always-Secure, so the
+    // Tailscale Serve path is unaffected. Remove the env flag to restore always-Secure in production.
+    secure:
+      (await requestIsHttps()) ||
+      (process.env.NODE_ENV === "production" && process.env.ALLOW_INSECURE_LAN_HTTP !== "true"),
     path: "/",
     maxAge: ABSOLUTE_DAYS * 24 * 3600,
   });

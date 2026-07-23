@@ -3,6 +3,7 @@ import { inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   programs,
+  programActivities,
   programDeliverables,
   programKpis,
   planBudgetItems,
@@ -28,6 +29,7 @@ import {
 
 export type LinkableEntityKey =
   | "program"
+  | "activity"
   | "deliverable"
   | "kpi"
   | "budget_item"
@@ -85,6 +87,30 @@ const DEFS: Record<LinkableEntityKey, EntityDef> = {
         .from(programs)
         .where(inArray(programs.id, ids));
       return rows.map((r) => ({ id: r.id, labelAr: r.name, locked: isLockedState(r.status) }));
+    },
+  },
+  activity: {
+    key: "activity",
+    labelAr: "نشاط",
+    pluralAr: "الأنشطة",
+    permission: "plan.read",
+    route: (id) => `/plan?نشاط=${id}`,
+    resolve: async (ids) => {
+      const rows = await db
+        .select({
+          id: programActivities.id,
+          name: programActivities.name,
+          status: programActivities.status,
+          programId: programActivities.programId,
+        })
+        .from(programActivities)
+        .where(inArray(programActivities.id, ids));
+      return rows.map((r) => ({
+        id: r.id,
+        labelAr: r.name,
+        locked: isLockedState(r.status),
+        href: `/plan/${r.programId}?نشاط=${r.id}`,
+      }));
     },
   },
   deliverable: {
