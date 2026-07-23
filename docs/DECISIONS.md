@@ -118,3 +118,46 @@ approved hierarchy diagram. Sections 1, 2 and the section-3 hierarchy are analyz
 `docs/SCOPE_IMPACT_V2.md`. Section 3's rules and all subsequent sections (implied by section 2's
 references to KPI cycles, budget expenses, committees, meetings, rooms and assets) were not received.
 Work stopped at the analysis gate rather than guessing the missing workflow requirements.
+
+## D-020 — RESOLVED 2026-07-23: activities are the canonical, sole weighted progress unit
+The product owner locked the decision. `program_activities` absorbs `program_milestones`
+functionally; `program_milestones` survives physically as a **read-only rollback source only**.
+
+- Users see and manage activities only. New application code reads/writes activities only.
+- Only `program_activities` contributes to program execution progress. No double counting.
+- Every legacy milestone is backfilled into exactly one activity, carrying a unique traceable
+  legacy reference (`program_activities.migrated_from_milestone_id`, UNIQUE, nullable).
+- `program_milestones` is never dropped, rewritten, truncated, or destructively transformed in
+  this engagement. Physical removal is a later, separately approved cleanup migration, only after
+  production verification and principal acceptance.
+- The migration therefore stays additive.
+
+**Migration 0010 carries no D-020 conflict.** It touches only `evidence_versions`,
+`evidence_items.version/archived_*` and `people.employee_type` — nothing in the plan module.
+It is applied to `madrasa_test` and is treated as immutable. The activity model goes into a
+new forward migration, **0011**.
+
+## D-022 — Legacy milestone baseline is 129, not 64 (2026-07-23)
+The scope states an expected baseline of **64** `program_milestones` and requires a stop-and-report
+if the live count differs. Observed on 2026-07-23:
+
+| Database | `program_milestones` | Migration state |
+|---|---|---|
+| `madrasa` (production) | **129** | 0000–0009 (0010 NOT applied) |
+| `madrasa` (local dev) | 194 | 0000–0007 (behind) |
+| `madrasa_test` | 1 residual (truncated per run) | 0000–0010 |
+
+**Cause — not data corruption.** The 64 figure comes from the 2026-07-18 checkpoint, which
+counted the *local dev* database at that time. Production's 129 rows were created when the
+principal committed the official operational-plan batch on **2026-07-21** (26 programs). The
+distribution is regular and consistent with generated plan milestones: 25 programs × 5 milestones
+and 1 program × 4 milestones, every row `weight = 20`, every row `status = لم يبدأ`, `progress = 0`.
+
+Consequences carried into the design:
+1. Reconciliation asserts **the observed live count**, whatever it is, not a hardcoded 64. The
+   count is captured immediately before backfill and proven equal afterwards.
+2. 25 programs have milestone weights summing to exactly 100; **one program sums to 80**
+   (4 × 20). Under custom weighting that total is invalid, and per the scope it must **not** be
+   silently normalized — it surfaces in the readiness checklist and blocks normal completion.
+   This is the designed behaviour, not a migration defect.
+3. Nothing is applied to production until reconciliation passes there and the operator authorizes it.
