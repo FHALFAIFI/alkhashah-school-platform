@@ -47,6 +47,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: "المبنى المدرسي",
     items: [
       { href: "/building", label: "مخطط المبنى", permission: "building.read", icon: "⌂" },
+      { href: "/building/facilities", label: "قائمة المرافق", permission: "building.read", icon: "▦" },
       { href: "/building/assets", label: "العهدة والأصول", permission: "assets.read", icon: "▥" },
       { href: "/building/inspections", label: "الفحص والجاهزية", permission: "inspections.read", icon: "✓" },
       { href: "/building/maintenance", label: "الصيانة", permission: "maintenance.read", icon: "🛠" },

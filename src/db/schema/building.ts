@@ -226,3 +226,43 @@ export const readinessOverrides = pgTable("readiness_overrides", {
   actorId: uuid("actor_id").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * قائمة المرافق المطلوبة (§7) — سير العمل الأساسي المبسّط:
+ * قائمة المرافق المطلوبة ← موجود/غير موجود/غير مطلوب ← ربط الموجود بغرفة فعلية.
+ * أنواع المرافق قابلة للتهيئة (معيارية + مخصصة). لا يلزم تسجيل كل مقعد أو طاولة —
+ * الأصول المهمة فقط تُسجّل في وحدة الأصول القائمة.
+ */
+export const facilityChecklist = pgTable(
+  "facility_checklist",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** نوع المرفق (معياري أو مخصص) مثل: مختبر علوم، مصلى، عيادة، ملعب */
+    facilityType: text("facility_type").notNull(),
+    /** معياري (من القائمة المعيارية) أو مخصص */
+    kind: text("kind").notNull().default("معياري"), // معياري | مخصص
+    /** موجود | غير موجود | غير مطلوب */
+    status: text("status").notNull().default("غير موجود"),
+    requiredQty: integer("required_qty"),
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("facility_checklist_status_idx").on(t.status)],
+);
+
+/** ربط المرفق الموجود بغرف فعلية — الكمية المتوفرة تُحتسب من عدد الغرف المرتبطة. */
+export const facilityRoomLinks = pgTable(
+  "facility_room_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    facilityId: uuid("facility_id").notNull().references(() => facilityChecklist.id, { onDelete: "cascade" }),
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    index("facility_room_links_facility_idx").on(t.facilityId),
+    uniqueIndex("facility_room_links_unique").on(t.facilityId, t.roomId),
+  ],
+);
