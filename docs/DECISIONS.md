@@ -161,3 +161,47 @@ Consequences carried into the design:
    silently normalized — it surfaces in the readiness checklist and blocks normal completion.
    This is the designed behaviour, not a migration defect.
 3. Nothing is applied to production until reconciliation passes there and the operator authorizes it.
+
+## D-022 — APPROVED 2026-07-23: 129 is the authoritative production baseline
+The product owner acknowledged and approved D-022. The authoritative production baseline is
+**129 legacy `program_milestones`**, all legitimate principal-approved records that must be
+preserved:
+- 25 programs × 5 milestones = 125
+- 1 program × 4 milestones = 4
+- Total = **129**
+
+Binding reconciliation controls (enforced by `scripts/verify-milestone-baseline.ts` and the
+deployment plan):
+1. 129 recorded as the approved baseline.
+2. Every captured source milestone is dynamically proven to map to exactly one activity.
+3. The live count is verified == 129 **immediately before backup** and **again immediately
+   before migration**; a captured source-row fingerprint (sorted `program_id|weight|status|
+   progress|sort_order` per milestone, hashed) must match at both points.
+4. If the count or fingerprint changes, STOP and report — never silently accept a new count.
+
+**Migration mode for the backfill (corrected):**
+- The legacy `weight=20` values are preserved on each activity **for traceability only**.
+- The backfill does **not** infer custom weighting from those values. Programs keep the default
+  **equal mode** (`weighting_mode = "متساوٍ"`). Equal mode gives the four/five active
+  activities equal effective weight and is always valid.
+- Custom mode is never auto-activated. If a user later selects custom mode, the total must equal
+  100 exactly; the four-activity program (Σ=80) then blocks normal completion and is never
+  silently normalized.
+
+**Production deployment authorization:** NOT granted. No production-write attempts via Docker,
+psql, or any other path. Permission denial is not the deployment safety control — the gate is
+the completed scope + recovery evidence + an explicit owner authorization.
+
+## D-023 — Production rollback strategy (corrected) 2026-07-23
+Supersedes the rollback note in the earlier scope-impact doc.
+- **Preferred production rollback is APPLICATION rollback** — redeploy the previous app image
+  while leaving the additive schema (0010/0011 tables and columns) intact. The additive schema
+  is inert to older code because Drizzle emits explicit column lists (never `SELECT *`).
+- Dropping the four new tables and twelve new columns is permitted **only** before they contain
+  any production-created data, **or** after that data has been safely exported and its
+  restoration verified.
+- Rollback must **never** destroy newly created KPI, committee, report, activity, or related
+  records.
+- "Clean production" means production carrying its retained legitimate pilot data (54 people,
+  26 programs, 129 milestones, …) — **not** an empty database. Never reset, reseed, delete, or
+  replace that data.
