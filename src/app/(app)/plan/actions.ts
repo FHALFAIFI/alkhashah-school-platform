@@ -9,6 +9,7 @@ import {
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { assessDeletion } from "@/lib/safe-delete";
 import { snapshotRecord } from "@/lib/versioning";
 import { computeProgramProgress } from "@/lib/plan/progress";
 import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
@@ -87,15 +88,34 @@ export async function updateMilestoneWeightAction(milestoneId: string, formData:
   revalidatePath(`/plan/${ms.programId}`);
 }
 
-export async function deleteMilestoneAction(milestoneId: string): Promise<void> {
+/**
+ * حذف معلم — يمر بطبقة الحذف الآمن ويشرح المنع بالعربية بدل الفشل الصامت.
+ * الشروط: البرنامج ما زال مسودة، والمعلم لا يحمل شواهد أو وثائق مرتبطة.
+ */
+export async function deleteMilestoneAction(milestoneId: string): Promise<ActionState> {
   const user = await requirePermission("plan.write");
   const [ms] = await db.select().from(programMilestones).where(eq(programMilestones.id, milestoneId));
-  if (!ms) return;
+  if (!ms) return { error: "المعلم غير موجود" };
   const [program] = await db.select().from(programs).where(eq(programs.id, ms.programId));
-  if (!program || program.status !== "مسودة") return;
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (program.status !== "مسودة") {
+    return { error: `لا يمكن حذف معلم من برنامج حالته «${program.status}» — أعد فتح البرنامج بطلب تغيير موثّق أولاً.` };
+  }
+
+  const assessment = await assessDeletion("milestone", milestoneId);
+  if (assessment.blocked) return { error: assessment.messageAr };
+
   await db.delete(programMilestones).where(eq(programMilestones.id, milestoneId));
   await recomputeProgress(ms.programId);
+  await audit({
+    actorId: user.id,
+    action: "program.milestone_deleted",
+    entityType: "program",
+    entityId: ms.programId,
+    summary: `حذف معلم «${ms.title}» من برنامج مسودة`,
+  });
   revalidatePath(`/plan/${ms.programId}`);
+  return { success: "حُذف المعلم" };
 }
 
 /** اعتماد وإقفال حزمة البرنامج كاملة — المدير يعتمد الحزمة وليس كل مرفق على حدة */

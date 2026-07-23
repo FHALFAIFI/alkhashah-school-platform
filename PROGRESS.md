@@ -2,7 +2,41 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — POST-PILOT REMEDIATION (Phases 0–10) COMPLETE (2026-07-20)
+## Latest checkpoint — PRODUCT SCOPE v2, SECTION 2 DELIVERED (2026-07-23)
+- Engagement doc: **`docs/SCOPE_IMPACT_V2.md`** (inspection, mapping, migration plan, delivery log).
+  Commits `0c16f66` (analysis gate) and `8b70305` (section 2).
+- **⚠️ Production is no longer a clean baseline.** The principal manually committed **both** real
+  batches on 2026-07-21: operational plan (`منفذة` 17:27 UTC) and Fares employees (`منفذة` 18:48 UTC).
+  Production now holds real school data — 54 people, 26 programs, 129 milestones, 312 roadmap cells,
+  123 perf indicators, 88 audit rows, 1 feedback. **Treat prod as live data from here on.** The
+  "zero operational records" line in the 2026-07-20 checkpoint below is superseded.
+- **Section 2 (shared product model) implemented.** Employee register: `deletePersonAction` now
+  guards all 9 reference sites (was 2 — a person owning a program, task, maintenance issue, teaching
+  stage or login account could previously be hard-deleted); duplicate detection on manual create/edit;
+  `people.employee_type` («معلم» / «موظف إداري») **derived** from `category` so no existing row and
+  no protected batch is rewritten (D-019). Shared evidence: `src/lib/entity-registry.ts` (12 linkable
+  types, was 5 hard-coded), fail-closed delete guard, archive/restore, `evidence_versions` replacement
+  history that preserves every link, new `/evidence/[id]` with "مستخدم في" across modules, and
+  `EvidencePanel` gains «ربط شاهد قائم» + «فك الربط» instead of delete — the change that actually
+  stops the same document being uploaded twice. Safe deletion: `src/lib/safe-delete.ts`
+  (`assessDeletion` over 11 entity types, Arabic dependency counts + archive alternative), wired into
+  person, evidence and milestone deletes; asset flow deliberately unchanged.
+- **Deliberate behaviour change:** evidence with any link can no longer be permanently deleted
+  (previously allowed for draft-linked records). Archive is the alternative. The existing test was
+  updated to assert the stricter rule, not weakened.
+- **Migration 0010** (additive: `evidence_versions`, `evidence_items.version/archived_*`,
+  `people.employee_type`) — applied to `madrasa_test` only. **Not yet applied to production:** a fresh
+  encrypted backup was taken and `restore:rehearsal` **PASSED** (66 tables), but the apply step was
+  blocked by the environment's prod-DB write guard and needs operator authorization. Command in
+  `docs/SCOPE_IMPACT_V2.md` §6 (migrate only — never re-run `seed.ts` against live data).
+- **Gates:** typecheck clean, lint 0/0, production build clean, **vitest 208 passed** (was 193).
+  No release tag. App container still runs the previous image — DB migration and UI cutover are
+  independent decisions.
+- **Open:** the scope prompt arrived truncated mid-section 3 (D-021). Section 3's rules and all later
+  sections are missing. D-019 (employee-type labelling, implemented under the recommended approach)
+  and D-020 (activity vs milestone progress model) await confirmation.
+
+## Earlier checkpoint — POST-PILOT REMEDIATION (Phases 0–10) COMPLETE (2026-07-20)
 - Full engagement in `docs/POST_PILOT_REMEDIATION.md` (per-phase design + verification), plus
   `docs/UI_ACTION_AUDIT.md`, `docs/CLEAN_PRODUCTION_BASELINE.md`, `docs/DOCKER_HOMELAB_DEPLOYMENT.md`,
   `docs/DOCKER_OPERATIONS.md`. Commits `957b976`..`5ed65fa`.

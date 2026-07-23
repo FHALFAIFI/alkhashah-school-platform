@@ -22,9 +22,14 @@ type Milestone = {
 export function MilestoneRow({ milestone, editable, draftMode }: { milestone: Milestone; editable: boolean; draftMode: boolean }) {
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
+  // سبب منع الحذف يُعرض للمستخدم بدل الفشل الصامت
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   return (
     <div className="rounded-lg border border-sand-200 p-3">
+      {deleteError && (
+        <div role="alert" className="mb-2 rounded bg-red-50 p-2 text-xs text-red-700">{deleteError}</div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1 basis-48">
           <div className="text-sm font-medium">{milestone.title}</div>
@@ -71,7 +76,13 @@ export function MilestoneRow({ milestone, editable, draftMode }: { milestone: Mi
           <button className="rounded bg-brand-600 px-2 py-1 text-xs text-white">حفظ</button>
           <button
             type="button"
-            onClick={() => startTransition(() => deleteMilestoneAction(milestone.id))}
+            onClick={() =>
+              startTransition(async () => {
+                setDeleteError(null);
+                const res = await deleteMilestoneAction(milestone.id);
+                if (res?.error) setDeleteError(res.error);
+              })
+            }
             className="rounded border border-red-200 px-2 py-1 text-xs text-red-600"
           >
             حذف

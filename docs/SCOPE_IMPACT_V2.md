@@ -1,7 +1,8 @@
 # Scope-Impact Analysis — Product Scope Refinement v2 (principal feedback round 2)
 
-**Status:** DRAFT — sections 1–3 of the approved scope only. The source prompt was truncated
-mid-section 3; sections 4+ are not yet available. See "Open scope gap" at the end.
+**Status:** Section 2 **IMPLEMENTED** (commit `8b70305`). Sections 1 and 3 analyzed only —
+the source prompt was truncated mid-section 3; sections 4+ are not yet available.
+See "Open scope gap" and "Delivery log" at the end.
 
 **Date:** 2026-07-23
 **Baseline commit:** `4243908` (Phases 0–10 complete)
@@ -236,16 +237,94 @@ Both are recorded in `docs/DECISIONS.md`.
 
 ---
 
-## 6. Discipline checklist for this engagement
+## 6. Delivery log
+
+### Section 2 — delivered (commit `8b70305`, 2026-07-23)
+
+| Area | What shipped |
+|---|---|
+| E1 | `deletePersonAction` routes through `assessDeletion("person", id)` — all 9 reference sites (was 2). `DependencyNotice` renders the Arabic breakdown; the delete button is not rendered at all while blocked. |
+| E2 | `people.employee_type` + `src/lib/employee-type.ts`. «معلم» / «موظف إداري» derived from `category` when the column is empty, so no existing row is rewritten and the protected Fares batch is untouched. Forms, list, filters and detail header all switched. |
+| E3 | Deactivation reason surfaced on the person page; both transitions audited. |
+| New | Duplicate detection on manual create/edit — job number first, then full name; points the user at the existing record instead of creating a second one. |
+| V1 | `src/lib/entity-registry.ts` — 12 linkable entity types (was 5 hard-coded), each with Arabic label, route, permission and locked-state resolver. Drives the link picker *and* the delete guard from one definition. |
+| V2 | `canDeleteEvidence` is now fail-closed; unrecognized link types block deletion instead of passing silently. |
+| V3 | Evidence archive/restore — non-destructive, mandatory Arabic reason, no link deleted. `evidenceForEntity` excludes archived by default (`includeArchived` opt-in). |
+| V4 | `evidence_versions` + `replaceEvidenceContentAction`. Replacement snapshots the old version and keeps `evidence_items.id`, so every existing link survives with nothing to re-link. Returns the item to «لم يراجع». |
+| V5 | New `/evidence/[id]`: metadata, **"مستخدم في"** across modules, version history, replace, archive/restore, guarded delete. |
+| §2.3 | `src/lib/safe-delete.ts` — `assessDeletion` for 11 entity types with Arabic dependency counts + the archive/deactivate alternative. Generalizes the asset-lifecycle pattern (0008); asset behaviour deliberately unchanged. Wired into person, evidence and milestone deletes. |
+| Simplification #3 | `EvidencePanel` gains «ربط شاهد قائم» — search the library and link an already-uploaded document — and its per-item action became «فك الربط» rather than delete. This is the change that actually stops the same receipt being uploaded twice, and it propagates to every module using the panel. |
+
+**Deliberate behaviour change:** evidence with *any* link can no longer be permanently
+deleted (previously allowed when the linked record was a draft). The scope permits deletion
+only for unused records, and archive now exists as the alternative.
+`tests/integration/evidence.test.ts` was updated to assert the stricter rule — not weakened.
+
+**Gates:** typecheck clean · lint 0 errors 0 warnings · production build clean ·
+**vitest 208 passed** (was 193; +15 new tests across `tests/unit/employee-type.test.ts`,
+`tests/integration/safe-delete.test.ts`, `tests/integration/evidence.test.ts`).
+
+### Deletes that have no UI action yet
+
+`assessDeletion` covers program, budget item, committee, room, committee template and
+inspection template, but no delete action exists for them in the app — so there was nothing
+to wire. The layer is ready when those actions are built. Existing guarded deletes left
+intact: `deleteAssetAction` (its own richer confirm-phrase flow) and
+`deleteMeetingTypeAction` (already correct).
+
+### Production state — IMPORTANT correction to the prior checkpoint
+
+`PROGRESS.md` (2026-07-20) records production as a clean baseline with "zero operational
+records". **That is no longer true.** Inspection on 2026-07-23 found the principal committed
+both real batches manually on 2026-07-21:
+
+| Batch | Status | Committed |
+|---|---|---|
+| `الخطة_التشغيلية_المتكاملة_لمجمع_الخشعة_1448_1449.xlsx` | **منفذة** | 2026-07-21 17:27 UTC |
+| `بيانات الموظفين في فارس.xlsx` | **منفذة** | 2026-07-21 18:48 UTC |
+
+Production now holds real school data: 54 people, 26 programs, 129 milestones, 312 roadmap
+cells, 123 performance indicators, 88 audit entries, 1 feedback record. Every future change
+must treat this as live data, not a disposable baseline.
+
+### Migration 0010 — applied to `madrasa_test` only
+
+Not yet applied to production. A full encrypted backup was taken
+(`/data/backups/weekly/full-20260723-141549.tar.gz.enc`, sha256
+`38095ed26a4b78bb5a3f88891bb3b3521ac73d2e9c193e09925a7b1b97c7c37d`) and
+`npm run restore:rehearsal` **PASSED** against it (66 tables, 2 users, 10 file records /
+11 files restored) — so the rollback path is proven. The apply step itself was blocked by
+the environment's write-permission guard on the production database and needs operator
+authorization.
+
+Apply command once authorized (migrate only — **not** `seed.ts`, which must not re-run
+against live data):
+
+```bash
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  run --rm --build --no-deps init npx tsx src/db/migrate.ts
+```
+
+The running `app` container keeps the previous image until explicitly recreated, so the
+DB migration and the UI cutover are independent decisions. Migration 0010 is additive only,
+so the currently-deployed app is unaffected by it (Drizzle emits explicit column lists, never
+`SELECT *`).
+
+---
+
+## 7. Discipline checklist for this engagement
 
 - [x] Repository, schema, migrations, routes, tests, Docker production inspected before any change
 - [x] Requirements mapped against existing implementation
 - [x] Scope-impact document created (this file)
-- [ ] Migration 0010 authored (additive, reversible)
-- [ ] Applied to `madrasa_test` + write tests green
-- [ ] Applied to clean production DB
-- [ ] Production DB / volumes never reset, recreated, reseeded or deleted
-- [ ] Feedback, audit history, uploads, backups, recovery checkpoints preserved
-- [ ] No Fares / operational-plan / building / KPI / budget import executed
-- [ ] No fake operational or demo data in production
-- [ ] No release tag
+- [x] Migration 0010 authored (additive, reversible — no DROP, no narrowing)
+- [x] Applied to `madrasa_test` + write tests green (208 vitest)
+- [x] Fresh encrypted production backup taken **and restore-verified** before any prod step
+- [ ] Applied to production DB — **blocked, needs operator authorization** (see §6)
+- [x] Production DB / volumes never reset, recreated, reseeded or deleted
+- [x] Feedback, audit history, uploads, backups, recovery checkpoints preserved
+- [x] No Fares / operational-plan / building / KPI / budget import executed by the agent
+      (both real batches were committed by the principal manually on 2026-07-21 — see §6)
+- [x] No fake operational or demo data in production
+- [x] No release tag
+- [x] Committed at each validated gate (`0c16f66` analysis, `8b70305` section 2)
