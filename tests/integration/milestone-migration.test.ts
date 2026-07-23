@@ -117,11 +117,14 @@ describe("نقل المعالم إلى الأنشطة (D-020) — المطابق
     const { legacyProgramProgress } = await import("@/lib/plan/milestone-backfill");
     const { computeProgramProgressFromActivities, WEIGHTING_MODE } = await import("@/lib/plan/activity-progress");
 
+    // البرامج تبقى في الوضع المتساوي بعد النقل (لا يُستنتج الوضع المخصص من قيم الوزن القديمة).
+    // بما أن كل الأوزان القديمة متساوية، يعطي الوضع المتساوي نفس نتيجة الحساب القديم بالضبط.
     const all = await db.select().from(programs);
     for (const prog of all) {
+      expect(prog.weightingMode).toBe(WEIGHTING_MODE.equal);
       const acts = await db.select().from(programActivities).where(eq(programActivities.programId, prog.id));
       const legacy = await legacyProgramProgress(prog.id);
-      const now = computeProgramProgressFromActivities(acts, WEIGHTING_MODE.custom);
+      const now = computeProgramProgressFromActivities(acts, WEIGHTING_MODE.equal);
       expect(now.display).toBe(legacy);
     }
 
@@ -142,12 +145,18 @@ describe("نقل المعالم إلى الأنشطة (D-020) — المطابق
     const acts = await db.select().from(programActivities).where(eq(programActivities.programId, prog26.id));
     expect(acts.length).toBe(4);
 
+    // الأوزان القديمة (20 لكل نشاط) محفوظة للتتبع فقط
+    expect(acts.every((a) => a.weight === 20)).toBe(true);
+
+    // الوضع الفعلي بعد النقل متساوٍ وصالح — لم يُستنتج المخصص من قيم الوزن القديمة
+    const [prog26row] = await db.select().from(programs).where(eq(programs.id, prog26.id));
+    expect(prog26row.weightingMode).toBe(WEIGHTING_MODE.equal);
+    expect(validateWeights(acts, WEIGHTING_MODE.equal).valid).toBe(true);
+
+    // ولو اختار المستخدم المخصص لاحقاً فالمجموع 80 يمنع الإقفال ولا يُطبَّع صامتاً
     const v = validateWeights(acts, WEIGHTING_MODE.custom);
     expect(v.valid).toBe(false);
     expect(v.total).toBe(80);
-
-    // وفي الوضع المتساوي (الافتراضي) يصبح صالحاً — الاختيار قرار معلن لا تطبيع صامت
-    expect(validateWeights(acts, WEIGHTING_MODE.equal).valid).toBe(true);
   });
 
   it("النقل يحافظ على العنوان والترتيب والموعد وارتباط البرنامج، ولا يختلق قيماً", async () => {
