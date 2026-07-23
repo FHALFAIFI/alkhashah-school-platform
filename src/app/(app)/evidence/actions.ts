@@ -1,13 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { evidenceItems, evidenceLinks } from "@/db/schema";
+import { evidenceItems, evidenceLinks, evidenceVersions } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { saveUploadedFile } from "@/lib/storage";
 import { canDeleteEvidence, linkEvidence } from "@/lib/evidence";
+import { entityLabelAr, isLinkableEntityKey, resolveEntities } from "@/lib/entity-registry";
 import { audit } from "@/lib/audit";
 
 export type ActionState = { error?: string; success?: string } | null;
@@ -86,6 +87,69 @@ export async function createEvidenceAction(_prev: ActionState, formData: FormDat
   return { success: "أضيف الشاهد" };
 }
 
+export type EvidenceCandidate = {
+  id: string;
+  title: string;
+  kind: string;
+  role: string | null;
+  evidenceDate: string | null;
+  /** عدد السجلات المرتبطة بالشاهد حالياً — يوضّح للمستخدم أنه شاهد مُعاد استخدامه */
+  linkCount: number;
+  /** مرتبط بالفعل بالسجل الحالي */
+  alreadyLinked: boolean;
+};
+
+/**
+ * البحث في مكتبة الشواهد لربط شاهد قائم بسجل جديد.
+ * يستبعد المؤرشف، ويوضّح ما هو مرتبط أصلاً بالسجل الحالي حتى لا يُرفع الشاهد مرتين.
+ */
+export async function searchEvidenceLibraryAction(
+  entityType: string,
+  entityId: string,
+  query: string,
+): Promise<EvidenceCandidate[]> {
+  await requirePermission("evidence.read");
+  const q = query.trim();
+
+  const rows = await db
+    .select({
+      id: evidenceItems.id,
+      title: evidenceItems.title,
+      kind: evidenceItems.kind,
+      role: evidenceItems.role,
+      evidenceDate: evidenceItems.evidenceDate,
+    })
+    .from(evidenceItems)
+    .where(q ? and(isNull(evidenceItems.archivedAt), ilike(evidenceItems.title, `%${q}%`)) : isNull(evidenceItems.archivedAt))
+    .orderBy(desc(evidenceItems.createdAt))
+    .limit(25);
+  if (rows.length === 0) return [];
+
+  const ids = rows.map((r) => r.id);
+  const links = await db
+    .select({ evidenceId: evidenceLinks.evidenceId, entityType: evidenceLinks.entityType, entityId: evidenceLinks.entityId })
+    .from(evidenceLinks)
+    .where(inArray(evidenceLinks.evidenceId, ids));
+
+  const counts = new Map<string, number>();
+  const linkedHere = new Set<string>();
+  for (const l of links) {
+    counts.set(l.evidenceId, (counts.get(l.evidenceId) ?? 0) + 1);
+    if (l.entityType === entityType && l.entityId === entityId) linkedHere.add(l.evidenceId);
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    linkCount: counts.get(r.id) ?? 0,
+    alreadyLinked: linkedHere.has(r.id),
+  }));
+}
+
+/**
+ * ربط شاهد قائم بسجل آخر — جوهر «إدخال المعلومة مرة واحدة».
+ * النوع يجب أن يكون مسجَّلاً في `entity-registry` والسجل نفسه موجوداً، وإلا رُفض الربط
+ * حتى لا تنشأ روابط معلّقة لا يستطيع حارس الحذف تفسيرها لاحقاً.
+ */
 export async function linkEvidenceAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("evidence.write");
   const evidenceId = String(formData.get("evidenceId") ?? "");
@@ -93,10 +157,27 @@ export async function linkEvidenceAction(_prev: ActionState, formData: FormData)
   const entityId = String(formData.get("entityId") ?? "");
   const subKey = String(formData.get("subKey") ?? "").trim();
   if (!evidenceId || !entityType || !entityId) return { error: "بيانات الربط ناقصة" };
+  if (!isLinkableEntityKey(entityType)) return { error: "نوع سجل غير مدعوم للربط" };
+
+  const [item] = await db.select({ id: evidenceItems.id, archivedAt: evidenceItems.archivedAt })
+    .from(evidenceItems).where(eq(evidenceItems.id, evidenceId));
+  if (!item) return { error: "الشاهد غير موجود" };
+  if (item.archivedAt) return { error: "الشاهد مؤرشف — استعده أولاً قبل ربطه بسجل جديد" };
+
+  const [ref] = await resolveEntities(entityType, [entityId]);
+  if (!ref) return { error: `السجل غير موجود (${entityLabelAr(entityType)})` };
+
   await linkEvidence({ evidenceId, entityType, entityId, subKey, linkedBy: user.id });
-  await audit({ actorId: user.id, action: "evidence.linked", entityType, entityId, summary: "ربط شاهد" });
+  await audit({
+    actorId: user.id,
+    action: "evidence.linked",
+    entityType,
+    entityId,
+    summary: `ربط شاهد بـ${entityLabelAr(entityType)}: ${ref.labelAr}`,
+    detail: { evidenceId, subKey },
+  });
   revalidatePath("/evidence");
-  return { success: "تم الربط" };
+  return { success: `رُبط الشاهد بـ${entityLabelAr(entityType)}` };
 }
 
 /** مراجعة الشاهد — مرحلة «المراجعة» في سير عمل الشواهد: مقبول أو مرفوض مع ملاحظة */
@@ -125,13 +206,210 @@ export async function reviewEvidenceAction(_prev: ActionState, formData: FormDat
   return { success: `سجلت المراجعة: ${decision}` };
 }
 
+/**
+ * فك ربط شاهد عن سجل واحد دون المساس بالشاهد ولا ببقية روابطه.
+ * هذا هو البديل الصحيح عن حذف الشاهد حين يكون الخطأ في الربط لا في الشاهد نفسه.
+ */
+export async function unlinkEvidenceAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("evidence.write");
+  const evidenceId = String(formData.get("evidenceId") ?? "");
+  const entityType = String(formData.get("entityType") ?? "");
+  const entityId = String(formData.get("entityId") ?? "");
+  const subKey = String(formData.get("subKey") ?? "").trim();
+  if (!evidenceId || !entityType || !entityId) return { error: "بيانات فك الربط ناقصة" };
+
+  const refs = await resolveEntities(entityType, [entityId]);
+  if (refs.some((r) => r.locked)) {
+    return { error: `لا يمكن فك الربط: السجل المرتبط معتمد أو مقفل (${entityLabelAr(entityType)}).` };
+  }
+
+  const deleted = await db
+    .delete(evidenceLinks)
+    .where(
+      and(
+        eq(evidenceLinks.evidenceId, evidenceId),
+        eq(evidenceLinks.entityType, entityType),
+        eq(evidenceLinks.entityId, entityId),
+        eq(evidenceLinks.subKey, subKey),
+      ),
+    )
+    .returning();
+  if (deleted.length === 0) return { error: "الرابط غير موجود" };
+
+  await audit({
+    actorId: user.id,
+    action: "evidence.unlinked",
+    entityType,
+    entityId,
+    summary: `فك ربط شاهد عن ${entityLabelAr(entityType)}`,
+    detail: { evidenceId, subKey },
+  });
+  revalidatePath("/evidence");
+  return { success: "فُك الربط — الشاهد وبقية روابطه سليمة" };
+}
+
+/**
+ * استبدال ملف/محتوى الشاهد مع حفظ النسخة السابقة.
+ * لا يُنشئ شاهداً جديداً ولا يمس أي رابط: كل السجلات المرتبطة تظل تشير إلى الشاهد نفسه
+ * وترى المحتوى المحدَّث، والنسخة القديمة تبقى في `evidence_versions` للرجوع والتدقيق.
+ */
+export async function replaceEvidenceContentAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("evidence.write");
+  const evidenceId = String(formData.get("evidenceId") ?? "");
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!evidenceId) return { error: "الشاهد غير محدد" };
+  if (reason.length < 3) return { error: "اذكر سبب الاستبدال" };
+
+  const [current] = await db.select().from(evidenceItems).where(eq(evidenceItems.id, evidenceId));
+  if (!current) return { error: "الشاهد غير موجود" };
+  if (current.archivedAt) return { error: "الشاهد مؤرشف — استعده أولاً قبل الاستبدال" };
+
+  const kind = String(formData.get("kind") ?? current.kind);
+  let fileId: string | null = null;
+  let url: string | null = null;
+  let textContent: string | null = null;
+
+  try {
+    if (kind === "file") {
+      const file = formData.get("file") as File | null;
+      if (!file || file.size === 0) return { error: "اختر الملف البديل" };
+      const stored = await saveUploadedFile({
+        originalName: file.name,
+        mime: file.type || "application/octet-stream",
+        data: Buffer.from(await file.arrayBuffer()),
+        scope: "attachments",
+        uploadedBy: user.id,
+      });
+      fileId = stored.id;
+    } else if (kind === "link") {
+      const u = String(formData.get("url") ?? "").trim();
+      if (!z.string().url().safeParse(u).success) return { error: "رابط غير صالح" };
+      url = u;
+    } else {
+      textContent = String(formData.get("textContent") ?? "").trim();
+      if (!textContent) return { error: "أدخل نص الشاهد البديل" };
+    }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "تعذر حفظ الملف" };
+  }
+
+  // معاملة واحدة: لقطة النسخة الحالية ثم تحديث الشاهد ورفع رقم النسخة.
+  const nextVersion = current.version + 1;
+  await db.transaction(async (tx) => {
+    await tx.insert(evidenceVersions).values({
+      evidenceId,
+      version: current.version,
+      kind: current.kind,
+      fileId: current.fileId,
+      url: current.url,
+      textContent: current.textContent,
+      title: current.title,
+      reason,
+      replacedBy: user.id,
+    });
+    await tx
+      .update(evidenceItems)
+      .set({
+        kind,
+        fileId,
+        url,
+        textContent,
+        version: nextVersion,
+        // الاستبدال يعيد الشاهد إلى المراجعة — المحتوى تغيّر
+        reviewStatus: "لم يراجع",
+        reviewNote: null,
+      })
+      .where(eq(evidenceItems.id, evidenceId));
+  });
+
+  await audit({
+    actorId: user.id,
+    action: "evidence.replaced",
+    entityType: "evidence",
+    entityId: evidenceId,
+    summary: `استبدال محتوى شاهد «${current.title}» — النسخة ${nextVersion}`,
+    detail: { reason, fromVersion: current.version, toVersion: nextVersion },
+  });
+  revalidatePath("/evidence");
+  return { success: `حُفظت النسخة ${nextVersion} — الروابط القائمة لم تتغير` };
+}
+
+/** أرشفة الشاهد — إخفاء غير مدمّر بسبب عربي إلزامي؛ لا يُحذف أي رابط. */
+export async function archiveEvidenceAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("evidence.write");
+  const evidenceId = String(formData.get("evidenceId") ?? "");
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!evidenceId) return { error: "الشاهد غير محدد" };
+  if (reason.length < 3) return { error: "اذكر سبب الأرشفة" };
+
+  const [item] = await db.select().from(evidenceItems).where(eq(evidenceItems.id, evidenceId));
+  if (!item) return { error: "الشاهد غير موجود" };
+  if (item.archivedAt) return { error: "الشاهد مؤرشف بالفعل" };
+
+  await db
+    .update(evidenceItems)
+    .set({ archivedAt: new Date(), archivedReason: reason, archivedBy: user.id })
+    .where(eq(evidenceItems.id, evidenceId));
+  await audit({
+    actorId: user.id,
+    action: "evidence.archived",
+    entityType: "evidence",
+    entityId: evidenceId,
+    summary: `أرشفة شاهد «${item.title}»`,
+    detail: { reason },
+  });
+  revalidatePath("/evidence");
+  return { success: "أُرشف الشاهد — يمكن استعادته في أي وقت" };
+}
+
+/** استعادة شاهد مؤرشف — عكس كامل بلا فقد بيان. */
+export async function restoreEvidenceAction(evidenceId: string): Promise<ActionState> {
+  const user = await requirePermission("evidence.write");
+  const [item] = await db.select().from(evidenceItems).where(eq(evidenceItems.id, evidenceId));
+  if (!item) return { error: "الشاهد غير موجود" };
+  if (!item.archivedAt) return { error: "الشاهد غير مؤرشف" };
+
+  await db
+    .update(evidenceItems)
+    .set({ archivedAt: null, archivedReason: null, archivedBy: null })
+    .where(eq(evidenceItems.id, evidenceId));
+  await audit({
+    actorId: user.id,
+    action: "evidence.restored",
+    entityType: "evidence",
+    entityId: evidenceId,
+    summary: `استعادة شاهد «${item.title}»`,
+  });
+  revalidatePath("/evidence");
+  return { success: "استُعيد الشاهد" };
+}
+
+/**
+ * الحذف النهائي — متاح فقط لشاهد غير مستخدم في أي سجل.
+ * عند وجود أي ارتباط يُمنع الحذف ويُشرح السبب بالعربية مع البديل (الأرشفة).
+ * لا يُحذف أي رابط بالسلسلة.
+ */
 export async function deleteEvidenceAction(evidenceId: string): Promise<ActionState> {
   const user = await requirePermission("evidence.delete");
   const check = await canDeleteEvidence(evidenceId);
-  if (!check.allowed) return { error: `لا يمكن الحذف: ${check.reason}` };
-  await db.delete(evidenceLinks).where(eq(evidenceLinks.evidenceId, evidenceId));
-  await db.delete(evidenceItems).where(eq(evidenceItems.id, evidenceId));
-  await audit({ actorId: user.id, action: "evidence.deleted", entityType: "evidence", entityId: evidenceId });
+  if (!check.allowed) return { error: check.reason };
+
+  const [item] = await db.select().from(evidenceItems).where(eq(evidenceItems.id, evidenceId));
+  if (!item) return { error: "الشاهد غير موجود" };
+
+  // لا روابط بحكم الحارس أعلاه؛ تُحذف نسخ الشاهد معه (أثر داخلي، ليست سجل أعمال).
+  await db.transaction(async (tx) => {
+    await tx.delete(evidenceVersions).where(eq(evidenceVersions.evidenceId, evidenceId));
+    await tx.delete(evidenceItems).where(eq(evidenceItems.id, evidenceId));
+  });
+  await audit({
+    actorId: user.id,
+    action: "evidence.deleted",
+    entityType: "evidence",
+    entityId: evidenceId,
+    summary: `حذف نهائي لشاهد «${item.title}» بلا أي ارتباط`,
+    detail: { snapshot: { title: item.title, kind: item.kind, role: item.role } },
+  });
   revalidatePath("/evidence");
-  return { success: "حذف الشاهد" };
+  return { success: "حُذف الشاهد نهائياً (بلا ارتباطات)" };
 }

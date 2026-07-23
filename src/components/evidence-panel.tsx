@@ -1,7 +1,14 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { createEvidenceAction, deleteEvidenceAction, type ActionState } from "@/app/(app)/evidence/actions";
+import {
+  createEvidenceAction,
+  linkEvidenceAction,
+  searchEvidenceLibraryAction,
+  unlinkEvidenceAction,
+  type ActionState,
+  type EvidenceCandidate,
+} from "@/app/(app)/evidence/actions";
 import { Card, Field, SubmitButton, Badge } from "@/components/ui";
 
 const ROLES = ["خط أساس", "تنفيذ", "مخرج", "أثر", "خارجي"];
@@ -28,21 +35,92 @@ export function EvidencePanel({
   const [state, formAction] = useActionState<ActionState, FormData>(createEvidenceAction, null);
   const [kind, setKind] = useState("file");
   const [showForm, setShowForm] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
   const [, startTransition] = useTransition();
+
+  // مكتبة الشواهد — ربط شاهد مرفوع سابقاً بدل رفع نسخة ثانية منه
+  const [query, setQuery] = useState("");
+  const [candidates, setCandidates] = useState<EvidenceCandidate[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [librarySubKey, setLibrarySubKey] = useState("");
+
+  function runSearch(q: string) {
+    startTransition(async () => {
+      setSearching(true);
+      try {
+        setCandidates(await searchEvidenceLibraryAction(entityType, entityId, q));
+      } finally {
+        setSearching(false);
+      }
+    });
+  }
+
+  function linkExisting(evidenceId: string) {
+    startTransition(async () => {
+      setNotice(null);
+      const fd = new FormData();
+      fd.set("evidenceId", evidenceId);
+      fd.set("entityType", entityType);
+      fd.set("entityId", entityId);
+      fd.set("subKey", librarySubKey);
+      const res = await linkEvidenceAction(null, fd);
+      if (res?.error) setNotice({ kind: "error", text: res.error });
+      else {
+        setNotice({ kind: "ok", text: res?.success ?? "تم الربط" });
+        runSearch(query);
+      }
+    });
+  }
+
+  function unlink(evidenceId: string, subKey: string | null | undefined) {
+    startTransition(async () => {
+      setNotice(null);
+      const fd = new FormData();
+      fd.set("evidenceId", evidenceId);
+      fd.set("entityType", entityType);
+      fd.set("entityId", entityId);
+      fd.set("subKey", subKey ?? "");
+      const res = await unlinkEvidenceAction(null, fd);
+      if (res?.error) setNotice({ kind: "error", text: res.error });
+      else setNotice({ kind: "ok", text: res?.success ?? "فُك الربط" });
+    });
+  }
 
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-bold text-brand-900">الشواهد المرتبطة ({items.length})</h2>
         {canWrite && (
-          <button onClick={() => setShowForm(!showForm)} className="rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100">
-            {showForm ? "إغلاق" : "إضافة شاهد"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => {
+                const next = !showLibrary;
+                setShowLibrary(next);
+                if (next && candidates === null) runSearch("");
+              }}
+              className="min-h-11 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100 lg:min-h-0"
+            >
+              {showLibrary ? "إغلاق المكتبة" : "ربط شاهد قائم"}
+            </button>
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className="min-h-11 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100 lg:min-h-0"
+            >
+              {showForm ? "إغلاق" : "رفع شاهد جديد"}
+            </button>
+          </div>
         )}
       </div>
 
-      {deleteError && <div role="alert" className="mb-2 rounded bg-red-50 p-2 text-xs text-red-700">{deleteError}</div>}
+      {notice && (
+        <div
+          role={notice.kind === "error" ? "alert" : "status"}
+          className={`mb-2 rounded p-2 text-xs ${notice.kind === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}
+        >
+          {notice.text}
+        </div>
+      )}
 
       <ul className="space-y-2">
         {items.map((item) => (
@@ -60,17 +138,13 @@ export function EvidencePanel({
                 <a href={`/api/files/${item.fileId}`} className="text-xs text-brand-700 underline">تنزيل</a>
               )}
               {canWrite && (
+                // فك الربط لا يحذف الشاهد: يبقى في المكتبة وتبقى بقية السجلات المرتبطة به سليمة
                 <button
-                  onClick={() =>
-                    startTransition(async () => {
-                      setDeleteError(null);
-                      const res = await deleteEvidenceAction(item.id);
-                      if (res?.error) setDeleteError(res.error);
-                    })
-                  }
+                  onClick={() => unlink(item.id, item.subKey)}
                   className="text-xs text-red-500 hover:underline"
+                  title="يزيل ربط الشاهد بهذا السجل فقط — الشاهد يبقى في مكتبة الشواهد"
                 >
-                  حذف
+                  فك الربط
                 </button>
               )}
             </div>
@@ -78,6 +152,77 @@ export function EvidencePanel({
         ))}
         {items.length === 0 && <li className="text-sm text-gray-400">لا شواهد بعد</li>}
       </ul>
+
+      {showLibrary && canWrite && (
+        <div className="mt-4 space-y-3 rounded-lg bg-brand-50/60 p-3">
+          <p className="text-xs text-brand-900">
+            ابحث في مكتبة الشواهد واربط شاهداً مرفوعاً سابقاً بهذا السجل — لا حاجة لرفع الملف مرة أخرى.
+          </p>
+          {subKeys && subKeys.length > 0 && (
+            <div>
+              <label htmlFor="librarySubKey" className="mb-1 block text-sm font-medium text-gray-700">{subKeyLabel}</label>
+              <select
+                id="librarySubKey"
+                value={librarySubKey}
+                onChange={(e) => setLibrarySubKey(e.target.value)}
+                className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+              >
+                {!subKeyRequired && <option value="">— عام (بلا ربط فرعي) —</option>}
+                {subKeys.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  runSearch(query);
+                }
+              }}
+              placeholder="ابحث بعنوان الشاهد"
+              aria-label="ابحث في مكتبة الشواهد"
+              className="min-h-11 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm lg:min-h-0"
+            />
+            <button
+              onClick={() => runSearch(query)}
+              className="min-h-11 rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm hover:bg-sand-100 lg:min-h-0"
+            >
+              بحث
+            </button>
+          </div>
+          {searching && <p className="text-xs text-gray-500">جارٍ البحث…</p>}
+          {!searching && candidates?.length === 0 && (
+            <p className="text-xs text-gray-500">لا شواهد مطابقة في المكتبة — ارفع شاهداً جديداً.</p>
+          )}
+          <ul className="space-y-2">
+            {(candidates ?? []).map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sand-100 bg-white px-3 py-2 text-sm">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{c.title}</span>
+                  {c.role && <Badge value={c.role} />}
+                  {c.linkCount > 0 && (
+                    <span className="rounded bg-sand-100 px-1.5 py-0.5 text-xs text-gray-600">
+                      مستخدم في {c.linkCount} سجلاً
+                    </span>
+                  )}
+                </span>
+                {c.alreadyLinked ? (
+                  <span className="text-xs text-emerald-700">مرتبط بهذا السجل</span>
+                ) : (
+                  <button onClick={() => linkExisting(c.id)} className="text-xs text-brand-700 underline">
+                    ربط بهذا السجل
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {showForm && canWrite && (
         // إعادة تركيب النموذج بعد كل إضافة: تصفير النموذج التلقائي في React يلغي تحديد

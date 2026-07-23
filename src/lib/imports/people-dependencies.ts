@@ -29,6 +29,11 @@ import {
  *
  * الاجتماعات لا تشير إلى الأشخاص بمعرّف مباشر (لا حضور ولا غياب) — ارتباطها يمر عبر
  * عضويات اللجان، فهي مغطاة ضمن (1).
+ *
+ * ملاحظة صيانة: `personDependencies` في `src/lib/safe-delete.ts` يفحص المواضع السبعة
+ * نفسها لشخص واحد (زائد الشواهد والوثائق) لحارس الحذف النهائي. هذه الدالة تبقى مستقلة
+ * لأنها تعمل داخل معاملة التراجع على مجموعة معرّفات دفعة كاملة. أي موضع إشارة جديد
+ * للشخص يجب أن يُضاف في الموضعين معاً.
  */
 
 export type PeopleDependency = { type: string; labelAr: string; count: number };
@@ -45,7 +50,7 @@ export type PeopleRollbackPreflight = {
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor = typeof db | Tx;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 async function countRefs(exec: Executor, table: any, column: any, ids: string[]): Promise<number> {
   const [row] = await exec
     .select({ c: sql<number>`count(*)::int` })

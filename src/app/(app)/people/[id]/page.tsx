@@ -4,6 +4,9 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { people, perfCycles } from "@/db/schema";
 import { PageHeader, Card, Badge, SubmitButton, LinkButton } from "@/components/ui";
+import { DependencyNotice } from "@/components/dependency-notice";
+import { assessDeletion } from "@/lib/safe-delete";
+import { employeeTypeOf } from "@/lib/employee-type";
 import { PersonForm } from "../person-form";
 import { deactivatePersonAction, reactivatePersonAction, deletePersonAction } from "../actions";
 
@@ -20,14 +23,21 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const cycles = canSeePerformance
     ? await db.select().from(perfCycles).where(eq(perfCycles.personId, id)).orderBy(desc(perfCycles.createdAt))
     : [];
+  // تقييم التبعيات يُعرض دائماً قبل زر الحذف — لا حذف مفاجئ ولا حذف تعاقبي
+  const assessment = await assessDeletion("person", id);
 
   return (
     <div className="max-w-2xl space-y-4">
       <PageHeader
         title={person.fullName}
-        subtitle={`${person.category}${person.jobTitle ? ` — ${person.jobTitle}` : ""}`}
-        actions={person.active ? <Badge value="نشطة" /> : <Badge value="ملغاة" />}
+        subtitle={`${employeeTypeOf(person)}${person.jobTitle ? ` — ${person.jobTitle}` : ""}`}
+        actions={person.active ? <Badge value="نشط" /> : <Badge value="موقوف" />}
       />
+      {!person.active && person.deactivateReason && (
+        <Card className="border-amber-200 bg-amber-50">
+          <p className="text-sm text-amber-900">سبب الإيقاف: {person.deactivateReason}</p>
+        </Card>
+      )}
       {person.suggestedModelKey && (
         <Card className="border-purple-200 bg-purple-50">
           <p className="text-sm text-purple-900">
@@ -81,16 +91,21 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
             <SubmitButton variant="secondary">إعادة التفعيل</SubmitButton>
           </form>
         )}
-        <form
-          action={async () => {
-            "use server";
-            await deletePersonAction(person.id);
-          }}
-          className="mt-3"
-        >
-          <SubmitButton variant="danger">حذف نهائي</SubmitButton>
-          <p className="mt-1 text-xs text-gray-400">الحذف النهائي ممكن فقط عندما لا توجد سجلات مرتبطة؛ وإلا استخدم الإيقاف.</p>
-        </form>
+        <div className="mt-4 space-y-2">
+          <DependencyNotice assessment={assessment} />
+          {!assessment.blocked && (
+            <form
+              action={async () => {
+                "use server";
+                await deletePersonAction(person.id);
+              }}
+            >
+              <SubmitButton variant="danger" confirmText={`حذف «${person.fullName}» نهائياً؟ لا يمكن التراجع.`}>
+                حذف نهائي
+              </SubmitButton>
+            </form>
+          )}
+        </div>
       </Card>
     </div>
   );

@@ -3,11 +3,13 @@
 import { useActionState } from "react";
 import { createPersonAction, updatePersonAction, type ActionState } from "./actions";
 import { Field, Select, SubmitButton } from "@/components/ui";
+import { employeeTypeOf } from "@/lib/employee-type";
 
 type Person = {
   id?: string;
   fullName?: string;
   category?: string;
+  employeeType?: string | null;
   jobTitle?: string | null;
   cadre?: string | null;
   employmentStatus?: string | null;
@@ -27,13 +29,13 @@ export function PersonForm({ person }: { person?: Person }) {
       <Field label="الاسم الكامل" name="fullName" defaultValue={person?.fullName} required />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Select
-          label="الفئة"
-          name="category"
+          label="نوع الموظف"
+          name="employeeType"
           required
-          defaultValue={person?.category ?? "معلم"}
+          defaultValue={employeeTypeOf({ category: person?.category ?? "معلم", employeeType: person?.employeeType })}
           options={[
             { value: "معلم", label: "معلم — يتبع التقويم الدراسي" },
-            { value: "موظف", label: "موظف — يتبع السنة الميلادية" },
+            { value: "موظف إداري", label: "موظف إداري — يتبع السنة الميلادية" },
           ]}
         />
         <Field label="الوظيفة" name="jobTitle" defaultValue={person?.jobTitle} />

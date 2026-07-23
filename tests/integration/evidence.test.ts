@@ -15,10 +15,16 @@ afterAll(async () => {
 });
 
 describe("قواعد الشواهد (A7)", () => {
-  it("لا يحذف شاهد مرتبط ببرنامج معتمد، ويحذف عند فك الارتباط أو كون السجل مسودة", async () => {
+  /**
+   * نطاق المنتج v2 شدّد القاعدة: الحذف النهائي متاح فقط لشاهد غير مستخدم في أي سجل.
+   * سابقاً كان الشاهد المرتبط بمسودة يُحذف — الآن أي ارتباط يمنع الحذف ويوجّه للأرشفة،
+   * فلا يُحذف رابط بالسلسلة ولا يُكسر سجل قائم.
+   */
+  it("لا يحذف شاهد مستخدم في أي سجل — مسودةً كان أم معتمداً — ويحذف بعد فك كل الروابط", async () => {
     const { db } = await import("@/db");
-    const { evidenceItems, planYears, programs } = await import("@/db/schema");
+    const { evidenceItems, evidenceLinks, planYears, programs } = await import("@/db/schema");
     const { canDeleteEvidence, linkEvidence } = await import("@/lib/evidence");
+    const { eq } = await import("drizzle-orm");
 
     const [year] = await db.insert(planYears).values({ key: "ev-yr", nameAr: "سنة" }).returning();
     const [draftProgram] = await db
@@ -36,15 +42,38 @@ describe("قواعد الشواهد (A7)", () => {
     // شاهد غير مرتبط: يحذف
     expect((await canDeleteEvidence(ev1.id)).allowed).toBe(true);
 
-    // مرتبط بمسودة: يحذف
+    // مرتبط بمسودة: يُمنع الآن ويُشرح البديل بالعربية
     await linkEvidence({ evidenceId: ev1.id, entityType: "program", entityId: draftProgram.id });
-    expect((await canDeleteEvidence(ev1.id)).allowed).toBe(true);
+    const draftCheck = await canDeleteEvidence(ev1.id);
+    expect(draftCheck.allowed).toBe(false);
+    expect(draftCheck.reason).toContain("أرشف");
 
     // مرتبط بمعتمد: يمنع
     await linkEvidence({ evidenceId: ev2.id, entityType: "program", entityId: approvedProgram.id });
     const check = await canDeleteEvidence(ev2.id);
     expect(check.allowed).toBe(false);
-    expect(check.reason).toContain("معتمد");
+    expect(check.reason).toContain("برنامج");
+
+    // بعد فك كل الروابط يعود الحذف متاحاً
+    await db.delete(evidenceLinks).where(eq(evidenceLinks.evidenceId, ev1.id));
+    expect((await canDeleteEvidence(ev1.id)).allowed).toBe(true);
+  });
+
+  it("fail-closed: نوع ارتباط غير مسجَّل يمنع الحذف بدل أن يمر بصمت", async () => {
+    const { db } = await import("@/db");
+    const { evidenceItems } = await import("@/db/schema");
+    const { canDeleteEvidence, linkEvidence } = await import("@/lib/evidence");
+
+    const [ev] = await db.insert(evidenceItems).values({ title: "شاهد نوع مجهول", kind: "text", textContent: "ن" }).returning();
+    await linkEvidence({
+      evidenceId: ev.id,
+      entityType: "وحدة_لم_تسجَّل_بعد",
+      entityId: "00000000-0000-0000-0000-0000000000ff",
+    });
+
+    const check = await canDeleteEvidence(ev.id);
+    expect(check.allowed).toBe(false);
+    expect(check.assessment.dependencies.length).toBeGreaterThan(0);
   });
 
   it("شاهد واحد يرتبط بعدة سجلات دون تكرار", async () => {

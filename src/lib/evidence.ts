@@ -1,58 +1,70 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import {
-  evidenceItems, evidenceLinks, programs, meetings, perfSessions, programDeliverables,
-} from "@/db/schema";
+import { evidenceItems, evidenceLinks } from "@/db/schema";
+import { entityLabelAr, refHref, resolveEntities, type EntityRef } from "@/lib/entity-registry";
+import { assessDeletion, type DeleteAssessment } from "@/lib/safe-delete";
+
+/** السجلات المرتبطة بشاهد، مجمّعة حسب النوع — أساس واجهة «مستخدم في» وحارس الحذف. */
+export type EvidenceUsage = {
+  entityType: string;
+  labelAr: string;
+  refs: (Omit<EntityRef, "href"> & { href: string | null; subKey: string })[];
+};
 
 /**
- * قاعدة إلزامية: لا يحذف شاهد مرتبط بسجل معتمد.
- * يفحص حالة كل سجل مرتبط بالشاهد.
+ * أين يُستخدم هذا الشاهد. يحقق مبدأ «رفع مرة واحدة، استخدام في كل مكان»: الشاهد الواحد
+ * يظهر هنا بكل السجلات التي يخدمها بدل أن يُرفع نسخة لكل وحدة.
  */
-export async function canDeleteEvidence(evidenceId: string): Promise<{ allowed: boolean; reason?: string }> {
-  const links = await db.select().from(evidenceLinks).where(eq(evidenceLinks.evidenceId, evidenceId));
-  if (links.length === 0) return { allowed: true };
+export async function evidenceUsage(evidenceId: string): Promise<EvidenceUsage[]> {
+  const links = await db
+    .select({ entityType: evidenceLinks.entityType, entityId: evidenceLinks.entityId, subKey: evidenceLinks.subKey })
+    .from(evidenceLinks)
+    .where(eq(evidenceLinks.evidenceId, evidenceId));
+  if (links.length === 0) return [];
 
-  const approvedStates = new Set(["معتمد", "معتمدة", "مقفل", "مقفلة", "مكتمل", "مكتملة"]);
-
-  const byType = new Map<string, string[]>();
+  const byType = new Map<string, { id: string; subKey: string }[]>();
   for (const l of links) {
     const arr = byType.get(l.entityType) ?? [];
-    arr.push(l.entityId);
+    arr.push({ id: l.entityId, subKey: l.subKey });
     byType.set(l.entityType, arr);
   }
 
-  const checks: { table: "program" | "meeting" | "perf_session" | "deliverable"; ids: string[] }[] = [];
-  for (const [type, ids] of byType) {
-    if (type === "program") checks.push({ table: "program", ids });
-    if (type === "meeting") checks.push({ table: "meeting", ids });
-    if (type === "perf_session" || type === "perf_rating") checks.push({ table: "perf_session", ids });
-    if (type === "deliverable") checks.push({ table: "deliverable", ids });
+  const out: EvidenceUsage[] = [];
+  for (const [entityType, entries] of byType) {
+    const refs = await resolveEntities(entityType, [...new Set(entries.map((e) => e.id))]);
+    const byId = new Map(refs.map((r) => [r.id, r]));
+    out.push({
+      entityType,
+      labelAr: entityLabelAr(entityType),
+      refs: entries
+        .map((e) => {
+          const ref = byId.get(e.id);
+          // سجل محذوف أو غير قابل للحل — يُعرض ولا يُتجاهل بصمت
+          const resolved: EntityRef = ref ?? { id: e.id, labelAr: "سجل غير متاح", locked: true };
+          return { ...resolved, href: refHref(entityType, resolved), subKey: e.subKey };
+        })
+        .sort((a, b) => a.labelAr.localeCompare(b.labelAr, "ar")),
+    });
   }
+  return out.sort((a, b) => a.labelAr.localeCompare(b.labelAr, "ar"));
+}
 
-  for (const c of checks) {
-    if (c.table === "program") {
-      const rows = await db.select({ s: programs.status }).from(programs).where(inArray(programs.id, c.ids));
-      if (rows.some((r) => approvedStates.has(r.s))) return { allowed: false, reason: "الشاهد مرتبط ببرنامج معتمد" };
-    }
-    if (c.table === "meeting") {
-      const rows = await db.select({ s: meetings.status }).from(meetings).where(inArray(meetings.id, c.ids));
-      if (rows.some((r) => approvedStates.has(r.s))) return { allowed: false, reason: "الشاهد مرتبط باجتماع مكتمل" };
-    }
-    if (c.table === "perf_session") {
-      const rows = await db.select({ s: perfSessions.status }).from(perfSessions).where(inArray(perfSessions.id, c.ids));
-      if (rows.some((r) => approvedStates.has(r.s) || r.s === "مقفلة")) return { allowed: false, reason: "الشاهد مرتبط بجلسة أداء مقفلة" };
-    }
-    if (c.table === "deliverable") {
-      const rows = await db
-        .select({ s: programDeliverables.packageDecision })
-        .from(programDeliverables)
-        .where(inArray(programDeliverables.id, c.ids));
-      if (rows.some((r) => r.s === "معتمد" || r.s === "معتمدة")) return { allowed: false, reason: "الشاهد ضمن حزمة معتمدة" };
-    }
-  }
-
-  return { allowed: true };
+/**
+ * قاعدة إلزامية (نطاق المنتج v2): الحذف النهائي للشاهد متاح فقط حين لا يكون مستخدماً
+ * في أي سجل. أي ارتباط — بأي نوع، معروف أو غير معروف — يمنع الحذف ويوجّه إلى الأرشفة،
+ * فلا يُكسَر أي سجل تاريخي ولا يُحذف رابط بالسلسلة بصمت.
+ *
+ * fail-closed: نوع ارتباط غير مسجَّل في `entity-registry` يمنع الحذف بدل أن يمر بصمت
+ * كما كان يحدث سابقاً.
+ */
+export async function canDeleteEvidence(evidenceId: string): Promise<{ allowed: boolean; reason?: string; assessment: DeleteAssessment }> {
+  const assessment = await assessDeletion("evidence", evidenceId);
+  return {
+    allowed: !assessment.blocked,
+    reason: assessment.blocked ? assessment.messageAr : undefined,
+    assessment,
+  };
 }
 
 export async function linkEvidence(opts: {
@@ -74,7 +86,22 @@ export async function linkEvidence(opts: {
     .onConflictDoNothing();
 }
 
-export async function evidenceForEntity(entityType: string, entityId: string) {
+/**
+ * شواهد سجل معيّن. الشواهد المؤرشفة مستبعدة افتراضاً (الأرشفة إخفاء غير مدمّر)،
+ * ويمكن طلبها صراحةً عند الحاجة لعرض السجل التاريخي.
+ */
+export async function evidenceForEntity(
+  entityType: string,
+  entityId: string,
+  opts: { includeArchived?: boolean } = {},
+) {
+  const where = opts.includeArchived
+    ? and(eq(evidenceLinks.entityType, entityType), eq(evidenceLinks.entityId, entityId))
+    : and(
+        eq(evidenceLinks.entityType, entityType),
+        eq(evidenceLinks.entityId, entityId),
+        isNull(evidenceItems.archivedAt),
+      );
   return db
     .select({
       link: evidenceLinks,
@@ -82,5 +109,5 @@ export async function evidenceForEntity(entityType: string, entityId: string) {
     })
     .from(evidenceLinks)
     .innerJoin(evidenceItems, eq(evidenceLinks.evidenceId, evidenceItems.id))
-    .where(and(eq(evidenceLinks.entityType, entityType), eq(evidenceLinks.entityId, entityId)));
+    .where(where);
 }

@@ -36,7 +36,16 @@ export const people = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     fullName: text("full_name").notNull(),
+    /**
+     * التصنيف المصدري كما ورد في الاستيراد الرسمي: معلم | موظف.
+     * لا تُعاد كتابة قيمه — دفعة فارس في «معاينة» معبَّر عنها بهذه الرموز.
+     */
     category: text("category").notNull(), // معلم | موظف
+    /**
+     * نوع الموظف المعتمد في نطاق المنتج: «معلم» | «موظف إداري».
+     * عمود إضافي (D-019): يُشتق من `category` عند القراءة إن كان فارغاً، فلا يُعدَّل أي صف قائم.
+     */
+    employeeType: text("employee_type"),
     jobTitle: text("job_title"),
     cadre: text("cadre"),
     employmentStatus: text("employment_status"),

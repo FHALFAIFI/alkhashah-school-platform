@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { people, importBatches } from "@/db/schema";
 import { PageHeader, Table, Badge, LinkButton, EmptyState, Card } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { employeeTypeOf } from "@/lib/employee-type";
 
 export const metadata = { title: "سجل المعلمين والموظفين" };
 export const dynamic = "force-dynamic";
@@ -27,15 +28,17 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const batch = batchId
     ? (await db.select().from(importBatches).where(eq(importBatches.id, batchId)))[0]
     : undefined;
-  const filtered = filter ? all.filter((p) => p.category === filter) : all;
-  const teachers = all.filter((p) => p.category === "معلم").length;
-  const staff = all.filter((p) => p.category === "موظف").length;
+  // النوع المعتمد يُشتق من العمود الجديد أو من التصنيف المصدري — لا صف يُستثنى
+  const typed = all.map((p) => ({ ...p, employeeTypeAr: employeeTypeOf(p) }));
+  const filtered = filter ? typed.filter((p) => p.employeeTypeAr === filter) : typed;
+  const teachers = typed.filter((p) => p.employeeTypeAr === "معلم").length;
+  const staff = typed.filter((p) => p.employeeTypeAr === "موظف إداري").length;
 
   // يبني رابط تصفية يحافظ على تصفية الدفعة إن وجدت
-  const filterHref = (category?: string) => {
+  const filterHref = (employeeType?: string) => {
     const qs = new URLSearchParams();
     if (batchId) qs.set("دفعة", batchId);
-    if (category) qs.set("فئة", category);
+    if (employeeType) qs.set("فئة", employeeType);
     const s = qs.toString();
     return s ? `/people?${s}` : "/people";
   };
@@ -44,7 +47,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     <div>
       <PageHeader
         title="سجل المعلمين والموظفين"
-        subtitle={`${all.length} شخصاً — ${teachers} معلماً و${staff} موظفاً`}
+        subtitle={`${all.length} منسوباً — ${teachers} معلماً و${staff} موظفاً إدارياً`}
         actions={
           <>
             <LinkButton href="/people/new" variant="secondary">إضافة شخص</LinkButton>
@@ -65,7 +68,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       <div className="mb-4 flex flex-wrap gap-2">
         <LinkButton href={filterHref()} variant={!filter ? "primary" : "secondary"}>الكل</LinkButton>
         <LinkButton href={filterHref("معلم")} variant={filter === "معلم" ? "primary" : "secondary"}>المعلمون</LinkButton>
-        <LinkButton href={filterHref("موظف")} variant={filter === "موظف" ? "primary" : "secondary"}>الموظفون</LinkButton>
+        <LinkButton href={filterHref("موظف إداري")} variant={filter === "موظف إداري" ? "primary" : "secondary"}>الموظفون الإداريون</LinkButton>
       </div>
       {filtered.length === 0 ? (
         <EmptyState
@@ -73,16 +76,16 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           hint="استخدم «استيراد من ملف فارس» لاستيراد بيانات الموظفين مع المعاينة والمراجعة، أو أضف شخصاً يدوياً"
         />
       ) : (
-        <Table headers={["الاسم", "الفئة", "الوظيفة", "السلك/الكادر", "الحالة الوظيفية", "رقم الوظيفة", "الحالة", ""]}>
+        <Table headers={["الاسم", "نوع الموظف", "الوظيفة", "السلك/الكادر", "الحالة الوظيفية", "رقم الوظيفة", "الحالة", ""]}>
           {filtered.map((p) => (
             <tr key={p.id} className={!p.active ? "opacity-50" : ""}>
               <td className="px-3 py-2 font-medium">{p.fullName}</td>
-              <td className="px-3 py-2"><Badge value={p.category} /></td>
+              <td className="px-3 py-2"><Badge value={p.employeeTypeAr} /></td>
               <td className="px-3 py-2">{p.jobTitle ?? "—"}</td>
               <td className="px-3 py-2">{p.cadre ?? "—"}</td>
               <td className="px-3 py-2">{p.employmentStatus ?? "—"}</td>
               <td className="px-3 py-2 tabular-nums">{p.jobNumber ?? "—"}</td>
-              <td className="px-3 py-2">{p.active ? <Badge value="نشطة" /> : <Badge value="ملغاة" />}</td>
+              <td className="px-3 py-2">{p.active ? <Badge value="نشط" /> : <Badge value="موقوف" />}</td>
               <td className="px-3 py-2"><LinkButton href={`/people/${p.id}`} variant="secondary">عرض</LinkButton></td>
             </tr>
           ))}

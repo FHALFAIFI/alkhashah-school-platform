@@ -44,9 +44,44 @@ export const evidenceItems = pgTable("evidence_items", {
   evidenceDate: text("evidence_date"),
   reviewStatus: text("review_status").notNull().default("لم يراجع"),
   reviewNote: text("review_note"),
+  /** رقم النسخة الحالية — يزداد عند كل استبدال للملف مع الحفاظ على كل الروابط */
+  version: integer("version").notNull().default(1),
+  /** الأرشفة: إخفاء غير مدمّر مع سبب عربي وقابلية الاستعادة الكاملة (لا يحذف أي رابط) */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  archivedReason: text("archived_reason"),
+  archivedBy: uuid("archived_by").references(() => users.id),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * نسخ الشواهد — سجل الاستبدال. استبدال ملف الشاهد لا يحذف الشاهد ولا يكسر روابطه:
+ * تُحفَظ النسخة السابقة هنا كاملةً ويبقى `evidence_items.id` ثابتاً، فتظل كل السجلات
+ * المرتبطة (برنامج، نشاط، اجتماع، لجنة، مصروف، غرفة، أصل…) مشيرة إلى الشاهد نفسه.
+ */
+export const evidenceVersions = pgTable(
+  "evidence_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    evidenceId: uuid("evidence_id").notNull().references(() => evidenceItems.id, { onDelete: "cascade" }),
+    /** رقم النسخة المحفوظة (النسخة التي استُبدلت) */
+    version: integer("version").notNull(),
+    /** لقطة محتوى النسخة السابقة */
+    kind: text("kind").notNull(),
+    fileId: uuid("file_id").references(() => storedFiles.id),
+    url: text("url"),
+    textContent: text("text_content"),
+    title: text("title"),
+    /** سبب الاستبدال (عربي، إلزامي) */
+    reason: text("reason").notNull(),
+    replacedBy: uuid("replaced_by").references(() => users.id),
+    replacedAt: timestamp("replaced_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("evidence_versions_evidence_idx").on(t.evidenceId),
+    uniqueIndex("evidence_versions_unique").on(t.evidenceId, t.version),
+  ],
+);
 
 /** روابط الشواهد — شاهد واحد يرتبط بعدة سجلات */
 export const evidenceLinks = pgTable(
