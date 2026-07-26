@@ -252,9 +252,20 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.waitForURL(/\/plan\/[0-9a-f-]{36}$/);
     state.programId = page.url().split("/").pop()!;
 
-    // مؤشر المراحل + المعالم المشتقة بأوزان مجموعها 100
+    // البرنامج وحدة التنفيذ المباشرة (D-024): لا أنشطة ولا أوزان ولا جاهزية إقفال في الواجهة
     await expect(page.getByLabel("مراحل سير العمل")).toBeVisible();
-    await expect(page.getByText("مجموع الأوزان: 100٪")).toBeVisible();
+    await expect(page.getByText("الأنشطة — أساس حساب تقدم التنفيذ")).toHaveCount(0);
+    await expect(page.getByText("جاهزية الإقفال")).toHaveCount(0);
+    await expect(page.getByText("مجموع الأوزان")).toHaveCount(0);
+
+    // تحديث التقدم وحالة التنفيذ مباشرةً على البرنامج ومشاهدة الأثر (لا اشتقاق من أنشطة)
+    await expect(page.getByRole("heading", { name: "تحديث تقدم البرنامج وحالته" })).toBeVisible();
+    const execForm = page.locator('form:has(input[name="progress"])').first();
+    await execForm.locator('input[name="progress"]').fill("40");
+    await execForm.locator('select[name="executionStatus"]').selectOption("في المسار");
+    await execForm.getByRole("button", { name: "حفظ التقدم والحالة" }).click();
+    await expect(page.getByText("حُدّث تقدم البرنامج وحالته")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("40٪").first()).toBeVisible();
 
     // معاينة النماذج المعطّلة على المسودة: المتابعة الأسبوعية وطلب التغيير (تظهر قبل الاعتماد)
     await expect(page.getByText("معاينة نموذج المتابعة الأسبوعية")).toBeVisible();
@@ -265,15 +276,35 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByText("معتمد ومقفل", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("button", { name: "إعادة فتح بسبب موثق" })).toBeVisible();
 
-    // إرفاق شاهد (نوع نص، دور تنفيذ) من لوحة شواهد البرنامج
-    await page.getByRole("button", { name: "إضافة شاهد" }).click();
-    const evForm = page.locator('form:has(input[name="entityType"])');
-    await evForm.locator("#title").fill(`شاهد تنفيذ تجريبي آلي ${TAG}`);
-    await evForm.locator('select[name="role"]').selectOption("تنفيذ");
-    await evForm.getByRole("radio", { name: "نص" }).check();
-    await evForm.locator('textarea[name="textContent"]').fill(`نص شاهد تجريبي آلي ${TAG}`);
-    await evForm.getByRole("button", { name: "حفظ الشاهد" }).click();
+    // §2/D-025: الشواهد معلوماتية فقط — الحالة الفعلية بلا هدف أو نسبة أو «متبقٍّ» أو حاجز إكمال.
+    // صفر شواهد: العبارة الفعلية + العدّاد (0)
+    await expect(page.getByText("لم يتم رفع أي شاهد حتى الآن")).toBeVisible();
+    await expect(page.getByText("الشواهد المرتبطة (0)")).toBeVisible();
+    await expect(page.getByText("عدد الشواهد معلوماتي فقط ولا يحدد إمكانية إكمال البرنامج.")).toBeVisible();
+
+    const addTextEvidence = async (n: number) => {
+      const openBtn = page.getByRole("button", { name: "رفع شاهد جديد" });
+      if (await openBtn.isVisible().catch(() => false)) await openBtn.click();
+      const evForm = page.locator('form:has(input[name="entityType"])');
+      await evForm.getByRole("radio", { name: "نص" }).check();
+      await evForm.locator("#title").fill(`شاهد ${n} تجريبي آلي ${TAG}`);
+      await evForm.locator('select[name="role"]').selectOption("تنفيذ");
+      await evForm.locator('textarea[name="textContent"]').fill(`نص شاهد ${n} تجريبي آلي ${TAG}`);
+      await evForm.getByRole("button", { name: "حفظ الشاهد" }).click();
+    };
+
+    // شاهد واحد: العدّاد يتحدّث فوراً دون مغادرة الصفحة (إصلاح router.refresh)
+    await addTextEvidence(1);
     await expect(page.getByText("الشواهد المرتبطة (1)")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("تم رفع شاهد واحد")).toBeVisible();
+
+    // شاهدان: الصياغة العربية للمثنى، والتحديث فوري أيضاً
+    await addTextEvidence(2);
+    await expect(page.getByText("الشواهد المرتبطة (2)")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("تم رفع شاهدان")).toBeVisible();
+
+    // لا هدف/نسبة/متبقٍّ/شاهد مطلوب/حاجز إكمال في أي مكان على الصفحة
+    await expect(page.getByText(/متبقٍّ|المتبقية|نسبة الجاهزية|شاهد مطلوب|٪ من الشواهد|شواهد مطلوبة\b/)).toHaveCount(0);
 
     // المتابعة الأسبوعية
     await page.getByRole("link", { name: "المتابعة الأسبوعية", exact: true }).first().click();
@@ -314,13 +345,71 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
 
     // التقرير التنفيذي — يصدر وثيقة PDF برقم
     await nav(page, "التقارير", "/reports");
-    await page.getByRole("link", { name: "إصدار", exact: true }).click();
+    await page.getByRole("link", { name: "إصدار التقرير التنفيذي" }).click();
     await page.waitForURL("**/reports/executive");
     await expect(page.getByRole("heading", { name: "الإصدارات السابقة" })).toBeVisible({ timeout: 20_000 });
     const rowsBefore = await page.locator("tbody tr").count();
     await page.getByRole("button", { name: "إصدار التقرير (PDF)" }).click();
     await expect(page.locator("tbody tr")).toHaveCount(rowsBefore + 1, { timeout: 150_000 });
     await expect(page.locator("tbody tr").first().locator("td").first()).toHaveText(/\d{4,}/);
+  });
+
+  test("س2ب: الميزانية — تسمية «البند»، رفع إيصال إيراد ومصروف مباشرةً، والإيصال اختياري (D-026)", async ({ page }) => {
+    test.setTimeout(300_000);
+    page.on("dialog", (d) => void d.accept());
+    await login(page);
+    await page.goto("/budget");
+    await expect(page.getByRole("heading", { name: "الميزانية والمصروفات" })).toBeVisible();
+
+    // إيراد بلا إيصال أولاً (اختياري) — التحقق من تسمية الحقل «البند» (لا «الغرض/التخصيص»)
+    await page.getByRole("button", { name: "إضافة إيراد" }).click();
+    const incForm = page.locator('form:has(input[name="source"])');
+    await expect(incForm.getByText("البند", { exact: true })).toBeVisible();
+    await expect(page.getByText("الغرض/التخصيص")).toHaveCount(0);
+    const incSource = `إيراد تجريبي آلي ${TAG}`;
+    await incForm.locator('input[name="source"]').fill(incSource);
+    await incForm.locator('input[name="amount"]').fill("5000");
+    await incForm.locator('input[name="purpose"]').fill(`بند إيراد ${TAG}`);
+    await incForm.getByRole("button", { name: "حفظ الإيراد" }).click();
+    await expect(page.getByText("أُضيف الإيراد")).toBeVisible({ timeout: 20_000 });
+
+    // فتح لوحة إيصال الإيراد عبر رابط «الإيصال»، ثم رفع إيصال مباشرةً (العدّاد يتحدّث فوراً)
+    const incRow = page.locator("tr", { hasText: incSource });
+    await incRow.getByRole("link", { name: "الإيصال" }).click();
+    await page.waitForURL(/\/budget\?/);
+    await expect(page.getByText(/إيصال\/شاهد/)).toBeVisible({ timeout: 20_000 });
+    // إمكانية ربط شاهد قائم موجودة (بلا رفع مكرر)، وإمكانية رفع جديد
+    await expect(page.getByRole("button", { name: "ربط شاهد قائم" })).toBeVisible();
+    await page.getByRole("button", { name: "رفع شاهد جديد" }).click();
+    let evForm = page.locator('form:has(input[name="entityType"])');
+    await evForm.getByRole("radio", { name: "ملف" }).check();
+    await evForm.locator("#title").fill(`إيصال إيراد ${TAG}`);
+    await evForm.locator('input[name="file"]').setInputFiles(FAKE_PDF);
+    await evForm.getByRole("button", { name: "حفظ الشاهد" }).click();
+    await expect(page.getByText("الشواهد المرتبطة (1)")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("link", { name: "تنزيل" }).first()).toBeVisible();
+
+    // مصروف: تسمية «البند» أيضاً (لا «المستلزمات/البنود») ثم إنشاؤه ورفع إيصاله
+    await page.goto("/budget");
+    await page.getByRole("button", { name: "إضافة مصروف" }).click();
+    const exForm = page.locator('form:has(input[name="amount"])').last();
+    await expect(exForm.getByText("البند", { exact: true })).toBeVisible();
+    await expect(page.getByText("المستلزمات/البنود")).toHaveCount(0);
+    await exForm.locator('input[name="amount"]').fill("300");
+    await exForm.locator('input[name="items"]').fill(`بند مصروف ${TAG}`);
+    await exForm.locator('input[name="category"]').fill(`تصنيف ${TAG}`);
+    await exForm.getByRole("button", { name: "حفظ المصروف" }).click();
+    await expect(page.getByText(/أُضيف المصروف|سُجّل المصروف/)).toBeVisible({ timeout: 20_000 });
+    const exRow = page.locator("tr", { hasText: `بند مصروف ${TAG}` });
+    await exRow.getByRole("link", { name: "الإيصال" }).click();
+    await page.waitForURL(/\/budget\?/);
+    await page.getByRole("button", { name: "رفع شاهد جديد" }).click();
+    evForm = page.locator('form:has(input[name="entityType"])');
+    await evForm.getByRole("radio", { name: "ملف" }).check();
+    await evForm.locator("#title").fill(`إيصال مصروف ${TAG}`);
+    await evForm.locator('input[name="file"]').setInputFiles(FAKE_PDF);
+    await evForm.getByRole("button", { name: "حفظ الشاهد" }).click();
+    await expect(page.getByText("الشواهد المرتبطة (1)")).toBeVisible({ timeout: 20_000 });
   });
 
   test("س3: اللجان — تشكيل واعتماد واجتماع وقرار إلزامي ومحضر واكتمال ولوحة العمل", async ({ page }) => {
@@ -366,6 +455,16 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "اعتماد التشكيل وإقفاله" }).first().click();
     await expect(page.getByText("معتمدة ومقفلة", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
+    // §4/D-027: توزيع المهام — تحميل المهام المعرّفة مسبقاً (قيم ابتدائية قابلة للتعديل)، إسناد لعضو،
+    // ثم توليد «جدول توزيع المهام» بعمود «توقيع العضو» (المحتوى المجمّد مغطّى بفحص التكامل).
+    await expect(page.getByRole("heading", { name: "توزيع المهام", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "تحميل المهام المعرّفة مسبقاً" }).click();
+    await expect(page.getByText(/حُمّلت \d+ مهمة معرّفة مسبقاً/)).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("combobox", { name: "إسناد المهمة لعضو" }).first().selectOption({ index: 1 });
+    await page.getByRole("button", { name: "توليد نموذج التكليف" }).click();
+    await expect(page.getByText(/صدر جدول توزيع المهام/)).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByRole("link", { name: "تنزيل نموذج التكليف" })).toBeVisible({ timeout: 120_000 });
+
     // اجتماع جديد — نوع الاجتماع إلزامي
     await page.fill("#title", `اجتماع تجريبي آلي ${TAG}`);
     await page.selectOption('select[name="typeId"]', { label: "دوري" });
@@ -399,19 +498,14 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "تسجيل النتيجة" }).click();
     await expect(page.getByText("هذه النتيجة مسجلة مسبقاً في هذا الاجتماع")).toBeVisible({ timeout: 20_000 });
 
-    // البوابة الصارمة: التوقيع للرئيس والمقرر فقط، والاكتمال معطّل قبل رفع المحضر الموقع
-    await expect(page.getByText("يوقع المحضر يدوياً").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "اعتماد الاكتمال" }).first()).toBeDisabled();
-    await expect(page.getByText("يتطلب رفع المحضر الموقع أولاً").first()).toBeVisible();
+    // D-027: نوع «دوري» غير مُهيّأ ليتطلب توقيعاً — لا قاعدة عامة تفرض التوقيع، فالاكتمال متاح
+    // مباشرةً دون رفع محضر موقّع، والزر مُفعّل.
+    await expect(page.getByText("لا يتطلب توقيعاً لاكتماله").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "اعتماد الاكتمال" }).first()).toBeEnabled();
 
-    // إصدار المحضر الرسمي (PDF) ثم رفع المحضر الموقع ثم اعتماد الاكتمال
-    // (نطاق نموذج المحضر الموقع تحديداً — صفحة الاجتماع فيها حقل ملف آخر للمرفقات)
+    // إصدار المحضر الرسمي (PDF) — اختياري، لكنه يثبت عمل الزر — ثم اعتماد الاكتمال مباشرةً
     await page.getByRole("button", { name: "إصدار المحضر الرسمي (PDF)" }).click();
     await expect(page.getByRole("link", { name: /تنزيل المحضر/ })).toBeVisible({ timeout: 120_000 });
-    const minutesForm = page.locator('form:has(input[accept="application/pdf,image/*"])');
-    await minutesForm.locator('input[name="file"]').setInputFiles(FAKE_PDF);
-    await minutesForm.getByRole("button", { name: "رفع", exact: true }).click();
-    await expect(page.getByText("✓ المحضر الموقع مرفوع")).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: "اعتماد الاكتمال" }).first().click();
     await expect(page.getByText("اكتمل الاجتماع واعتمد").first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("مكتمل", { exact: true }).first()).toBeVisible();
@@ -494,6 +588,11 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.locator(`a[href="/performance/cycles/${state.cycleId}"]`).first().click();
     await page.waitForURL(`**/performance/cycles/${state.cycleId}`);
 
+    // §5/D-028: بعد جلسة التخطيط فقط (وهي مقيّمة)، نتيجة الدورة تعرض «لم يبدأ التقييم بعد» لا 0٪ —
+    // التخطيط لا يُحتسب في أي متوسط أو نسبة، وصفّه في الجدول يبيّن «تخطيط — لا يُحتسب».
+    await expect(page.getByText("لم يبدأ التقييم بعد")).toBeVisible();
+    await expect(page.getByText("تخطيط — لا يُحتسب").first()).toBeVisible();
+
     // جلسة التقييم النهائي
     await page.selectOption('select[name="sessionType"]', "نهائي");
     await page.locator('form:has(select[name="sessionType"])').locator("#sessionDate").fill(todayIso);
@@ -503,7 +602,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await rateAllIndicators(page);
 
     // ربط شاهد نصي بكل مؤشر عبر لوحة الشواهد (حقل «المؤشر المرتبط»)
-    await page.getByRole("button", { name: "إضافة شاهد" }).click();
+    await page.getByRole("button", { name: "رفع شاهد جديد" }).click();
     const evForm = page.locator('form:has(input[name="entityType"])');
     const subKeys = (
       await evForm.locator("#subKey option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value))

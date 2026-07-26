@@ -1,7 +1,7 @@
 import "server-only";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { committees, committeeMembers, people, planYears } from "@/db/schema";
+import { committees, committeeMembers, committeeTaskAssignments, people, planYears } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
@@ -13,8 +13,9 @@ function esc(s: string): string {
 }
 
 /**
- * نموذج تكليف واحد على مستوى اللجنة (§5): يسرد الأعضاء الفاعلين وأدوارهم للطباعة والتوقيع.
- * يستعمل هوية الوثائق المركزية مع ضبط التضمين/الاستبعاد، ويُجمّد ضمن لقطة الوثيقة.
+ * نموذج توزيع المهام على مستوى اللجنة (D-027): جدول مهام — المهمة / العضو المكلف / الصفة-الدور /
+ * توقيع العضو / ملاحظات — يُطبع ويوقّع. عمود التوقيع ورقي يظهر في المطبوع. يستعمل هوية الوثائق
+ * المركزية ويُجمّد كلقطة تاريخية (تعديل قوالب المهام لاحقاً لا يمسّ هذه اللقطة).
  */
 export async function generateAssignmentForm(opts: {
   committeeId: string;
@@ -24,54 +25,56 @@ export async function generateAssignmentForm(opts: {
   const [c] = await db.select().from(committees).where(eq(committees.id, opts.committeeId));
   if (!c) throw new Error("اللجنة غير موجودة");
 
-  const [members, [year], identity] = await Promise.all([
+  const [tasks, [year], identity] = await Promise.all([
     db
       .select({
-        role: committeeMembers.role,
-        position: committeeMembers.position,
-        sortOrder: committeeMembers.sortOrder,
-        name: people.fullName,
-        effectiveTo: committeeMembers.effectiveTo,
+        title: committeeTaskAssignments.title,
+        notes: committeeTaskAssignments.notes,
+        sortOrder: committeeTaskAssignments.sortOrder,
+        memberName: people.fullName,
+        memberRole: committeeMembers.role,
       })
-      .from(committeeMembers)
-      .innerJoin(people, eq(committeeMembers.personId, people.id))
-      .where(eq(committeeMembers.committeeId, opts.committeeId))
-      .orderBy(asc(committeeMembers.sortOrder)),
+      .from(committeeTaskAssignments)
+      .leftJoin(committeeMembers, eq(committeeTaskAssignments.assignedMemberId, committeeMembers.id))
+      .leftJoin(people, eq(committeeMembers.personId, people.id))
+      .where(and(eq(committeeTaskAssignments.committeeId, opts.committeeId), eq(committeeTaskAssignments.excluded, false)))
+      .orderBy(asc(committeeTaskAssignments.sortOrder)),
     db.select().from(planYears).where(eq(planYears.id, c.planYearId)),
     getDocumentIdentity(),
   ]);
 
-  // نموذج التكليف يسرد الأعضاء الفاعلين وقت الإصدار فقط — لا يعيد كتابة عضويات منتهية
-  const active = members.filter((m) => !m.effectiveTo);
+  if (tasks.length === 0) throw new Error("لا مهام موزّعة — حمّل المهام المعرّفة مسبقاً ووزّعها على الأعضاء أولاً");
+
   const header = resolveHeader(identity, opts.toggles);
   const now = new Date();
   const issuedAtText = `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`;
 
-  const rows = active
+  const rows = tasks
     .map(
-      (m, i) => `<tr>
+      (t, i) => `<tr>
         <td>${i + 1}</td>
-        <td>${esc(m.name)}</td>
-        <td>${esc(m.position ?? "—")}</td>
-        <td>${esc(m.role)}</td>
+        <td>${esc(t.title)}</td>
+        <td>${esc(t.memberName ?? "—")}</td>
+        <td>${esc(t.memberRole ?? "—")}</td>
         <td></td>
+        <td>${esc(t.notes ?? "")}</td>
       </tr>`,
     )
     .join("");
 
   const body = `
-    <p>بناءً على الصلاحيات الممنوحة، تم تكليف الأعضاء الآتية أسماؤهم بالعمل ضمن
+    <p>بناءً على الصلاحيات الممنوحة، وُزّعت المهام الآتية على أعضاء
     <strong>${esc(c.nameAr)}</strong> للعام الدراسي ${esc(year?.nameAr ?? identity.academicYear)}،
-    وذلك حسب الأدوار الموضحة أدناه:</p>
+    على النحو الموضّح أدناه:</p>
     <table>
-      <thead><tr><th>م</th><th>الاسم</th><th>المسمى الوظيفي</th><th>الدور في اللجنة</th><th>التوقيع</th></tr></thead>
+      <thead><tr><th>م</th><th>المهمة</th><th>العضو المكلف</th><th>الصفة/الدور</th><th>توقيع العضو</th><th>ملاحظات</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     ${c.goal ? `<h2>الهدف</h2><p>${esc(c.goal)}</p>` : ""}
-    <p class="meta">يُطبع هذا النموذج ويُوقّع ثم يُرفع الأصل الموقّع إلى النظام.</p>
+    <p class="meta">يُطبع جدول توزيع المهام ويوقّعه الأعضاء في خانة «توقيع العضو»، ثم يُرفع الأصل الموقّع عند الحاجة.</p>
   `;
 
-  const title = `نموذج تكليف — ${c.nameAr}`;
+  const title = `نموذج توزيع مهام — ${c.nameAr}`;
   const identityHeader = {
     orgLines: header.orgLines,
     headerNote: header.headerNote,

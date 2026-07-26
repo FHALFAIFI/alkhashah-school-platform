@@ -2,7 +2,68 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — PRODUCT SCOPE v2, STEPS 1–14 DELIVERED (2026-07-23)
+## Latest checkpoint — SCOPE v2.1 CORRECTIONS DELIVERED to dev/test (2026-07-25)
+- **Principal's 3rd feedback round (Scope v2.1) supersedes conflicting Scope v2.** Recorded as
+  **D-024 … D-029** (`docs/DECISIONS.md`); impact map `docs/SCOPE_IMPACT_V2_1.md`; deployment package
+  `docs/DEPLOYMENT_REPORT_V2_1.md`. Branch `scope-v2.1-corrections` (NOT committed to main). **Production
+  untouched.**
+- **D-024 (supersedes D-020):** activities + «جاهزية الإقفال» closure readiness **removed from the app**;
+  the **program** is the execution/follow-up unit — `programs.progress`/`executionStatus` maintained
+  directly (`updateProgramExecutionAction` + weekly follow-up progress input; `recomputeProgramProgress`
+  and the activity CRUD/UI/engine callers removed). Deleted `activity-actions.ts`, `activities-ui.tsx`,
+  `progress.ts`, and the obsolete `activity-workflow.test.ts`. Plan imports **no longer create activities**.
+  The **129 `program_activities` + 129 legacy `program_milestones`** (and activity_deliverables/
+  evidence_requirements/state_history + programs.weighting_mode/completed_*/override_* columns) are
+  **preserved unchanged** — no runtime path reads them (verified by grep); retained for audit/rollback.
+- **D-025:** program evidence is informational only — removed every target/quota/%/"remaining"/blocker
+  (`computePackageReadiness`, `checkRequiredEvidence`, worklist `evidenceGaps`, dashboard «تنبيهات نقص
+  الشواهد», AI required/missing framing). Weekly follow-up + program page show the actual condition via
+  `evidenceCountPhrase` (0/1/2/3-10/≥11 correct Arabic) + latest upload date + open-evidence link.
+- **D-026:** budget labels «الغرض/التخصيص» & «المستلزمات/البنود» → **«البند»**; inline receipt upload
+  **and** link-existing for every income + expense (reuses `EvidencePanel` on `?إيراد=`/`?مصروف=`;
+  income receipt support added; neutral non-blocking framing).
+- **D-027:** committee signatures **per meeting/document type** (`meeting_types.requires_signature`,
+  default false — the global `completeMeetingAction` gate is now type-conditional; report text softened).
+  New predefined **task-template** system (`committee_task_templates` seeded from `committeeTemplates.duties`)
+  + per-committee **task distribution** (`committee_task_assignments`): load → edit/exclude/reorder →
+  assign to members → generate the **task-distribution table with «توقيع العضو» column** (reworked
+  `assignment-form.ts`) → frozen snapshot. New `/committees/task-templates` management page.
+- **D-028:** KPI planning session «تخطيط» excluded at the single choke point (`cycleProgress`, adds
+  `evaluated`); shows «لم يبدأ التقييم بعد» not 0%; per-session planning row «تخطيط — لا يُحتسب».
+- **D-029:** `insertBefore` root cause = browser auto-translation (no `translate="no"`) + password-manager
+  injection + shell Hijri hydration. Fixed at shared-primitive level (layout/global-error `translate="no"`
+  + `notranslate`; hardened `SubmitButton`/`Field`/`Select`/`TextArea`/`Labeled`; `suppressHydrationWarning`
+  on the shell date; `(app)/error.tsx` never shows the raw English exception — logs it, shows Arabic recovery).
+- **Migration `0016` (additive, `madrasa_test` only):** 2 committee-task tables + `meeting_types.requires_signature`.
+  **Production is at `0000–0015`** (Scope v2 already deployed; verified read-only 2026-07-26 on
+  `madrasa-prod-db-1`: 16 migration rows, D-022 fingerprint `8d5375…` matches recorded F0, count 129,
+  people 54/programs 26/milestones 129/activities 129 1:1/feedback 1; stored_files 18/evidence 3/documents 10
+  are normal live-app growth). **`0016` is the only pending production migration.** (An earlier v2.1 draft
+  wrongly said prod was at 0009 — stale v2-era text, never verified; corrected.)
+- **ALL GATES GREEN (continuation, 2026-07-26):** typecheck ✅ · lint 0/0 ✅ · **vitest 280 pass (53 files)** ✅ ·
+  production build ✅ · **full Playwright 60 passed / 1 skipped** (the skip is C5 real-HTTPS camera —
+  D-018 environmental deferral, `test.skip(!https)`; not a v2.1 weakening). Real-workflow browser coverage
+  validated per area: s2 (§1 direct progress + §2 evidence 0/1/2 immediate refresh + no-quota), s2ب (§3
+  budget «البند» + income/expense receipts), s3 (§4 load predefined tasks→assign→generate «توقيع العضو»
+  doc + type-dependent signature), s4 (§5 planning-only «لم يبدأ التقييم بعد»). `/pilot` rewritten to v2.1.
+- **Real bug found + fixed:** evidence `latestAt` was a string not a Date (`max(created_at)` via `sql<Date>`
+  is only a cast) → program/followup pages crashed once evidence existed → fixed (normalize to Date in
+  programEvidenceSummary/programsEvidenceSummary + `router.refresh()` in EvidencePanel for reactive count;
+  regression test `tests/integration/evidence-program.test.ts`). Also fixed a duplicate React key (`الحالة`)
+  in the shared Table (keyed by index now) + the meeting-UI type-dependent signature gap.
+- **Test-safety:** `tests/helpers/assert-non-production.ts` fails closed if any test resolves to
+  madrasa-prod/madrasa-prod-db-1/prod DB/192.168.0.48:3080/port 5432 (checks actual values, not env-var
+  naming); wired into vitest + Playwright; proven by `tests/unit/assert-non-production.test.ts`.
+- **Production: verified read-only at 0015 (2026-07-26), now OFF-LIMITS** (no further prod access until
+  deployment authorization). D-022 fingerprint `8d5375…a382cf` matched F0; counts confirmed
+  (54/26/129/129 1:1/1; stored_files 18/evidence 3/documents 10 = live growth). Disclosed net-zero
+  deviation: accidental `CREATE EXTENSION pgcrypto` then `DROP` (no data touched). **0016 is the ONLY
+  pending prod migration.** Corrected deploy runbook (apply only 0016, NEVER seed — `init` runs
+  migrate&&seed so use `run … init sh -c "migrate.ts"` + `up -d --no-deps app`) in `docs/DEPLOYMENT_REPORT_V2_1.md` §5.
+- **Committed** at this validated gate (see final commit hash), excluding the temporary LAN
+  `compose.production.yml`. No tag, no deploy. Awaiting explicit production-deployment authorization.
+
+## Earlier checkpoint — PRODUCT SCOPE v2, STEPS 1–14 DELIVERED (2026-07-23)
 - **Continuation parts 1–3 received and implemented.** D-022 approved (129 baseline);
   D-023 rollback correction. Steps 6–14 of the sequence delivered; step 15 (production
   deploy) awaits owner authorization; production writes are NOT attempted (owner instruction).

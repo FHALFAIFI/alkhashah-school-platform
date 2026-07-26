@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { programs, programMilestones, programDeliverables } from "@/db/schema";
+import { programs, programDeliverables } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { buildWordReport } from "@/lib/reports/word-export";
 import { audit } from "@/lib/audit";
@@ -25,11 +25,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     .from(programs)
     .where(and(eq(programs.id, id), notSynthetic(programs.id, excluded.programs)));
   if (!program) return NextResponse.json({ error: "البرنامج غير موجود" }, { status: 404 });
-  const milestones = await db
-    .select()
-    .from(programMilestones)
-    .where(eq(programMilestones.programId, id))
-    .orderBy(asc(programMilestones.sortOrder));
   const deliverables = await db.select().from(programDeliverables).where(eq(programDeliverables.programId, id));
 
   const now = new Date();
@@ -62,17 +57,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         },
       },
       {
-        heading: "المعالم الموزونة",
+        heading: "المخرجات",
         table: {
-          headers: ["المعلم", "الوزن", "الإنجاز", "الحالة"],
-          rows: milestones.map((m) => [m.title, `${m.weight}٪`, `${m.progress}٪`, m.status]),
-        },
-      },
-      {
-        heading: "المخرجات وحزم الشواهد",
-        table: {
-          headers: ["المخرج", "الشواهد المقبولة", "حالة الحزمة"],
-          rows: deliverables.map((d) => [d.mainOutput ?? "—", d.acceptedEvidence ?? "—", d.packageStatus]),
+          headers: ["المخرج", "الشواهد المقبولة", "موعد التسليم"],
+          rows: deliverables.map((d) => [d.mainOutput ?? "—", d.acceptedEvidence ?? "—", d.dueText ?? "—"]),
         },
       },
     ],

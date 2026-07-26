@@ -122,7 +122,7 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
 
   const chair = members.find((m) => m.role === "رئيس" || m.role === "قائد");
   const secretary = members.find((m) => m.role === "مقرر");
-  body += `<p style="margin-top:16px">يعتمد التقرير بتوقيع ${chair ? `الرئيس (${esc(chair.name)})` : "الرئيس"} و${secretary ? `المقرر (${esc(secretary.name)})` : "المقرر"} فقط.</p>`;
+  body += `<p style="margin-top:16px">يُعتمد التقرير بتوقيع ${chair ? `الرئيس (${esc(chair.name)})` : "الرئيس"} و${secretary ? `المقرر (${esc(secretary.name)})` : "المقرر"} عند الحاجة — التوقيع ليس شرطاً إلزامياً لهذا التقرير.</p>`;
 
   const title = `تقرير اللجنة: ${c.nameAr}`;
   const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText });

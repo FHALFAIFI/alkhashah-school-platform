@@ -40,6 +40,8 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   ]);
   const activeTypes = types.filter((t) => t.active).map((t) => ({ id: t.id, nameAr: t.nameAr }));
   const typeName = meeting.typeId ? (types.find((t) => t.id === meeting.typeId)?.nameAr ?? null) : null;
+  // التوقيع حسب نوع الاجتماع (D-027): لا قاعدة عامة تفرض التوقيع
+  const typeRequiresSignature = meeting.typeId ? (types.find((t) => t.id === meeting.typeId)?.requiresSignature ?? false) : false;
 
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
   const tasks = taskIds.length > 0 ? await db.select().from(actionTasks).where(inArray(actionTasks.id, taskIds)) : [];
@@ -206,18 +208,22 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
             )}
           </div>
           <p className="text-xs text-gray-500">
-            يوقع المحضر يدوياً من {chair ? `الرئيس (${chair.name})` : "الرئيس"} و{secretary ? `المقرر (${secretary.name})` : "المقرر"} فقط، ثم يرفع هنا.
+            {typeRequiresSignature
+              ? `نوع هذا الاجتماع «${typeName ?? ""}» مُهيّأ ليتطلب محضراً موقعاً لاكتماله — يوقّعه ${chair ? `الرئيس (${chair.name})` : "الرئيس"} و${secretary ? `المقرر (${secretary.name})` : "المقرر"} يدوياً ثم يُرفع هنا.`
+              : `نوع هذا الاجتماع «${typeName ?? "غير محدد"}» لا يتطلب توقيعاً لاكتماله (D-027). يمكن رفع محضر موقّع اختيارياً عند الحاجة.`}
           </p>
           {meeting.signedMinutesFileId ? (
             <p className="text-emerald-700">
               ✓ المحضر الموقع مرفوع — <a href={`/api/files/${meeting.signedMinutesFileId}`} className="underline">تنزيل</a>
             </p>
-          ) : (
+          ) : typeRequiresSignature ? (
             <p className="text-amber-700">لم يرفع المحضر الموقع بعد — لا يكتمل الاجتماع بدونه</p>
+          ) : (
+            <p className="text-gray-500">لا يشترط هذا النوع رفع محضر موقّع للاكتمال.</p>
           )}
           {canWrite && <SignedMinutesUpload meetingId={mid} />}
           {meeting.status !== "مكتمل" && canApprove && (
-            <CompleteMeetingButton meetingId={mid} disabled={!meeting.signedMinutesFileId} />
+            <CompleteMeetingButton meetingId={mid} disabled={typeRequiresSignature && !meeting.signedMinutesFileId} />
           )}
           {meeting.status === "مكتمل" && (
             <p className="font-medium text-emerald-700">اكتمل الاجتماع واعتمد.</p>

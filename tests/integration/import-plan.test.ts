@@ -67,11 +67,9 @@ describe("استيراد الخطة التشغيلية (A9, A10)", () => {
     expect(p1.name).toBe("برنامج تجريبي أول");
     expect(p1.status).toBe("مسودة");
 
-    // الاستيراد يُنشئ أنشطةً (D-020) لا معالم — الوزن المشتق محفوظ للتتبع والبرنامج بوضع متساوٍ
+    // الاستيراد لم يعد يُنشئ أنشطة (D-024) — البرنامج نفسه وحدة التنفيذ والمتابعة
     const acts = await db.select().from(programActivities).where(eq(programActivities.programId, p1.id));
-    expect(acts.length).toBe(3);
-    expect(acts.reduce((s, a) => s + (a.weight ?? 0), 0)).toBe(100);
-    expect(p1.weightingMode).toBe("متساوٍ");
+    expect(acts.length).toBe(0);
 
     const kpis = await db.select().from(programKpis);
     expect(kpis[0].code).toBe("مؤشر-01");
@@ -87,35 +85,6 @@ describe("استيراد الخطة التشغيلية (A9, A10)", () => {
     const three = deriveMilestones("أ؛ ب؛ ج");
     expect(three.map((m) => m.weight)).toEqual([34, 33, 33]);
     expect(deriveMilestones("")).toEqual([]);
-  });
-});
-
-describe("حساب التقدم من المعالم الموزونة", () => {
-  it("يحسب التقدم الموزون لا عدد المرفقات", async () => {
-    const { computeProgramProgress } = await import("@/lib/plan/progress");
-    expect(computeProgramProgress([])).toBe(0);
-    expect(
-      computeProgramProgress([
-        { weight: 50, progress: 100 },
-        { weight: 50, progress: 0 },
-      ]),
-    ).toBe(50);
-    expect(
-      computeProgramProgress([
-        { weight: 34, progress: 100 },
-        { weight: 33, progress: 50 },
-        { weight: 33, progress: 0 },
-      ]),
-    ).toBe(51);
-  });
-
-  it("جاهزية الحزمة: تنفيذ + مخرج + أثر (+ خارجي عند الانطباق)", async () => {
-    const { computePackageReadiness } = await import("@/lib/plan/progress");
-    const r1 = computePackageReadiness({ requiresExternal: false, evidenceRoles: ["تنفيذ", "مخرج"] });
-    expect(r1.readiness).toBe(67);
-    expect(r1.missing).toEqual(["أثر"]);
-    const r2 = computePackageReadiness({ requiresExternal: true, evidenceRoles: ["تنفيذ", "مخرج", "أثر", "خارجي"] });
-    expect(r2.readiness).toBe(100);
   });
 });
 

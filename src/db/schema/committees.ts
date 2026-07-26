@@ -23,6 +23,12 @@ export const meetingTypes = pgTable("meeting_types", {
   nameAr: text("name_ar").notNull(),
   active: boolean("active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
+  /**
+   * هل يتطلب هذا النوع محضراً موقّعاً لإكمال الاجتماع؟ (D-027) الافتراضي false: لا يُفرض توقيع
+   * على كل اجتماع/وثيقة، بل يُفعّل لكل نوع على حدة حين يقتضي. القاعدة العامة القديمة (كل محضر
+   * يلزمه توقيع) أُزيلت.
+   */
+  requiresSignature: boolean("requires_signature").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -44,6 +50,53 @@ export const committeeTemplates = pgTable("committee_templates", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * قوالب المهام المعرّفة مسبقاً لكل نوع لجنة/فريق/مجتمع تعلم (D-027) — مركزية وقابلة لإعادة
+ * الاستخدام. تُدار من مكان واحد (إضافة/تعديل/تفعيل/تعطيل/ترتيب). تعديل القالب لاحقاً لا يعيد
+ * كتابة أي توزيع أو وثيقة صدرت سابقاً (التوزيع نسخة مستقلة، والوثائق لقطات ثابتة).
+ */
+export const committeeTaskTemplates = pgTable(
+  "committee_task_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** يربط بنوع اللجنة عبر committee_templates.key */
+    templateKey: text("template_key").notNull(),
+    title: text("title").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("committee_task_templates_key_idx").on(t.templateKey)],
+);
+
+/**
+ * توزيع المهام لتشكيل لجنة بعينه (D-027): يُحمّل من القوالب المعرّفة مسبقاً ثم يُراجع ويُعدّل
+ * (إضافة/تعديل/استبعاد/إعادة ترتيب) ويُسنَد لأعضاء. عمود التوقيع يظهر في النموذج المطبوع فقط
+ * (توقيع ورقي)، فلا يُخزَّن هنا. النموذج المُصدر يُحفظ كلقطة تاريخية عبر issueDocument.
+ */
+export const committeeTaskAssignments = pgTable(
+  "committee_task_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    committeeId: uuid("committee_id").notNull().references(() => committees.id, { onDelete: "cascade" }),
+    /** المهمة */
+    title: text("title").notNull(),
+    /** العضو المكلف — الصفة/الدور تُشتق من دور العضو في التشكيل */
+    assignedMemberId: uuid("assigned_member_id").references(() => committeeMembers.id, { onDelete: "set null" }),
+    /** ملاحظات عند الحاجة */
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    /** مستبعدة من التوزيع الحالي دون حذف — يمكن إعادتها */
+    excluded: boolean("excluded").notNull().default(false),
+    /** القالب الذي نُسخت منه (تتبع فقط؛ تعديل القالب لاحقاً لا يمسّ هذا الصف) */
+    fromTemplateId: uuid("from_template_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("committee_task_assignments_committee_idx").on(t.committeeId)],
+);
 
 /** التشكيلات السنوية */
 export const committees = pgTable(

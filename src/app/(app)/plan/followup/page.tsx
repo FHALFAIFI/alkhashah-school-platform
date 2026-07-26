@@ -5,6 +5,8 @@ import { db } from "@/db";
 import { planYears, programs, programFollowups } from "@/db/schema";
 import { PageHeader, Card, Badge, ProgressBar, LinkButton, EmptyState } from "@/components/ui";
 import { daysSince, isFollowupDue } from "@/lib/plan/followup";
+import { programsEvidenceSummary } from "@/lib/plan/program-service";
+import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { FollowupDueBadge } from "../followup-badge";
 import { FollowupForm } from "./followup-ui";
@@ -38,6 +40,9 @@ export default async function FollowupPage() {
   const latestByProgram = new Map<string, (typeof followups)[number]>();
   for (const f of followups) if (!latestByProgram.has(f.programId)) latestByProgram.set(f.programId, f);
 
+  // الحالة الفعلية للشواهد لكل برنامج — عدد فعلي وأحدث رفع، معلوماتي فقط بلا هدف/حصة (D-025)
+  const evidenceByProgram = await programsEvidenceSummary(approved.map((p) => p.id));
+
   const dueCount = approved.filter((p) => isFollowupDue(p.lastReviewAt)).length;
 
   return (
@@ -57,6 +62,7 @@ export default async function FollowupPage() {
           {approved.map((p) => {
             const latest = latestByProgram.get(p.id);
             const due = isFollowupDue(p.lastReviewAt);
+            const ev = evidenceByProgram.get(p.id) ?? { count: 0, latestAt: null };
             return (
               <Card key={p.id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -82,7 +88,14 @@ export default async function FollowupPage() {
                     آخر ملاحظة ({latest.weekKey}): {latest.note}
                   </p>
                 )}
-                {canWrite && <FollowupForm programId={p.id} defaultStatus={p.executionStatus} />}
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                  <span>الشواهد: {evidenceCountPhrase(ev.count)}</span>
+                  {ev.latestAt && (
+                    <span className="text-gray-400">· آخر رفع: {ev.latestAt.toLocaleDateString("ar-SA-u-nu-latn")}</span>
+                  )}
+                  <Link href={`/plan/${p.id}#evidence`} className="text-brand-700 hover:underline">فتح شواهد البرنامج</Link>
+                </div>
+                {canWrite && <FollowupForm programId={p.id} defaultStatus={p.executionStatus} defaultProgress={p.progress} />}
               </Card>
             );
           })}

@@ -3,11 +3,12 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import {
-  programs, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups, people,
+  programs, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups,
 } from "@/db/schema";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { evidenceForEntity } from "@/lib/evidence";
-import { computePackageReadiness } from "@/lib/plan/progress";
+import { programEvidenceSummary } from "@/lib/plan/program-service";
+import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
 import { isFollowupDue, FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 import { programStatusLabel } from "@/lib/plan/status-labels";
 import { getVersions } from "@/lib/versioning";
@@ -15,10 +16,8 @@ import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps } from 
 import { FollowupDueBadge } from "../followup-badge";
 import {
   ApproveProgramButton, ReopenForm, ChangeRequestForm,
-  ChangeRequestDecision, ApprovePackageButton,
+  ChangeRequestDecision, ProgramExecutionForm,
 } from "./program-ui";
-import { ActivityRow, AddActivityForm, WeightingModeForm, ReadinessPanel } from "./activities-ui";
-import { getProgramOverview } from "@/lib/plan/program-service";
 import { EvidencePanel } from "@/components/evidence-panel";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
 
@@ -34,39 +33,23 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
     .where(and(eq(programs.id, id), notSynthetic(programs.id, excluded.programs)));
   if (!program) notFound();
 
-  const [overview, deliverables, changeRequests, roadmap, evidence, versions, followups, staff] = await Promise.all([
-    getProgramOverview(id),
+  const [deliverables, changeRequests, roadmap, evidence, evidenceSummary, versions, followups] = await Promise.all([
     db.select().from(programDeliverables).where(eq(programDeliverables.programId, id)),
     db.select().from(programChangeRequests).where(eq(programChangeRequests.programId, id)),
     db.select().from(programRoadmapCells).where(eq(programRoadmapCells.programId, id)).orderBy(asc(programRoadmapCells.sortOrder)),
     evidenceForEntity("program", id),
+    programEvidenceSummary(id),
     getVersions("program", id),
     db.select().from(programFollowups).where(eq(programFollowups.programId, id)).orderBy(desc(programFollowups.createdAt)).limit(8),
-    db
-      .select({ id: people.id, fullName: people.fullName })
-      .from(people)
-      .where(eq(people.active, true))
-      .orderBy(asc(people.fullName)),
   ]);
-  if (!overview) notFound();
 
-  // التقدم والجاهزية من الأنشطة حصراً (D-020) — لا قراءة للمعالم القديمة هنا
-  const activities = overview.activities;
-  const progress = overview.progress;
-  const readiness = overview.readiness;
-
-  const canWrite = user.permissions.has("plan.write") && program.status === "مسودة";
+  // البرنامج نفسه وحدة التنفيذ (D-024): التقدم والحالة مقروءان مباشرةً من سجل البرنامج،
+  // لا من أنشطة موزونة. الشواهد معلوماتية فقط بلا هدف أو نسبة جاهزية (D-025).
+  const canWrite = user.permissions.has("plan.write") && program.status !== "مقفل";
   const canApprove = user.permissions.has("plan.approve");
-  const canOverride = user.permissions.has("plan.override");
-  const evidenceRoles = evidence.map((e) => e.item.role ?? "").filter(Boolean);
 
   /** مراحل سير عمل البرنامج: الإعداد ← الاعتماد ← التنفيذ والمتابعة ← الإقفال */
-  const weightsReady = activities.length > 0 && progress.weights.valid;
-  const workflowCurrent =
-    program.completedAt ? 4 : program.status === "معتمد" ? 2 : weightsReady ? 1 : 0;
-  const packagesWithGaps = deliverables.filter(
-    (d) => computePackageReadiness({ requiresExternal: d.requiresExternal, evidenceRoles }).missing.length > 0,
-  ).length;
+  const workflowCurrent = program.status === "مقفل" ? 4 : program.status === "معتمد" ? 2 : 0;
   const followupDue = program.status === "معتمد" && isFollowupDue(program.lastReviewAt);
 
   const infoRows: [string, string | null][] = [
@@ -110,36 +93,23 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
       <Card>
         <WorkflowSteps steps={["الإعداد", "الاعتماد", "التنفيذ والمتابعة", "الإقفال"]} current={workflowCurrent} />
         <div className="mt-3 border-t border-sand-100 pt-3 text-sm">
-          {program.status === "مسودة" && !weightsReady && (
-            <p className="text-amber-700">
-              <span className="font-medium">الخطوة التالية:</span>{" "}
-              {activities.length === 0
-                ? "أضف أنشطة للبرنامج — بلا أنشطة يبقى التقدم 0٪"
-                : `اضبط أوزان الأنشطة: ${progress.weights.problemsAr.join("، ")}`}
-            </p>
-          )}
-          {program.status === "مسودة" && weightsReady && (
+          {program.status === "مسودة" && (
             canApprove ? (
               <div className="flex flex-wrap items-center gap-3">
-                <span className="font-medium text-gray-700">الخطوة التالية: البرنامج جاهز للاعتماد</span>
-                <ApproveProgramButton programId={id} disabled={false} totalWeight={progress.weights.total} />
+                <span className="font-medium text-gray-700">الخطوة التالية: راجع بيانات البرنامج ثم اعتمده</span>
+                <ApproveProgramButton programId={id} />
               </div>
             ) : (
               <p className="text-gray-700">
-                <span className="font-medium">الخطوة التالية:</span> البرنامج جاهز — بانتظار اعتماد المدير
+                <span className="font-medium">الخطوة التالية:</span> البرنامج قيد الإعداد — بانتظار اعتماد المدير
               </p>
             )
           )}
           {program.status === "معتمد" && (
             <div className="flex flex-wrap items-center gap-3">
-              <span className="font-medium text-gray-700">الخطوة التالية: سجل المتابعة الأسبوعية</span>
+              <span className="font-medium text-gray-700">الخطوة التالية: سجّل المتابعة الأسبوعية وحدّث نسبة الإنجاز</span>
               {followupDue && <FollowupDueBadge />}
               <LinkButton href="/plan/followup">المتابعة الأسبوعية</LinkButton>
-              {packagesWithGaps > 0 && (
-                <a href="#evidence" className="text-xs text-amber-700 underline">
-                  {packagesWithGaps === 1 ? "حزمة شواهد واحدة ناقصة" : `${packagesWithGaps} حزم شواهد ناقصة`} — أكمل الشواهد المطلوبة
-                </a>
-              )}
             </div>
           )}
           {program.status === "مقفل" && (
@@ -150,7 +120,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
-          <h2 className="mb-2 text-sm font-bold text-gray-600">الإنجاز الكلي (من المعالم الموزونة)</h2>
+          <h2 className="mb-2 text-sm font-bold text-gray-600">نسبة الإنجاز</h2>
           <ProgressBar value={program.progress} />
         </Card>
         <Card>
@@ -160,7 +130,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         <Card>
           <h2 className="mb-2 text-sm font-bold text-gray-600">الاعتماد</h2>
           {program.status === "مسودة" && canApprove ? (
-            <ApproveProgramButton programId={id} disabled={activities.length > 0 && !progress.weights.valid} totalWeight={progress.weights.total} />
+            <ApproveProgramButton programId={id} />
           ) : program.status === "معتمد" && canApprove ? (
             <ReopenForm programId={id} />
           ) : (
@@ -168,6 +138,16 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           )}
         </Card>
       </div>
+
+      {canWrite && (
+        <Card>
+          <h2 className="mb-3 font-bold text-brand-900">تحديث تقدم البرنامج وحالته</h2>
+          <p className="mb-3 text-xs text-gray-500">
+            البرنامج نفسه وحدة التنفيذ والمتابعة — أدخل نسبة الإنجاز الحالية وحالة التنفيذ مباشرةً.
+          </p>
+          <ProgramExecutionForm programId={id} progress={program.progress} executionStatus={program.executionStatus} />
+        </Card>
+      )}
 
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">بطاقة البرنامج (القيم الرسمية من المصدر)</h2>
@@ -181,87 +161,44 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         </dl>
       </Card>
 
-      <Card>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-bold text-brand-900">الأنشطة — أساس حساب تقدم التنفيذ</h2>
-          <span className="text-sm tabular-nums text-gray-600">
-            التقدم: {progress.display}٪ · {progress.countedActivities} نشاطاً محتسباً
-          </span>
-        </div>
-        {user.permissions.has("plan.write") && (
-          <div className="mb-3">
-            <WeightingModeForm programId={id} mode={program.weightingMode} problems={progress.weights.problemsAr} />
-          </div>
-        )}
-        <div className="space-y-2">
-          {activities.map((a) => (
-            <ActivityRow
-              key={a.id}
-              activity={a}
-              editable={user.permissions.has("plan.write") && !program.completedAt}
-              people={staff}
-            />
-          ))}
-          {activities.length === 0 && (
-            <p className="text-sm text-gray-400">لا أنشطة بعد — أضف أنشطة لتُحسب نسبة التقدم (بلا أنشطة يبقى التقدم 0٪)</p>
-          )}
-        </div>
-        {user.permissions.has("plan.write") && !program.completedAt && <AddActivityForm programId={id} people={staff} />}
-      </Card>
-
-      <ReadinessPanel
-        programId={id}
-        readiness={readiness}
-        completed={!!program.completedAt}
-        override={program.completionOverride}
-        overrideReason={program.overrideReason}
-        overrideReadiness={program.overrideReadiness}
-        overrideMissing={program.overrideMissing}
-        canApprove={canApprove}
-        canOverride={canOverride}
-      />
-
-      <div id="evidence" className="scroll-mt-20">
-      <Card>
-        <h2 className="mb-3 font-bold text-brand-900">المخرجات وحزمة الشواهد</h2>
-        {deliverables.map((d) => {
-          const { readiness, missing } = computePackageReadiness({
-            requiresExternal: d.requiresExternal,
-            evidenceRoles,
-          });
-          return (
-            <div key={d.id} className="mb-3 rounded-lg border border-sand-200 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium">{d.mainOutput}</div>
-                  <div className="mt-1 text-xs text-gray-500">
-                    الشواهد المقبولة: {d.acceptedEvidence ?? "—"} · موعد التسليم: {d.dueText ?? "—"} · {d.packageNumber}
-                  </div>
-                  {missing.length > 0 && (
-                    <div className="mt-1 text-xs text-amber-600">ينقص الحزمة: شاهد {missing.join("، شاهد ")}</div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <ProgressBar value={readiness} />
-                  <Badge value={d.packageStatus} />
-                  {canApprove && d.packageDecision !== "معتمد" && readiness === 100 && (
-                    <ApprovePackageButton deliverableId={d.id} />
-                  )}
+      {deliverables.length > 0 && (
+        <Card>
+          <h2 className="mb-3 font-bold text-brand-900">المخرجات</h2>
+          <div className="space-y-2">
+            {deliverables.map((d) => (
+              <div key={d.id} className="rounded-lg border border-sand-200 p-3">
+                <div className="font-medium">{d.mainOutput}</div>
+                <div className="mt-1 text-xs text-gray-500">
+                  الشواهد المقبولة: {d.acceptedEvidence ?? "—"} · موعد التسليم: {d.dueText ?? "—"}
+                  {d.packageNumber ? ` · ${d.packageNumber}` : ""}
                 </div>
               </div>
-            </div>
-          );
-        })}
-        {deliverables.length === 0 && <p className="text-sm text-gray-400">لا مخرجات مسجلة</p>}
-      </Card>
-      </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
-      <EvidencePanel
-        entityType="program"
-        entityId={id}
-        items={evidence.map((e) => ({ id: e.item.id, title: e.item.title, kind: e.item.kind, role: e.item.role, fileId: e.item.fileId }))}
-        canWrite={user.permissions.has("evidence.write")}
-      />
+      <div id="evidence" className="scroll-mt-20">
+        <Card className="mb-4">
+          <h2 className="mb-1 font-bold text-brand-900">شواهد البرنامج</h2>
+          <p className="text-sm text-gray-700">
+            {evidenceCountPhrase(evidenceSummary.count)}
+            {evidenceSummary.latestAt && (
+              <span className="text-gray-500">
+                {" "}· آخر رفع: {evidenceSummary.latestAt.toLocaleDateString("ar-SA-u-nu-latn")}
+              </span>
+            )}
+          </p>
+          <p className="mt-1 text-xs text-gray-400">عدد الشواهد معلوماتي فقط ولا يحدد إمكانية إكمال البرنامج.</p>
+        </Card>
+
+        <EvidencePanel
+          entityType="program"
+          entityId={id}
+          items={evidence.map((e) => ({ id: e.item.id, title: e.item.title, kind: e.item.kind, role: e.item.role, fileId: e.item.fileId }))}
+          canWrite={user.permissions.has("evidence.write")}
+        />
+      </div>
 
       {roadmap.length > 0 && (
         <Card>

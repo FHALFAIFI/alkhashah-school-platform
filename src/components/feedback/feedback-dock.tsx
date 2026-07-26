@@ -228,7 +228,7 @@ function Labeled({ label, required, children }: { label: string; required?: bool
   return (
     <div>
       <label className="mb-1 block text-sm font-medium text-gray-700">
-        {label}
+        <span>{label}</span>
         {required && <span className="text-red-500"> *</span>}
       </label>
       {children}

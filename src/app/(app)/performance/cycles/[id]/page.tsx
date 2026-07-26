@@ -29,7 +29,9 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
   };
   const weightById = new Map(snapshot.indicators.map((i) => [i.id, Number(i.weight)]));
 
+  // D-028: نمرر نوع الجلسة ليُستثنى «التخطيط» من كل حساب تقييمي داخل cycleProgress
   const sessionRatings = sessions.map((s) => ({
+    sessionType: s.sessionType,
     sessionDate: s.sessionDate,
     createdAt: s.createdAt,
     ratings: allRatings
@@ -154,8 +156,15 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
         </Card>
         <Card>
           <div className="text-xs text-gray-500">نتيجة الدورة (أحدث تقدير لكل مؤشر)</div>
-          <div className="mt-1 text-lg font-bold text-brand-900 tabular-nums">{progress.result.toFixed(2)}٪</div>
-          <ProgressBar value={progress.coverage * 100} />
+          {/* D-028: جلسة التخطيط لا تُحتسب — إن لم توجد تقديرات تقييمية بعد نعرض حالة لا 0٪ */}
+          {progress.evaluated ? (
+            <>
+              <div className="mt-1 text-lg font-bold text-brand-900 tabular-nums">{progress.result.toFixed(2)}٪</div>
+              <ProgressBar value={progress.coverage * 100} />
+            </>
+          ) : (
+            <div className="mt-1 text-sm font-medium text-gray-500">لم يبدأ التقييم بعد</div>
+          )}
         </Card>
         <Card>
           <div className="text-xs text-gray-500">الزيارات الصفية / المتابعات</div>
@@ -178,7 +187,11 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
               <tr key={s.id}>
                 <td className="px-3 py-2 font-medium">{s.sessionType}</td>
                 <td className="px-3 py-2 text-xs tabular-nums">{s.sessionDate ?? "—"}</td>
-                <td className="px-3 py-2 tabular-nums">{s.sessionResult ? `${Number(s.sessionResult).toFixed(2)}٪` : "—"}</td>
+                <td className="px-3 py-2 tabular-nums">
+                  {s.sessionType === "تخطيط"
+                    ? <span className="text-xs text-gray-400">تخطيط — لا يُحتسب</span>
+                    : s.sessionResult ? `${Number(s.sessionResult).toFixed(2)}٪` : "—"}
+                </td>
                 <td className="px-3 py-2 tabular-nums">{s.coverage ? `${Math.round(Number(s.coverage) * 100)}٪` : "—"}</td>
                 <td className="px-3 py-2"><Badge value={s.status} /></td>
                 <td className="px-3 py-2">

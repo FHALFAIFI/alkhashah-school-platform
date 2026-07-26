@@ -38,7 +38,7 @@ export function AddIncomeForm({ planYearId, programs }: { planYearId: string; pr
                 <option value="ملغى">ملغى</option>
               </select>
             </div>
-            <Field label="الغرض/التخصيص" name="purpose" />
+            <Field label="البند" name="purpose" />
             <Field label="الفترة" name="periodText" />
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="in-program">ربط ببرنامج (اختياري)</label>
@@ -112,7 +112,7 @@ export function AddExpenseForm({ planYearId, programs }: { planYearId: string; p
             <Field label="المورّد (اختياري)" name="supplier" />
             <Field label="مرجع الدفع (اختياري)" name="paymentReference" />
           </div>
-          <Field label="المستلزمات/البنود" name="items" />
+          <Field label="البند" name="items" />
           <TextArea label="ملاحظات" name="notes" rows={2} />
 
           {wouldOverspend && (

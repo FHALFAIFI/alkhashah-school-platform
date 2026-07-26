@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { asc } from "drizzle-orm";
 import { db } from "@/db";
-import { programs, programMilestones } from "@/db/schema";
+import { programs } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { programsEvidenceSummary } from "@/lib/plan/program-service";
 
-/** تصدير Excel تحليلي للخطة التشغيلية */
+/** تصدير Excel تحليلي للخطة التشغيلية — التقدم مباشر من البرنامج وعدد الشواهد فعلي (D-024/D-025) */
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 });
@@ -16,13 +17,8 @@ export async function GET() {
   }
 
   const excluded = await getExcludedIdSets();
-  const [allPrograms, everyMilestone] = await Promise.all([
-    db.select().from(programs).where(notSynthetic(programs.id, excluded.programs)).orderBy(asc(programs.seq)),
-    db.select().from(programMilestones),
-  ]);
-  // المعالم تُقصر على البرامج غير الاصطناعية (المفتاح الأجنبي programId)
-  const officialProgramIds = new Set(allPrograms.map((p) => p.id));
-  const allMilestones = everyMilestone.filter((m) => officialProgramIds.has(m.programId));
+  const allPrograms = await db.select().from(programs).where(notSynthetic(programs.id, excluded.programs)).orderBy(asc(programs.seq));
+  const evidenceByProgram = await programsEvidenceSummary(allPrograms.map((p) => p.id));
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("البرامج", { views: [{ rightToLeft: true }] });
@@ -34,8 +30,9 @@ export async function GET() {
     { header: "تاريخ البدء (هجري)", key: "start", width: 16 },
     { header: "تاريخ الانتهاء (هجري)", key: "end", width: 16 },
     { header: "نسبة الإنجاز", key: "progress", width: 12 },
+    { header: "حالة التنفيذ", key: "execution", width: 14 },
     { header: "الحالة", key: "status", width: 12 },
-    { header: "عدد المعالم", key: "milestones", width: 12 },
+    { header: "عدد الشواهد", key: "evidence", width: 12 },
     { header: "الميزانية", key: "budget", width: 12 },
   ];
   ws.getRow(1).font = { bold: true };
@@ -48,34 +45,13 @@ export async function GET() {
       start: p.hijriStart,
       end: p.hijriEnd,
       progress: p.progress / 100,
+      execution: p.executionStatus,
       status: p.status,
-      milestones: allMilestones.filter((m) => m.programId === p.id).length,
+      evidence: evidenceByProgram.get(p.id)?.count ?? 0,
       budget: p.budget ? Number(p.budget) : 0,
     });
   }
   ws.getColumn("progress").numFmt = "0%";
-
-  const ws2 = wb.addWorksheet("المعالم", { views: [{ rightToLeft: true }] });
-  ws2.columns = [
-    { header: "البرنامج", key: "program", width: 32 },
-    { header: "المعلم", key: "title", width: 40 },
-    { header: "الوزن", key: "weight", width: 10 },
-    { header: "الإنجاز", key: "progress", width: 10 },
-    { header: "الحالة", key: "status", width: 14 },
-  ];
-  ws2.getRow(1).font = { bold: true };
-  const programName = new Map(allPrograms.map((p) => [p.id, p.name]));
-  for (const m of allMilestones) {
-    ws2.addRow({
-      program: programName.get(m.programId) ?? "",
-      title: m.title,
-      weight: m.weight / 100,
-      progress: m.progress / 100,
-      status: m.status,
-    });
-  }
-  ws2.getColumn("weight").numFmt = "0%";
-  ws2.getColumn("progress").numFmt = "0%";
 
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   await audit({ actorId: user.id, action: "export.plan_xlsx", summary: "تصدير Excel تحليلي للخطة" });

@@ -55,7 +55,7 @@ async function seedProgram(opts?: { status?: string; weights?: number[] }) {
       status: opts?.status ?? "مسودة",
     })
     .returning();
-  // الأنشطة هي وحدة الوزن الوحيدة (D-020) — البذر بوضع الوزن المخصص لاختبار بوابة الأوزان
+  // أنشطة قديمة محفوظة للتدقيق فقط (D-024) — لا تُشارك في الاعتماد ولا التقدم بعد الآن
   const activities = [];
   for (const [i, weight] of (opts?.weights ?? []).entries()) {
     const [a] = await db
@@ -71,19 +71,13 @@ async function seedProgram(opts?: { status?: string; weights?: number[] }) {
 }
 
 describe("سير عمل الخطة التشغيلية: اعتماد، إعادة فتح، طلبات تغيير، متابعة أسبوعية، إقفال السنة", () => {
-  it("(أ) الاعتماد يرفض عندما لا يساوي مجموع الأوزان 100 وينجح عنده مع رفع النسخة", async () => {
+  it("(أ) الاعتماد المباشر لا يعتمد على أوزان الأنشطة (D-024): يُعتمد البرنامج ولو وُجدت أنشطة قديمة بمجموع أوزان ≠ 100", async () => {
     const { db } = await import("@/db");
-    const { programs, programActivities } = await import("@/db/schema");
+    const { programs } = await import("@/db/schema");
     const { approveProgramAction } = await import("@/app/(app)/plan/actions");
-    const { program, activities } = await seedProgram({ weights: [60, 30] }); // المجموع 90
+    // أنشطة قديمة محفوظة بمجموع أوزان 90 — يجب ألا تمنع الاعتماد بعد إزالة بوابة الأوزان
+    const { program } = await seedProgram({ weights: [60, 30] });
 
-    const rejected = await approveProgramAction(program.id);
-    expect(rejected?.error).toContain("100");
-    const [still] = await db.select().from(programs).where(eq(programs.id, program.id));
-    expect(still.status).toBe("مسودة");
-    expect(still.version).toBe(1);
-
-    await db.update(programActivities).set({ weight: 40 }).where(eq(programActivities.id, activities[1].id));
     const accepted = await approveProgramAction(program.id);
     expect(accepted?.error).toBeUndefined();
     const [approved] = await db.select().from(programs).where(eq(programs.id, program.id));
@@ -94,6 +88,29 @@ describe("سير عمل الخطة التشغيلية: اعتماد، إعادة
     // إعادة الاعتماد ترفض
     const twice = await approveProgramAction(program.id);
     expect(twice?.error).toContain("مسبقاً");
+  });
+
+  it("(أ-2) تحديث التقدم والحالة مباشرةً على البرنامج (D-024) — بلا اشتقاق من الأنشطة", async () => {
+    const { db } = await import("@/db");
+    const { programs } = await import("@/db/schema");
+    const { updateProgramExecutionAction } = await import("@/app/(app)/plan/actions");
+    const { program } = await seedProgram({ status: "معتمد" });
+
+    const fd = new FormData();
+    fd.set("progress", "65");
+    fd.set("executionStatus", "في المسار");
+    const res = await updateProgramExecutionAction(program.id, null, fd);
+    expect(res?.error).toBeUndefined();
+    const [updated] = await db.select().from(programs).where(eq(programs.id, program.id));
+    expect(updated.progress).toBe(65);
+    expect(updated.executionStatus).toBe("في المسار");
+
+    // النسبة خارج 0..100 ترفض
+    const bad = new FormData();
+    bad.set("progress", "140");
+    bad.set("executionStatus", "في المسار");
+    const rejected = await updateProgramExecutionAction(program.id, null, bad);
+    expect(rejected?.error).toBeTruthy();
   });
 
   it("(ب) إعادة الفتح تتطلب سبباً وتعيد البرنامج إلى مسودة مع رفع النسخة", async () => {

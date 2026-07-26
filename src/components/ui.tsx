@@ -101,8 +101,10 @@ export function Table({ headers, children }: { headers: string[]; children: Reac
       <table className="w-full min-w-max text-sm">
         <thead>
           <tr className="border-b border-sand-200 bg-sand-100 text-start">
-            {headers.map((h) => (
-              <th key={h} className="px-3 py-2.5 text-start font-medium text-gray-600">
+            {/* المفتاح بالفهرس لا بالنص: بعض الجداول تكرّر عناوين متطابقة («الحالة») فتتعارض المفاتيح
+                وتظهر تحذيرات مطابقة قد تزعزع استقرار DOM (يخدم D-029) */}
+            {headers.map((h, i) => (
+              <th key={i} className="px-3 py-2.5 text-start font-medium text-gray-600">
                 {h}
               </th>
             ))}
@@ -158,6 +160,7 @@ export function Field({
   dir,
   placeholder,
   hint,
+  autoComplete = "off",
 }: {
   label: string;
   name: string;
@@ -167,11 +170,12 @@ export function Field({
   dir?: "ltr" | "rtl";
   placeholder?: string;
   hint?: string;
+  autoComplete?: string;
 }) {
   return (
     <div>
       <label htmlFor={name} className="mb-1 block text-sm font-medium text-gray-700">
-        {label}
+        <span>{label}</span>
         {required && <span className="text-red-500"> *</span>}
       </label>
       <input
@@ -182,6 +186,10 @@ export function Field({
         required={required}
         dir={dir}
         placeholder={placeholder}
+        // منع حُقن مديري كلمات المرور/المكمّلات عُقَداً بجوار الحقل (سبب insertBefore الثانوي، D-029)
+        autoComplete={autoComplete}
+        data-1p-ignore=""
+        data-lpignore="true"
         className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 lg:min-h-0"
       />
       {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
@@ -205,7 +213,7 @@ export function TextArea({
   return (
     <div>
       <label htmlFor={name} className="mb-1 block text-sm font-medium text-gray-700">
-        {label}
+        <span>{label}</span>
         {required && <span className="text-red-500"> *</span>}
       </label>
       <textarea
@@ -214,6 +222,9 @@ export function TextArea({
         rows={rows}
         defaultValue={defaultValue ?? undefined}
         required={required}
+        autoComplete="off"
+        data-1p-ignore=""
+        data-lpignore="true"
         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
       />
     </div>
@@ -236,7 +247,7 @@ export function Select({
   return (
     <div>
       <label htmlFor={name} className="mb-1 block text-sm font-medium text-gray-700">
-        {label}
+        <span>{label}</span>
         {required && <span className="text-red-500"> *</span>}
       </label>
       <select

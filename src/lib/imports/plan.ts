@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  planYears, programs, programActivities, programDeliverables, programKpis,
+  planYears, programs, programDeliverables, programKpis,
   programRisks, planBudgetItems, programRoadmapCells, importRows,
   calendars, calendarEvents, evidenceLinks,
 } from "@/db/schema";
@@ -117,7 +117,6 @@ export async function parsePlanWorkbook(data: Buffer): Promise<{ rows: ParsedRow
     const warnings: string[] = [];
     if (!name) errors.push("اسم البرنامج فارغ");
     if (!cellText(r[mCol.domain])) errors.push("المجال فارغ");
-    if (!details.milestones) warnings.push("لا توجد أنشطة في المصدر — أضف أنشطة يدوياً بعد الاستيراد");
 
     rows.push({
       rowIndex: rowCounter++,
@@ -438,22 +437,9 @@ export async function commitPlanRows(
     programIdBySeq.set(seq, p.id);
     bump("برامج");
 
-    // الأنشطة هي وحدة التنفيذ والوزن الوحيدة (D-020). الاستيراد يُنشئ أنشطةً مباشرةً —
-    // لا معالم — فتظهر الخطة كـ الخطة ← البرنامج ← الأنشطة دون تسطيح صامت. البرنامج يبقى
-    // في وضع الوزن المتساوي؛ الوزن المشتق يُحفظ على النشاط للتتبع فقط.
-    const derived = deriveMilestones(String(m.milestones ?? ""));
-    let order = 0;
-    for (const a of derived) {
-      await tx.insert(programActivities).values({
-        programId: p.id,
-        sortOrder: order++,
-        name: a.title,
-        weight: a.weight,
-        requiredForCompletion: true,
-        createdBy: opts.createdBy,
-      });
-      bump("أنشطة");
-    }
+    // الاستيراد لم يعد يُنشئ أنشطة (D-024): البرنامج نفسه وحدة التنفيذ والمتابعة، والتقدم
+    // يُدخل مباشرةً على البرنامج بعد الاستيراد. نص «المعالم ونقاط القياس» يبقى محفوظاً
+    // كقيمة رسمية من المصدر في حقول البرنامج، بلا اشتقاق أنشطة موزونة.
     await tx
       .update(importRows)
       .set({ status: "منفذ", createdEntityType: "program", createdEntityId: p.id })
@@ -603,11 +589,9 @@ export async function rollbackPlanBatch(tx: Tx, batchId: string): Promise<void> 
   if (riskIds.length > 0) await tx.delete(programRisks).where(inArray(programRisks.id, riskIds));
   const budgetIds = byType("plan_budget_item");
   if (budgetIds.length > 0) await tx.delete(planBudgetItems).where(inArray(planBudgetItems.id, budgetIds));
-  // الأنشطة قيدها restrict (لمنع الحذف التعاقبي الصامت للتاريخ التشغيلي). التراجع عن الدفعة
-  // عكسٌ صريح ومقصود، فتُحذف أنشطة برامج الدفعة أولاً (وتتسلسل مخرجاتها ومتطلباتها وسجل
-  // حالاتها) قبل حذف البرامج. المصروفات/الإيرادات المرتبطة تُفكّ إلى null بقيد set null.
+  // الاستيراد لم يعد يُنشئ أنشطة (D-024)، فلا حذف لها هنا؛ وأي أنشطة قديمة محفوظة للتدقيق
+  // والتراجع لا تُحذف مع الدفعة. المصروفات/الإيرادات المرتبطة تُفكّ إلى null بقيد set null.
   if (programIds.length > 0) {
-    await tx.delete(programActivities).where(inArray(programActivities.programId, programIds));
     // حذف البرامج يتسلسل إلى المخرجات وخلايا الخارطة والمتابعات (FK cascade)
     await tx.delete(programs).where(inArray(programs.id, programIds));
   }

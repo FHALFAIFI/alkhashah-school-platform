@@ -202,7 +202,9 @@ export function AppShell({
             <span aria-hidden className="text-base leading-none">☰</span>
             القائمة
           </button>
-          <div className="hidden text-sm text-gray-500 lg:block">
+          {/* التاريخ الهجري مشتق من new Date() ويختلف بين الخادم والعميل حسب المنطقة الزمنية/حدود اليوم؛
+              suppressHydrationWarning يمنع عدم تطابق الترطيب من زعزعة مطابقة DOM في الغلاف (D-029). */}
+          <div className="hidden text-sm text-gray-500 lg:block" suppressHydrationWarning>
             {new Intl.DateTimeFormat("ar-SA-u-ca-islamic-umalqura", { dateStyle: "full" }).format(new Date())}
           </div>
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">

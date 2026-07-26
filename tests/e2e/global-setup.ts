@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import { Pool } from "pg";
 import { ensureTestDb, truncateAll, TEST_DB_URL } from "../helpers/test-db";
+import { assertNonProduction } from "../helpers/assert-non-production";
 
 /**
  * مهيّئ Playwright — يضمن أن اختبارات الواجهة تعمل على قاعدة الاختبار المعزولة فقط.
@@ -10,6 +11,8 @@ import { ensureTestDb, truncateAll, TEST_DB_URL } from "../helpers/test-db";
  * خادم الاختبار يعمل بـ MADRASA_ENV=test فيرفض حارس الأمان أي قاعدة حقيقية.
  */
 export default async function globalSetup(): Promise<void> {
+  // حارس أمان يفشل مغلقاً: قاعدة/تخزين/عنوان الاختبار يجب ألّا تشير إلى الإنتاج (فحص فعلي لا اسمي)
+  assertNonProduction("playwright-global-setup", TEST_DB_URL);
   await ensureTestDb();
 
   // قاعدة الاختبار مشتركة مع Vitest — نظّفها لقاعدة أساس حتمية قبل بذرة الواجهة

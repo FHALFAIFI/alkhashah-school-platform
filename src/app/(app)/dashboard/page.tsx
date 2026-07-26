@@ -192,12 +192,6 @@ export default async function DashboardPage() {
           moreHref="/imports"
         />
         <WorkSection
-          title="تنبيهات نقص الشواهد"
-          items={work.evidenceGaps}
-          emptyText="لا نقص في شواهد البرامج المعتمدة"
-          moreHref="/plan"
-        />
-        <WorkSection
           title="قرارات اللجان المفتوحة"
           items={work.openDecisions}
           emptyText="لا قرارات مفتوحة"

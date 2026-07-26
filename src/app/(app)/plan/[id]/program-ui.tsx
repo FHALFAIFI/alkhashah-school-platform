@@ -3,19 +3,20 @@
 import { useActionState, useState, useTransition } from "react";
 import {
   approveProgramAction, reopenProgramAction, createChangeRequestAction, decideChangeRequestAction,
-  approvePackageAction,
+  approvePackageAction, updateProgramExecutionAction,
   type ActionState,
 } from "../actions";
-import { Field, SubmitButton, ProgressBar } from "@/components/ui";
+import { SubmitButton } from "@/components/ui";
+import { FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 
-export function ApproveProgramButton({ programId, disabled, totalWeight }: { programId: string; disabled: boolean; totalWeight: number }) {
+export function ApproveProgramButton({ programId }: { programId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   return (
     <div>
       {error && <div role="alert" className="mb-2 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
       <button
-        disabled={disabled || pending}
+        disabled={pending}
         onClick={() =>
           startTransition(async () => {
             const res = await approveProgramAction(programId);
@@ -26,8 +27,45 @@ export function ApproveProgramButton({ programId, disabled, totalWeight }: { pro
       >
         اعتماد وإقفال
       </button>
-      {disabled && <p className="mt-1 text-xs text-amber-600">مجموع الأوزان {totalWeight}٪ — اضبطه إلى 100٪ أولاً</p>}
     </div>
+  );
+}
+
+/** إدخال تقدم البرنامج وحالة تنفيذه مباشرةً — البرنامج نفسه وحدة التنفيذ (D-024) */
+export function ProgramExecutionForm({ programId, progress, executionStatus }: { programId: string; progress: number; executionStatus: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(updateProgramExecutionAction.bind(null, programId), null);
+  const currentStatus = (FOLLOWUP_STATUSES as readonly string[]).includes(executionStatus) ? executionStatus : "في المسار";
+  return (
+    <form action={formAction} className="flex flex-wrap items-end gap-3">
+      {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="w-full rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <div className="basis-40">
+        <label htmlFor={`prog-${programId}`} className="mb-1 block text-xs text-gray-500">نسبة الإنجاز (٪)</label>
+        <input
+          id={`prog-${programId}`}
+          name="progress"
+          type="number"
+          min={0}
+          max={100}
+          defaultValue={progress}
+          className="w-full min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+        />
+      </div>
+      <div className="basis-40">
+        <label htmlFor={`st-${programId}`} className="mb-1 block text-xs text-gray-500">حالة التنفيذ</label>
+        <select
+          id={`st-${programId}`}
+          name="executionStatus"
+          defaultValue={currentStatus}
+          className="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+        >
+          {FOLLOWUP_STATUSES.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+      </div>
+      <SubmitButton variant="secondary">حفظ التقدم والحالة</SubmitButton>
+    </form>
   );
 }
 

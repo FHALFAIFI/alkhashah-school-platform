@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   createEvidenceAction,
   linkEvidenceAction,
@@ -32,6 +33,7 @@ export function EvidencePanel({
   subKeyRequired?: boolean;
 }) {
   const subKeyName = new Map((subKeys ?? []).map((s) => [s.value, s.label]));
+  const router = useRouter();
   const [state, formAction] = useActionState<ActionState, FormData>(createEvidenceAction, null);
   const [kind, setKind] = useState("file");
   const [showForm, setShowForm] = useState(false);
@@ -44,6 +46,12 @@ export function EvidencePanel({
   const [candidates, setCandidates] = useState<EvidenceCandidate[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [librarySubKey, setLibrarySubKey] = useState("");
+
+  // بعد نجاح الحفظ: حدّث بيانات الخادم (العدّاد والقائمة والعبارة الفعلية) فوراً دون مغادرة الصفحة
+  // (revalidatePath وحده لا يضمن انعكاساً فورياً في كل الحالات — router.refresh يعيد جلب مكوّن الخادم).
+  useEffect(() => {
+    if (state?.success) router.refresh();
+  }, [state, router]);
 
   function runSearch(q: string) {
     startTransition(async () => {
@@ -69,6 +77,7 @@ export function EvidencePanel({
       else {
         setNotice({ kind: "ok", text: res?.success ?? "تم الربط" });
         runSearch(query);
+        router.refresh(); // تحديث العدّاد والقائمة بعد الربط
       }
     });
   }
@@ -83,7 +92,10 @@ export function EvidencePanel({
       fd.set("subKey", subKey ?? "");
       const res = await unlinkEvidenceAction(null, fd);
       if (res?.error) setNotice({ kind: "error", text: res.error });
-      else setNotice({ kind: "ok", text: res?.success ?? "فُك الربط" });
+      else {
+        setNotice({ kind: "ok", text: res?.success ?? "فُك الربط" });
+        router.refresh(); // تحديث العدّاد والقائمة بعد فك الربط
+      }
     });
   }
 

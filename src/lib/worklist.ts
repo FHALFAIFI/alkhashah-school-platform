@@ -21,7 +21,6 @@ import {
   rooms,
 } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth/session";
-import { computePackageReadiness } from "@/lib/plan/progress";
 import { todayIso } from "@/lib/dates";
 import { getExcludedIdSets, notSynthetic, type SyntheticIdSets } from "@/lib/synthetic";
 
@@ -48,7 +47,6 @@ export type WorkCenter = {
   overdueTasks: WorkItem[];
   awaitingReview: WorkItem[];
   awaitingApproval: WorkItem[];
-  evidenceGaps: WorkItem[];
   openDecisions: WorkItem[];
   upcomingPerformance: WorkItem[];
   maintenance: WorkItem[];
@@ -164,8 +162,8 @@ async function importItems(user: CurrentUser): Promise<{ review: WorkItem[]; app
   return { review, approve };
 }
 
-async function planItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ approve: WorkItem[]; gaps: WorkItem[] }> {
-  if (!user.permissions.has("plan.read")) return { approve: [], gaps: [] };
+async function planItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ approve: WorkItem[] }> {
+  if (!user.permissions.has("plan.read")) return { approve: [] };
   const approve: WorkItem[] = [];
 
   if (user.permissions.has("plan.approve")) {
@@ -191,82 +189,10 @@ async function planItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ appr
       });
     }
 
-    const readyPackages = await db
-      .select({
-        id: programDeliverables.id,
-        programId: programDeliverables.programId,
-        mainOutput: programDeliverables.mainOutput,
-        programName: programs.name,
-        seq: programs.seq,
-      })
-      .from(programDeliverables)
-      .innerJoin(programs, eq(programDeliverables.programId, programs.id))
-      .where(and(eq(programDeliverables.packageStatus, "جاهزة للاعتماد"), notSynthetic(programs.id, ex.programs)));
-    for (const d of readyPackages) {
-      approve.push({
-        title: `حزمة شواهد جاهزة — ${d.seq}. ${d.programName}`,
-        detail: d.mainOutput ?? undefined,
-        status: "جاهزة للاعتماد",
-        href: `/plan/${d.programId}#evidence`,
-        action: "اعتمد حزمة الشواهد",
-      });
-    }
+    // (اعتماد حزم الشواهد وتنبيهات «نقص الشواهد» أُزيلت — الشواهد معلوماتية فقط بلا هدف/حصة/نقص، D-025)
   }
 
-  // تنبيهات نقص الشواهد: البرامج المعتمدة التي تنقص حزمها أدوار شواهد إلزامية
-  const gaps: WorkItem[] = [];
-  if (user.permissions.has("evidence.read")) {
-    const approvedPrograms = await db
-      .select({ id: programs.id, name: programs.name, seq: programs.seq })
-      .from(programs)
-      .where(and(eq(programs.status, "معتمد"), notSynthetic(programs.id, ex.programs)));
-    if (approvedPrograms.length) {
-      const deliverables = await db
-        .select()
-        .from(programDeliverables)
-        .where(inArray(programDeliverables.programId, approvedPrograms.map((p) => p.id)));
-      const links = deliverables.length
-        ? await db
-            .select({ entityId: evidenceLinks.entityId, role: evidenceItems.role })
-            .from(evidenceLinks)
-            .innerJoin(evidenceItems, eq(evidenceLinks.evidenceId, evidenceItems.id))
-            .where(and(eq(evidenceLinks.entityType, "deliverable"), inArray(evidenceLinks.entityId, deliverables.map((d) => d.id))))
-        : [];
-      const rolesByDeliverable = new Map<string, string[]>();
-      for (const l of links) {
-        if (!l.role) continue;
-        const arr = rolesByDeliverable.get(l.entityId) ?? [];
-        arr.push(l.role);
-        rolesByDeliverable.set(l.entityId, arr);
-      }
-      const missingByProgram = new Map<string, Set<string>>();
-      for (const d of deliverables) {
-        if (d.packageStatus === "معتمدة") continue;
-        const { missing } = computePackageReadiness({
-          requiresExternal: d.requiresExternal,
-          evidenceRoles: rolesByDeliverable.get(d.id) ?? [],
-        });
-        if (missing.length) {
-          const set = missingByProgram.get(d.programId) ?? new Set<string>();
-          missing.forEach((m) => set.add(m));
-          missingByProgram.set(d.programId, set);
-        }
-      }
-      for (const p of approvedPrograms) {
-        const missing = missingByProgram.get(p.id);
-        if (missing?.size) {
-          gaps.push({
-            title: `${p.seq}. ${p.name}`,
-            detail: `شواهد ناقصة: ${[...missing].join("، ")}`,
-            href: `/plan/${p.id}#evidence`,
-            action: "أرفق الشواهد الناقصة",
-          });
-        }
-      }
-    }
-  }
-
-  return { approve, gaps };
+  return { approve };
 }
 
 async function committeeItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ review: WorkItem[]; approve: WorkItem[] }> {
@@ -530,7 +456,6 @@ export async function getWorkCenter(user: CurrentUser): Promise<WorkCenter> {
     overdueTasks: overdue,
     awaitingReview,
     awaitingApproval,
-    evidenceGaps: plan.gaps,
     openDecisions: decisions,
     upcomingPerformance: performance,
     maintenance,

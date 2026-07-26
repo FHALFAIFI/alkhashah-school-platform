@@ -2,6 +2,7 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { addMeetingTypeAction, toggleMeetingTypeActiveAction, deleteMeetingTypeAction, type ActionState } from "../actions";
+import { setMeetingTypeSignatureAction } from "../task-actions";
 import { Field, SubmitButton } from "@/components/ui";
 
 export function AddMeetingTypeForm() {
@@ -18,14 +19,24 @@ export function AddMeetingTypeForm() {
   );
 }
 
-export function MeetingTypeRow({ id, active, used }: { id: string; active: boolean; used: boolean }) {
+export function MeetingTypeRow({ id, active, used, requiresSignature }: { id: string; active: boolean; used: boolean; requiresSignature: boolean }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-emerald-100 text-emerald-800" : "bg-gray-200 text-gray-600"}`}>
         {active ? "مُفعَّل" : "مُعطَّل"}
       </span>
+      <span className={`rounded-full px-2 py-0.5 text-xs ${requiresSignature ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-500"}`}>
+        {requiresSignature ? "يتطلب توقيعاً" : "بلا توقيع إلزامي"}
+      </span>
+      <button
+        disabled={pending}
+        onClick={() => startTransition(async () => { setError(null); const r = await setMeetingTypeSignatureAction(id, !requiresSignature); if (r?.error) setError(r.error); })}
+        className="rounded-lg border border-sand-200 px-3 py-1 text-xs hover:bg-sand-100 disabled:opacity-50"
+      >
+        {requiresSignature ? "إلغاء اشتراط التوقيع" : "اشتراط التوقيع"}
+      </button>
       <button
         disabled={pending}
         onClick={() => startTransition(async () => { setError(null); const r = await toggleMeetingTypeActiveAction(id, !active); if (r?.error) setError(r.error); })}

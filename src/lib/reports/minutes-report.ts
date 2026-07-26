@@ -91,7 +91,7 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
     <div class="sig-block"><div class="sig-line">رئيس اللجنة${chair ? `<br>${esc(chair.name)}` : ""}</div></div>
     <div class="sig-block"><div class="sig-line">المقرر${secretary ? `<br>${esc(secretary.name)}` : ""}</div></div>
   </div>
-  <p class="meta">يوقع المحضر من الرئيس والمقرر فقط، ثم يرفع المحضر الموقع في النظام شرطاً لاكتمال الاجتماع.</p>
+  <p class="meta">عند اشتراط نوع الاجتماع للتوقيع، يوقّع المحضر من الرئيس والمقرر ثم يُرفع الأصل الموقّع — وإلا فالتوقيع غير مطلوب لاكتمال الاجتماع.</p>
   `;
 
   const title = `محضر اجتماع: ${committee.nameAr} — ${meeting.title ?? meeting.seq}`;

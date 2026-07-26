@@ -205,3 +205,115 @@ Supersedes the rollback note in the earlier scope-impact doc.
 - "Clean production" means production carrying its retained legitimate pilot data (54 people,
   26 programs, 129 milestones, …) — **not** an empty database. Never reset, reseed, delete, or
   replace that data.
+
+## D-024 — Activities & closure-readiness removed from the app layer (2026-07-25) — SUPERSEDES D-020
+Principal feedback (Scope v2.1) reverses the activities-canonical model. The operational program is
+now the execution and follow-up unit; the intermediate «الأنشطة» level and «جاهزية الإقفال»
+(closure readiness) are **removed from the user-facing software**.
+- Removed at the app layer: the activities list inside programs; add/edit/reorder/weight/complete
+  activity workflows; activity-weight calculations and weighting mode; readiness percentage +
+  missing-requirements checklist; activity-based completion blocking and the principal-only
+  override workflow (`plan.override`); activity/readiness sections in program reports, dashboards,
+  imports, and `/pilot`. Plan imports **stop creating** `program_activities`.
+- **Program status/progress is maintained directly on the program** (`programs.progress`,
+  `programs.executionStatus` — existing columns; `progress` was previously overwritten by
+  `recomputeProgramProgress()` from activities and becomes directly editable). **Not** recreated
+  under another name.
+- **Data preserved, unchanged.** The 129 migrated `program_activities` (and `activity_deliverables`,
+  `activity_evidence_requirements`, `activity_state_history`) and the 129 legacy
+  `program_milestones` are **not deleted, rewritten, or destructively transformed**. They are
+  deprecated at the application layer only — no write path, no read into current progress/reports/
+  alerts/follow-up — and retained for audit, traceability, and rollback. Program completion/override
+  columns are retained (nullable, additive) and unused going forward. **No destructive migration is
+  authorized.**
+- D-020's canonical-activity rule is superseded at the product-workflow level; the physical
+  read-only-rollback status of `program_milestones` from D-020 still holds and is extended to
+  `program_activities`.
+
+## D-025 — Program evidence is informational, never a target/quota/blocker (2026-07-25)
+Evidence has **no predetermined required quantity**. A program may legitimately have zero, one, or
+many evidence records.
+- **Removed:** every target/limit/quota/percentage/"remaining evidence" count; "N of M uploaded";
+  "X remaining"; evidence-readiness percentage; missing evidence as a completion blocker; any
+  mandatory evidence count by program or evidence type. Concretely retires `computePackageReadiness`
+  (deliverable "package readiness" %), the `checkRequiredEvidence` count-vs-`minCount` check, the
+  worklist `evidenceGaps` + dashboard «تنبيهات نقص الشواهد», and the AI required/missing-evidence
+  framing. `activity_evidence_requirements.minCount/required` columns are retained but carry no quota
+  semantics.
+- **Weekly follow-up reports the actual current condition** and nothing more: `0 → «لم يتم رفع أي
+  شاهد حتى الآن»`, `1 → «تم رفع شاهد واحد»`, `2 → «تم رفع شاهدان»`, `3–10 → «تم رفع N شواهد»`,
+  `≥11 → «تم رفع N شاهداً»` (correct Arabic count wording), with the latest evidence upload date and
+  a link to open the program's evidence.
+- Evidence count is informational and **must not** determine whether a program can be completed.
+- **Scope boundary:** this concerns operational-plan *program* evidence. The performance module's
+  per-indicator "required evidence" completion gate is a separate ministry-aligned control and is
+  **left unchanged** pending an explicit separate instruction (see `docs/SCOPE_IMPACT_V2_1.md` §12).
+
+## D-026 — Budget wording «البند» + optional receipt upload (2026-07-25)
+- Income field label «الغرض/التخصيص» → **«البند»**; expense field label «المستلزمات/البنود» →
+  **«البند»**. Applied consistently across forms, tables, filters, validation text, reports, exports,
+  and empty states. The expense «البند» value is now shown in the table (previously collected but
+  hidden).
+- Every income and expense record gets a **receipt upload** capability: direct file upload **and**
+  linking an existing shared evidence/file record (reusing the shared evidence pipeline —
+  `createEvidenceAction` / `linkEvidenceAction` / `EvidencePanel` / `/api/files` /
+  `replaceEvidenceContentAction`). Receipts show on record details + relevant reports; download/open
+  + safe replacement with version history.
+- The receipt is **not mandatory by default** (only if separately configured). No duplicate upload
+  when the same document already exists in shared evidence. The prior red «ناقص» / «مصروفات بلا
+  إيصال» framing becomes neutral/informational, not a deficiency or blocker.
+
+## D-027 — Committee signatures per document type + predefined task templates (2026-07-25)
+- **Signatures are not globally mandatory.** The de-facto global rule (the hard gate in
+  `completeMeetingAction` requiring a signed minutes file for *every* meeting, plus the
+  close-committee gate and hardcoded report text) is made **document-type-dependent** via an additive
+  `requiresSignature` attribute (default false); most documents (minutes, results, impact, general
+  reports) no longer force a signature unless their type is configured to require it.
+- The committee **assignment / task-distribution table** carries a signature column and columns
+  المهمة / العضو المكلف / الصفة-الدور / توقيع العضو / ملاحظات, shown in the printable form.
+- **Predefined tasks per committee/council/learning-community type:** select type → load predefined
+  standard tasks → review → add/edit/exclude/reorder → assign to members → generate the distribution
+  table with signature fields → preserve the issued document as a historical snapshot. Templates are
+  centrally manageable and reusable; editing a template later does **not** rewrite previously issued
+  assignments/reports (enforced by the existing `issueDocument` + `htmlSnapshot` freeze). Committee
+  tasks are valid and remain — **separate** from the removed operational-plan activities (D-024).
+
+## D-028 — KPI planning session «جلسة التخطيط» excluded from evaluation calculations (2026-07-25)
+The first session («جلسة التخطيط», `session_type = "تخطيط"`) is planning only and must never be
+treated as an evaluation score.
+- It stays **mandatory and visible**, keeping its targets, planning info, comments, evidence, and
+  signed-report workflow.
+- Its scores/zero values are **excluded** from all KPI averages, trends, performance percentages,
+  summaries, rankings, dashboards, and final results. The exclusion lives at the single cross-session
+  rollup (`cycleProgress`, `src/lib/performance/scoring.ts`). Per-session `sessionResult` is preserved.
+- Planning zeros are never interpreted as poor performance. If only the planning session exists, the
+  UI shows «لم يبدأ التقييم بعد» / «لا توجد نتائج تقييمية حتى الآن», not 0%. Mid-cycle and final
+  calculations remain valid after excluding planning (final already uses only the `"نهائي"` session).
+- Proven by a test: changing a planning session's score values cannot change any calculated KPI result.
+
+## D-029 — Cross-application `insertBefore` DOM crash: class-level fix + probable root cause (2026-07-25, updated 2026-07-26)
+**Probable (leading) root cause** of `Failed to execute 'insertBefore' on 'Node'` reported across many
+buttons, forms, and uploads: React reconciling over a DOM mutated **outside React**, primarily by
+**browser auto-translation** of the 100%-Arabic app (no `translate="no"` guard) interacting with the
+pervasive `text {cond && <el/>}` JSX idiom; secondarily by password-manager/form-filler injection into
+unguarded inputs; amplified by an unguarded `islamic-umalqura` `new Date()` hydration in the app shell.
+**Status: PROBABLE, not yet conclusively proven.** The class-level fix is applied and the app is stable
+in automated real-browser tests, but the root cause is labeled **probable** until verified under the
+principal's actual conditions (clean Chrome/Edge no-extensions; translation on / DOM-mutation simulation;
+the principal's normal profile + password manager; repeated clicks / dialog cancel / upload / save /
+navigation while pending). The principal's browser retest is the acceptance gate and may remain
+post-deployment. Secure client-side diagnostics (`src/components/error-diagnostics.tsx`) classify any
+occurrence into browser-translation / password-manager-injection / hydration-mismatch / dialog-portal /
+duplicate-submission and log it technically (never shown to the user), so a real occurrence is captured
+with evidence to confirm or refine the root cause.
+- Fixed at the **class level, not per page**: add `translate="no"` + `<meta name="google"
+  content="notranslate">` to the root document, `global-error.tsx`, and PDF/print HTML; harden shared
+  primitives (`SubmitButton`, `Field`/`Select`/`TextArea`, `Labeled`) so bare text is never a direct
+  sibling of a conditional, and add `autoComplete`/`data-1p-ignore`/`data-lpignore` on inputs; stabilize
+  the shell Hijri-date hydration.
+- Duplicate submission is prevented (shared `SubmitButton` disables on `pending`); pending/success/error
+  states are stable; the raw English DOM exception is never shown — a clear Arabic recovery message is
+  displayed while the technical error is logged securely. Real-browser regression tests cover
+  representative buttons, dialogs, saves, uploads, cancellations, and repeated clicks (desktop + mobile
+  RTL). Ruled out (with evidence): service worker/PwaManager, portals/toasts (none exist), and
+  three.js/off-DOM manual mutations.

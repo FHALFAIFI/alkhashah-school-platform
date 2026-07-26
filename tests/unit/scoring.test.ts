@@ -64,3 +64,62 @@ describe("معادلة الدرجات الرسمية (A4)", () => {
     ).toEqual(["a"]);
   });
 });
+
+describe("استثناء جلسة التخطيط من حساب مؤشرات الأداء (D-028)", () => {
+  const finalSession = {
+    sessionType: "نهائي",
+    sessionDate: "2026-12-01",
+    createdAt: new Date("2026-12-01"),
+    ratings: [
+      { indicatorId: "a", weight: 60, rating: 4 },
+      { indicatorId: "b", weight: 40, rating: 5 },
+    ],
+  };
+
+  it("تغيير تقديرات جلسة «التخطيط» عبر المدى 1..5 لا يغيّر أي نتيجة محسوبة للدورة", () => {
+    const baseline = cycleProgress([finalSession]);
+    for (let r = 1; r <= 5; r++) {
+      const withPlanning = cycleProgress([
+        {
+          sessionType: "تخطيط",
+          sessionDate: "2026-09-01",
+          createdAt: new Date("2026-09-01"),
+          ratings: [
+            { indicatorId: "a", weight: 60, rating: r },
+            { indicatorId: "b", weight: 40, rating: r },
+          ],
+        },
+        finalSession,
+      ]);
+      expect(withPlanning.result).toBe(baseline.result);
+      expect(withPlanning.coverage).toBe(baseline.coverage);
+      expect(withPlanning.entries).toEqual(baseline.entries);
+      expect(withPlanning.evaluated).toBe(true);
+    }
+  });
+
+  it("دورة بجلسة تخطيط فقط: evaluated=false ولا تنتج نتيجة تقييمية (تُعرض «لم يبدأ التقييم بعد»)", () => {
+    const onlyPlanning = cycleProgress([
+      {
+        sessionType: "تخطيط",
+        sessionDate: "2026-09-01",
+        createdAt: new Date("2026-09-01"),
+        ratings: [
+          { indicatorId: "a", weight: 60, rating: 5 },
+          { indicatorId: "b", weight: 40, rating: 1 },
+        ],
+      },
+    ]);
+    expect(onlyPlanning.evaluated).toBe(false);
+    expect(onlyPlanning.entries).toHaveLength(0);
+    expect(onlyPlanning.result).toBe(0);
+  });
+
+  it("جلسة بلا نوع محدد تُعامل كجلسة تقييمية (توافق خلفي)", () => {
+    const p = cycleProgress([
+      { sessionDate: "2026-12-01", createdAt: new Date("2026-12-01"), ratings: [{ indicatorId: "a", weight: 100, rating: 3 }] },
+    ]);
+    expect(p.evaluated).toBe(true);
+    expect(p.result).toBe(60);
+  });
+});

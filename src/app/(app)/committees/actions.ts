@@ -171,17 +171,23 @@ export async function generateAssignmentFormAction(committeeId: string): Promise
   if (c.status === "مسودة") return { error: "اعتمد التشكيل أولاً قبل توليد نموذج التكليف" };
 
   const { generateAssignmentForm } = await import("@/lib/reports/assignment-form");
-  const result = await generateAssignmentForm({ committeeId, issuedBy: user.id });
+  let result;
+  try {
+    result = await generateAssignmentForm({ committeeId, issuedBy: user.id });
+  } catch (e) {
+    // مثل «لا مهام موزّعة» — رسالة عربية واضحة بدل خطأ تقني
+    return { error: e instanceof Error ? e.message : "تعذّر توليد جدول توزيع المهام" };
+  }
   await db.update(committees).set({ assignmentDocId: result.docId }).where(eq(committees.id, committeeId));
   await audit({
     actorId: user.id,
     action: "committee.assignment_form_generated",
     entityType: "committee",
     entityId: committeeId,
-    summary: `توليد نموذج تكليف ${result.docNumber}`,
+    summary: `توليد جدول توزيع مهام ${result.docNumber}`,
   });
   revalidatePath(`/committees/${committeeId}`);
-  return { success: `صدر نموذج التكليف ${result.docNumber} — اطبعه ووقّعه ثم ارفع الأصل الموقّع` };
+  return { success: `صدر جدول توزيع المهام ${result.docNumber} — يتضمن عمود «توقيع العضو» للطباعة والتوقيع` };
 }
 
 /** رفع نموذج التكليف الموقّع. */
@@ -401,14 +407,20 @@ export async function uploadSignedMinutesAction(meetingId: string, _prev: Action
   return { success: "رفع المحضر الموقع" };
 }
 
-/** اكتمال الاجتماع — يستحيل دون محضر موقع (A5) واعتماد المدير */
+/** اكتمال الاجتماع — التوقيع يُشترط فقط إن كان نوع الاجتماع مُهيّأً لذلك (D-027) */
 export async function completeMeetingAction(meetingId: string): Promise<ActionState> {
   const user = await requirePermission("committees.approve");
   const [m] = await db.select().from(meetings).where(eq(meetings.id, meetingId));
   if (!m) return { error: "الاجتماع غير موجود" };
   if (m.status === "مكتمل") return { error: "الاجتماع مكتمل مسبقاً" };
-  if (!m.signedMinutesFileId) {
-    return { error: "لا يكتمل الاجتماع دون رفع المحضر الموقع من الرئيس والمقرر" };
+  // لا قاعدة عامة تفرض التوقيع؛ يُشترط المحضر الموقّع فقط إذا كان نوع الاجتماع يتطلبه صراحةً
+  let requiresSignature = false;
+  if (m.typeId) {
+    const [mt] = await db.select({ req: meetingTypes.requiresSignature }).from(meetingTypes).where(eq(meetingTypes.id, m.typeId));
+    requiresSignature = mt?.req ?? false;
+  }
+  if (requiresSignature && !m.signedMinutesFileId) {
+    return { error: "نوع هذا الاجتماع مُهيّأ ليتطلب محضراً موقعاً — ارفع المحضر الموقع قبل الاكتمال" };
   }
   await snapshotRecord({ entityType: "meeting", entityId: meetingId, action: "approved", snapshot: { meeting: m }, actorId: user.id });
   await db

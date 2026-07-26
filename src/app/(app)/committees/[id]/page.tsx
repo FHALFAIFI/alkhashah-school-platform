@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import { asc, eq, inArray } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, people, planYears, meetingTypes, meetingOutcomes, actionTasks, committeeImpacts } from "@/db/schema";
+import { committees, committeeMembers, committeeTaskAssignments, meetings, people, planYears, meetingTypes, meetingOutcomes, actionTasks, committeeImpacts } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
 import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton, ImpactForm, DeleteImpactButton, AssignmentFormCard } from "./committee-ui";
+import { TaskDistribution } from "./task-distribution-ui";
 import { documents } from "@/db/schema";
 import { committeeStatusLabel } from "@/lib/plan/status-labels";
 import { getExcludedIdSets, filterOutSynthetic } from "@/lib/synthetic";
@@ -46,6 +47,27 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
     const [doc] = await db.select({ pdf: documents.pdfFileId }).from(documents).where(eq(documents.id, c.assignmentDocId));
     assignmentPdfFileId = doc?.pdf ?? null;
   }
+
+  // توزيع مهام اللجنة (D-027)
+  const taskAssignments = c.status !== "مسودة"
+    ? await db.select().from(committeeTaskAssignments).where(eq(committeeTaskAssignments.committeeId, id)).orderBy(asc(committeeTaskAssignments.sortOrder))
+    : [];
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  const taskList = taskAssignments.map((t) => {
+    const mem = t.assignedMemberId ? memberById.get(t.assignedMemberId) : undefined;
+    return {
+      id: t.id,
+      title: t.title,
+      notes: t.notes,
+      excluded: t.excluded,
+      assignedMemberId: t.assignedMemberId,
+      memberName: mem ? personName.get(mem.personId) ?? null : null,
+      memberRole: mem?.role ?? null,
+    };
+  });
+  const activeMembers = members
+    .filter((m) => !m.effectiveTo)
+    .map((m) => ({ id: m.id, name: personName.get(m.personId) ?? "—", role: m.role }));
 
   // مؤشر المرحلة: التشكيل → الاعتماد → الاجتماعات → الإقفال
   const formationComplete =
@@ -97,10 +119,28 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
 
       {c.status !== "مسودة" && (
         <Card>
-          <h2 className="mb-2 font-bold text-brand-900">نموذج التكليف</h2>
+          <h2 className="mb-2 font-bold text-brand-900">توزيع المهام</h2>
           <p className="mb-3 text-xs text-gray-500">
-            نموذج تكليف واحد على مستوى اللجنة يُطبع ويُوقّع ثم يُرفع الأصل الموقّع — عضوية اللجنة تُعاد استخدامها في
-            الاجتماعات والمحاضر والنتائج والتقارير دون إعادة إدخال.
+            حمّل المهام المعرّفة مسبقاً لنوع اللجنة (قيمٌ ابتدائية قابلة للتعديل، ليست معتمدة رسمياً)، راجعها
+            وعدّلها واستبعد ما لا يلزم ورتّبها وأسندها للأعضاء، ثم ولّد جدول التوزيع بعمود «توقيع العضو».
+            مهام اللجان قائمة ومنفصلة تماماً عن أنشطة البرامج التشغيلية.
+          </p>
+          <TaskDistribution
+            committeeId={id}
+            tasks={taskList}
+            members={activeMembers}
+            hasTemplate={!!c.templateId}
+            canWrite={canWrite}
+          />
+        </Card>
+      )}
+
+      {c.status !== "مسودة" && (
+        <Card>
+          <h2 className="mb-2 font-bold text-brand-900">جدول توزيع المهام (للطباعة والتوقيع)</h2>
+          <p className="mb-3 text-xs text-gray-500">
+            يُولَّد جدول توزيع المهام كوثيقة رسمية بعمود «توقيع العضو» ويُحفظ كلقطة تاريخية ثابتة — لا يتغيّر
+            بتعديل القوالب لاحقاً. رفع الأصل الموقّع اختياري.
           </p>
           <AssignmentFormCard
             committeeId={id}

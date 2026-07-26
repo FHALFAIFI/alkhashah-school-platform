@@ -13,17 +13,17 @@ import {
 } from "@/db/schema";
 import { summarize, programBudgetLines, type BudgetSummary, type ProgramBudgetLine } from "./calc";
 
-/** أي المصروفات لديها شاهد/إيصال غير مؤرشف مرتبط. */
-async function expenseReceiptFlags(expenseIds: string[]): Promise<Set<string>> {
-  if (expenseIds.length === 0) return new Set();
+/** أي السجلات (مصروف/إيراد) لديها إيصال/شاهد غير مؤرشف مرتبط — معلوماتي فقط، غير إلزامي (D-026). */
+async function receiptFlags(entityType: "budget_expense" | "budget_income", ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
   const rows = await db
     .select({ entityId: evidenceLinks.entityId })
     .from(evidenceLinks)
     .innerJoin(evidenceItems, eq(evidenceLinks.evidenceId, evidenceItems.id))
     .where(
       and(
-        eq(evidenceLinks.entityType, "budget_expense"),
-        inArray(evidenceLinks.entityId, expenseIds),
+        eq(evidenceLinks.entityType, entityType),
+        inArray(evidenceLinks.entityId, ids),
         isNull(evidenceItems.archivedAt),
       ),
     );
@@ -32,7 +32,7 @@ async function expenseReceiptFlags(expenseIds: string[]): Promise<Set<string>> {
 
 export type BudgetOverview = {
   summary: BudgetSummary;
-  income: (typeof budgetIncome.$inferSelect)[];
+  income: ((typeof budgetIncome.$inferSelect) & { hasReceipt: boolean })[];
   expenses: ((typeof budgetExpenses.$inferSelect) & { hasReceipt: boolean; programName: string | null; responsibleName: string | null })[];
   programLines: (ProgramBudgetLine & { programName: string })[];
 };
@@ -44,7 +44,11 @@ export async function getBudgetOverview(planYearId: string): Promise<BudgetOverv
     db.select().from(planBudgetItems).where(eq(planBudgetItems.planYearId, planYearId)),
   ]);
 
-  const receipts = await expenseReceiptFlags(expenses.map((e) => e.id));
+  const [receipts, incomeReceipts] = await Promise.all([
+    receiptFlags("budget_expense", expenses.map((e) => e.id)),
+    receiptFlags("budget_income", income.map((i) => i.id)),
+  ]);
+  const incomeRows = income.map((i) => ({ ...i, hasReceipt: incomeReceipts.has(i.id) }));
 
   // أسماء البرامج والمسؤولين لعرض المصروفات
   const programIds = [...new Set(expenses.map((e) => e.programId).filter((x): x is string => !!x))];
@@ -88,5 +92,5 @@ export async function getBudgetOverview(planYearId: string): Promise<BudgetOverv
     return { ...line, spent, programName: progName.get(pid) ?? "برنامج" };
   });
 
-  return { summary, income, expenses: expenseRows, programLines };
+  return { summary, income: incomeRows, expenses: expenseRows, programLines };
 }

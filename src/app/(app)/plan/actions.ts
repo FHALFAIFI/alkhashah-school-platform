@@ -1,40 +1,57 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
-  programs, programActivities, programChangeRequests, programDeliverables, planYears, programFollowups,
+  programs, programChangeRequests, programDeliverables, planYears, programFollowups,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
-import { assessDeletion } from "@/lib/safe-delete";
 import { snapshotRecord } from "@/lib/versioning";
-import { recomputeProgramProgress } from "@/lib/plan/program-service";
-import { validateWeights, type WeightingMode } from "@/lib/plan/activity-progress";
 import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
 import { notifyAll, notifyUser } from "@/lib/notify";
 
 export type ActionState = { error?: string; success?: string } | null;
 
 /**
- * تقدم البرنامج يُحسب من الأنشطة حصراً (D-020). المعالم القديمة مصدر تراجع للقراءة فقط
- * ولا تُسهم في أي حساب — فلا احتساب مزدوج ولا وحدة تقدم موازية.
+ * البرنامج هو وحدة التنفيذ والمتابعة (D-024). التقدم والحالة يُدخلان مباشرةً على البرنامج
+ * (`updateProgramExecutionAction` أدناه، والمتابعة الأسبوعية) ولا يُشتقّان من الأنشطة.
+ * جداول `program_activities` و`program_milestones` محفوظة فيزيائياً **للقراءة والتدقيق فقط**
+ * ولا يوجد في التطبيق أي مسار كتابة إليها، فلا وحدة تقدم موازية ولا احتساب مزدوج.
  */
-async function recomputeProgress(programId: string) {
-  await recomputeProgramProgress(programId);
-}
 
-/**
- * إجراءات المعالم أُزيلت عمداً (D-020).
- *
- * الأنشطة (`program_activities`) هي وحدة التنفيذ والوزن الوحيدة، وإجراءاتها في
- * `activity-actions.ts`. جدول `program_milestones` يبقى فيزيائياً **للقراءة فقط**
- * كمصدر تراجع ومطابقة، فلا يوجد في التطبيق أي مسار كتابة إليه — وبذلك لا تبقى
- * وحدة تقدم ثانية قابلة للتحرير أو للتقرير. إزالته الفعلية تتم بهجرة تنظيف
- * منفصلة معتمدة بعد التحقق في الإنتاج وقبول المدير.
- */
+/** تحديث تقدم البرنامج وحالة تنفيذه مباشرةً — يُحفظ على سجل البرنامج نفسه */
+const executionSchema = z.object({
+  progress: z.coerce.number().int().min(0, "النسبة بين 0 و100").max(100, "النسبة بين 0 و100"),
+  executionStatus: z.enum(FOLLOWUP_STATUSES, { message: "حالة التنفيذ غير صحيحة" }),
+});
+
+export async function updateProgramExecutionAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.write");
+  const parsed = executionSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (program.status === "مقفل") return { error: "السنة مقفلة — لا تعديل على التقدم" };
+
+  await db
+    .update(programs)
+    .set({ progress: parsed.data.progress, executionStatus: parsed.data.executionStatus, updatedAt: new Date() })
+    .where(eq(programs.id, programId));
+  await audit({
+    actorId: user.id,
+    action: "program.progress_updated",
+    entityType: "program",
+    entityId: programId,
+    summary: `تحديث تقدم «${program.name}» إلى ${parsed.data.progress}٪ — ${parsed.data.executionStatus}`,
+  });
+  revalidatePath(`/plan/${programId}`);
+  revalidatePath("/plan");
+  revalidatePath("/plan/followup");
+  return { success: "حُدّث تقدم البرنامج وحالته" };
+}
 
 /** اعتماد وإقفال حزمة البرنامج كاملة — المدير يعتمد الحزمة وليس كل مرفق على حدة */
 export async function approveProgramAction(programId: string): Promise<ActionState> {
@@ -43,21 +60,11 @@ export async function approveProgramAction(programId: string): Promise<ActionSta
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.status !== "مسودة") return { error: "البرنامج معتمد مسبقاً" };
 
-  // بوابة الاعتماد تتحقق من أوزان الأنشطة — لا المعالم القديمة (D-020)
-  const acts = await db
-    .select()
-    .from(programActivities)
-    .where(and(eq(programActivities.programId, programId), isNull(programActivities.archivedAt)));
-  const weights = validateWeights(acts, program.weightingMode as WeightingMode);
-  if (!weights.valid) {
-    return { error: `أوزان الأنشطة غير صالحة قبل الاعتماد: ${weights.problemsAr.join("، ")}` };
-  }
-
   await snapshotRecord({
     entityType: "program",
     entityId: programId,
     action: "approved",
-    snapshot: { program, activities: acts },
+    snapshot: { program },
     actorId: user.id,
   });
   await db
@@ -77,12 +84,11 @@ export async function reopenProgramAction(programId: string, formData: FormData)
   if (reason.length < 5) return { error: "سبب إعادة الفتح إلزامي (5 أحرف على الأقل)" };
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program || program.status === "مسودة") return { error: "البرنامج غير معتمد" };
-  const acts = await db.select().from(programActivities).where(eq(programActivities.programId, programId));
   await snapshotRecord({
     entityType: "program",
     entityId: programId,
     action: "reopened",
-    snapshot: { program, activities: acts },
+    snapshot: { program },
     reason,
     actorId: user.id,
   });
@@ -184,10 +190,12 @@ export async function decideChangeRequestAction(requestId: string, decision: "م
   return null;
 }
 
-/** المتابعة الأسبوعية لبرنامج معتمد — سجل واحد لكل أسبوع ISO (إعادة الإرسال تحدث سجل الأسبوع نفسه) */
+/** المتابعة الأسبوعية لبرنامج معتمد — سجل واحد لكل أسبوع ISO (إعادة الإرسال تحدث سجل الأسبوع نفسه).
+ *  التقدم يُدخل مباشرةً هنا (D-024) — لا يُشتقّ من الأنشطة. */
 const followupSchema = z.object({
   note: z.string().trim().min(2, "نص المتابعة مطلوب"),
   executionStatus: z.enum(FOLLOWUP_STATUSES, { message: "حالة التنفيذ غير صحيحة" }),
+  progress: z.coerce.number().int().min(0, "النسبة بين 0 و100").max(100, "النسبة بين 0 و100").optional(),
 });
 
 export async function submitFollowupAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -198,6 +206,8 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.status !== "معتمد") return { error: "المتابعة الأسبوعية للبرامج المعتمدة فقط" };
 
+  // التقدم المُدخل مباشرةً إن وُجد، وإلا يبقى تقدم البرنامج كما هو
+  const progress = parsed.data.progress ?? program.progress;
   const now = new Date();
   const weekKey = isoWeekKey(now);
   await db
@@ -207,7 +217,7 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
       weekKey,
       note: parsed.data.note,
       executionStatus: parsed.data.executionStatus,
-      progressSnapshot: program.progress,
+      progressSnapshot: progress,
       createdBy: user.id,
     })
     .onConflictDoUpdate({
@@ -215,21 +225,21 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
       set: {
         note: parsed.data.note,
         executionStatus: parsed.data.executionStatus,
-        progressSnapshot: program.progress,
+        progressSnapshot: progress,
         createdBy: user.id,
         createdAt: now,
       },
     });
   await db
     .update(programs)
-    .set({ lastReviewAt: now, executionStatus: parsed.data.executionStatus, updatedAt: now })
+    .set({ progress, lastReviewAt: now, executionStatus: parsed.data.executionStatus, updatedAt: now })
     .where(eq(programs.id, programId));
   await audit({
     actorId: user.id,
     action: "program.followup_recorded",
     entityType: "program",
     entityId: programId,
-    summary: `متابعة أسبوعية ${weekKey} لبرنامج «${program.name}» — ${parsed.data.executionStatus}`,
+    summary: `متابعة أسبوعية ${weekKey} لبرنامج «${program.name}» — ${parsed.data.executionStatus} (${progress}٪)`,
   });
   revalidatePath("/plan/followup");
   revalidatePath(`/plan/${programId}`);
@@ -237,7 +247,7 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
   return { success: "سجلت المتابعة الأسبوعية" };
 }
 
-/** اعتماد حزمة مخرجات البرنامج */
+/** اعتماد حزمة مخرجات البرنامج (اختياري — المخرجات معلوماتية، بلا بوابة جاهزية شواهد؛ D-025) */
 export async function approvePackageAction(deliverableId: string): Promise<ActionState> {
   const user = await requirePermission("plan.approve");
   const [d] = await db.select().from(programDeliverables).where(eq(programDeliverables.id, deliverableId));

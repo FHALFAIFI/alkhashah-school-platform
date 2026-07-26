@@ -14,7 +14,7 @@ export default function GlobalError({
 }) {
   const isChunk = /ChunkLoadError|Loading chunk|dynamically imported module/i.test(error?.message ?? "");
   return (
-    <html lang="ar" dir="rtl">
+    <html lang="ar" dir="rtl" translate="no">
       <body style={{ fontFamily: "system-ui, sans-serif", background: "#faf9f7", margin: 0 }}>
         <div
           style={{

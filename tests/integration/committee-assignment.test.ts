@@ -97,14 +97,18 @@ describe("عضوية اللجان المؤرّخة (§5)", () => {
     expect(res?.error).toBeUndefined();
   });
 
-  it("توليد نموذج التكليف يُصدر وثيقة ويربطها باللجنة", async () => {
+  it("توليد جدول توزيع المهام يُصدر وثيقة بعمود «توقيع العضو» ويربطها باللجنة (D-027)", async () => {
     const { db } = await import("@/db");
-    const { committees, documents } = await import("@/db/schema");
+    const { documents, committeeTaskAssignments, users } = await import("@/db/schema");
     const { eq } = await import("drizzle-orm");
     const { generateAssignmentForm } = await import("@/lib/reports/assignment-form");
-    const { users } = await import("@/db/schema");
 
-    const { cmt } = await seedApprovedCommittee();
+    const { cmt, chairMember } = await seedApprovedCommittee();
+    // مهام موزّعة: واحدة مسندة للرئيس وأخرى بلا إسناد
+    await db.insert(committeeTaskAssignments).values([
+      { committeeId: cmt.id, title: "متابعة الحضور", assignedMemberId: chairMember.id, sortOrder: 0 },
+      { committeeId: cmt.id, title: "إعداد التقارير", sortOrder: 1 },
+    ]);
     const [u] = await db.insert(users).values({ username: "issuer2", passwordHash: "x", displayName: "مُصدِر" }).returning();
     const result = await generateAssignmentForm({ committeeId: cmt.id, issuedBy: u.id });
 
@@ -112,9 +116,11 @@ describe("عضوية اللجان المؤرّخة (§5)", () => {
     expect(doc.docType).toBe("committee_assignment");
     expect(doc.entityType).toBe("committee");
     expect(doc.entityId).toBe(cmt.id);
-    // اللقطة تلتقط أسماء الأعضاء الفاعلين وترويسة الهوية
-    expect(doc.htmlSnapshot).toContain("الرئيس");
-    expect(doc.htmlSnapshot).toContain("المقرر");
+    // اللقطة جدول مهام بأعمدة المهمة/العضو المكلف/الصفة-الدور/توقيع العضو/ملاحظات
+    expect(doc.htmlSnapshot).toContain("المهمة");
+    expect(doc.htmlSnapshot).toContain("توقيع العضو");
+    expect(doc.htmlSnapshot).toContain("متابعة الحضور");
+    expect(doc.htmlSnapshot).toContain("الرئيس"); // اسم العضو المكلف
     expect(doc.htmlSnapshot).toContain("مجمع الخشعة التعليمي للبنين");
   }, 30000);
 });

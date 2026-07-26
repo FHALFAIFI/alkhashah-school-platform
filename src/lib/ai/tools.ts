@@ -10,12 +10,11 @@ import { db } from "@/db";
 import {
   people, programs, committees, meetings, actionTasks, evidenceItems, evidenceLinks,
   rooms, assets, inspections, maintenanceIssues, documents, perfCycles, perfSessions,
-  aiDrafts, programMilestones, programDeliverables, programChangeRequests,
+  aiDrafts, programDeliverables, programChangeRequests,
   committeeMembers, meetingOutcomes, readinessOverrides, meetingTypes, meetingAttachments,
 } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth/session";
 import { createDraftEmail, m365Enabled } from "@/lib/email/m365";
-import { computePackageReadiness } from "@/lib/plan/progress";
 import { computeRoomReadiness } from "@/lib/building/readiness";
 import { readStoredFile } from "@/lib/storage";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
@@ -255,7 +254,7 @@ const overdueTasks: ReadTool = {
 
 const missingEvidence: ReadTool = {
   name: "missing_evidence",
-  descriptionAr: "البرامج المعتمدة التي تتطلب شواهد حسب الخطة ولا شاهد مرتبطاً بها بعد.",
+  descriptionAr: "البرامج المعتمدة التي لم يُرفع لها أي شاهد بعد — معلوماتي فقط، بلا متطلب أو حصة أو نقص (D-025).",
   permission: "evidence.read",
   readOnly: true,
   args: z.object({}),
@@ -270,11 +269,11 @@ const missingEvidence: ReadTool = {
     const r = await db
       .select()
       .from(programs)
-      .where(and(eq(programs.status, "معتمد"), sql`${programs.evidenceText} is not null and ${programs.evidenceText} <> ''`, notInArray(programs.id, linked), notSynthetic(programs.id, ex.programs)))
+      .where(and(eq(programs.status, "معتمد"), notInArray(programs.id, linked), notSynthetic(programs.id, ex.programs)))
       .limit(25);
     return {
-      summary: `برامج معتمدة بلا أي شاهد مرتبط: ${r.length}`,
-      rows: r.map((p) => ({ title: p.name, detail: `الشواهد المطلوبة: ${p.evidenceText?.slice(0, 120) ?? ""}`, href: `/plan/${p.id}` })),
+      summary: `برامج معتمدة لم يُرفع لها أي شاهد بعد: ${r.length}`,
+      rows: r.map((p) => ({ title: p.name, detail: "لم يُرفع أي شاهد بعد", href: `/plan/${p.id}#evidence` })),
     };
   },
 };
@@ -410,7 +409,7 @@ const programBriefArgs = z.object({ programId: z.string().uuid().optional() });
 const programBrief: ReadTool = {
   name: "program_brief",
   descriptionAr:
-    "ملخص حالة برنامج واحد من الخطة التشغيلية: الحالة والتقدم والمعالم الموزونة وطلبات التغيير المفتوحة وجاهزية حزم الشواهد مع الأدوار الناقصة. programId اختياري — يملأ تلقائياً من سياق الصفحة عند فتح المساعد من صفحة برنامج.",
+    "ملخص حالة برنامج واحد من الخطة التشغيلية: الحالة والتقدم المباشر وحالة التنفيذ وطلبات التغيير المفتوحة والمخرجات وعدد الشواهد المرتبطة. programId اختياري — يملأ تلقائياً من سياق الصفحة عند فتح المساعد من صفحة برنامج.",
   permission: "plan.read",
   readOnly: true,
   args: programBriefArgs,
@@ -423,28 +422,19 @@ const programBrief: ReadTool = {
     const [program] = await db.select().from(programs).where(and(eq(programs.id, programId), notSynthetic(programs.id, ex.programs)));
     if (!program) throw new Error("البرنامج غير موجود");
 
-    const milestones = await db
-      .select()
-      .from(programMilestones)
-      .where(eq(programMilestones.programId, program.id))
-      .orderBy(asc(programMilestones.sortOrder));
+    // البرنامج وحدة التنفيذ (D-024): التقدم مباشر من سجل البرنامج، لا من معالم/أنشطة موزونة.
+    // الشواهد معلوماتية فقط (D-025): عدد فعلي بلا هدف أو جاهزية أو نقص.
     const [cr] = await db
       .select({ open: sql<number>`count(*)` })
       .from(programChangeRequests)
       .where(and(eq(programChangeRequests.programId, program.id), eq(programChangeRequests.status, "قيد الاعتماد")));
     const deliverables = await db.select().from(programDeliverables).where(eq(programDeliverables.programId, program.id));
-    const links = deliverables.length
-      ? await db
-          .select({ entityId: evidenceLinks.entityId, role: evidenceItems.role })
-          .from(evidenceLinks)
-          .innerJoin(evidenceItems, eq(evidenceLinks.evidenceId, evidenceItems.id))
-          .where(and(eq(evidenceLinks.entityType, "deliverable"), inArray(evidenceLinks.entityId, deliverables.map((d) => d.id))))
-      : [];
-    const rolesByDeliverable = new Map<string, string[]>();
-    for (const l of links) {
-      if (!l.role) continue;
-      rolesByDeliverable.set(l.entityId, [...(rolesByDeliverable.get(l.entityId) ?? []), l.role]);
-    }
+    const [ev] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(evidenceLinks)
+      .innerJoin(evidenceItems, eq(evidenceLinks.evidenceId, evidenceItems.id))
+      .where(and(eq(evidenceLinks.entityType, "program"), eq(evidenceLinks.entityId, program.id), isNull(evidenceItems.archivedAt)));
+    const evidenceCount = Number(ev?.count ?? 0);
 
     const rows: ReadToolResult["rows"] = [
       {
@@ -453,29 +443,18 @@ const programBrief: ReadTool = {
         href: `/plan/${program.id}`,
       },
       { title: `طلبات التغيير المفتوحة: ${Number(cr.open)}`, href: `/plan/${program.id}` },
+      { title: `الشواهد المرتبطة: ${evidenceCount}`, href: `/plan/${program.id}#evidence` },
     ];
-    for (const m of milestones) {
-      rows.push({
-        title: `معلم: ${m.title}`,
-        detail: `${m.status} — الوزن ${m.weight}٪ — الإنجاز ${m.progress}٪${m.dueText ? ` — الموعد ${m.dueText}` : ""}`,
-      });
-    }
-    let completePackages = 0;
     for (const d of deliverables) {
-      const { readiness, missing } = computePackageReadiness({
-        requiresExternal: d.requiresExternal,
-        evidenceRoles: rolesByDeliverable.get(d.id) ?? [],
-      });
-      if (missing.length === 0) completePackages++;
       rows.push({
-        title: `مخرج: ${d.mainOutput ?? d.outputType ?? "حزمة شواهد"}`,
-        detail: `جاهزية الحزمة ${readiness}٪ — ${d.packageStatus}${missing.length ? ` — الأدوار الناقصة: شاهد ${missing.join("، شاهد ")}` : " — الأدوار مكتملة"}`,
+        title: `مخرج: ${d.mainOutput ?? d.outputType ?? "مخرج"}`,
+        detail: `${d.packageStatus}${d.acceptedEvidence ? ` — الشواهد المقبولة: ${d.acceptedEvidence}` : ""}`,
       });
     }
-    if (program.evidenceText) rows.push({ title: "الشواهد المطلوبة حسب الخطة", detail: program.evidenceText.slice(0, 400) });
+    if (program.evidenceText) rows.push({ title: "الشواهد المطلوبة حسب الخطة (من المصدر)", detail: program.evidenceText.slice(0, 400) });
 
     return {
-      summary: `برنامج «${program.name}»: ${program.status} — التنفيذ ${program.executionStatus} — الإنجاز ${program.progress}٪ — المعالم: ${milestones.length} — طلبات تغيير مفتوحة: ${Number(cr.open)} — حزم شواهد مكتملة الأدوار: ${completePackages}/${deliverables.length}`,
+      summary: `برنامج «${program.name}»: ${program.status} — التنفيذ ${program.executionStatus} — الإنجاز ${program.progress}٪ — طلبات تغيير مفتوحة: ${Number(cr.open)} — الشواهد المرتبطة: ${evidenceCount}`,
       rows,
     };
   },

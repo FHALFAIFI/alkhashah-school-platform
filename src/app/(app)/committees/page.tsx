@@ -51,6 +51,7 @@ export default async function CommitteesPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             <LinkButton href="/committees/templates" variant="secondary">عرض القوالب</LinkButton>
+            <LinkButton href="/committees/task-templates" variant="secondary">قوالب المهام</LinkButton>
             <LinkButton href="/committees/meeting-types" variant="secondary">أنواع الاجتماعات</LinkButton>
           </div>
         }

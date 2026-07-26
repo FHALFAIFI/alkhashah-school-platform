@@ -22,7 +22,7 @@ export default async function MeetingTypesPage() {
     <div className="max-w-2xl space-y-4">
       <PageHeader
         title="أنواع الاجتماعات"
-        subtitle="أنواع عربية إلزامية لكل اجتماع — يديرها المدير بالإضافة والتفعيل والتعطيل. النوع المستخدم لا يُحذف نهائياً."
+        subtitle="أنواع عربية إلزامية لكل اجتماع — يديرها المدير. اشتراط المحضر الموقّع لكل نوع على حدة؛ لا قاعدة عامة تفرض التوقيع على كل اجتماع. النوع المستخدم لا يُحذف نهائياً."
         actions={<LinkButton href="/committees" variant="secondary">عودة إلى اللجان</LinkButton>}
       />
       {canManage && (
@@ -38,10 +38,13 @@ export default async function MeetingTypesPage() {
             <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sand-100 px-3 py-2">
               <span className="font-medium">{t.nameAr}</span>
               {canManage ? (
-                <MeetingTypeRow id={t.id} active={t.active} used={usedSet.has(t.id)} />
+                <MeetingTypeRow id={t.id} active={t.active} used={usedSet.has(t.id)} requiresSignature={t.requiresSignature} />
               ) : (
-                <span className={`rounded-full px-2 py-0.5 text-xs ${t.active ? "bg-emerald-100 text-emerald-800" : "bg-gray-200 text-gray-600"}`}>
-                  {t.active ? "مُفعَّل" : "مُعطَّل"}
+                <span className="flex items-center gap-1.5">
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${t.active ? "bg-emerald-100 text-emerald-800" : "bg-gray-200 text-gray-600"}`}>
+                    {t.active ? "مُفعَّل" : "مُعطَّل"}
+                  </span>
+                  {t.requiresSignature && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">يتطلب توقيعاً</span>}
                 </span>
               )}
             </li>

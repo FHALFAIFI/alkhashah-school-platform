@@ -1,11 +1,14 @@
 import { Pool } from "pg";
 import { execSync } from "node:child_process";
+import { assertNonProduction } from "./assert-non-production";
 
 const ADMIN_URL = "postgresql://madrasa:madrasa_dev@localhost:5544/madrasa";
 export const TEST_DB_URL = "postgresql://madrasa:madrasa_dev@localhost:5544/madrasa_test";
 
 /** ينشئ قاعدة اختبار معزولة ويطبق الهجرات — لا يلمس قاعدة التطوير */
 export async function ensureTestDb(): Promise<void> {
+  // حارس أمان يفشل مغلقاً قبل أي اتصال: يرفض التشغيل إن استُهدف الإنتاج (بفحص القيم الفعلية)
+  assertNonProduction("ensureTestDb", TEST_DB_URL);
   const admin = new Pool({ connectionString: ADMIN_URL, max: 1 });
   const exists = await admin.query("SELECT 1 FROM pg_database WHERE datname = 'madrasa_test'");
   if (exists.rowCount === 0) {

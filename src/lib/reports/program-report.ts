@@ -1,9 +1,10 @@
 import "server-only";
-import { asc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { programs, programDeliverables, budgetExpenses, storedFiles } from "@/db/schema";
+import { programs, programDeliverables, programFollowups, budgetExpenses } from "@/db/schema";
 import { evidenceForEntity } from "@/lib/evidence";
-import { getProgramOverview } from "@/lib/plan/program-service";
+import { getProgram } from "@/lib/plan/program-service";
+import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
 import { num } from "@/lib/budget/calc";
 import { renderEvidenceContent } from "@/lib/evidence-render";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
@@ -24,19 +25,28 @@ async function brandingDataUri(settingKey: string): Promise<string | null> {
   return `data:${result.file.mime};base64,${result.data.toString("base64")}`;
 }
 
+/**
+ * تقرير البرنامج (D-024/D-025): يركّز على معلومات البرنامج والمسؤول والتواريخ والحالة
+ * والتقدم المباشر والشواهد المرفوعة وعددها الفعلي والميزانية والمصروف الفعلي والنتائج والأثر
+ * والملاحظات وسجل المتابعة. لا أنشطة ولا أوزان ولا جاهزية إقفال ولا متطلبات/نواقص شواهد.
+ */
 export async function generateProgramReport(opts: {
   programId: string;
   withSignature: boolean;
   withStamp: boolean;
   issuedBy: string;
 }) {
-  const overview = await getProgramOverview(opts.programId);
-  if (!overview) throw new Error("البرنامج غير موجود");
-  const program = overview.program;
-  const { activities, progress, readiness } = overview;
+  const program = await getProgram(opts.programId);
+  if (!program) throw new Error("البرنامج غير موجود");
   const deliverables = await db.select().from(programDeliverables).where(eq(programDeliverables.programId, opts.programId));
   const evidence = await evidenceForEntity("program", opts.programId);
   const expenses = await db.select().from(budgetExpenses).where(eq(budgetExpenses.programId, opts.programId));
+  const followups = await db
+    .select()
+    .from(programFollowups)
+    .where(eq(programFollowups.programId, opts.programId))
+    .orderBy(desc(programFollowups.createdAt))
+    .limit(12);
   const spent = expenses.reduce((s, e) => s + num(e.amount), 0);
 
   const now = new Date();
@@ -54,7 +64,7 @@ export async function generateProgramReport(opts: {
     ["مؤشر النجاح", program.kpiText],
     ["المستهدف", program.targetText],
     ["المخرج المطلوب", program.deliverableText],
-    ["الأثر المتوقع", program.expectedImpact],
+    ["النتائج والأثر المتوقع", program.expectedImpact],
     ["تاريخ البدء", program.hijriStart ? `${program.hijriStart}هـ` : null],
     ["تاريخ الانتهاء", program.hijriEnd ? `${program.hijriEnd}هـ` : null],
   ];
@@ -66,48 +76,46 @@ export async function generateProgramReport(opts: {
       .filter(([, v]) => v)
       .map(([k, v]) => `<tr><th style="width:22%">${esc(k)}</th><td>${esc(v!)}</td></tr>`)
       .join("")}
-    <tr><th>الحالة</th><td>${esc(program.status)} — نسبة الإنجاز ${progress.display}٪ (محسوبة من الأنشطة الموزونة)</td></tr>
-    <tr><th>جاهزية الإقفال</th><td>${readiness.percent}٪ — ${esc(readiness.statusAr)}</td></tr>
-    ${
-      program.completedAt
-        ? `<tr><th>الاكتمال</th><td>${program.completionOverride ? `مكتمل بتجاوز موثّق — الجاهزية وقت الإقفال ${program.overrideReadiness}٪. المبرر: ${esc(program.overrideReason ?? "")}` : "مكتمل بجاهزية كاملة"}</td></tr>`
-        : ""
-    }
+    <tr><th>الحالة</th><td>${esc(program.status)} — نسبة الإنجاز ${program.progress}٪</td></tr>
+    <tr><th>حالة التنفيذ</th><td>${esc(program.executionStatus)}</td></tr>
+    <tr><th>الميزانية المخططة</th><td>${program.budget ? `${program.budget} ريال` : "0"}</td></tr>
     <tr><th>المصروف الفعلي</th><td>${spent.toLocaleString("ar")} (${expenses.length} مصروفاً مرتبطاً)</td></tr>
-  </table>
-
-  <h2>الأنشطة (${activities.length})</h2>
-  <table>
-    <tr><th>النشاط</th><th>المسؤول</th><th>الوزن الفعلي</th><th>الإنجاز</th><th>الحالة</th><th>الموعد</th></tr>
-    ${activities
-      .map(
-        (a) =>
-          `<tr><td>${esc(a.name)}</td><td>${esc(a.ownerName ?? "—")}</td><td>${a.effectiveWeight.toFixed(1)}٪</td><td>${a.progress}٪</td><td>${esc(a.status)}${a.requiredForCompletion ? " (إلزامي)" : ""}</td><td>${esc(a.plannedEnd ?? "—")}</td></tr>`,
-      )
-      .join("")}
-  </table>
-
-  ${
-    readiness.missing.length > 0
-      ? `<h2>المتطلبات الناقصة (${readiness.missing.length})</h2>
-         <ul>${readiness.missing.map((m) => `<li>${esc(m.labelAr)}</li>`).join("")}</ul>`
-      : ""
-  }
-
-  <h2>المخرجات وحزم الشواهد</h2>
-  <table>
-    <tr><th>المخرج</th><th>الشواهد المقبولة</th><th>موعد التسليم</th><th>حالة الحزمة</th></tr>
-    ${deliverables
-      .map(
-        (d) =>
-          `<tr><td>${esc(d.mainOutput ?? "—")}</td><td>${esc(d.acceptedEvidence ?? "—")}</td><td>${esc(d.dueText ?? "—")}</td><td>${esc(d.packageStatus)}</td></tr>`,
-      )
-      .join("")}
+    ${program.principalNotes ? `<tr><th>ملاحظات</th><td>${esc(program.principalNotes)}</td></tr>` : ""}
   </table>
   `;
 
+  if (deliverables.length > 0) {
+    body += `
+    <h2>المخرجات</h2>
+    <table>
+      <tr><th>المخرج</th><th>الشواهد المقبولة</th><th>موعد التسليم</th></tr>
+      ${deliverables
+        .map(
+          (d) =>
+            `<tr><td>${esc(d.mainOutput ?? "—")}</td><td>${esc(d.acceptedEvidence ?? "—")}</td><td>${esc(d.dueText ?? "—")}</td></tr>`,
+        )
+        .join("")}
+    </table>
+    `;
+  }
+
+  if (followups.length > 0) {
+    body += `
+    <h2>سجل المتابعة الأسبوعية</h2>
+    <table>
+      <tr><th>الأسبوع</th><th>حالة التنفيذ</th><th>الإنجاز</th><th>الملاحظة</th></tr>
+      ${followups
+        .map(
+          (f) =>
+            `<tr><td>${esc(f.weekKey)}</td><td>${esc(f.executionStatus)}</td><td>${f.progressSnapshot}٪</td><td>${esc(f.note)}</td></tr>`,
+        )
+        .join("")}
+    </table>
+    `;
+  }
+
+  body += `<h2>الشواهد (${evidence.length})</h2><p>${evidenceCountPhrase(evidence.length)} — العدد معلوماتي فقط.</p>`;
   if (evidence.length > 0) {
-    body += `<h2>الشواهد (${evidence.length})</h2>`;
     for (const e of evidence) {
       const rendered = await renderEvidenceContent({
         title: e.item.title,

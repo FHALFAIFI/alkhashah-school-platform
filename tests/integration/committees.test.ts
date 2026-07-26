@@ -59,33 +59,42 @@ async function seedCommitteeFixture() {
 }
 
 describe("قواعد الاجتماعات عبر الإجراءات الفعلية (A5, A6)", () => {
-  it("A5: اعتماد الاكتمال يرفض دون محضر موقع ثم ينجح بعد رفعه", async () => {
+  it("A5: التوقيع حسب نوع الاجتماع (D-027) — نوع بلا اشتراط يكتمل مباشرةً، ونوع باشتراط يُحجب حتى رفع المحضر", async () => {
     const { db } = await import("@/db");
-    const { meetings, storedFiles } = await import("@/db/schema");
+    const { meetings, meetingTypes, storedFiles } = await import("@/db/schema");
     const { completeMeetingAction } = await import("@/app/(app)/committees/actions");
-    const { meeting } = await seedCommitteeFixture();
+    const { c, meeting } = await seedCommitteeFixture();
 
-    const rejected = await completeMeetingAction(meeting.id);
-    expect(rejected?.error).toContain("المحضر الموقع");
-
-    const [f] = await db
-      .insert(storedFiles)
-      .values({ originalName: "محضر-موقع.pdf", mime: "application/pdf", size: 100, sha256: "x", storagePath: `attachments/t-${Math.random()}.pdf` })
-      .returning();
-    await db.update(meetings).set({ signedMinutesFileId: f.id }).where(eq(meetings.id, meeting.id));
-
+    // الاجتماع الافتراضي بلا نوع → لا قاعدة عامة تفرض التوقيع → يكتمل مباشرةً
     const accepted = await completeMeetingAction(meeting.id);
     expect(accepted?.error).toBeUndefined();
     const [done] = await db.select().from(meetings).where(eq(meetings.id, meeting.id));
     expect(done.status).toBe("مكتمل");
 
-    // بعد الاكتمال: لا تعديل ولا نتائج جديدة
+    // بعد الاكتمال: لا نتائج جديدة
     const { addOutcomeAction } = await import("@/app/(app)/committees/actions");
-    const fd = new FormData();
-    fd.set("outcomeType", "ملاحظة");
-    fd.set("text", "نص متأخر");
-    const blocked = await addOutcomeAction(meeting.id, null, fd);
+    const lateFd = new FormData();
+    lateFd.set("outcomeType", "ملاحظة");
+    lateFd.set("text", "نص متأخر");
+    const blocked = await addOutcomeAction(meeting.id, null, lateFd);
     expect(blocked?.error).toContain("مكتمل");
+
+    // نوع يشترط التوقيع → يُحجب حتى رفع المحضر الموقع
+    const s = Math.floor(Math.random() * 1e9);
+    const [signType] = await db.insert(meetingTypes).values({ key: `a5-sign-${s}`, nameAr: "ختامي", requiresSignature: true }).returning();
+    const [m2] = await db.insert(meetings).values({ committeeId: c.id, seq: 2, typeId: signType.id, status: "مسودة" }).returning();
+    const rejected = await completeMeetingAction(m2.id);
+    expect(rejected?.error).toContain("موقعاً");
+
+    const [f] = await db
+      .insert(storedFiles)
+      .values({ originalName: "محضر-موقع.pdf", mime: "application/pdf", size: 100, sha256: "x", storagePath: `attachments/t-${Math.random()}.pdf` })
+      .returning();
+    await db.update(meetings).set({ signedMinutesFileId: f.id }).where(eq(meetings.id, m2.id));
+    const accepted2 = await completeMeetingAction(m2.id);
+    expect(accepted2?.error).toBeUndefined();
+    const [done2] = await db.select().from(meetings).where(eq(meetings.id, m2.id));
+    expect(done2.status).toBe("مكتمل");
   });
 
   it("A6: القرار ينشئ إجراءً إلزامياً تلقائياً ولا يمكن إلغاؤه", async () => {

@@ -5,8 +5,9 @@ import { submitFollowupAction, type ActionState } from "../actions";
 import { SubmitButton } from "@/components/ui";
 import { FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 
-/** نموذج المتابعة الأسبوعية المضمن — ملاحظة + حالة تنفيذ، بلا تمرير أفقي على الجوال */
-export function FollowupForm({ programId, defaultStatus }: { programId: string; defaultStatus?: string }) {
+/** نموذج المتابعة الأسبوعية المضمن — ملاحظة + نسبة إنجاز مُدخلة مباشرةً + حالة تنفيذ (D-024)،
+ *  بلا تمرير أفقي على الجوال */
+export function FollowupForm({ programId, defaultStatus, defaultProgress = 0 }: { programId: string; defaultStatus?: string; defaultProgress?: number }) {
   const [state, formAction] = useActionState<ActionState, FormData>(submitFollowupAction.bind(null, programId), null);
   return (
     <form action={formAction} className="mt-3 border-t border-sand-100 pt-3">
@@ -23,12 +24,24 @@ export function FollowupForm({ programId, defaultStatus }: { programId: string; 
             className="w-full min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
           />
         </div>
+        <div className="basis-28">
+          <label htmlFor={`fu-progress-${programId}`} className="mb-1 block text-xs text-gray-500">نسبة الإنجاز (٪)</label>
+          <input
+            id={`fu-progress-${programId}`}
+            name="progress"
+            type="number"
+            min={0}
+            max={100}
+            defaultValue={defaultProgress}
+            className="w-full min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+          />
+        </div>
         <div className="basis-36">
           <label htmlFor={`fu-status-${programId}`} className="mb-1 block text-xs text-gray-500">حالة التنفيذ</label>
           <select
             id={`fu-status-${programId}`}
             name="executionStatus"
-            defaultValue={FOLLOWUP_STATUSES.includes(defaultStatus as (typeof FOLLOWUP_STATUSES)[number]) ? defaultStatus : "في المسار"}
+            defaultValue={(FOLLOWUP_STATUSES as readonly string[]).includes(defaultStatus ?? "") ? defaultStatus : "في المسار"}
             className="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
           >
             {FOLLOWUP_STATUSES.map((s) => (
