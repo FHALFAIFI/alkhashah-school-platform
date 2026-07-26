@@ -51,12 +51,20 @@ Fail-closed against production identifiers. Torn down after the review.
 - **Logout invalidates the session** (subsequent `/dashboard` → `/login`).
 - Mobile RTL 390×844: no horizontal overflow (dashboard/plan/budget).
 
-> Note on the authenticated session: the clone's server-action login attempt did not establish a session
-> (a clone-environment artifact — the isolated clone differs from production in `TRUSTED_ORIGINS`/origin and
-> redirect handling; not conclusively pinned), so the authenticated navigation above was driven by a
-> session minted directly in the isolated clone DB. This does **not** reflect the production credential
-> state: the principal confirms the same credentials still work on production. Successful-login-flow
-> evidence comes from the green Playwright suite (which logs in via the real form with its seeded admin).
+> Note on the authenticated session: the clone login with the documented `initial-credentials.txt` temp
+> password did not authenticate (the clone shares production's password hashes; the temp password no longer
+> matches — see the credential check below), so the authenticated navigation above was driven by a session
+> minted directly in the isolated clone DB. Successful-login-flow evidence comes from the green Playwright
+> suite (which logs in via the real form with its own seeded admin).
+>
+> **Credential check (production, authorized auth test, 2026-07-26):** a real-browser login against
+> `http://192.168.0.48:3080` with the `initial-credentials.txt` temp passwords **failed for both
+> `principal` and `admin`** — the server recorded `login.failed` with a valid actor id (usernames valid →
+> **wrong password**), no lockout (failed_logins = 1 each). The initial temp passwords have been **changed**
+> and are no longer active — good practice. (Two intermediate notes in this review — first "rotated at
+> go-live", then a retraction claiming the initial credentials were "still active" — were both premature;
+> this empirically-verified statement supersedes them.) Side effect disclosed: 2 `login.failed` audit rows
+> (audit_log 146 → 148); no session created, nothing to clean up.
 
 Production itself was verified read-only (health `db:up`, route gating, SSR shell with `translate="no"` +
 `notranslate`, zero raw-error markers). **A real-browser authenticated pass on production with the
@@ -76,8 +84,7 @@ claimed.**
 
 ## 6. Authorization & session (static review + clone)
 
-- **No hardcoded/publicly-documented default credentials** — seed generates a random per-account password (argon2id), written only to git-ignored `storage/private/initial-credentials.txt` (0600, mode-restricted).
-- **Correction (per principal, 2026-07-26): the initial credentials are UNCHANGED and still active** — the accounts still use their initial auto-generated passwords, whose plaintext persists in `storage/private/initial-credentials.txt`. (My earlier "rotated at go-live" inference was wrong; it came from a clone-environment login attempt that failed for an unrelated reason — see §4 — not from the production credential state.) This is fine for the principal's own login on the trusted-LAN demo but should be changed to a personal password + MFA before host-PC/wider exposure — see Findings (LOW).
+- **No default/initial credentials active** — seed generates a random per-account password (argon2id), written only to git-ignored `storage/private/initial-credentials.txt` (0600). **Verified 2026-07-26** (authorized production auth test): those initial temp passwords no longer authenticate (`login.failed`, valid usernames → wrong password, for both `principal` and `admin`) — the accounts use **changed** credentials. Recommend enabling MFA (TOTP is implemented) before host-PC/wider exposure, and removing/securing the now-stale plaintext `initial-credentials.txt`.
 - argon2id (OWASP params); login rate limit + 5-failure lockout; generic error.
 - Session cookies: HttpOnly + SameSite=lax always; Secure under HTTPS/prod (except the documented LAN flag); 30-day absolute + 12-hour idle expiry; **logout fully invalidates** the DB session; change-password kills all sessions.
 - Server-side authorization enforced on all mutations (budget/committees incl. task-template/assignment/plan/admin/files/export), independent of UI.
@@ -136,13 +143,12 @@ the final confirmation.
    `headers()` before broader exposure. `TRUSTED_ORIGINS` default `*.ts.net` — pin to the host name.
 4. Dependency advisories — bump **Next.js → 16.2.12** (and its postcss/sharp tree) before wider exposure.
 
-**LOW:** **initial account credentials are unchanged/still active** (plaintext persists in git-ignored
-`storage/private/initial-credentials.txt`, 0600) — fine for the principal's own trusted-LAN login, but set a
-personal password + enable MFA before host-PC/wider exposure; `الشواهد المطلوبة` on program detail is
-verbatim source-plan text (not a quota — optional relabel); login lockout message enables username
-enumeration; login rate-limit collapses to one global bucket on direct LAN HTTP (+ lockout DoS); MFA
-available but not enforced; server actions surface raw `e.message` (English, not stack/SQL) to authenticated
-staff on unexpected errors; `.env` mode 644 on the dev machine.
+**LOW:** the now-stale plaintext `storage/private/initial-credentials.txt` should be removed/secured (its
+temp passwords are already changed and no longer valid); `الشواهد المطلوبة` on program detail is verbatim
+source-plan text (not a quota — optional relabel); login lockout message enables username enumeration; login
+rate-limit collapses to one global bucket on direct LAN HTTP (+ lockout DoS); MFA available but not
+enforced; server actions surface raw `e.message` (English, not stack/SQL) to authenticated staff on
+unexpected errors; `.env` mode 644 on the dev machine.
 
 **BACKLOG:** `uuid` moderate advisory (unreachable); enforce MFA for the principal; structural no-seed
 compose service; security headers at the proxy.
