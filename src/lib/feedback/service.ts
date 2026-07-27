@@ -3,6 +3,7 @@ import { and, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { feedback, users, storedFiles, permissions, roles, rolePermissions } from "@/db/schema";
 import { audit } from "@/lib/audit";
+import { orFallback } from "@/lib/format";
 import {
   FEEDBACK_CATEGORIES,
   FEEDBACK_SEVERITIES,
@@ -73,20 +74,25 @@ export type CreateFeedbackInput = {
 
 /** ينشئ ملاحظة تشغيل — يتحقق ويُنقّي كل الحقول، ويُرجع الرقم المرجعي المولَّد */
 export async function createFeedback(input: CreateFeedbackInput): Promise<{ id: string; ref: string }> {
+  // مسار الصفحة يُلتقط آلياً — يبقى فحص الأمان (ليس حقلاً يكتبه المستخدم).
   if (!isSafeInternalPath(input.pagePath)) {
     throw new FeedbackError("مسار الصفحة غير صالح");
   }
-  if (!FEEDBACK_CATEGORIES.includes(input.category as (typeof FEEDBACK_CATEGORIES)[number])) {
+  // الفئة/الأهمية: قيمة مُدخَلة يجب أن تبقى ضمن القائمة (فحص صيغة)، لكن الفراغ مسموح
+  // ويأخذ قيمة افتراضية معقولة بدل الرفض (القاعدة العامة v2.1).
+  const category = input.category?.trim() || FEEDBACK_CATEGORIES[0];
+  if (!FEEDBACK_CATEGORIES.includes(category as (typeof FEEDBACK_CATEGORIES)[number])) {
     throw new FeedbackError("فئة غير معروفة");
   }
-  if (!FEEDBACK_SEVERITIES.includes(input.severity as (typeof FEEDBACK_SEVERITIES)[number])) {
+  const severity = input.severity?.trim() || FEEDBACK_SEVERITIES[0];
+  if (!FEEDBACK_SEVERITIES.includes(severity as (typeof FEEDBACK_SEVERITIES)[number])) {
     throw new FeedbackError("درجة أهمية غير معروفة");
   }
   const resolvedModule = FEEDBACK_MODULES.includes(input.module as (typeof FEEDBACK_MODULES)[number])
     ? input.module
     : "أخرى";
+  // العنوان أصبح اختيارياً (v2.1) — يُخزَّن "" عند تركه فارغاً (عمود NOT NULL يُستوفى).
   const title = sanitizeFeedbackText(input.title, FEEDBACK_LIMITS.title);
-  if (!title) throw new FeedbackError("العنوان المختصر مطلوب");
 
   const viewport = normalizeViewport(input.viewport);
   const width = viewport ? Number(viewport.split("×")[0]) : 0;
@@ -98,8 +104,8 @@ export async function createFeedback(input: CreateFeedbackInput): Promise<{ id: 
       createdBy: input.actorId,
       pagePath: input.pagePath,
       module: resolvedModule,
-      category: input.category,
-      severity: input.severity,
+      category,
+      severity,
       title,
       attempted: sanitizeFeedbackText(input.attempted, FEEDBACK_LIMITS.attempted) || null,
       happened: sanitizeFeedbackText(input.happened, FEEDBACK_LIMITS.happened) || null,
@@ -119,8 +125,8 @@ export async function createFeedback(input: CreateFeedbackInput): Promise<{ id: 
     action: "feedback.created",
     entityType: "feedback",
     entityId: row.id,
-    summary: `ملاحظة جديدة ${row.ref}: ${title}`,
-    detail: { ref: row.ref, module: resolvedModule, category: input.category, severity: input.severity, blocked: input.blocked, pagePath: input.pagePath },
+    summary: `ملاحظة جديدة ${row.ref}: ${orFallback(title)}`,
+    detail: { ref: row.ref, module: resolvedModule, category, severity, blocked: input.blocked, pagePath: input.pagePath },
     ip: input.ip ?? undefined,
   });
 

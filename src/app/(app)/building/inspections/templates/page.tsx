@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { inspectionTemplates, inspections } from "@/db/schema";
 import { PageHeader, Card, Badge, EmptyState, LinkButton } from "@/components/ui";
 import { statusLabel, TEMPLATE_STATUS } from "@/lib/building/inspection-templates";
+import { orFallback } from "@/lib/format";
 
 export const metadata = { title: "قوالب الفحص" };
 export const dynamic = "force-dynamic";
@@ -54,7 +55,7 @@ export default async function TemplatesListPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-brand-900">{active?.nameAr ?? head.nameAr}</span>
+                      <span className="font-bold text-brand-900">{orFallback(active?.nameAr ?? head.nameAr)}</span>
                       <span className="tabular-nums text-xs text-gray-400" dir="ltr">{head.code ?? "—"}</span>
                       {head.isSystem && <span className="rounded bg-sand-100 px-1.5 py-0.5 text-[10px] text-gray-600">قالب نظام</span>}
                     </div>

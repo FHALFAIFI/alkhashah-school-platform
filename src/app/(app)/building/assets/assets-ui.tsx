@@ -21,7 +21,7 @@ export function NewAssetForm({ rooms }: { rooms: { id: string; label: string }[]
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{state.success}</div>}
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-56 flex-1">
-          <Field label="اسم الأصل" name="nameAr" required />
+          <Field label="اسم الأصل" name="nameAr" />
         </div>
         <div className="min-w-64 flex-1">
           <label className="mb-1 block text-sm font-medium text-gray-700">الغرفة/الموقع</label>

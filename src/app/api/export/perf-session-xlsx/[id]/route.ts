@@ -7,6 +7,7 @@ import { perfCycles, perfSessions, perfRatings, people } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { weightedScore } from "@/lib/performance/scoring";
 import { audit } from "@/lib/audit";
+import { orFallback } from "@/lib/format";
 
 /** تصدير Excel لجلسة الأداء — التقديرات والدرجات الموزونة (حساب الخادم حصراً) */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -41,7 +42,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const weight = Number(ind.weight);
     const score = r?.rating != null ? weightedScore(r.rating, weight) : null;
     if (score !== null) totalScore += score;
-    ws.addRow({ name: ind.nameAr, weight: weight / 100, rating: r?.rating ?? "—", score: score != null ? score / 100 : "—" });
+    ws.addRow({ name: orFallback(ind.nameAr), weight: weight / 100, rating: r?.rating ?? "—", score: score != null ? score / 100 : "—" });
   }
   ws.addRow({ name: "الإجمالي", weight: "", rating: "", score: session.sessionResult != null ? Number(session.sessionResult) / 100 : Math.round(totalScore) / 100 });
   ws.getColumn("weight").numFmt = "0%";

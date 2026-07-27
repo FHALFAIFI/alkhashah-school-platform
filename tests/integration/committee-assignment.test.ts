@@ -97,14 +97,14 @@ describe("عضوية اللجان المؤرّخة (§5)", () => {
     expect(res?.error).toBeUndefined();
   });
 
-  it("توليد جدول توزيع المهام يُصدر وثيقة بعمود «توقيع العضو» ويربطها باللجنة (D-027)", async () => {
+  it("توليد جدول التوزيع يُصدر وثيقة بقائمتين مستقلتين: أعضاء + مهام؛ ويُظهر عضواً بلا مهمة (v2.1)", async () => {
     const { db } = await import("@/db");
     const { documents, committeeTaskAssignments, users } = await import("@/db/schema");
     const { eq } = await import("drizzle-orm");
     const { generateAssignmentForm } = await import("@/lib/reports/assignment-form");
 
-    const { cmt, chairMember } = await seedApprovedCommittee();
-    // مهام موزّعة: واحدة مسندة للرئيس وأخرى بلا إسناد
+    const { cmt, chairMember } = await seedApprovedCommittee(); // عضوان: «الرئيس» و«المقرر»
+    // مهمتان: واحدة مسندة للرئيس وأخرى بلا إسناد
     await db.insert(committeeTaskAssignments).values([
       { committeeId: cmt.id, title: "متابعة الحضور", assignedMemberId: chairMember.id, sortOrder: 0 },
       { committeeId: cmt.id, title: "إعداد التقارير", sortOrder: 1 },
@@ -116,11 +116,16 @@ describe("عضوية اللجان المؤرّخة (§5)", () => {
     expect(doc.docType).toBe("committee_assignment");
     expect(doc.entityType).toBe("committee");
     expect(doc.entityId).toBe(cmt.id);
-    // اللقطة جدول مهام بأعمدة المهمة/العضو المكلف/الصفة-الدور/توقيع العضو/ملاحظات
-    expect(doc.htmlSnapshot).toContain("المهمة");
-    expect(doc.htmlSnapshot).toContain("توقيع العضو");
+    // قسمان مستقلان: قائمة الأعضاء الكاملة + قائمة المهام الكاملة (بلا اعتماد الإسناد شرطاً للعرض)
+    expect(doc.htmlSnapshot).toContain("أعضاء اللجنة");
+    expect(doc.htmlSnapshot).toContain("مهام اللجنة");
+    expect(doc.htmlSnapshot).toContain("التوقيع"); // عمود التوقيع في جدول الأعضاء
+    // كل الأعضاء يظهرون بصرف النظر عن المهام — بمن فيهم «المقرر» بلا مهمة مسندة
+    expect(doc.htmlSnapshot).toContain("الرئيس");
+    expect(doc.htmlSnapshot).toContain("المقرر");
+    // كل المهام تظهر بصرف النظر عن الإسناد — بما فيها المهمة بلا عضو
     expect(doc.htmlSnapshot).toContain("متابعة الحضور");
-    expect(doc.htmlSnapshot).toContain("الرئيس"); // اسم العضو المكلف
+    expect(doc.htmlSnapshot).toContain("إعداد التقارير");
     expect(doc.htmlSnapshot).toContain("مجمع الخشعة التعليمي للبنين");
   }, 30000);
 });

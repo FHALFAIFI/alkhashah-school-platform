@@ -155,24 +155,24 @@ export function FeedbackDock({ enabled }: { enabled: boolean }) {
                   </select>
                 </Labeled>
 
-                <Labeled label="الفئة" required>
-                  <select name="category" required defaultValue="مشكلة" className={selectCls}>
+                <Labeled label="الفئة">
+                  <select name="category" defaultValue="مشكلة" className={selectCls}>
                     {FEEDBACK_CATEGORIES.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
                 </Labeled>
 
-                <Labeled label="الأهمية" required>
-                  <select name="severity" required defaultValue="ملاحظة بسيطة" className={selectCls}>
+                <Labeled label="الأهمية">
+                  <select name="severity" defaultValue="ملاحظة بسيطة" className={selectCls}>
                     {FEEDBACK_SEVERITIES.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
                 </Labeled>
 
-                <Labeled label="عنوان مختصر" required>
-                  <input name="title" required maxLength={200} className={inputCls} placeholder="مثال: زر الحفظ لا يستجيب" />
+                <Labeled label="عنوان مختصر">
+                  <input name="title" maxLength={200} className={inputCls} placeholder="مثال: زر الحفظ لا يستجيب" />
                 </Labeled>
 
                 <Labeled label="ما الذي كنت تحاول عمله؟">

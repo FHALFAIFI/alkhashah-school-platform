@@ -7,7 +7,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import {
   committees, committeeTemplates, committeeMembers, meetings, meetingOutcomes,
-  actionTasks, planYears, people, meetingTypes, meetingAttachments, committeeImpacts,
+  actionTasks, planYears, people, meetingTypes, meetingAttachments,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
@@ -15,7 +15,6 @@ import { snapshotRecord } from "@/lib/versioning";
 import { saveUploadedFile } from "@/lib/storage";
 import { notifyAll } from "@/lib/notify";
 import { committedEmployeeCount } from "@/lib/committees/prerequisites";
-import { MEETING_ATTACHMENT_CATEGORIES } from "@/lib/committees/constants";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -58,9 +57,9 @@ export async function createCommitteeFromTemplateAction(_prev: ActionState, form
   redirect(`/committees/${c.id}`);
 }
 
-/** مجتمع تعلم مهني — نموذج أخف */
+/** مجتمع تعلم مهني — نموذج أخف. كل الحقول اختيارية (v2.1 §H) — لا يُمنع الحفظ على فراغ. */
 const plcSchema = z.object({
-  nameAr: z.string().min(2, "الاسم مطلوب"),
+  nameAr: z.string().optional(),
   objectives: z.string().optional(),
   outputs: z.string().optional(),
 });
@@ -76,7 +75,7 @@ export async function createPlcAction(_prev: ActionState, formData: FormData): P
     .insert(committees)
     .values({
       planYearId: year.id,
-      nameAr: parsed.data.nameAr,
+      nameAr: (parsed.data.nameAr ?? "").trim(), // عمود NOT NULL — نخزّن "" عند الفراغ
       kind: "مجتمع تعلم",
       objectives: parsed.data.objectives || null,
       outputs: parsed.data.outputs || null,
@@ -175,8 +174,8 @@ export async function generateAssignmentFormAction(committeeId: string): Promise
   try {
     result = await generateAssignmentForm({ committeeId, issuedBy: user.id });
   } catch (e) {
-    // مثل «لا مهام موزّعة» — رسالة عربية واضحة بدل خطأ تقني
-    return { error: e instanceof Error ? e.message : "تعذّر توليد جدول توزيع المهام" };
+    // رسالة عربية واضحة بدل خطأ تقني (لا يُرمى استثناء على قائمة فارغة بعد الآن)
+    return { error: e instanceof Error ? e.message : "تعذّر توليد نموذج التكليف" };
   }
   await db.update(committees).set({ assignmentDocId: result.docId }).where(eq(committees.id, committeeId));
   await audit({
@@ -184,10 +183,10 @@ export async function generateAssignmentFormAction(committeeId: string): Promise
     action: "committee.assignment_form_generated",
     entityType: "committee",
     entityId: committeeId,
-    summary: `توليد جدول توزيع مهام ${result.docNumber}`,
+    summary: `توليد نموذج تكليف ${result.docNumber}`,
   });
   revalidatePath(`/committees/${committeeId}`);
-  return { success: `صدر جدول توزيع المهام ${result.docNumber} — يتضمن عمود «توقيع العضو» للطباعة والتوقيع` };
+  return { success: `صدر نموذج التكليف ${result.docNumber} — قائمتان: «أعضاء اللجنة» بعمود «التوقيع» و«مهام اللجنة»` };
 }
 
 /** رفع نموذج التكليف الموقّع. */
@@ -265,11 +264,15 @@ export async function createMeetingAction(committeeId: string, _prev: ActionStat
   const meetingDate = String(formData.get("meetingDate") ?? "");
   const agendaText = String(formData.get("agenda") ?? "");
   const agenda = agendaText.split("\n").map((s) => s.trim()).filter(Boolean);
-  // نوع الاجتماع إلزامي للاجتماعات الجديدة ويجب أن يكون نوعاً مفعَّلاً
-  const typeId = String(formData.get("typeId") ?? "");
-  if (!typeId) return { error: "اختر نوع الاجتماع" };
-  const [mt] = await db.select().from(meetingTypes).where(eq(meetingTypes.id, typeId));
-  if (!mt || !mt.active) return { error: "نوع الاجتماع غير صالح أو غير مفعَّل" };
+  // نوع الاجتماع اختياري (v2.1 §H) — لا يُمنع الحفظ على فراغ. عند تمريره يجب أن يكون نوعاً مفعَّلاً.
+  // بلا نوع، لا ينطبق شرط التوقيع (requiresSignature) عند الاكتمال.
+  const typeIdRaw = String(formData.get("typeId") ?? "");
+  let typeId: string | null = null;
+  if (typeIdRaw) {
+    const [mt] = await db.select().from(meetingTypes).where(eq(meetingTypes.id, typeIdRaw));
+    if (!mt || !mt.active) return { error: "نوع الاجتماع غير صالح أو غير مفعَّل" };
+    typeId = mt.id;
+  }
   const existing = await db.select().from(meetings).where(eq(meetings.committeeId, committeeId));
   const [m] = await db
     .insert(meetings)
@@ -322,7 +325,8 @@ export async function updateMeetingAction(meetingId: string, _prev: ActionState,
  */
 const outcomeSchema = z.object({
   outcomeType: z.enum(["قرار", "توصية", "ملاحظة"]),
-  text: z.string().min(3, "نص النتيجة مطلوب"),
+  // نص النتيجة اختياري (v2.1 §H) — لا يُمنع الحفظ على فراغ (يُخزَّن "")
+  text: z.string().optional(),
   ownerPersonId: z.string().optional(),
   dueDate: z.string().optional(),
   createTask: z.string().optional(),
@@ -336,9 +340,10 @@ export async function addOutcomeAction(meetingId: string, _prev: ActionState, fo
   const parsed = outcomeSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
-  const text = parsed.data.text.trim();
+  const text = (parsed.data.text ?? "").trim();
   const existing = await db.select().from(meetingOutcomes).where(eq(meetingOutcomes.meetingId, meetingId));
-  if (existing.some((o) => o.text.trim() === text)) {
+  // منع التكرار للنصوص المكتوبة فقط — نص فارغ لا يُمنع (كل الحقول اختيارية)
+  if (text.length > 0 && existing.some((o) => o.text.trim() === text)) {
     return { error: "هذه النتيجة مسجلة مسبقاً في هذا الاجتماع" };
   }
 
@@ -444,12 +449,7 @@ export async function closeCommitteeAction(committeeId: string): Promise<ActionS
   if (awaitingSignature > 0) {
     return { error: `لا يقفل — ${awaitingSignature} اجتماعاً بحالة «بانتظار التوقيع»: اعتمد اكتماله بالمحضر الموقع أولاً` };
   }
-  // الإقفال السنوي/التقرير الختامي يتطلب توثيق النتائج والأثر (سجل واحد على الأقل بنتيجة وأثر)
-  const impacts = await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, committeeId));
-  const documented = impacts.some((i) => i.result.trim().length > 0 && i.impact.trim().length > 0);
-  if (!documented) {
-    return { error: "لا يقفل قبل توثيق النتائج والأثر — سجّل «النتيجة» و«الأثر» لعمل اللجنة أولاً" };
-  }
+  // أُزيل شرط توثيق «النتائج والأثر» للإقفال (v2.1 §G3 — كل شيء اختياري): تُقفل اللجنة دون نتيجة/أثر.
   await db.update(committees).set({ status: "مقفلة", closedAt: new Date() }).where(eq(committees.id, committeeId));
   await audit({ actorId: user.id, action: "committee.closed", entityType: "committee", entityId: committeeId, summary: `إقفال ${c.nameAr} وأرشفتها` });
   await notifyAll({ title: "أقفلت لجنة", body: c.nameAr, link: `/committees/${committeeId}` });
@@ -483,10 +483,11 @@ export async function toggleTemplateActiveAction(templateId: string, active: boo
 /** إضافة نوع اجتماع جديد (المدير) */
 export async function addMeetingTypeAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("committees.approve");
+  // اسم النوع اختياري (v2.1 §H) — لا يُمنع الحفظ على فراغ (يُخزَّن "")
   const nameAr = String(formData.get("nameAr") ?? "").trim();
-  if (nameAr.length < 2) return { error: "اسم النوع مطلوب" };
   const all = await db.select().from(meetingTypes);
-  if (all.some((t) => t.nameAr === nameAr)) return { error: "النوع موجود مسبقاً" };
+  // منع التكرار للأسماء المكتوبة فقط — اسم فارغ لا يُمنع
+  if (nameAr.length > 0 && all.some((t) => t.nameAr === nameAr)) return { error: "النوع موجود مسبقاً" };
   const maxOrder = all.reduce((mx, t) => Math.max(mx, t.sortOrder), 0);
   const key = `mt-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
   await db.insert(meetingTypes).values({ key, nameAr, sortOrder: maxOrder + 1 });
@@ -526,12 +527,10 @@ export async function addMeetingAttachmentAction(meetingId: string, _prev: Actio
   const [m] = await db.select().from(meetings).where(eq(meetings.id, meetingId));
   if (!m) return { error: "الاجتماع غير موجود" };
   if (m.status === "مكتمل") return { error: "الاجتماع مكتمل — لا تُضاف مرفقات" };
+  // العنوان والفئة اختياريان (v2.1 §H) — لا يُمنع الحفظ على فراغ (يُخزَّن "").
+  // يبقى الملف مطلوباً لأن المرفق بلا ملف لا معنى له (ليس حقلاً نصياً).
   const title = String(formData.get("title") ?? "").trim();
-  if (title.length < 2) return { error: "عنوان المرفق مطلوب" };
-  const category = String(formData.get("category") ?? "");
-  if (!MEETING_ATTACHMENT_CATEGORIES.includes(category as (typeof MEETING_ATTACHMENT_CATEGORIES)[number])) {
-    return { error: "اختر فئة المرفق" };
-  }
+  const category = String(formData.get("category") ?? "").trim();
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { error: "ارفع ملف المرفق" };
   try {
@@ -571,61 +570,7 @@ export async function deleteMeetingAttachmentAction(attachmentId: string): Promi
   return { success: "حُذف المرفق" };
 }
 
-// ————————————————————————— النتيجة والأثر —————————————————————————
-
-export async function addImpactAction(committeeId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
-  const user = await requirePermission("committees.write");
-  const [c] = await db.select().from(committees).where(eq(committees.id, committeeId));
-  if (!c) return { error: "اللجنة غير موجودة" };
-  if (c.status === "مقفلة") return { error: "اللجنة مقفلة — لا تعديل" };
-  const result = String(formData.get("result") ?? "").trim();
-  const impact = String(formData.get("impact") ?? "").trim();
-  if (result.length < 2) return { error: "«النتيجة» مطلوبة" };
-  if (impact.length < 2) return { error: "«الأثر» مطلوب" };
-  const outcomeId = String(formData.get("outcomeId") ?? "") || null;
-  const taskId = String(formData.get("taskId") ?? "") || null;
-  const observedRaw = String(formData.get("observedAt") ?? "");
-  let evidenceFileId: string | null = null;
-  const file = formData.get("evidence") as File | null;
-  if (file && file.size > 0) {
-    try {
-      const stored = await saveUploadedFile({
-        originalName: file.name,
-        mime: file.type || "application/octet-stream",
-        data: Buffer.from(await file.arrayBuffer()),
-        scope: "attachments",
-        sensitive: true,
-        uploadedBy: user.id,
-      });
-      evidenceFileId = stored.id;
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : "تعذر رفع الشاهد" };
-    }
-  }
-  await db.insert(committeeImpacts).values({
-    committeeId,
-    outcomeId,
-    taskId,
-    result,
-    impact,
-    measurement: String(formData.get("measurement") ?? "") || null,
-    observedAt: observedRaw ? new Date(observedRaw) : null,
-    evidenceFileId,
-    createdBy: user.id,
-  });
-  await audit({ actorId: user.id, action: "committee.impact_recorded", entityType: "committee", entityId: committeeId, summary: `نتيجة وأثر للجنة «${c.nameAr}»` });
-  revalidatePath(`/committees/${committeeId}`);
-  return { success: "سُجّلت النتيجة والأثر" };
-}
-
-export async function deleteImpactAction(impactId: string): Promise<ActionState> {
-  const user = await requirePermission("committees.write");
-  const [i] = await db.select().from(committeeImpacts).where(eq(committeeImpacts.id, impactId));
-  if (!i) return { error: "السجل غير موجود" };
-  const [c] = await db.select().from(committees).where(eq(committees.id, i.committeeId));
-  if (c?.status === "مقفلة") return { error: "اللجنة مقفلة — لا حذف" };
-  await db.delete(committeeImpacts).where(eq(committeeImpacts.id, impactId));
-  await audit({ actorId: user.id, action: "committee.impact_deleted", entityType: "committee", entityId: i.committeeId });
-  revalidatePath(`/committees/${i.committeeId}`);
-  return { success: "حُذف السجل" };
-}
+// ————————————————————————— النتيجة والأثر (أُزيلت من سير العمل — v2.1 §G3) —————————————————————————
+// حذفت إجراءات addImpactAction / deleteImpactAction من طبقة التطبيق: «النتيجة والأثر» لم تعد جزءاً من
+// سير عمل اللجان. جدول committee_impacts وصفوفه الحالية تبقى في قاعدة البيانات (لا هجرة ولا حذف بيانات)،
+// لكنها لا تظهر ولا تُدار تشغيلياً بعد الآن.

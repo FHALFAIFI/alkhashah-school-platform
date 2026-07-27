@@ -14,7 +14,8 @@ import { audit } from "@/lib/audit";
 export type ActionState = { error?: string; success?: string } | null;
 
 const meta = z.object({
-  title: z.string().min(2, "عنوان الشاهد مطلوب"),
+  // اختياري (قاعدة v2.1: كل الحقول المُدخلة اختيارية) — يُخزَّن "" ويُعرض «بدون عنوان» بديلاً آمناً.
+  title: z.string().optional(),
   role: z.string().optional(),
   evidenceType: z.string().optional(),
   source: z.string().optional(),
@@ -61,27 +62,44 @@ export async function createEvidenceAction(_prev: ActionState, formData: FormDat
     return { error: e instanceof Error ? e.message : "تعذر حفظ الملف" };
   }
 
-  const [item] = await db
-    .insert(evidenceItems)
-    .values({
-      title: parsed.data.title,
-      kind,
-      fileId,
-      url,
-      textContent,
-      description: parsed.data.description || null,
-      role: parsed.data.role || null,
-      evidenceType: parsed.data.evidenceType || null,
-      source: parsed.data.source || null,
-      evidenceDate: parsed.data.evidenceDate || null,
-      createdBy: user.id,
-    })
-    .returning();
-
-  if (entityType && entityId) {
-    await linkEvidence({ evidenceId: item.id, entityType, entityId, subKey, linkedBy: user.id });
+  // The uploaded file (if any) is already persisted before this point: storage writes the
+  // file first, then its stored_files row (file-before-DB ordering), so a DB failure here can
+  // only strand a file, never leave a DB row pointing at a missing file. Insert the evidence
+  // item and its entity link inside ONE transaction so a partial failure cannot persist an
+  // evidence item without its intended link. Any DB error is surfaced as an Arabic message,
+  // never a raw exception.
+  let item: typeof evidenceItems.$inferSelect;
+  try {
+    item = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(evidenceItems)
+        .values({
+          title: parsed.data.title?.trim() ?? "",
+          kind,
+          fileId,
+          url,
+          textContent,
+          description: parsed.data.description || null,
+          role: parsed.data.role || null,
+          evidenceType: parsed.data.evidenceType || null,
+          source: parsed.data.source || null,
+          evidenceDate: parsed.data.evidenceDate || null,
+          createdBy: user.id,
+        })
+        .returning();
+      if (entityType && entityId) {
+        await tx
+          .insert(evidenceLinks)
+          .values({ evidenceId: created.id, entityType, entityId, subKey, linkedBy: user.id })
+          .onConflictDoNothing();
+      }
+      return created;
+    });
+  } catch {
+    return { error: "تعذّر حفظ الشاهد، حاول مرة أخرى" };
   }
-  await audit({ actorId: user.id, action: "evidence.created", entityType: "evidence", entityId: item.id, summary: `إضافة شاهد «${item.title}»` });
+
+  await audit({ actorId: user.id, action: "evidence.created", entityType: "evidence", entityId: item.id, summary: `إضافة شاهد «${item.title || "بدون عنوان"}»` });
   revalidatePath("/evidence");
   if (entityType === "program") revalidatePath(`/plan/${entityId}`);
   return { success: "أضيف الشاهد" };

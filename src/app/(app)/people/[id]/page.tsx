@@ -7,6 +7,7 @@ import { PageHeader, Card, Badge, SubmitButton, LinkButton } from "@/components/
 import { DependencyNotice } from "@/components/dependency-notice";
 import { assessDeletion } from "@/lib/safe-delete";
 import { employeeTypeOf } from "@/lib/employee-type";
+import { orFallback } from "@/lib/format";
 import { PersonForm } from "../person-form";
 import { deactivatePersonAction, reactivatePersonAction, deletePersonAction } from "../actions";
 
@@ -29,7 +30,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   return (
     <div className="max-w-2xl space-y-4">
       <PageHeader
-        title={person.fullName}
+        title={orFallback(person.fullName)}
         subtitle={`${employeeTypeOf(person)}${person.jobTitle ? ` — ${person.jobTitle}` : ""}`}
         actions={person.active ? <Badge value="نشط" /> : <Badge value="موقوف" />}
       />
@@ -100,7 +101,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
                 await deletePersonAction(person.id);
               }}
             >
-              <SubmitButton variant="danger" confirmText={`حذف «${person.fullName}» نهائياً؟ لا يمكن التراجع.`}>
+              <SubmitButton variant="danger" confirmText={`حذف «${orFallback(person.fullName)}» نهائياً؟ لا يمكن التراجع.`}>
                 حذف نهائي
               </SubmitButton>
             </form>

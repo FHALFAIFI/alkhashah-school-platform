@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs, programFollowups } from "@/db/schema";
@@ -8,6 +8,7 @@ import { daysSince, isFollowupDue } from "@/lib/plan/followup";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
 import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { orFallback } from "@/lib/format";
 import { FollowupDueBadge } from "../followup-badge";
 import { FollowupForm } from "./followup-ui";
 
@@ -25,7 +26,8 @@ export default async function FollowupPage() {
     ? (await db
         .select()
         .from(programs)
-        .where(and(eq(programs.planYearId, activeYear.id), notSynthetic(programs.id, excluded.programs)))
+        // البرامج المؤرشفة (v2.1 §A1) مستبعدة من المتابعة الأسبوعية
+        .where(and(eq(programs.planYearId, activeYear.id), notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)))
         .orderBy(asc(programs.seq)))
         .filter((p) => p.status === "معتمد")
     : [];
@@ -68,7 +70,7 @@ export default async function FollowupPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1 basis-56">
                     <Link href={`/plan/${p.id}`} className="font-medium text-brand-700 hover:underline">
-                      {p.seq}. {p.name}
+                      {p.seq}. {orFallback(p.name)}
                     </Link>
                     <div className="mt-1 text-xs text-gray-500">
                       {p.lastReviewAt

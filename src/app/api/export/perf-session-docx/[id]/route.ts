@@ -8,6 +8,7 @@ import { buildWordReport } from "@/lib/reports/word-export";
 import { weightedScore } from "@/lib/performance/scoring";
 import { audit } from "@/lib/audit";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
+import { orFallback } from "@/lib/format";
 
 /** تصدير تقرير جلسة الأداء Word قابل للتحرير — التقديرات والدرجات الموزونة (حساب الخادم) */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -35,7 +36,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     totalWeight += weight;
     const score = r?.rating != null ? weightedScore(r.rating, weight) : null;
     if (score !== null) totalScore += score;
-    return [ind.nameAr, `${weight}٪`, r?.rating != null ? String(r.rating) : "—", score != null ? `${score}٪` : "—"];
+    return [orFallback(ind.nameAr), `${weight}٪`, r?.rating != null ? String(r.rating) : "—", score != null ? `${score}٪` : "—"];
   });
   rows.push(["الإجمالي", `${totalWeight}٪`, "", `${Math.round(totalScore * 100) / 100}٪`]);
 
@@ -44,7 +45,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     title: `تقرير جلسة أداء: ${person.fullName}`,
     meta: [
       ["تاريخ الإصدار", `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`],
-      ["النموذج", snapshot.model.nameAr],
+      ["النموذج", orFallback(snapshot.model.nameAr)],
       ["نوع الجلسة", session.sessionType],
       ["تاريخ الجلسة", session.sessionDate ?? "—"],
       ["النتيجة", session.sessionResult != null ? `${session.sessionResult}٪` : "—"],
@@ -57,7 +58,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           session.notes ? `الملاحظات: ${session.notes}` : "",
           session.strengths ? `مواطن القوة: ${session.strengths}` : "",
           session.improvementAreas ? `مجالات التحسين: ${session.improvementAreas}` : "",
-          session.actionsText ? `الإجراءات: ${session.actionsText}` : "",
+          session.actionsText ? `التوصيات: ${session.actionsText}` : "",
         ].filter(Boolean),
       },
     ],

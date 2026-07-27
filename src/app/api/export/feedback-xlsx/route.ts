@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { listFeedback, type FeedbackFilters } from "@/lib/feedback/service";
+import { orFallback } from "@/lib/format";
 
 function parseDate(s: string | null): Date | undefined {
   if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
   for (const r of rows) {
     ws.addRow({
       ref: r.ref,
-      title: r.title,
+      title: orFallback(r.title),
       module: r.module,
       category: r.category,
       severity: r.severity,

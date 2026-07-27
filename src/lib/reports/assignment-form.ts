@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { committees, committeeMembers, committeeTaskAssignments, people, planYears } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
@@ -7,15 +7,17 @@ import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { getDocumentIdentity, resolveHeader, type IdentityToggles } from "@/lib/document-identity";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
+import { orFallback, orDash } from "@/lib/format";
 
 function esc(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 /**
- * نموذج توزيع المهام على مستوى اللجنة (D-027): جدول مهام — المهمة / العضو المكلف / الصفة-الدور /
- * توقيع العضو / ملاحظات — يُطبع ويوقّع. عمود التوقيع ورقي يظهر في المطبوع. يستعمل هوية الوثائق
- * المركزية ويُجمّد كلقطة تاريخية (تعديل قوالب المهام لاحقاً لا يمسّ هذه اللقطة).
+ * نموذج التكليف على مستوى اللجنة (D-027): قائمتان مستقلتان — «أعضاء اللجنة» (كل الأعضاء الحاليين
+ * مع عمود توقيع ورقي) و«مهام اللجنة» (كل المهام غير المستبعدة كقائمة مستقلة، دون ربط كل مهمة بعضو).
+ * القائمتان تظهران وإن كانت إحداهما فارغة (لا يُرمى استثناء). عمود التوقيع ورقي يظهر في المطبوع فقط.
+ * يستعمل هوية الوثائق المركزية ويُجمّد كلقطة تاريخية (تعديل القوالب لاحقاً لا يمسّ هذه اللقطة).
  */
 export async function generateAssignmentForm(opts: {
   committeeId: string;
@@ -25,56 +27,84 @@ export async function generateAssignmentForm(opts: {
   const [c] = await db.select().from(committees).where(eq(committees.id, opts.committeeId));
   if (!c) throw new Error("اللجنة غير موجودة");
 
-  const [tasks, [year], identity] = await Promise.all([
+  const [members, tasks, [year], identity] = await Promise.all([
+    // القائمة الأولى: كل أعضاء اللجنة الحاليين (العضوية الحالية = effectiveTo IS NULL) — مستقلة عن المهام
+    db
+      .select({
+        name: people.fullName,
+        role: committeeMembers.role,
+        position: committeeMembers.position,
+        sortOrder: committeeMembers.sortOrder,
+      })
+      .from(committeeMembers)
+      .leftJoin(people, eq(committeeMembers.personId, people.id))
+      .where(and(eq(committeeMembers.committeeId, opts.committeeId), isNull(committeeMembers.effectiveTo)))
+      .orderBy(asc(committeeMembers.sortOrder)),
+    // القائمة الثانية: كل مهام اللجنة غير المستبعدة — قائمة مستقلة لا تُربط كل مهمة بعضو
     db
       .select({
         title: committeeTaskAssignments.title,
         notes: committeeTaskAssignments.notes,
         sortOrder: committeeTaskAssignments.sortOrder,
-        memberName: people.fullName,
-        memberRole: committeeMembers.role,
       })
       .from(committeeTaskAssignments)
-      .leftJoin(committeeMembers, eq(committeeTaskAssignments.assignedMemberId, committeeMembers.id))
-      .leftJoin(people, eq(committeeMembers.personId, people.id))
       .where(and(eq(committeeTaskAssignments.committeeId, opts.committeeId), eq(committeeTaskAssignments.excluded, false)))
       .orderBy(asc(committeeTaskAssignments.sortOrder)),
     db.select().from(planYears).where(eq(planYears.id, c.planYearId)),
     getDocumentIdentity(),
   ]);
 
-  if (tasks.length === 0) throw new Error("لا مهام موزّعة — حمّل المهام المعرّفة مسبقاً ووزّعها على الأعضاء أولاً");
-
   const header = resolveHeader(identity, opts.toggles);
   const now = new Date();
   const issuedAtText = `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`;
 
-  const rows = tasks
-    .map(
-      (t, i) => `<tr>
+  const memberRows =
+    members.length === 0
+      ? `<tr><td colspan="5">لا أعضاء</td></tr>`
+      : members
+          .map(
+            (m, i) => `<tr>
         <td>${i + 1}</td>
-        <td>${esc(t.title)}</td>
-        <td>${esc(t.memberName ?? "—")}</td>
-        <td>${esc(t.memberRole ?? "—")}</td>
+        <td>${esc(orFallback(m.name))}</td>
+        <td>${esc(orDash(m.role))}</td>
+        <td>${esc(orDash(m.position))}</td>
         <td></td>
-        <td>${esc(t.notes ?? "")}</td>
       </tr>`,
-    )
-    .join("");
+          )
+          .join("");
+
+  const taskRows =
+    tasks.length === 0
+      ? `<tr><td colspan="3">لا مهام</td></tr>`
+      : tasks
+          .map(
+            (t, i) => `<tr>
+        <td>${i + 1}</td>
+        <td>${esc(orFallback(t.title))}</td>
+        <td>${esc(orDash(t.notes))}</td>
+      </tr>`,
+          )
+          .join("");
 
   const body = `
-    <p>بناءً على الصلاحيات الممنوحة، وُزّعت المهام الآتية على أعضاء
-    <strong>${esc(c.nameAr)}</strong> للعام الدراسي ${esc(year?.nameAr ?? identity.academicYear)}،
-    على النحو الموضّح أدناه:</p>
+    <p>بناءً على الصلاحيات الممنوحة، يُوثّق أدناه أعضاء
+    <strong>${esc(orFallback(c.nameAr))}</strong> ومهام اللجنة للعام الدراسي ${esc(year?.nameAr ?? identity.academicYear)}،
+    في قائمتين مستقلتين:</p>
+    <h2>أعضاء اللجنة</h2>
     <table>
-      <thead><tr><th>م</th><th>المهمة</th><th>العضو المكلف</th><th>الصفة/الدور</th><th>توقيع العضو</th><th>ملاحظات</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <thead><tr><th>م</th><th>الاسم</th><th>العمل في اللجنة</th><th>الصفة/الدور</th><th>التوقيع</th></tr></thead>
+      <tbody>${memberRows}</tbody>
+    </table>
+    <h2>مهام اللجنة</h2>
+    <table>
+      <thead><tr><th>م</th><th>المهمة</th><th>ملاحظات</th></tr></thead>
+      <tbody>${taskRows}</tbody>
     </table>
     ${c.goal ? `<h2>الهدف</h2><p>${esc(c.goal)}</p>` : ""}
-    <p class="meta">يُطبع جدول توزيع المهام ويوقّعه الأعضاء في خانة «توقيع العضو»، ثم يُرفع الأصل الموقّع عند الحاجة.</p>
+    <p class="meta">يُطبع هذا النموذج ويوقّع الأعضاء في خانة «التوقيع» بجدول الأعضاء، ثم يُرفع الأصل الموقّع عند الحاجة.</p>
   `;
 
-  const title = `نموذج توزيع مهام — ${c.nameAr}`;
+  const title = `نموذج توزيع مهام — ${orFallback(c.nameAr)}`;
   const identityHeader = {
     orgLines: header.orgLines,
     headerNote: header.headerNote,

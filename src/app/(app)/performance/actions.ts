@@ -16,14 +16,15 @@ import { saveUploadedFile } from "@/lib/storage";
 import { getSetting } from "@/lib/settings";
 import { sessionResult, validRating } from "@/lib/performance/scoring";
 import { snapshotAwaitingFaresCells } from "@/lib/performance/d014";
-import { evidenceForEntity } from "@/lib/evidence";
+import { numOrNull } from "@/lib/format";
 
 export type ActionState = { error?: string; success?: string } | null;
 
 // ————————————————— النماذج —————————————————
 
 const modelSchema = z.object({
-  nameAr: z.string().min(2, "اسم النموذج مطلوب"),
+  // v2.1 (§H): user business field is optional — store "" when blank (column is NOT NULL).
+  nameAr: z.string().default(""),
   audience: z.enum(["معلم", "موظف"]),
   official: z.string().optional(),
   description: z.string().optional(),
@@ -53,7 +54,8 @@ export async function createModelAction(_prev: ActionState, formData: FormData):
 }
 
 const indicatorSchema = z.object({
-  nameAr: z.string().min(2, "اسم المؤشر مطلوب"),
+  // v2.1 (§H): name optional (store "" when blank); weight stays validated — it drives the =100% gate.
+  nameAr: z.string().default(""),
   weight: z.coerce.number().positive("الوزن يجب أن يكون موجباً").max(100),
   requiresEvidence: z.string().optional(),
 });
@@ -129,7 +131,8 @@ const cycleSchema = z.object({
   personId: z.string().uuid("اختر الشخص"),
   modelId: z.string().uuid("اختر النموذج"),
   cycleType: z.enum(["معلم", "موظف"]),
-  yearKey: z.string().min(4),
+  // v2.1 (§H): year key optional — store "" when blank (column is NOT NULL).
+  yearKey: z.string().default(""),
   planningDeadline: z.string().optional(),
   midDeadline: z.string().optional(),
   finalDeadline: z.string().optional(),
@@ -183,8 +186,9 @@ export async function createCycleAction(_prev: ActionState, formData: FormData):
       endDate = yearEnd?.gregFrom ?? null;
     }
   } else {
-    const year = Number(parsed.data.yearKey);
-    if (Number.isFinite(year)) {
+    // An empty/non-numeric year key yields no derived dates (never a year-0 range).
+    const year = numOrNull(parsed.data.yearKey);
+    if (year !== null) {
       startDate = `${year}-01-01`;
       endDate = `${year}-12-31`;
     }
@@ -416,9 +420,12 @@ export async function markEvaluationCompletedAction(sessionId: string): Promise<
 }
 
 /**
- * اكتمال/إقفال الجلسة:
- * - أي جلسة لا تكتمل نهائياً دون تقرير موقع (A3).
- * - جلسة «نهائي» لا تقفل قبل اكتمال جميع المؤشرات والشواهد المطلوبة (A بوابة المرحلة).
+ * Complete / lock a session.
+ * The single remaining "produce the output document" gate is that the session report must be
+ * issued first. Per the principal's v2.1 corrections there is no signed-report requirement, no
+ * all-indicators-rated gate, and no per-indicator required-evidence gate (evidence is informational).
+ * A «نهائي» session still cannot be locked while the frozen model snapshot has a D-014 cell
+ * awaiting «فارس» reconciliation.
  */
 export async function completeSessionAction(sessionId: string): Promise<ActionState> {
   const user = await requirePermission("performance.approve", "performance.individual.read");
@@ -427,23 +434,9 @@ export async function completeSessionAction(sessionId: string): Promise<ActionSt
   if (session.status === "مكتملة" || session.status === "مقفلة") return { error: "الجلسة مكتملة مسبقاً" };
 
   if (!session.reportDocId) return { error: "أصدر تقرير الجلسة أولاً — لكل جلسة مكتملة تقرير" };
-  if (!session.signedReportFileId) return { error: "لا تكتمل الجلسة دون رفع التقرير الموقع" };
 
   if (session.sessionType === "نهائي") {
     const [cycle] = await db.select().from(perfCycles).where(eq(perfCycles.id, session.cycleId));
-    const snapshot = cycle.modelSnapshot as { indicators: { id: string; nameAr: string; requiresEvidence: boolean }[] };
-    const ratings = await db.select().from(perfRatings).where(eq(perfRatings.sessionId, sessionId));
-    const ratedIds = new Set(ratings.filter((r) => r.rating !== null).map((r) => r.indicatorId));
-    const unrated = snapshot.indicators.filter((i) => !ratedIds.has(i.id));
-    if (unrated.length > 0) {
-      return { error: `التقييم النهائي لا يقفل قبل تقييم جميع المؤشرات — ينقص: ${unrated.map((i) => i.nameAr).join("، ")}` };
-    }
-    const evidence = await evidenceForEntity("perf_session", sessionId);
-    const evidenceByIndicator = new Set(evidence.map((e) => e.link.subKey));
-    const missingEvidence = snapshot.indicators.filter((i) => i.requiresEvidence && !evidenceByIndicator.has(i.id));
-    if (missingEvidence.length > 0) {
-      return { error: `الشواهد المطلوبة غير مكتملة للمؤشرات: ${missingEvidence.map((i) => i.nameAr).join("، ")}` };
-    }
     // بوابة D-014: لا إقفال نهائي على نموذج رسمي أصلي فيه خلية بانتظار مطابقة فارس
     const awaitingFares = snapshotAwaitingFaresCells(cycle.modelSnapshot);
     if (awaitingFares.length > 0) {
@@ -459,7 +452,7 @@ export async function completeSessionAction(sessionId: string): Promise<ActionSt
     .update(perfSessions)
     .set({ status: newStatus, lockedAt: new Date(), lockedBy: user.id, version: session.version + 1 })
     .where(eq(perfSessions.id, sessionId));
-  await audit({ actorId: user.id, action: "perf_session.completed", entityType: "perf_session", entityId: sessionId, summary: `${newStatus === "مقفلة" ? "إقفال التقييم النهائي" : "اكتمال جلسة"} بتقرير موقع` });
+  await audit({ actorId: user.id, action: "perf_session.completed", entityType: "perf_session", entityId: sessionId, summary: newStatus === "مقفلة" ? "إقفال التقييم النهائي" : "اكتمال جلسة" });
   // إقفال التقييم النهائي يكمل الدورة — تعاد إلى «نشطة» عند إعادة فتح الجلسة النهائية
   if (session.sessionType === "نهائي") {
     await db.update(perfCycles).set({ status: "مكتملة" }).where(eq(perfCycles.id, session.cycleId));
@@ -509,7 +502,8 @@ export async function reopenSessionAction(sessionId: string, formData: FormData)
 // ————————————————— خطط التحسين —————————————————
 
 const improvementSchema = z.object({
-  title: z.string().min(2, "عنوان الخطة مطلوب"),
+  // v2.1 (§H): plan title optional — store "" when blank (column is NOT NULL).
+  title: z.string().default(""),
   goals: z.string().optional(),
   actions: z.string().optional(),
   duration: z.string().optional(),

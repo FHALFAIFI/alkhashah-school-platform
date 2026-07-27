@@ -10,6 +10,7 @@ import { evidenceForEntity } from "@/lib/evidence";
 import { renderEvidenceContent } from "@/lib/evidence-render";
 import { weightedScore } from "@/lib/performance/scoring";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
+import { orFallback, orDash } from "@/lib/format";
 
 function esc(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -57,7 +58,7 @@ export async function generateSessionReport(opts: {
       if (score !== null) totalScore += score;
       return `<tr>
         <td>${i + 1}</td>
-        <td>${esc(ind.nameAr)}</td>
+        <td>${esc(orFallback(ind.nameAr))}</td>
         <td>${weight}٪</td>
         <td>${r?.rating ?? "غير مقيم"}</td>
         <td>${score !== null ? score.toFixed(2) + "٪" : "—"}</td>
@@ -71,10 +72,10 @@ export async function generateSessionReport(opts: {
   <table>
     <tr><th style="width:22%">الاسم</th><td>${esc(person.fullName)}</td></tr>
     <tr><th>الفئة</th><td>${esc(cycle.cycleType)} — ${esc(person.jobTitle ?? "")}</td></tr>
-    <tr><th>النموذج</th><td>${esc(snapshot.model.nameAr)}${snapshot.model.official ? " (نموذج رسمي)" : ""}</td></tr>
+    <tr><th>النموذج</th><td>${esc(orFallback(snapshot.model.nameAr))}${snapshot.model.official ? " (نموذج رسمي)" : ""}</td></tr>
     <tr><th>نوع الجلسة</th><td>${esc(session.sessionType)}</td></tr>
     <tr><th>تاريخ الجلسة</th><td>${esc(sessionDateText)}</td></tr>
-    <tr><th>الدورة</th><td>${esc(cycle.yearKey)}</td></tr>
+    <tr><th>الدورة</th><td>${esc(orDash(cycle.yearKey))}</td></tr>
   </table>
 
   <h2>المؤشرات والتقديرات — القاعدة: الدرجة الموزونة = (التقدير ÷ 5) × الوزن</h2>
@@ -89,7 +90,7 @@ export async function generateSessionReport(opts: {
     ["الملاحظات", session.notes],
     ["نقاط القوة", session.strengths],
     ["فرص التحسين", session.improvementAreas],
-    ["الإجراءات", session.actionsText],
+    ["التوصيات", session.actionsText],
     ["موعد المتابعة القادمة", session.nextFollowupDate],
   ];
   for (const [title, content] of textSections) {

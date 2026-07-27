@@ -7,12 +7,14 @@ import { db } from "@/db";
 import { facilityChecklist, facilityRoomLinks, rooms } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { orFallback } from "@/lib/format";
 import { FACILITY_STATUSES, STANDARD_FACILITIES } from "./constants";
 
 export type ActionState = { error?: string; success?: string } | null;
 
 const addSchema = z.object({
-  facilityType: z.string().min(2, "نوع المرفق مطلوب"),
+  // Optional per v2.1 global rule — empty type stored as "" (NOT-NULL column satisfied).
+  facilityType: z.string().optional(),
   kind: z.enum(["معياري", "مخصص"]).optional(),
   requiredQty: z.coerce.number().int().min(0).optional(),
   notes: z.string().optional(),
@@ -23,16 +25,18 @@ export async function addFacilityAction(_prev: ActionState, formData: FormData):
   const parsed = addSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const d = parsed.data;
+  const facilityType = d.facilityType?.trim() ?? "";
 
   const existing = await db.select().from(facilityChecklist);
-  if (existing.some((f) => f.facilityType.trim() === d.facilityType.trim())) {
+  // فحص التكرار يُتخطى للنوع الفارغ (نوع المرفق أصبح اختيارياً)
+  if (facilityType && existing.some((f) => f.facilityType.trim() === facilityType)) {
     return { error: "هذا المرفق مضاف بالفعل في القائمة" };
   }
 
   const [row] = await db
     .insert(facilityChecklist)
     .values({
-      facilityType: d.facilityType,
+      facilityType,
       kind: d.kind ?? "مخصص",
       requiredQty: d.requiredQty ?? null,
       notes: d.notes || null,
@@ -40,7 +44,7 @@ export async function addFacilityAction(_prev: ActionState, formData: FormData):
       createdBy: user.id,
     })
     .returning();
-  await audit({ actorId: user.id, action: "facility.added", entityType: "facility", entityId: row.id, summary: `مرفق «${d.facilityType}»` });
+  await audit({ actorId: user.id, action: "facility.added", entityType: "facility", entityId: row.id, summary: `مرفق «${orFallback(facilityType)}»` });
   revalidatePath("/building/facilities");
   return { success: "أُضيف المرفق إلى القائمة" };
 }
@@ -67,7 +71,7 @@ export async function setFacilityStatusAction(facilityId: string, status: string
   const [f] = await db.select().from(facilityChecklist).where(eq(facilityChecklist.id, facilityId));
   if (!f) return { error: "المرفق غير موجود" };
   await db.update(facilityChecklist).set({ status, updatedAt: new Date() }).where(eq(facilityChecklist.id, facilityId));
-  await audit({ actorId: user.id, action: "facility.status_changed", entityType: "facility", entityId: facilityId, summary: `${f.facilityType}: ${status}` });
+  await audit({ actorId: user.id, action: "facility.status_changed", entityType: "facility", entityId: facilityId, summary: `${orFallback(f.facilityType)}: ${status}` });
   revalidatePath("/building/facilities");
   return { success: "حُدّثت الحالة" };
 }
@@ -85,7 +89,7 @@ export async function linkFacilityRoomAction(facilityId: string, _prev: ActionSt
   if (f.status !== "موجود") {
     await db.update(facilityChecklist).set({ status: "موجود", updatedAt: new Date() }).where(eq(facilityChecklist.id, facilityId));
   }
-  await audit({ actorId: user.id, action: "facility.room_linked", entityType: "facility", entityId: facilityId, summary: `ربط غرفة بمرفق ${f.facilityType}` });
+  await audit({ actorId: user.id, action: "facility.room_linked", entityType: "facility", entityId: facilityId, summary: `ربط غرفة بمرفق ${orFallback(f.facilityType)}` });
   revalidatePath("/building/facilities");
   return { success: "رُبطت الغرفة بالمرفق" };
 }
@@ -106,7 +110,7 @@ export async function deleteFacilityAction(facilityId: string): Promise<ActionSt
   if (!f) return { error: "المرفق غير موجود" };
   // حذف بند القائمة يزيل روابط الغرف (تعاقبي على الربط فقط) — لا يمس الغرف نفسها
   await db.delete(facilityChecklist).where(eq(facilityChecklist.id, facilityId));
-  await audit({ actorId: user.id, action: "facility.deleted", entityType: "facility", entityId: facilityId, summary: `حذف مرفق «${f.facilityType}»` });
+  await audit({ actorId: user.id, action: "facility.deleted", entityType: "facility", entityId: facilityId, summary: `حذف مرفق «${orFallback(f.facilityType)}»` });
   revalidatePath("/building/facilities");
   return { success: "حُذف المرفق من القائمة" };
 }

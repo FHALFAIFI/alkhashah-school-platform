@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { perfModels, perfIndicators } from "@/db/schema";
 import { PageHeader, Card, Badge, Table } from "@/components/ui";
 import { IndicatorForm, DeleteIndicatorButton, ApproveModelButton, ReopenModelForm } from "../models-ui";
+import { orFallback } from "@/lib/format";
 import { isAwaitingFaresIndicator, AWAITING_FARES_LABEL } from "@/lib/performance/d014";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ export default async function ModelPage({ params }: { params: Promise<{ id: stri
   return (
     <div className="space-y-5">
       <PageHeader
-        title={model.nameAr}
+        title={orFallback(model.nameAr)}
         subtitle={`${model.audience} — ${model.official ? "نموذج رسمي (لا تعدل أسماء المؤشرات أو الأوزان بعد النقل)" : "نموذج داخلي"}`}
         actions={<Badge value={model.status} />}
       />
@@ -55,7 +56,7 @@ export default async function ModelPage({ params }: { params: Promise<{ id: stri
               <tr key={ind.id}>
                 <td className="px-3 py-2 tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2 font-medium">
-                  {ind.nameAr}
+                  {orFallback(ind.nameAr)}
                   {awaiting(ind.nameAr, ind.weight) && (
                     <span className="ms-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">{AWAITING_FARES_LABEL}</span>
                   )}

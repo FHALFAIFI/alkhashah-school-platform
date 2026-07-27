@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { getFeedbackById } from "@/lib/feedback/service";
 import { isSafeInternalPath } from "@/lib/feedback/constants";
 import { PageHeader, Card, Badge } from "@/components/ui";
+import { orFallback } from "@/lib/format";
 import { FeedbackWorkflow } from "./workflow";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export default async function FeedbackDetailPage({ params }: { params: Promise<{
     <div>
       <PageHeader
         title={`ملاحظة ${f.ref}`}
-        subtitle={f.title}
+        subtitle={orFallback(f.title)}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Badge value={f.status} />

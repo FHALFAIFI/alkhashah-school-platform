@@ -55,7 +55,8 @@ export async function loadCommitteeTasksAction(committeeId: string): Promise<Act
   return { success: `حُمّلت ${toAdd.length} مهمة معرّفة مسبقاً — راجعها ووزّعها على الأعضاء` };
 }
 
-const taskSchema = z.object({ title: z.string().trim().min(2, "نص المهمة مطلوب"), notes: z.string().optional() });
+// نص المهمة اختياري (v2.1 §H) — لا يُمنع الحفظ على فراغ (عمود NOT NULL يُخزَّن "")
+const taskSchema = z.object({ title: z.string().trim().optional(), notes: z.string().optional() });
 
 export async function addCommitteeTaskAction(committeeId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("committees.write");
@@ -66,11 +67,11 @@ export async function addCommitteeTaskAction(committeeId: string, _prev: ActionS
   if (c.status === "مقفلة") return { error: "اللجنة مقفلة — لا تعديل" };
   await db.insert(committeeTaskAssignments).values({
     committeeId,
-    title: parsed.data.title,
+    title: parsed.data.title ?? "",
     notes: parsed.data.notes || null,
     sortOrder: await nextAssignmentOrder(committeeId),
   });
-  await audit({ actorId: user.id, action: "committee.task_added", entityType: "committee", entityId: committeeId, summary: parsed.data.title });
+  await audit({ actorId: user.id, action: "committee.task_added", entityType: "committee", entityId: committeeId, summary: parsed.data.title ?? "" });
   revalidatePath(`/committees/${committeeId}`);
   return { success: "أُضيفت المهمة" };
 }
@@ -88,9 +89,9 @@ export async function updateCommitteeTaskAction(taskId: string, _prev: ActionSta
   if (!committeeId) return { error: "المهمة غير موجودة" };
   await db
     .update(committeeTaskAssignments)
-    .set({ title: parsed.data.title, notes: parsed.data.notes || null, updatedAt: new Date() })
+    .set({ title: parsed.data.title ?? "", notes: parsed.data.notes || null, updatedAt: new Date() })
     .where(eq(committeeTaskAssignments.id, taskId));
-  await audit({ actorId: user.id, action: "committee.task_updated", entityType: "committee", entityId: committeeId, summary: parsed.data.title });
+  await audit({ actorId: user.id, action: "committee.task_updated", entityType: "committee", entityId: committeeId, summary: parsed.data.title ?? "" });
   revalidatePath(`/committees/${committeeId}`);
   return { success: "حُدّثت المهمة" };
 }
@@ -162,7 +163,8 @@ export async function seedTaskTemplatesAction(): Promise<ActionState> {
   return { success: seeded > 0 ? `بُذرت ${seeded} مهمة معرّفة مسبقاً من مهام القوالب` : "قوالب المهام مبذورة بالفعل" };
 }
 
-const templateSchema = z.object({ templateKey: z.string().min(1), title: z.string().trim().min(2, "نص المهمة مطلوب") });
+// نص قالب المهمة اختياري (v2.1 §H) — لا يُمنع الحفظ على فراغ (عمود NOT NULL يُخزَّن "")
+const templateSchema = z.object({ templateKey: z.string().min(1), title: z.string().trim().optional() });
 
 export async function addTaskTemplateAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("committees.approve");
@@ -174,18 +176,18 @@ export async function addTaskTemplateAction(_prev: ActionState, formData: FormDa
     .where(eq(committeeTaskTemplates.templateKey, parsed.data.templateKey));
   await db.insert(committeeTaskTemplates).values({
     templateKey: parsed.data.templateKey,
-    title: parsed.data.title,
+    title: parsed.data.title ?? "",
     sortOrder: (row?.n ?? -1) + 1,
   });
-  await audit({ actorId: user.id, action: "committee_task_template.added", summary: `${parsed.data.templateKey}: ${parsed.data.title}` });
+  await audit({ actorId: user.id, action: "committee_task_template.added", summary: `${parsed.data.templateKey}: ${parsed.data.title ?? ""}` });
   revalidatePath("/committees/task-templates");
   return { success: "أُضيف قالب المهمة" };
 }
 
 export async function updateTaskTemplateAction(id: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("committees.approve");
+  // نص قالب المهمة اختياري (v2.1 §H) — لا يُمنع الحفظ على فراغ (يُخزَّن "")
   const title = String(formData.get("title") ?? "").trim();
-  if (title.length < 2) return { error: "نص المهمة مطلوب" };
   const [t] = await db.select().from(committeeTaskTemplates).where(eq(committeeTaskTemplates.id, id));
   if (!t) return { error: "القالب غير موجود" };
   // تعديل القالب لا يعيد كتابة أي توزيع أو وثيقة صدرت سابقاً (نسخ مستقلة/لقطات ثابتة)

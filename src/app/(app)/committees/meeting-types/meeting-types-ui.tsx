@@ -12,7 +12,7 @@ export function AddMeetingTypeForm() {
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="w-full rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
       <div className="min-w-56 flex-1">
-        <Field label="اسم النوع (عربي)" name="nameAr" required />
+        <Field label="اسم النوع (عربي)" name="nameAr" />
       </div>
       <SubmitButton variant="secondary">إضافة نوع</SubmitButton>
     </form>

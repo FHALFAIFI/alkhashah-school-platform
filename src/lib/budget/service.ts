@@ -4,14 +4,13 @@ import { db } from "@/db";
 import {
   budgetIncome,
   budgetExpenses,
-  planBudgetItems,
   programs,
-  programActivities,
   people,
   evidenceItems,
   evidenceLinks,
 } from "@/db/schema";
-import { summarize, programBudgetLines, type BudgetSummary, type ProgramBudgetLine } from "./calc";
+import { summarize, programBudgetLines, num, type BudgetSummary, type ProgramBudgetLine, type PlannedRow } from "./calc";
+import { numOrNull } from "@/lib/format";
 
 /** أي السجلات (مصروف/إيراد) لديها إيصال/شاهد غير مؤرشف مرتبط — معلوماتي فقط، غير إلزامي (D-026). */
 async function receiptFlags(entityType: "budget_expense" | "budget_income", ids: string[]): Promise<Set<string>> {
@@ -38,10 +37,9 @@ export type BudgetOverview = {
 };
 
 export async function getBudgetOverview(planYearId: string): Promise<BudgetOverview> {
-  const [income, expenses, planned] = await Promise.all([
+  const [income, expenses] = await Promise.all([
     db.select().from(budgetIncome).where(eq(budgetIncome.planYearId, planYearId)).orderBy(desc(budgetIncome.createdAt)),
     db.select().from(budgetExpenses).where(eq(budgetExpenses.planYearId, planYearId)).orderBy(desc(budgetExpenses.createdAt)),
-    db.select().from(planBudgetItems).where(eq(planBudgetItems.planYearId, planYearId)),
   ]);
 
   const [receipts, incomeReceipts] = await Promise.all([
@@ -50,14 +48,20 @@ export async function getBudgetOverview(planYearId: string): Promise<BudgetOverv
   ]);
   const incomeRows = income.map((i) => ({ ...i, hasReceipt: incomeReceipts.has(i.id) }));
 
-  // أسماء البرامج والمسؤولين لعرض المصروفات
-  const programIds = [...new Set(expenses.map((e) => e.programId).filter((x): x is string => !!x))];
+  // برامج السنة: الاسم للعرض و `programs.budget` مصدر «الميزانية المعتمدة» الوحيد (D-026/§8)
+  // بدل مسار plan_budget_items الفارغ. نجلب كل برامج السنة (حتى المؤرشفة) حتى يظهر اسم البرنامج
+  // المرتبط بمصروف تاريخي؛ أما التخصيص فيؤخذ من البرامج غير المؤرشفة ذات القيمة الموجبة فقط.
+  const planPrograms = await db
+    .select({ id: programs.id, name: programs.name, budget: programs.budget, archivedAt: programs.archivedAt })
+    .from(programs)
+    .where(eq(programs.planYearId, planYearId));
+  const progName = new Map(planPrograms.map((p) => [p.id, p.name]));
+
+  // أسماء المسؤولين لعرض المصروفات
   const personIds = [...new Set(expenses.map((e) => e.responsiblePersonId).filter((x): x is string => !!x))];
-  const [progs, persons] = await Promise.all([
-    programIds.length ? db.select({ id: programs.id, name: programs.name }).from(programs).where(inArray(programs.id, programIds)) : Promise.resolve([]),
-    personIds.length ? db.select({ id: people.id, name: people.fullName }).from(people).where(inArray(people.id, personIds)) : Promise.resolve([]),
-  ]);
-  const progName = new Map(progs.map((p) => [p.id, p.name]));
+  const persons = personIds.length
+    ? await db.select({ id: people.id, name: people.fullName }).from(people).where(inArray(people.id, personIds))
+    : [];
   const personName = new Map(persons.map((p) => [p.id, p.name]));
 
   const expenseRows = expenses.map((e) => ({
@@ -67,30 +71,33 @@ export async function getBudgetOverview(planYearId: string): Promise<BudgetOverv
     responsibleName: e.responsiblePersonId ? personName.get(e.responsiblePersonId) ?? null : null,
   }));
 
-  const summary = summarize(
-    income.map((i) => ({ amount: Number(i.amount), status: i.status, programId: i.programId })),
-    expenseRows.map((e) => ({
-      id: e.id,
-      amount: Number(e.amount),
-      programId: e.programId,
-      activityId: e.activityId,
-      hasReceipt: e.hasReceipt,
-      overspendAcknowledged: e.overspendAcknowledged,
-    })),
-  );
+  // صفوف الحساب — null-safe: `num` يحوّل المبلغ الفارغ (المبلغ اختياري v2.1) إلى 0 دون NaN.
+  // القيمة الفارغة تسهم بصفر في المجاميع لكنها ليست «مُدخلة» — والعرض يستعمل «—» بدلها.
+  const incomeCalc = income.map((i) => ({ amount: num(i.amount), status: i.status, programId: i.programId }));
+  const expenseCalc = expenseRows.map((e) => ({
+    id: e.id,
+    amount: num(e.amount),
+    programId: e.programId,
+    activityId: e.activityId,
+    hasReceipt: e.hasReceipt,
+    overspendAcknowledged: e.overspendAcknowledged,
+  }));
 
-  const lines = programBudgetLines(
-    planned.map((p) => ({ programId: null as string | null, amount: Number(p.amount) })),
-    expenseRows.map((e) => ({ id: e.id, amount: Number(e.amount), programId: e.programId, activityId: e.activityId, hasReceipt: e.hasReceipt, overspendAcknowledged: e.overspendAcknowledged })),
-  );
-  // plan_budget_items ليست مرتبطة ببرنامج في المخطط الحالي؛ خطوط البرامج تُبنى من المصروفات
-  // المرتبطة ببرامج (والمخصص المخطط لكل برنامج يُضاف مستقبلاً عبر ربط البنود بالبرامج).
-  const allProgramIds = [...new Set(expenseRows.map((e) => e.programId).filter((x): x is string => !!x))];
-  const programLines = allProgramIds.map((pid) => {
-    const spent = expenseRows.filter((e) => e.programId === pid).reduce((s, e) => s + Number(e.amount), 0);
-    const line = lines.get(pid) ?? { programId: pid, allocated: 0, spent, remaining: -spent, spentPercent: 0, overspent: false };
-    return { ...line, spent, programName: progName.get(pid) ?? "برنامج" };
-  });
+  const summary = summarize(incomeCalc, expenseCalc);
+
+  // «الميزانية المعتمدة» لكل برنامج = programs.budget (للبرامج غير المؤرشفة وحين تكون قيمة موجبة).
+  // البرنامج بلا مخصص يظهر بحالة محايدة عبر hasAllocation في خط البرنامج، لا صفر مضلِّل.
+  const planned: PlannedRow[] = [];
+  for (const p of planPrograms) {
+    if (p.archivedAt) continue;
+    const amt = numOrNull(p.budget);
+    if (amt !== null && amt > 0) planned.push({ programId: p.id, amount: amt });
+  }
+
+  const linesMap = programBudgetLines(planned, expenseCalc);
+  const programLines = [...linesMap.values()]
+    .map((line) => ({ ...line, programName: progName.get(line.programId) ?? "برنامج" }))
+    .sort((a, b) => a.programName.localeCompare(b.programName, "ar"));
 
   return { summary, income: incomeRows, expenses: expenseRows, programLines };
 }

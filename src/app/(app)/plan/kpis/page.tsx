@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programKpis } from "@/db/schema";
 import { PageHeader, Table, EmptyState } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "مؤشرات الأداء" };
@@ -14,7 +15,11 @@ export default async function KpisPage() {
   const kpis = await db.select().from(programKpis).where(notSynthetic(programKpis.id, excluded.kpis)).orderBy(asc(programKpis.code));
   return (
     <div>
-      <PageHeader title="مؤشرات الأداء" subtitle="القيم الرسمية من مصنف الخطة — خط الأساس والمستهدف كما وردا" />
+      <PageHeader
+        title="مؤشرات الأداء"
+        subtitle="القيم الرسمية من مصنف الخطة — خط الأساس والمستهدف كما وردا"
+        actions={<BackButton fallbackHref="/plan" />}
+      />
       {kpis.length === 0 ? (
         <EmptyState title="لا مؤشرات بعد" hint="تستورد المؤشرات ضمن دفعة استيراد الخطة التشغيلية" />
       ) : (

@@ -6,6 +6,7 @@ import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
+import { orFallback, orDash } from "@/lib/format";
 
 function esc(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -48,8 +49,8 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
   const body = `
   <h2>بيانات الاجتماع</h2>
   <table>
-    <tr><th style="width:22%">اللجنة / الفريق</th><td>${esc(committee.nameAr)}</td></tr>
-    <tr><th>الاجتماع</th><td>${esc(meeting.title ?? `الاجتماع ${meeting.seq}`)} (رقم ${meeting.seq})</td></tr>
+    <tr><th style="width:22%">اللجنة / الفريق</th><td>${esc(orFallback(committee.nameAr))}</td></tr>
+    <tr><th>الاجتماع</th><td>${esc(orFallback(meeting.title, `الاجتماع ${meeting.seq}`))} (رقم ${meeting.seq})</td></tr>
     ${typeName ? `<tr><th>نوع الاجتماع</th><td>${esc(typeName)}</td></tr>` : ""}
     <tr><th>التاريخ</th><td>${dateText}</td></tr>
     ${meeting.location ? `<tr><th>المكان</th><td>${esc(meeting.location)}</td></tr>` : ""}
@@ -57,8 +58,8 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
 
   <h2>الأعضاء (تسجيل التشكيل)</h2>
   <table>
-    <tr><th>م</th><th>الاسم</th><th>الصفة</th><th>العمل في اللجنة</th></tr>
-    ${members.map((x, i) => `<tr><td>${i + 1}</td><td>${esc(x.name)}</td><td>${esc(x.m.position ?? "—")}</td><td>${esc(x.m.role)}</td></tr>`).join("")}
+    <tr><th>م</th><th>الاسم</th><th>العمل في اللجنة</th><th>التوقيع</th></tr>
+    ${members.map((x, i) => `<tr><td>${i + 1}</td><td>${esc(orFallback(x.name))}</td><td>${esc(orDash(x.m.role))}</td><td></td></tr>`).join("")}
   </table>
 
   <h2>جدول الأعمال</h2>
@@ -72,7 +73,7 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
     ${outcomes
       .map(
         (o) =>
-          `<tr><td>${esc(o.outcomeType)}</td><td>${esc(o.text)}</td><td>${o.taskId ? (o.outcomeType === "قرار" ? "إجراء إلزامي" : "إجراء اختياري") : "—"}</td></tr>`,
+          `<tr><td>${esc(o.outcomeType)}</td><td>${esc(orDash(o.text))}</td><td>${o.taskId ? (o.outcomeType === "قرار" ? "إجراء إلزامي" : "إجراء اختياري") : "—"}</td></tr>`,
       )
       .join("")}
   </table>
@@ -82,7 +83,7 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
       ? `<h2>المرفقات (${attachments.length})</h2>
   <table>
     <tr><th>العنوان</th><th>الفئة</th><th>الوصف</th></tr>
-    ${attachments.map((a) => `<tr><td>${esc(a.title)}</td><td>${esc(a.category)}</td><td>${esc(a.description ?? "—")}</td></tr>`).join("")}
+    ${attachments.map((a) => `<tr><td>${esc(orFallback(a.title))}</td><td>${esc(orDash(a.category))}</td><td>${esc(orDash(a.description))}</td></tr>`).join("")}
   </table>`
       : ""
   }
@@ -94,7 +95,7 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
   <p class="meta">عند اشتراط نوع الاجتماع للتوقيع، يوقّع المحضر من الرئيس والمقرر ثم يُرفع الأصل الموقّع — وإلا فالتوقيع غير مطلوب لاكتمال الاجتماع.</p>
   `;
 
-  const title = `محضر اجتماع: ${committee.nameAr} — ${meeting.title ?? meeting.seq}`;
+  const title = `محضر اجتماع: ${orFallback(committee.nameAr)} — ${orFallback(meeting.title, String(meeting.seq))}`;
   const doc = await issueDocument({
     docType: "meeting_minutes",
     title,

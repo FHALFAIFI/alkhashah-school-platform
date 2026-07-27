@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { asc } from "drizzle-orm";
+import { and, asc, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { programs } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { numOrNull } from "@/lib/format";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
 
 /** تصدير Excel تحليلي للخطة التشغيلية — التقدم مباشر من البرنامج وعدد الشواهد فعلي (D-024/D-025) */
@@ -17,7 +18,8 @@ export async function GET() {
   }
 
   const excluded = await getExcludedIdSets();
-  const allPrograms = await db.select().from(programs).where(notSynthetic(programs.id, excluded.programs)).orderBy(asc(programs.seq));
+  // البرامج المؤرشفة (v2.1 §A1) مستبعدة من التصدير التحليلي
+  const allPrograms = await db.select().from(programs).where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt))).orderBy(asc(programs.seq));
   const evidenceByProgram = await programsEvidenceSummary(allPrograms.map((p) => p.id));
 
   const wb = new ExcelJS.Workbook();
@@ -39,16 +41,17 @@ export async function GET() {
   for (const p of allPrograms) {
     ws.addRow({
       seq: p.seq,
-      domain: p.domain,
-      name: p.name,
-      owner: p.ownerPosition,
-      start: p.hijriStart,
-      end: p.hijriEnd,
+      // حقول اختيارية (v2.1 §H): خلية فارغة بدل تسريب null، والميزانية عبر numOrNull (لا NaN)
+      domain: p.domain ?? "",
+      name: p.name ?? "",
+      owner: p.ownerPosition ?? "",
+      start: p.hijriStart ?? "",
+      end: p.hijriEnd ?? "",
       progress: p.progress / 100,
       execution: p.executionStatus,
       status: p.status,
       evidence: evidenceByProgram.get(p.id)?.count ?? 0,
-      budget: p.budget ? Number(p.budget) : 0,
+      budget: numOrNull(p.budget) ?? 0,
     });
   }
   ws.getColumn("progress").numFmt = "0%";

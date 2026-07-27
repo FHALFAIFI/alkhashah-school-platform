@@ -7,11 +7,13 @@ import { db } from "@/db";
 import { actionTasks } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { orFallback } from "@/lib/format";
 
 export type ActionState = { error?: string; success?: string } | null;
 
 const taskSchema = z.object({
-  title: z.string().min(2, "عنوان المهمة مطلوب"),
+  // Optional per v2.1 global rule — empty title stored as "" (NOT-NULL column satisfied).
+  title: z.string().optional(),
   description: z.string().optional(),
   ownerPersonId: z.string().optional(),
   ownerText: z.string().optional(),
@@ -24,7 +26,7 @@ export async function createTaskAction(_prev: ActionState, formData: FormData): 
   const parsed = taskSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   await db.insert(actionTasks).values({
-    title: parsed.data.title,
+    title: parsed.data.title ?? "",
     description: parsed.data.description || null,
     ownerPersonId: parsed.data.ownerPersonId || null,
     ownerText: parsed.data.ownerText || null,
@@ -33,7 +35,7 @@ export async function createTaskAction(_prev: ActionState, formData: FormData): 
     sourceType: "manual",
     createdBy: user.id,
   });
-  await audit({ actorId: user.id, action: "task.created", summary: `مهمة جديدة: ${parsed.data.title}` });
+  await audit({ actorId: user.id, action: "task.created", summary: `مهمة جديدة: ${orFallback(parsed.data.title)}` });
   revalidatePath("/tasks");
   return { success: "أضيفت المهمة" };
 }

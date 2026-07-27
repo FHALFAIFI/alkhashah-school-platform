@@ -80,7 +80,7 @@ function AddTemplateForm({ templateKey }: { templateKey: string }) {
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-1.5 text-xs text-red-700">{state.error}</div>}
       <input type="hidden" name="templateKey" value={templateKey} />
       <div className="min-w-0 flex-1 basis-56">
-        <input name="title" required placeholder="مهمة معرّفة جديدة" className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        <input name="title" placeholder="مهمة معرّفة جديدة" className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
       </div>
       <SubmitButton variant="secondary">إضافة قالب مهمة</SubmitButton>
     </form>
@@ -94,7 +94,7 @@ function EditTemplateForm({ id, title, onDone }: { id: string; title: string; on
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-1.5 text-xs text-red-700">{state.error}</div>}
       {state?.success && <span className="w-full text-xs text-emerald-700">{state.success}</span>}
       <div className="min-w-0 flex-1 basis-56">
-        <input name="title" defaultValue={title} required className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        <input name="title" defaultValue={title} className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
       </div>
       <SubmitButton variant="secondary">حفظ</SubmitButton>
       <button type="button" onClick={onDone} className="rounded border border-sand-200 px-3 py-1.5 text-sm text-gray-600">إغلاق</button>

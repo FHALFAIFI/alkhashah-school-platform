@@ -25,7 +25,7 @@ export function NewPlcForm() {
   return (
     <form action={formAction} className="space-y-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
-      <Field label="اسم المجتمع" name="nameAr" required />
+      <Field label="اسم المجتمع" name="nameAr" />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <TextArea label="الأهداف" name="objectives" rows={2} />
         <TextArea label="المخرجات المستهدفة" name="outputs" rows={2} />

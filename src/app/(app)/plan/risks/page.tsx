@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programRisks } from "@/db/schema";
 import { PageHeader, Table, EmptyState, Badge } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "سجل المخاطر" };
@@ -14,7 +15,11 @@ export default async function RisksPage() {
   const risks = await db.select().from(programRisks).where(notSynthetic(programRisks.id, excluded.risks)).orderBy(asc(programRisks.code));
   return (
     <div>
-      <PageHeader title="سجل المخاطر" subtitle="من مصنف الخطة التشغيلية" />
+      <PageHeader
+        title="سجل المخاطر"
+        subtitle="من مصنف الخطة التشغيلية"
+        actions={<BackButton fallbackHref="/plan" />}
+      />
       {risks.length === 0 ? (
         <EmptyState title="لا مخاطر مسجلة بعد" hint="تستورد المخاطر ضمن دفعة استيراد الخطة التشغيلية" />
       ) : (

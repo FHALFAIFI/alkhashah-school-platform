@@ -1,7 +1,6 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@/db";
 import { storedFiles } from "@/db/schema";
@@ -30,7 +29,10 @@ function safeResolve(relPath: string): string {
 class LocalStorageProvider implements StorageProvider {
   async put(relPath: string, data: Buffer): Promise<void> {
     const abs = safeResolve(relPath);
-    mkdirSync(path.dirname(abs), { recursive: true });
+    // Fully async I/O: the old `mkdirSync` blocked the event loop on every upload.
+    // safeResolve (path-traversal guard) runs first and unchanged; the 0o600 mode and
+    // server-generated path are preserved.
+    await mkdir(path.dirname(abs), { recursive: true });
     await writeFile(abs, data, { mode: 0o600 });
   }
   async get(relPath: string): Promise<Buffer> {

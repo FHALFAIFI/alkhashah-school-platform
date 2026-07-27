@@ -88,7 +88,9 @@ describe("committee prerequisites — dependency on committed employee data", ()
     expect(row.active).toBe(true);
   });
 
-  it("new meeting requires an active Arabic type", async () => {
+  // v2.1 correction (H): the meeting type is now OPTIONAL — a meeting saves with no type,
+  // and when a type is supplied it is still stored.
+  it("new meeting saves without a type (type now optional), and stores a type when given", async () => {
     const { db } = await import("@/db");
     const { planYears, committees, meetingTypes, meetings } = await import("@/db/schema");
     const { createMeetingAction } = await import("@/app/(app)/committees/actions");
@@ -96,35 +98,34 @@ describe("committee prerequisites — dependency on committed employee data", ()
     const [c] = await db.insert(committees).values({ planYearId: year.id, nameAr: "لجنة اجتماعات", kind: "لجنة", status: "معتمدة", recurrence: "monthly" }).returning();
     const [mt] = await db.insert(meetingTypes).values({ key: "t-periodic", nameAr: "دوري", sortOrder: 1 }).returning();
 
-    const noType = await createMeetingAction(c.id, null, new FormData());
-    expect(noType?.error).toContain("نوع الاجتماع");
+    // no type → not blocked; a meeting row is created with a null typeId
+    await createMeetingAction(c.id, null, new FormData()); // redirect مُموَّه
+    const afterNoType = await db.select().from(meetings).where(eq(meetings.committeeId, c.id));
+    expect(afterNoType.length).toBe(1);
+    expect(afterNoType[0].typeId).toBeNull();
 
+    // with a valid type → the type is stored
     const fd = new FormData();
     fd.set("typeId", mt.id);
     fd.set("title", "اجتماع");
     await createMeetingAction(c.id, null, fd); // redirect مُموَّه
-    const [m] = await db.select().from(meetings).where(eq(meetings.committeeId, c.id));
-    expect(m.typeId).toBe(mt.id);
+    const typed = (await db.select().from(meetings).where(eq(meetings.committeeId, c.id))).find((m) => m.typeId === mt.id);
+    expect(typed?.typeId).toBe(mt.id);
   });
 
-  it("annual closure requires documented results and impact", async () => {
+  // v2.1 correction (G3): النتائج/الأثر (committee_impacts) were removed from the workflow — annual
+  // closure NO LONGER requires documented results/impact. A committee with no blocking meetings closes directly.
+  it("annual closure no longer requires results/impact (removed in v2.1)", async () => {
     const { db } = await import("@/db");
-    const { planYears, committees, committeeImpacts } = await import("@/db/schema");
-    const { closeCommitteeAction, addImpactAction } = await import("@/app/(app)/committees/actions");
+    const { planYears, committees } = await import("@/db/schema");
+    const { closeCommitteeAction } = await import("@/app/(app)/committees/actions");
     const [year] = await db.select().from(planYears);
-    // لجنة معتمدة بلا اجتماعات مسودة (بلا اجتماعات) لعزل بوابة الأثر
+    // لجنة معتمدة بلا اجتماعات — عزل عن بوابة الاجتماعات المسودة/بانتظار التوقيع
     const [c] = await db.insert(committees).values({ planYearId: year.id, nameAr: "لجنة إقفال", kind: "لجنة", status: "معتمدة", recurrence: "term" }).returning();
 
-    const blocked = await closeCommitteeAction(c.id);
-    expect(blocked?.error).toContain("النتائج والأثر");
-
-    const fd = new FormData();
-    fd.set("result", "توحيد لوحة المتابعة الشهرية");
-    fd.set("impact", "ارتفاع نسبة إغلاق القرارات في موعدها");
-    await addImpactAction(c.id, null, fd);
-    expect((await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, c.id))).length).toBe(1);
-
     const ok = await closeCommitteeAction(c.id);
-    expect(ok?.success).toBeTruthy();
+    expect(ok?.error).toBeFalsy();
+    const [row] = await db.select().from(committees).where(eq(committees.id, c.id));
+    expect(row.status).toBe("مقفلة");
   });
 });

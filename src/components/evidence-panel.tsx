@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createEvidenceAction,
@@ -11,6 +11,7 @@ import {
   type EvidenceCandidate,
 } from "@/app/(app)/evidence/actions";
 import { Card, Field, SubmitButton, Badge } from "@/components/ui";
+import { orFallback } from "@/lib/format";
 
 const ROLES = ["خط أساس", "تنفيذ", "مخرج", "أثر", "خارجي"];
 
@@ -39,7 +40,7 @@ export function EvidencePanel({
   const [showForm, setShowForm] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
   // مكتبة الشواهد — ربط شاهد مرفوع سابقاً بدل رفع نسخة ثانية منه
   const [query, setQuery] = useState("");
@@ -47,11 +48,20 @@ export function EvidencePanel({
   const [searching, setSearching] = useState(false);
   const [librarySubKey, setLibrarySubKey] = useState("");
 
-  // بعد نجاح الحفظ: حدّث بيانات الخادم (العدّاد والقائمة والعبارة الفعلية) فوراً دون مغادرة الصفحة
-  // (revalidatePath وحده لا يضمن انعكاساً فورياً في كل الحالات — router.refresh يعيد جلب مكوّن الخادم).
+  // After a successful save, re-sync the server data (count header + list) without leaving the
+  // page. `revalidatePath` alone does not guarantee an immediate in-place reflection, so we do a
+  // soft `router.refresh()` (re-renders the host server component only — not a full browser
+  // reload). Two guards keep it cheap and single-shot: (1) a ref so the SAME success state is
+  // never refreshed twice, and (2) `startTransition` so the refresh is a non-urgent transition
+  // that drives the Arabic in-progress indicator instead of blocking the UI. The per-request
+  // memoized synthetic classifier (see src/lib/synthetic.ts) makes each such refresh cheap.
+  const lastRefreshedState = useRef<ActionState>(null);
   useEffect(() => {
-    if (state?.success) router.refresh();
-  }, [state, router]);
+    if (state?.success && lastRefreshedState.current !== state) {
+      lastRefreshedState.current = state;
+      startTransition(() => router.refresh());
+    }
+  }, [state, router, startTransition]);
 
   function runSearch(q: string) {
     startTransition(async () => {
@@ -102,7 +112,12 @@ export function EvidencePanel({
   return (
     <Card>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-bold text-brand-900">الشواهد المرتبطة ({items.length})</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="font-bold text-brand-900">الشواهد المرتبطة ({items.length})</h2>
+          {isPending && (
+            <span role="status" aria-live="polite" className="text-xs text-gray-500">جارٍ التحديث…</span>
+          )}
+        </div>
         {canWrite && (
           <div className="flex flex-wrap gap-2">
             <button
@@ -138,7 +153,7 @@ export function EvidencePanel({
         {items.map((item) => (
           <li key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-sand-100 px-3 py-2 text-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{item.title}</span>
+              <span className="font-medium">{orFallback(item.title)}</span>
               {item.role && <Badge value={item.role} />}
               {item.subKey && subKeyName.has(item.subKey) && (
                 <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs text-brand-700">{subKeyName.get(item.subKey)}</span>
@@ -153,7 +168,8 @@ export function EvidencePanel({
                 // فك الربط لا يحذف الشاهد: يبقى في المكتبة وتبقى بقية السجلات المرتبطة به سليمة
                 <button
                   onClick={() => unlink(item.id, item.subKey)}
-                  className="text-xs text-red-500 hover:underline"
+                  disabled={isPending}
+                  className="text-xs text-red-500 hover:underline disabled:opacity-50 disabled:no-underline"
                   title="يزيل ربط الشاهد بهذا السجل فقط — الشاهد يبقى في مكتبة الشواهد"
                 >
                   فك الربط
@@ -226,7 +242,11 @@ export function EvidencePanel({
                 {c.alreadyLinked ? (
                   <span className="text-xs text-emerald-700">مرتبط بهذا السجل</span>
                 ) : (
-                  <button onClick={() => linkExisting(c.id)} className="text-xs text-brand-700 underline">
+                  <button
+                    onClick={() => linkExisting(c.id)}
+                    disabled={isPending}
+                    className="text-xs text-brand-700 underline disabled:opacity-50 disabled:no-underline"
+                  >
                     ربط بهذا السجل
                   </button>
                 )}
@@ -264,7 +284,7 @@ export function EvidencePanel({
             </div>
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="عنوان الشاهد" name="title" required />
+            <Field label="عنوان الشاهد" name="title" />
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">دور الشاهد</label>
               <select name="role" className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">

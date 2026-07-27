@@ -14,6 +14,7 @@ import {
   DeleteAssetControl,
 } from "./assets-ui";
 import { getAssetDependencies } from "@/lib/building/asset-lifecycle";
+import { orFallback } from "@/lib/format";
 
 export const metadata = { title: "العهدة والأصول" };
 export const dynamic = "force-dynamic";
@@ -102,7 +103,7 @@ export default async function AssetsPage({
         <Card>
           <h2 className="mb-3 font-bold text-brand-900">إضافة أصل</h2>
           <NewAssetForm
-            rooms={allRooms.map((r) => ({ id: r.id, label: `${r.nameAr} — ${floorName.get(r.floorId) ?? ""} (${r.code})` }))}
+            rooms={allRooms.map((r) => ({ id: r.id, label: `${orFallback(r.nameAr)} — ${floorName.get(r.floorId) ?? ""} (${r.code})` }))}
           />
         </Card>
       )}
@@ -147,8 +148,8 @@ export default async function AssetsPage({
                   {a.code}
                   {showArchived && <span className="ms-1 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800">مؤرشف</span>}
                 </td>
-                <td className="px-3 py-2 font-medium">{a.nameAr}</td>
-                <td className="px-3 py-2 text-xs">{room ? `${room.nameAr} — ${floorName.get(room.floorId) ?? ""}` : "—"}</td>
+                <td className="px-3 py-2 font-medium">{orFallback(a.nameAr)}</td>
+                <td className="px-3 py-2 text-xs">{room ? `${orFallback(room.nameAr)} — ${floorName.get(room.floorId) ?? ""}` : "—"}</td>
                 <td className="px-3 py-2 text-xs">{a.important ? "مهم (فردي)" : "متكرر"}</td>
                 <td className="px-3 py-2 text-xs tabular-nums">{a.important ? a.serialNumber ?? "—" : a.quantity}</td>
                 <td className="px-3 py-2">

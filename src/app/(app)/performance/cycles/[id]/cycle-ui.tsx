@@ -36,7 +36,7 @@ export function ImprovementPlanForm({ cycleId, suggested }: { cycleId: string; s
       <input type="hidden" name="suggested" value={suggested ? "true" : "false"} />
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-64 flex-1">
-          <Field label="خطة تحسين جديدة (قرار يدوي)" name="title" required />
+          <Field label="خطة تحسين جديدة (قرار يدوي)" name="title" />
         </div>
         <div className="w-40">
           <Field label="المدة" name="duration" placeholder="مثال: فصل دراسي" />
@@ -44,7 +44,7 @@ export function ImprovementPlanForm({ cycleId, suggested }: { cycleId: string; s
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <TextArea label="الأهداف" name="goals" rows={2} />
-        <TextArea label="الإجراءات" name="actions" rows={2} />
+        <TextArea label="التوصيات" name="actions" rows={2} />
       </div>
       <SubmitButton variant="secondary">إنشاء الخطة</SubmitButton>
     </form>

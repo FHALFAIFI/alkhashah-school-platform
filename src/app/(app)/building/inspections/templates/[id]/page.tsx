@@ -7,6 +7,7 @@ import { inspectionTemplates, inspections, rooms } from "@/db/schema";
 import { PageHeader, Card, Badge } from "@/components/ui";
 import { isUuid } from "@/lib/validation";
 import { statusLabel, TEMPLATE_STATUS, type TemplateSection } from "@/lib/building/inspection-templates";
+import { orFallback } from "@/lib/format";
 import { TemplatePreview } from "../template-preview";
 import {
   ActivateButton,
@@ -47,7 +48,7 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
   return (
     <div className="space-y-5">
       <PageHeader
-        title={t.nameAr}
+        title={orFallback(t.nameAr)}
         subtitle={`${t.code ?? ""} · إصدار ${t.version} · ${statusLabel(t.status)}${t.isSystem ? " · قالب نظام" : ""}`}
         actions={
           <Link href="/building/inspections/templates" className="text-sm text-brand-700 underline">
@@ -116,7 +117,7 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
           <ul className="space-y-1 text-sm text-gray-600">
             {usageRooms.map((r, i) => (
               <li key={i}>
-                {r.roomName} — {r.date.toLocaleDateString("ar-SA-u-nu-latn")}
+                {orFallback(r.roomName)} — {r.date.toLocaleDateString("ar-SA-u-nu-latn")}
               </li>
             ))}
           </ul>

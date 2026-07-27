@@ -389,24 +389,32 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByText("الشواهد المرتبطة (1)")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("link", { name: "تنزيل" }).first()).toBeVisible();
 
-    // مصروف: تسمية «البند» أيضاً (لا «المستلزمات/البنود») ثم إنشاؤه ورفع إيصاله
+    // مصروف: «البند» صار قائمة (المستلزمات/النشاط)، و«رقم الفاتورة» بدل «مرجع الدفع»، ورابط «الفاتورة» بدل «الإيصال»
     await page.goto("/budget");
     await page.getByRole("button", { name: "إضافة مصروف" }).click();
     const exForm = page.locator('form:has(input[name="amount"])').last();
     await expect(exForm.getByText("البند", { exact: true })).toBeVisible();
     await expect(page.getByText("المستلزمات/البنود")).toHaveCount(0);
+    // B1: «رقم الفاتورة» حاضرة و«مرجع الدفع» أُزيلت من كل الواجهة
+    await expect(exForm.getByText("رقم الفاتورة (اختياري)")).toBeVisible();
+    await expect(page.getByText("مرجع الدفع")).toHaveCount(0);
     await exForm.locator('input[name="amount"]').fill("300");
-    await exForm.locator('input[name="items"]').fill(`بند مصروف ${TAG}`);
+    // B3: «البند» قائمة اختيارية بقيمتين ثابتتين
+    await exForm.locator('select[name="items"]').selectOption("المستلزمات");
     await exForm.locator('input[name="category"]').fill(`تصنيف ${TAG}`);
+    await exForm.locator('input[name="paymentReference"]').fill(`INV-${TAG}`);
     await exForm.getByRole("button", { name: "حفظ المصروف" }).click();
     await expect(page.getByText(/أُضيف المصروف|سُجّل المصروف/)).toBeVisible({ timeout: 20_000 });
-    const exRow = page.locator("tr", { hasText: `بند مصروف ${TAG}` });
-    await exRow.getByRole("link", { name: "الإيصال" }).click();
+    // B1: رقم الفاتورة ظاهر في جدول المصروفات (كان يُخزَّن ولا يُعرض سابقاً)
+    const exRow = page.locator("tr", { hasText: `INV-${TAG}` });
+    await expect(exRow).toBeVisible({ timeout: 20_000 });
+    // B2: رابط رفع الفاتورة اسمه «الفاتورة» (لا «الإيصال») والإيصال اختياري
+    await exRow.getByRole("link", { name: "الفاتورة" }).click();
     await page.waitForURL(/\/budget\?/);
     await page.getByRole("button", { name: "رفع شاهد جديد" }).click();
     evForm = page.locator('form:has(input[name="entityType"])');
     await evForm.getByRole("radio", { name: "ملف" }).check();
-    await evForm.locator("#title").fill(`إيصال مصروف ${TAG}`);
+    await evForm.locator("#title").fill(`فاتورة مصروف ${TAG}`);
     await evForm.locator('input[name="file"]').setInputFiles(FAKE_PDF);
     await evForm.getByRole("button", { name: "حفظ الشاهد" }).click();
     await expect(page.getByText("الشواهد المرتبطة (1)")).toBeVisible({ timeout: 20_000 });
@@ -455,14 +463,14 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "اعتماد التشكيل وإقفاله" }).first().click();
     await expect(page.getByText("معتمدة ومقفلة", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
-    // §4/D-027: توزيع المهام — تحميل المهام المعرّفة مسبقاً (قيم ابتدائية قابلة للتعديل)، إسناد لعضو،
-    // ثم توليد «جدول توزيع المهام» بعمود «توقيع العضو» (المحتوى المجمّد مغطّى بفحص التكامل).
+    // §4/v2.1 (F): توزيع المهام — تحميل المهام المعرّفة مسبقاً، إسناد لعضو، ثم توليد نموذج التكليف الذي
+    // صار قائمتين مستقلتين: «أعضاء اللجنة» (بعمود «التوقيع») و«مهام اللجنة».
     await expect(page.getByRole("heading", { name: "توزيع المهام", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "تحميل المهام المعرّفة مسبقاً" }).click();
     await expect(page.getByText(/حُمّلت \d+ مهمة معرّفة مسبقاً/)).toBeVisible({ timeout: 20_000 });
     await page.getByRole("combobox", { name: "إسناد المهمة لعضو" }).first().selectOption({ index: 1 });
     await page.getByRole("button", { name: "توليد نموذج التكليف" }).click();
-    await expect(page.getByText(/صدر جدول توزيع المهام/)).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByText(/صدر نموذج التكليف/)).toBeVisible({ timeout: 120_000 });
     await expect(page.getByRole("link", { name: "تنزيل نموذج التكليف" })).toBeVisible({ timeout: 120_000 });
 
     // اجتماع جديد — نوع الاجتماع إلزامي
@@ -510,17 +518,12 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByText("اكتمل الاجتماع واعتمد").first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("مكتمل", { exact: true }).first()).toBeVisible();
 
-    // النتيجة والأثر (منفصلان) على صفحة اللجنة — شرط الإقفال السنوي
+    // G3/v2.1: «النتائج والأثر» أُزيلت من سير عمل اللجنة — لم يعد لها نموذج تسجيل ولا شرط إقفال
+    // (القيم التاريخية تبقى مخزّنة لكنها لا تظهر تشغيلياً).
     await page.goto(`/committees/${state.committeeId}`);
-    const impactForm = page.locator('form:has(textarea[name="result"])');
-    await impactForm.locator('textarea[name="result"]').fill(`نتيجة تجريبي آلي ${TAG}`);
-    await impactForm.locator('textarea[name="impact"]').fill(`أثر تجريبي آلي ${TAG}`);
-    await impactForm.locator('input[name="measurement"]').fill("إغلاق 90٪ من القرارات");
-    await impactForm.getByRole("button", { name: "تسجيل النتيجة والأثر" }).click();
-    await expect(page.getByText("سُجّلت النتيجة والأثر")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(`أثر تجريبي آلي ${TAG}`)).toBeVisible();
+    await expect(page.locator('form:has(textarea[name="result"])')).toHaveCount(0);
 
-    // تقرير اللجنة: الإجراءات الأربعة مجمّعة + إصدار PDF رسمي برقم وثيقة
+    // تقرير اللجنة: يُصدر PDF رسمي برقم وثيقة (بلا قسم النتائج/الأثر)
     await page.goto(`/committees/${state.committeeId}/report`);
     await expect(page.getByRole("button", { name: "طباعة" })).toBeVisible();
     await expect(page.getByRole("link", { name: "تنزيل Word" })).toBeVisible();

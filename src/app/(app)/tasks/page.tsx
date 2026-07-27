@@ -9,6 +9,7 @@ import { asc } from "drizzle-orm";
 import Link from "next/link";
 import { resolveTaskSources } from "@/lib/worklist";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { orFallback } from "@/lib/format";
 
 export const metadata = { title: "المهام والإجراءات" };
 export const dynamic = "force-dynamic";
@@ -59,10 +60,10 @@ export default async function TasksPage() {
             return (
               <tr key={t.id} id={`task-${t.id}`}>
                 <td className="px-3 py-2">
-                  <span className="font-medium">{t.title}</span>
+                  <span className="font-medium">{orFallback(t.title)}</span>
                   {t.mandatory && <span className="ms-2 rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-700">إلزامي</span>}
                 </td>
-                <td className="px-3 py-2 text-xs">{t.ownerPersonId ? personName.get(t.ownerPersonId) ?? "—" : t.ownerText ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{t.ownerPersonId ? orFallback(personName.get(t.ownerPersonId), "—") : t.ownerText ?? "—"}</td>
                 <td className="px-3 py-2 text-xs tabular-nums">
                   {d?.primary ?? "—"}
                   {isOverdue && <div><Badge value="متأخر" /></div>}

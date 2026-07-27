@@ -12,6 +12,7 @@ import {
   type ActionState,
 } from "../task-actions";
 import { SubmitButton } from "@/components/ui";
+import { orFallback } from "@/lib/format";
 
 type TaskRow = {
   id: string;
@@ -95,7 +96,8 @@ export function TaskDistribution({
 
       {canWrite && (
         <p className="text-xs text-gray-400">
-          بعد مراجعة المهام وإسنادها، ولّد «جدول توزيع المهام» من بطاقة النموذج أدناه — يتضمن عمود «توقيع العضو» للطباعة.
+          بعد مراجعة المهام، ولّد «نموذج التكليف» من بطاقة النموذج أدناه — قائمتان مستقلتان: «أعضاء اللجنة»
+          (بعمود «التوقيع» الورقي) و«مهام اللجنة».
         </p>
       )}
     </div>
@@ -127,7 +129,7 @@ function TaskItem({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1 basis-64">
           <span className="text-sm font-medium text-gray-800">
-            {index}. {task.title} {task.excluded && <span className="text-xs text-gray-400">(مستبعدة)</span>}
+            {index}. {orFallback(task.title)} {task.excluded && <span className="text-xs text-gray-400">(مستبعدة)</span>}
           </span>
           {task.notes && <p className="mt-0.5 text-xs text-gray-500">ملاحظات: {task.notes}</p>}
           <p className="mt-0.5 text-xs text-gray-500">
@@ -170,7 +172,7 @@ function AddTaskForm({ committeeId }: { committeeId: string }) {
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       <div className="min-w-0 flex-1 basis-56">
         <label className="mb-1 block text-xs text-gray-500">مهمة جديدة</label>
-        <input name="title" required placeholder="نص المهمة" className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        <input name="title" placeholder="نص المهمة" className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
       </div>
       <div className="min-w-0 flex-1 basis-40">
         <label className="mb-1 block text-xs text-gray-500">ملاحظات (اختياري)</label>
@@ -189,7 +191,7 @@ function EditTaskForm({ taskId, title, notes, onDone }: { taskId: string; title:
       {state?.success && <span className="w-full text-xs text-emerald-700">{state.success}</span>}
       <div className="min-w-0 flex-1 basis-56">
         <label className="mb-1 block text-xs text-gray-500">المهمة</label>
-        <input name="title" defaultValue={title} required className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        <input name="title" defaultValue={title} className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
       </div>
       <div className="min-w-0 flex-1 basis-40">
         <label className="mb-1 block text-xs text-gray-500">ملاحظات</label>

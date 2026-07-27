@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { perfModels, perfIndicators } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton } from "@/components/ui";
 import { NewModelForm } from "./models-ui";
+import { orFallback } from "@/lib/format";
 
 export const metadata = { title: "نماذج الأداء" };
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export default async function ModelsPage() {
             return (
               <tr key={m.id}>
                 <td className="px-3 py-2 font-medium">
-                  <Link href={`/performance/models/${m.id}`} className="text-brand-700 hover:underline">{m.nameAr}</Link>
+                  <Link href={`/performance/models/${m.id}`} className="text-brand-700 hover:underline">{orFallback(m.nameAr)}</Link>
                 </td>
                 <td className="px-3 py-2"><Badge value={m.audience} /></td>
                 <td className="px-3 py-2 text-xs">{m.official ? "رسمي" : "داخلي"}</td>

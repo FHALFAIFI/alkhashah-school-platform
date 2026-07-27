@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { inspectionTemplates, inspections } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { orFallback } from "@/lib/format";
 import {
   flattenItems,
   validateSections,
@@ -42,8 +43,8 @@ function readMeta(fd: FormData) {
 /** إنشاء قالب جديد (مسودة، إصدار 1، عائلة جديدة). */
 export async function createTemplateAction(_prev: TemplateActionState, formData: FormData): Promise<TemplateActionState> {
   const user = await requirePermission(PERM_WRITE);
+  // اسم القالب أصبح اختيارياً (v2.1) — يُخزَّن "" عند تركه فارغاً؛ يبقى منع تفعيل القالب الفارغ بنيوياً.
   const meta = readMeta(formData);
-  if (meta.nameAr.length < 2) return { error: "اسم القالب مطلوب" };
   const { sections, error } = parseSections(formData.get("sectionsJson"));
   if (error) return { error };
 
@@ -64,7 +65,7 @@ export async function createTemplateAction(_prev: TemplateActionState, formData:
     .returning();
   // rootId = self لأول إصدار
   await db.update(inspectionTemplates).set({ rootId: created.id }).where(eq(inspectionTemplates.id, created.id));
-  await audit({ actorId: user.id, action: "inspection_template.created", entityType: "inspection_template", entityId: created.id, summary: `${code} — ${meta.nameAr}` });
+  await audit({ actorId: user.id, action: "inspection_template.created", entityType: "inspection_template", entityId: created.id, summary: `${code} — ${orFallback(meta.nameAr)}` });
   revalidatePath("/building/inspections/templates");
   return { success: `أُنشئ القالب ${code} (مسودة)`, newId: created.id };
 }
@@ -80,8 +81,8 @@ async function templateUsageCount(templateId: string): Promise<number> {
  */
 export async function updateTemplateAction(templateId: string, _prev: TemplateActionState, formData: FormData): Promise<TemplateActionState> {
   const user = await requirePermission(PERM_WRITE);
+  // اسم القالب اختياري (v2.1) — يُخزَّن "" عند تركه فارغاً.
   const meta = readMeta(formData);
-  if (meta.nameAr.length < 2) return { error: "اسم القالب مطلوب" };
   const { sections, error } = parseSections(formData.get("sectionsJson"));
   if (error) return { error };
 

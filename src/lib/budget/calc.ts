@@ -73,7 +73,12 @@ export function summarize(income: IncomeRow[], expenses: ExpenseRow[]): BudgetSu
 
 export type ProgramBudgetLine = {
   programId: string;
-  /** المخصص المخطط للبرنامج */
+  /**
+   * هل للبرنامج ميزانية معتمدة (programs.budget موجبة)؟ حين تكون false يُعرض «المتبقي»
+   * و«٪ الإنفاق» بحالة محايدة («—») لا صفر أو رقم سالب مضلِّل (D-026).
+   */
+  hasAllocation: boolean;
+  /** الميزانية المعتمدة للبرنامج (programs.budget) */
   allocated: number;
   /** المنفَق الفعلي على البرنامج */
   spent: number;
@@ -104,10 +109,13 @@ export function programBudgetLines(planned: PlannedRow[], expenses: ExpenseRow[]
   const lines = new Map<string, ProgramBudgetLine>();
   const programIds = new Set([...allocByProgram.keys(), ...spentByProgram.keys()]);
   for (const programId of programIds) {
+    // مصدر التخصيص هو `planned` (programs.budget)؛ برنامج له مصروفات دون مخصص = بلا ميزانية معتمدة.
+    const hasAllocation = allocByProgram.has(programId);
     const allocated = allocByProgram.get(programId) ?? 0;
     const spent = spentByProgram.get(programId) ?? 0;
     lines.set(programId, {
       programId,
+      hasAllocation,
       allocated,
       spent,
       remaining: allocated - spent,

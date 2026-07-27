@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs } from "@/db/schema";
+import { formatMoney, orDash } from "@/lib/format";
 import { PageHeader, Card, Badge, Table, EmptyState } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { getBudgetOverview } from "@/lib/budget/service";
@@ -37,7 +38,8 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
     db
       .select({ id: programs.id, name: programs.name })
       .from(programs)
-      .where(notSynthetic(programs.id, excluded.programs))
+      // البرامج المؤرشفة مستبعدة من محدِّد ربط المصروف/الإيراد (soft-archive)
+      .where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)))
       .orderBy(asc(programs.seq)),
   ]);
   const { summary, income, expenses, programLines } = overview;
@@ -56,8 +58,15 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
     if (inc) receipt = { entityType: "budget_income", id: inc.id, title: `إيراد: ${inc.source}`, items: await evidenceForEntity("budget_income", inc.id) };
   } else if (selExpenseId) {
     const exp = expenses.find((e) => e.id === selExpenseId);
-    if (exp) receipt = { entityType: "budget_expense", id: exp.id, title: `مصروف: ${exp.category ?? money(Number(exp.amount))}`, items: await evidenceForEntity("budget_expense", exp.id) };
+    if (exp) receipt = { entityType: "budget_expense", id: exp.id, title: `مصروف: ${exp.category ?? formatMoney(exp.amount)}`, items: await evidenceForEntity("budget_expense", exp.id) };
   }
+
+  // الوسم: فاتورة للمصروف، إيصال للإيراد (D-026)
+  const isExpenseReceipt = receipt?.entityType === "budget_expense";
+  const receiptWord = isExpenseReceipt ? "الفاتورة" : "الإيصال";
+  const receiptHint = isExpenseReceipt
+    ? "إرفاق الفاتورة اختياري ولا يُطلب رفعه مكرراً إن كان الشاهد نفسه موجوداً في السجل الموحّد."
+    : "الإيصال اختياري ولا يُطلب رفعه مكرراً إن كان الشاهد نفسه موجوداً في السجل الموحّد.";
 
   return (
     <div className="space-y-5">
@@ -71,10 +80,10 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
         <div id="receipt" className="scroll-mt-20">
           <Card>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="font-bold text-brand-900">إيصال/شاهد — {receipt.title}</h2>
+              <h2 className="font-bold text-brand-900">{receiptWord}/شاهد — {receipt.title}</h2>
               <Link href="/budget" className="text-xs text-gray-500 hover:underline">إغلاق</Link>
             </div>
-            <p className="mb-3 text-xs text-gray-400">الإيصال اختياري ولا يُطلب رفعه مكرراً إن كان الشاهد نفسه موجوداً في السجل الموحّد.</p>
+            <p className="mb-3 text-xs text-gray-400">{receiptHint}</p>
             <EvidencePanel
               entityType={receipt.entityType}
               entityId={receipt.id}
@@ -93,7 +102,7 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
         <Stat label="نسبة الإنفاق" value={`${summary.spendingPercent}٪`} />
         <Stat label="إيرادات متوقعة" value={money(summary.totalIncomeExpected)} />
         <Stat label="مصروفات غير مرتبطة ببرنامج" value={`${summary.unlinkedExpenseCount}`} tone={summary.unlinkedExpenseCount > 0 ? "warn" : "good"} />
-        <Stat label="مصروفات دون إيصال مرفق (اختياري)" value={`${summary.missingReceiptCount}`} />
+        <Stat label="مصروفات دون فاتورة مرفقة (اختياري)" value={`${summary.missingReceiptCount}`} />
         <Stat label="تجاوزات غير مُقَرّة" value={`${summary.unacknowledgedOverspendCount}`} tone={summary.unacknowledgedOverspendCount > 0 ? "bad" : "good"} />
       </div>
 
@@ -101,14 +110,19 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
       {programLines.length > 0 && (
         <Card>
           <h2 className="mb-3 font-bold text-brand-900">المخطط مقابل الفعلي (حسب البرنامج)</h2>
-          <Table headers={["البرنامج", "المخصص", "المنفَق", "المتبقي", "٪ الإنفاق", ""]}>
+          <Table headers={["البرنامج", "الميزانية المعتمدة", "المصروف", "المتبقي", "٪ الإنفاق", ""]}>
             {programLines.map((l) => (
               <tr key={l.programId} className={l.overspent ? "bg-red-50" : ""}>
                 <td className="px-3 py-2 font-medium">{l.programName}</td>
-                <td className="px-3 py-2 tabular-nums">{money(l.allocated)}</td>
+                {/* البرنامج بلا ميزانية معتمدة: حالة محايدة لا صفر/سالب مضلِّل (D-026) */}
+                <td className="px-3 py-2 tabular-nums">
+                  {l.hasAllocation ? money(l.allocated) : <span className="text-gray-400">لا توجد ميزانية معتمدة</span>}
+                </td>
                 <td className="px-3 py-2 tabular-nums">{money(l.spent)}</td>
-                <td className={`px-3 py-2 tabular-nums ${l.remaining < 0 ? "text-red-600" : ""}`}>{money(l.remaining)}</td>
-                <td className="px-3 py-2 tabular-nums">{l.spentPercent}٪</td>
+                <td className={`px-3 py-2 tabular-nums ${l.hasAllocation && l.remaining < 0 ? "text-red-600" : ""}`}>
+                  {l.hasAllocation ? money(l.remaining) : "—"}
+                </td>
+                <td className="px-3 py-2 tabular-nums">{l.hasAllocation ? `${l.spentPercent}٪` : "—"}</td>
                 <td className="px-3 py-2">{l.overspent && <Badge value="تجاوز" />}</td>
               </tr>
             ))}
@@ -128,8 +142,8 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
           <Table headers={["المصدر", "المبلغ", "التاريخ", "البند", "الإيصال", "الحالة", ""]}>
             {income.map((i) => (
               <tr key={i.id} className={selIncomeId === i.id ? "bg-brand-50" : ""}>
-                <td className="px-3 py-2 font-medium">{i.source}</td>
-                <td className="px-3 py-2 tabular-nums">{money(Number(i.amount))}</td>
+                <td className="px-3 py-2 font-medium">{orDash(i.source)}</td>
+                <td className="px-3 py-2 tabular-nums">{formatMoney(i.amount)}</td>
                 <td className="px-3 py-2 text-xs">{i.incomeDate ?? "—"}</td>
                 <td className="px-3 py-2 text-xs">{i.purpose ?? "—"}</td>
                 <td className="px-3 py-2 text-xs">
@@ -152,16 +166,17 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
         {expenses.length === 0 ? (
           <p className="text-sm text-gray-400">لا مصروفات مسجّلة بعد</p>
         ) : (
-          <Table headers={["التاريخ", "المبلغ", "التصنيف", "البند", "البرنامج", "الإيصال", "المسؤول", ""]}>
+          <Table headers={["التاريخ", "المبلغ", "التصنيف", "البند", "البرنامج", "رقم الفاتورة", "الفاتورة", "المسؤول", ""]}>
             {expenses.map((e) => (
               <tr key={e.id} className={`${e.overspendAcknowledged ? "bg-amber-50" : ""} ${selExpenseId === e.id ? "bg-brand-50" : ""}`}>
                 <td className="px-3 py-2 text-xs">{e.expenseDate ?? "—"}</td>
-                <td className="px-3 py-2 tabular-nums">{money(Number(e.amount))}</td>
+                <td className="px-3 py-2 tabular-nums">{formatMoney(e.amount)}</td>
                 <td className="px-3 py-2 text-xs">{e.category ?? "—"}</td>
                 <td className="px-3 py-2 text-xs">{e.items ?? "—"}</td>
                 <td className="px-3 py-2 text-xs">{e.programName ?? <span className="text-amber-600">غير مرتبط</span>}</td>
+                <td className="px-3 py-2 text-xs tabular-nums">{orDash(e.paymentReference)}</td>
                 <td className="px-3 py-2 text-xs">
-                  <ReceiptCell hasReceipt={e.hasReceipt} href={`/budget?مصروف=${e.id}#receipt`} />
+                  <ReceiptCell hasReceipt={e.hasReceipt} href={`/budget?مصروف=${e.id}#receipt`} label="الفاتورة" />
                 </td>
                 <td className="px-3 py-2 text-xs">{e.responsibleName ?? "—"}</td>
                 <td className="px-3 py-2">
@@ -179,19 +194,19 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
           </Table>
         )}
         <p className="mt-3 text-xs text-gray-400">
-          لرفع إيصال أو ربط شاهد قائم بإيراد أو مصروف: اضغط «الإيصال» في صف السجل — يمكنك الرفع المباشر أو اختيار شاهد
-          موجود في السجل الموحّد؛ الشاهد نفسه يبقى قابلاً للربط بالبرنامج أيضاً دون رفع مكرر. الإيصال اختياري.
+          لرفع فاتورة أو ربط شاهد قائم بمصروف: اضغط «الفاتورة» في صف المصروف — يمكنك الرفع المباشر أو اختيار شاهد
+          موجود في السجل الموحّد؛ الشاهد نفسه يبقى قابلاً للربط بالبرنامج أيضاً دون رفع مكرر. إرفاق الفاتورة اختياري.
         </p>
       </Card>
     </div>
   );
 }
 
-function ReceiptCell({ hasReceipt, href }: { hasReceipt: boolean; href: string }) {
+function ReceiptCell({ hasReceipt, href, label = "الإيصال" }: { hasReceipt: boolean; href: string; label?: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       {hasReceipt ? <Badge value="مرفق" /> : <span className="text-gray-400">—</span>}
-      <Link href={href} className="text-brand-700 hover:underline">الإيصال</Link>
+      <Link href={href} className="text-brand-700 hover:underline">{label}</Link>
     </span>
   );
 }

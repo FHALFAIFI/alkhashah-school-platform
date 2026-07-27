@@ -13,10 +13,13 @@ import { isFollowupDue, FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 import { programStatusLabel } from "@/lib/plan/status-labels";
 import { getVersions } from "@/lib/versioning";
 import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
+import { orFallback, formatMoney, numOrNull } from "@/lib/format";
 import { FollowupDueBadge } from "../followup-badge";
 import {
   ApproveProgramButton, ReopenForm, ChangeRequestForm,
   ChangeRequestDecision, ProgramExecutionForm,
+  ArchiveProgramForm, UnarchiveProgramButton,
 } from "./program-ui";
 import { EvidencePanel } from "@/components/evidence-panel";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
@@ -45,8 +48,13 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
 
   // البرنامج نفسه وحدة التنفيذ (D-024): التقدم والحالة مقروءان مباشرةً من سجل البرنامج،
   // لا من أنشطة موزونة. الشواهد معلوماتية فقط بلا هدف أو نسبة جاهزية (D-025).
-  const canWrite = user.permissions.has("plan.write") && program.status !== "مقفل";
+  // البرنامج المؤرشف (v2.1 §A1) للقراءة فقط — لا تحديث تنفيذ حتى يُسترجع.
+  const isArchived = Boolean(program.archivedAt);
+  const canWrite = user.permissions.has("plan.write") && program.status !== "مقفل" && !isArchived;
   const canApprove = user.permissions.has("plan.approve");
+  // سجلات مرتبطة تحدد صياغة تأكيد الأرشفة (إخفاء مع الاحتفاظ بالسجلات التاريخية)
+  const hasLinkedData =
+    evidence.length > 0 || deliverables.length > 0 || roadmap.length > 0 || followups.length > 0 || changeRequests.length > 0;
 
   /** مراحل سير عمل البرنامج: الإعداد ← الاعتماد ← التنفيذ والمتابعة ← الإقفال */
   const workflowCurrent = program.status === "مقفل" ? 4 : program.status === "معتمد" ? 2 : 0;
@@ -70,7 +78,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
     ["متابعة التنفيذ", program.followupText],
     ["الأثر المتوقع", program.expectedImpact],
     ["الأولوية", program.priority],
-    ["الميزانية", program.budget ? `${program.budget} ريال` : "0"],
+    ["الميزانية", numOrNull(program.budget) !== null ? `${formatMoney(program.budget)} ريال` : null],
     ["تاريخ البدء", program.hijriStart ? `${program.hijriStart}هـ` : null],
     ["تاريخ الانتهاء", program.hijriEnd ? `${program.hijriEnd}هـ` : null],
     ["فترات التوقف", program.pausePeriods],
@@ -79,16 +87,33 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
   return (
     <div className="space-y-5">
       <PageHeader
-        title={`${program.seq}. ${program.name}`}
-        subtitle={program.domain}
+        title={`${program.seq}. ${orFallback(program.name)}`}
+        subtitle={orFallback(program.domain, "بدون تصنيف")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <BackButton fallbackHref="/plan" />
+            {isArchived && <Badge value="مؤرشف" />}
             <Badge value={programStatusLabel(program.status)} />
-            {user.permissions.has("ai.use") && <AskAssistant type="program" id={id} label={`برنامج: ${program.name}`} />}
+            {user.permissions.has("ai.use") && <AskAssistant type="program" id={id} label={`برنامج: ${orFallback(program.name)}`} />}
             <LinkButton href={`/plan/${id}/report`} variant="secondary">تقرير البرنامج</LinkButton>
           </div>
         }
       />
+
+      {isArchived && (
+        <Card className="border-amber-200 bg-amber-50">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-medium text-amber-900">هذا البرنامج مؤرشف — مخفي من القوائم والتقارير التشغيلية</p>
+              <p className="mt-1 text-xs text-amber-700">
+                سجلاته التاريخية محفوظة كاملة.
+                {program.archivedReason ? ` سبب الأرشفة: ${program.archivedReason}` : ""}
+              </p>
+            </div>
+            {canApprove && <UnarchiveProgramButton programId={id} />}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <WorkflowSteps steps={["الإعداد", "الاعتماد", "التنفيذ والمتابعة", "الإقفال"]} current={workflowCurrent} />
@@ -334,6 +359,13 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
               </div>
             ))}
           </div>
+        </Card>
+      )}
+
+      {canApprove && !isArchived && (
+        <Card className="border-red-100">
+          <h2 className="mb-2 font-bold text-red-700">أرشفة البرنامج (حذف)</h2>
+          <ArchiveProgramForm programId={id} programName={orFallback(program.name)} hasLinkedData={hasLinkedData} />
         </Card>
       )}
     </div>

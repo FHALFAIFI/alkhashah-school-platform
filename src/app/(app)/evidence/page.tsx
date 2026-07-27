@@ -1,4 +1,4 @@
-import { and, desc, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { evidenceItems, evidenceLinks } from "@/db/schema";
@@ -27,9 +27,18 @@ export default async function EvidencePage({ searchParams }: { searchParams: Pro
       ),
     )
     .orderBy(desc(evidenceItems.createdAt));
-  const links = await db.select().from(evidenceLinks);
+  // Count links per evidence item in SQL (GROUP BY) rather than loading the whole
+  // evidence_links table and counting in JS. Scoped to the items actually shown.
+  const itemIds = items.map((i) => i.id);
   const linkCount = new Map<string, number>();
-  for (const l of links) linkCount.set(l.evidenceId, (linkCount.get(l.evidenceId) ?? 0) + 1);
+  if (itemIds.length > 0) {
+    const counts = await db
+      .select({ evidenceId: evidenceLinks.evidenceId, n: sql<number>`count(*)` })
+      .from(evidenceLinks)
+      .where(inArray(evidenceLinks.evidenceId, itemIds))
+      .groupBy(evidenceLinks.evidenceId);
+    for (const c of counts) linkCount.set(c.evidenceId, Number(c.n));
+  }
 
   return (
     <div>

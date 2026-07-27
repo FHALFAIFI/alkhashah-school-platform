@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { maintenanceIssues, people, rooms } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, EmptyState } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { orFallback } from "@/lib/format";
 import { NewIssueForm, IssueStatusControl } from "./maintenance-ui";
 
 export const metadata = { title: "الصيانة" };
@@ -31,8 +32,8 @@ export default async function MaintenancePage() {
         <Card>
           <h2 className="mb-3 font-bold text-brand-900">بلاغ جديد</h2>
           <NewIssueForm
-            rooms={allRooms.map((r) => ({ id: r.id, label: `${r.nameAr} (${r.code})` }))}
-            people={activePeople.map((p) => ({ id: p.id, label: p.fullName }))}
+            rooms={allRooms.map((r) => ({ id: r.id, label: `${orFallback(r.nameAr)} (${r.code})` }))}
+            people={activePeople.map((p) => ({ id: p.id, label: orFallback(p.fullName) }))}
           />
         </Card>
       )}
@@ -44,12 +45,12 @@ export default async function MaintenancePage() {
             <tr key={i.id} id={`issue-${i.code}`}>
               <td className="px-3 py-2 tabular-nums">{i.code}</td>
               <td className="px-3 py-2">
-                <span className="font-medium">{i.title}</span>
+                <span className="font-medium">{orFallback(i.title)}</span>
                 {i.description && <p className="text-xs text-gray-400">{i.description}</p>}
                 {i.repairNote && <p className="text-xs text-emerald-700">الإصلاح: {i.repairNote}</p>}
               </td>
-              <td className="px-3 py-2 text-xs">{i.roomId ? roomName.get(i.roomId) ?? "—" : "—"}</td>
-              <td className="px-3 py-2 text-xs">{i.ownerPersonId ? personName.get(i.ownerPersonId) ?? "—" : "—"}</td>
+              <td className="px-3 py-2 text-xs">{i.roomId ? orFallback(roomName.get(i.roomId), "—") : "—"}</td>
+              <td className="px-3 py-2 text-xs">{i.ownerPersonId ? orFallback(personName.get(i.ownerPersonId), "—") : "—"}</td>
               <td className="px-3 py-2"><Badge value={i.priority} /></td>
               <td className="px-3 py-2"><Badge value={i.status} /></td>
               <td className="px-3 py-2 text-xs">

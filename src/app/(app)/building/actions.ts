@@ -16,6 +16,7 @@ import { validateGeometry, applyRoomEditToGeometry, roomArea, roomPerimeter, rou
 import { nextRoomCode, nextAssetCode, nextMaintenanceCode, findRoomByCode } from "@/lib/building/codes";
 import { getAssetDependencies, ASSET_EVENT } from "@/lib/building/asset-lifecycle";
 import { ASSET_DELETE_CONFIRM } from "@/lib/building/asset-constants";
+import { orFallback } from "@/lib/format";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -33,8 +34,9 @@ async function assertManagedZone(floorId: string): Promise<string | null> {
 // ————————————————— الغرف —————————————————
 
 const roomUpdateSchema = z.object({
-  nameAr: z.string().trim().min(1, "اسم الغرفة إلزامي").max(120),
-  roomType: z.string().trim().min(1).max(60),
+  // Optional per v2.1 global rule — empty name/type stored as "" (NOT-NULL column satisfied).
+  nameAr: z.string().trim().max(120).optional(),
+  roomType: z.string().trim().max(60).optional(),
   lengthM: z.coerce.number().min(0).max(200).optional(),
   widthM: z.coerce.number().min(0).max(200).optional(),
   capacity: z.coerce.number().int().min(0).max(10000).optional(),
@@ -72,8 +74,8 @@ export async function updateRoomAction(roomId: string, _prev: ActionState, formD
     await tx
       .update(rooms)
       .set({
-        nameAr: d.nameAr,
-        roomType: d.roomType,
+        nameAr: d.nameAr ?? "",
+        roomType: d.roomType ?? "",
         lengthM: lengthM != null ? String(round1(lengthM)) : room.lengthM,
         widthM: widthM != null ? String(round1(widthM)) : room.widthM,
         areaM2: lengthM != null && widthM != null ? String(round1(lengthM * widthM)) : room.areaM2,
@@ -94,8 +96,8 @@ export async function updateRoomAction(roomId: string, _prev: ActionState, formD
     if (!latest) return { synced: false as const };
 
     const updated = applyRoomEditToGeometry(latest.geometry as unknown as FloorGeometry, room.geomKey, {
-      name: d.nameAr,
-      type: d.roomType,
+      name: d.nameAr ?? "",
+      type: d.roomType ?? "",
       lengthM,
       widthM,
     });
@@ -313,8 +315,10 @@ export async function replaceBackgroundAction(floorId: string, _prev: ActionStat
 // ————————————————— الأصول —————————————————
 
 const assetSchema = z.object({
-  nameAr: z.string().min(2, "اسم الأصل مطلوب"),
+  // Optional per v2.1 global rule — empty name stored as "" (NOT-NULL column satisfied).
+  nameAr: z.string().optional(),
   category: z.string().optional(),
+  // Structural FK kept required — an asset must belong to a room.
   roomId: z.string().uuid("اختر الغرفة"),
   important: z.string().optional(),
   serialNumber: z.string().optional(),
@@ -338,12 +342,16 @@ export async function createAssetAction(_prev: ActionState, formData: FormData):
     const [dupSerial] = await db.select({ code: assets.code }).from(assets).where(and(eq(assets.serialNumber, serial), eq(assets.active, true))).limit(1);
     if (dupSerial) return { error: `أصل بالرقم التسلسلي «${serial}» مسجل مسبقاً (${dupSerial.code})` };
   }
-  const [dupName] = await db
-    .select({ code: assets.code })
-    .from(assets)
-    .where(and(eq(assets.roomId, parsed.data.roomId), eq(assets.nameAr, parsed.data.nameAr.trim()), eq(assets.active, true)))
-    .limit(1);
-  if (dupName) return { error: `أصل باسم «${parsed.data.nameAr.trim()}» مسجل مسبقاً في هذه الغرفة (${dupName.code})` };
+  // فحص التكرار بالاسم يُتخطى للاسم الفارغ (الاسم أصبح اختيارياً)
+  const nameAr = parsed.data.nameAr?.trim() ?? "";
+  if (nameAr) {
+    const [dupName] = await db
+      .select({ code: assets.code })
+      .from(assets)
+      .where(and(eq(assets.roomId, parsed.data.roomId), eq(assets.nameAr, nameAr), eq(assets.active, true)))
+      .limit(1);
+    if (dupName) return { error: `أصل باسم «${nameAr}» مسجل مسبقاً في هذه الغرفة (${dupName.code})` };
+  }
 
   const important = parsed.data.important === "on";
   const code = await nextAssetCode();
@@ -351,7 +359,7 @@ export async function createAssetAction(_prev: ActionState, formData: FormData):
     .insert(assets)
     .values({
       code,
-      nameAr: parsed.data.nameAr,
+      nameAr,
       category: parsed.data.category || null,
       roomId: parsed.data.roomId,
       important,
@@ -361,8 +369,8 @@ export async function createAssetAction(_prev: ActionState, formData: FormData):
       notes: parsed.data.notes || null,
     })
     .returning();
-  await db.insert(assetHistory).values({ assetId: asset.id, event: "إنشاء", detail: `أضيف في ${room.nameAr}`, actorId: user.id });
-  await audit({ actorId: user.id, action: "asset.created", entityType: "asset", entityId: asset.id, summary: `${code} — ${asset.nameAr}` });
+  await db.insert(assetHistory).values({ assetId: asset.id, event: "إنشاء", detail: `أضيف في ${orFallback(room.nameAr)}`, actorId: user.id });
+  await audit({ actorId: user.id, action: "asset.created", entityType: "asset", entityId: asset.id, summary: `${code} — ${orFallback(asset.nameAr)}` });
   revalidatePath("/building/assets");
   return { success: `أضيف الأصل ${code}` };
 }
@@ -406,7 +414,7 @@ export async function archiveAssetAction(assetId: string, _prev: ActionState, fo
     action: "asset.archived",
     entityType: "asset",
     entityId: assetId,
-    summary: `${asset.code} — ${asset.nameAr}`,
+    summary: `${asset.code} — ${orFallback(asset.nameAr)}`,
     detail: { before: { active: asset.active }, after: { active: false, archivedReason: reason } },
   });
   revalidatePath("/building/assets");
@@ -432,7 +440,7 @@ export async function restoreAssetAction(assetId: string, _prev: ActionState, fo
     action: "asset.restored",
     entityType: "asset",
     entityId: assetId,
-    summary: `${asset.code} — ${asset.nameAr}`,
+    summary: `${asset.code} — ${orFallback(asset.nameAr)}`,
     detail: { before: { active: false }, after: { active: true } },
   });
   revalidatePath("/building/assets");
@@ -473,7 +481,7 @@ export async function deleteAssetAction(assetId: string, _prev: ActionState, for
     action: "asset.deleted",
     entityType: "asset",
     entityId: assetId,
-    summary: `${asset.code} — ${asset.nameAr}`,
+    summary: `${asset.code} — ${orFallback(asset.nameAr)}`,
     detail: { reason: "أُنشئ بالخطأ", snapshot: { code: asset.code, nameAr: asset.nameAr, roomId: asset.roomId } },
   });
   revalidatePath("/building/assets");
@@ -528,7 +536,7 @@ export async function submitInspectionAction(_prev: ActionState, formData: FormD
     templateSnapshot: template.sections ?? template.items,
     templateVersion: template.version,
   });
-  await audit({ actorId: user.id, action: "inspection.submitted", entityType: "room", entityId: parsed.data.roomId, summary: `فحص ${room.nameAr}` });
+  await audit({ actorId: user.id, action: "inspection.submitted", entityType: "room", entityId: parsed.data.roomId, summary: `فحص ${orFallback(room.nameAr)}` });
   revalidatePath("/building/inspections");
   revalidatePath(`/building/rooms/${parsed.data.roomId}`);
   return { success: "سجل الفحص" };
@@ -549,7 +557,8 @@ export async function overrideReadinessAction(roomId: string, _prev: ActionState
 // ————————————————— الصيانة —————————————————
 
 const issueSchema = z.object({
-  title: z.string().min(3, "عنوان البلاغ مطلوب"),
+  // Optional per v2.1 global rule — empty title stored as "" (NOT-NULL column satisfied).
+  title: z.string().optional(),
   description: z.string().optional(),
   roomId: z.string().uuid().optional().or(z.literal("")),
   assetId: z.string().uuid().optional().or(z.literal("")),
@@ -589,7 +598,7 @@ export async function createIssueAction(_prev: ActionState, formData: FormData):
     .insert(maintenanceIssues)
     .values({
       code,
-      title: parsed.data.title,
+      title: parsed.data.title ?? "",
       description: parsed.data.description || null,
       roomId: parsed.data.roomId || null,
       assetId: parsed.data.assetId || null,
@@ -599,7 +608,7 @@ export async function createIssueAction(_prev: ActionState, formData: FormData):
       reportedBy: user.id,
     })
     .returning();
-  await audit({ actorId: user.id, action: "maintenance.created", entityType: "maintenance", entityId: issue.id, summary: `${code} — ${issue.title}` });
+  await audit({ actorId: user.id, action: "maintenance.created", entityType: "maintenance", entityId: issue.id, summary: `${code} — ${orFallback(issue.title)}` });
   revalidatePath("/building/maintenance");
   return { success: `سجل البلاغ ${code}` };
 }

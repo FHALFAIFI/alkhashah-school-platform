@@ -6,6 +6,7 @@ import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
+import { orFallback } from "@/lib/format";
 
 function esc(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -18,7 +19,7 @@ export async function collectBuildingReportData() {
   const floorName = new Map(flrs.map((f) => [f.id, f.nameAr]));
   const rms = floorIds.length ? await db.select().from(rooms).where(inArray(rooms.floorId, floorIds)).orderBy(asc(rooms.code)) : [];
   const roomIds = rms.map((r) => r.id);
-  const roomName = new Map(rms.map((r) => [r.id, `${r.nameAr} (${r.code})`]));
+  const roomName = new Map(rms.map((r) => [r.id, `${orFallback(r.nameAr)} (${r.code})`]));
   const asts = roomIds.length ? await db.select().from(assets).where(inArray(assets.roomId, roomIds)) : [];
   const insp = roomIds.length ? await db.select().from(inspections).where(inArray(inspections.roomId, roomIds)) : [];
   const maint = roomIds.length ? await db.select().from(maintenanceIssues).where(inArray(maintenanceIssues.roomId, roomIds)) : [];
@@ -48,7 +49,7 @@ export async function generateBuildingReport(opts: { issuedBy: string }) {
       ${list
         .map(
           (r) =>
-            `<tr><td>${esc(r.code)}</td><td>${esc(r.nameAr)}</td><td>${esc(r.roomType)}</td><td>${r.lengthM && r.widthM ? `${Number(r.lengthM)}×${Number(r.widthM)}م` : "—"}</td><td>${r.areaM2 ? `${Number(r.areaM2)} م²` : "—"}</td><td>${r.capacity ?? "—"}</td></tr>`,
+            `<tr><td>${esc(r.code)}</td><td>${esc(orFallback(r.nameAr))}</td><td>${esc(orFallback(r.roomType))}</td><td>${r.lengthM && r.widthM ? `${Number(r.lengthM)}×${Number(r.widthM)}م` : "—"}</td><td>${r.areaM2 ? `${Number(r.areaM2)} م²` : "—"}</td><td>${r.capacity ?? "—"}</td></tr>`,
         )
         .join("")}
     </table>`;
@@ -57,7 +58,7 @@ export async function generateBuildingReport(opts: { issuedBy: string }) {
   body += `<h2>الأصول (${asts.length})</h2>
   <table>
     <tr><th>الرمز</th><th>الاسم</th><th>الفئة</th><th>الغرفة</th><th>الكمية</th><th>الحالة</th></tr>
-    ${asts.map((a) => `<tr><td>${esc(a.code)}</td><td>${esc(a.nameAr)}</td><td>${esc(a.category ?? "—")}</td><td>${esc(a.roomId ? roomName.get(a.roomId) ?? "—" : "—")}</td><td>${a.quantity}</td><td>${esc(a.condition)}</td></tr>`).join("")}
+    ${asts.map((a) => `<tr><td>${esc(a.code)}</td><td>${esc(orFallback(a.nameAr))}</td><td>${esc(a.category ?? "—")}</td><td>${esc(a.roomId ? roomName.get(a.roomId) ?? "—" : "—")}</td><td>${a.quantity}</td><td>${esc(a.condition)}</td></tr>`).join("")}
     ${asts.length === 0 ? `<tr><td colspan="6">لا أصول مسجلة</td></tr>` : ""}
   </table>
 
@@ -77,7 +78,7 @@ export async function generateBuildingReport(opts: { issuedBy: string }) {
   <h2>بلاغات الصيانة — المفتوحة والمكتملة (${maint.length})</h2>
   <table>
     <tr><th>الرمز</th><th>العنوان</th><th>الغرفة</th><th>الأولوية</th><th>الحالة</th></tr>
-    ${maint.map((m) => `<tr><td>${esc(m.code)}</td><td>${esc(m.title)}</td><td>${esc(m.roomId ? roomName.get(m.roomId) ?? "—" : "—")}</td><td>${esc(m.priority)}</td><td>${esc(m.status)}</td></tr>`).join("")}
+    ${maint.map((m) => `<tr><td>${esc(m.code)}</td><td>${esc(orFallback(m.title))}</td><td>${esc(m.roomId ? roomName.get(m.roomId) ?? "—" : "—")}</td><td>${esc(m.priority)}</td><td>${esc(m.status)}</td></tr>`).join("")}
     ${maint.length === 0 ? `<tr><td colspan="5">لا بلاغات</td></tr>` : ""}
   </table>`;
 

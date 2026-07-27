@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { createCycleAction, type ActionState } from "./actions";
 import { Field, SubmitButton } from "@/components/ui";
+import { orFallback } from "@/lib/format";
 
 export function NewCycleForm({
   people,
@@ -46,7 +47,7 @@ export function NewCycleForm({
           <select name="modelId" required className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
             <option value="">— اختر —</option>
             {availableModels.map((m) => (
-              <option key={m.id} value={m.id}>{m.nameAr}{m.official ? " (رسمي)" : ""}{m.audience !== cycleType ? ` — لفئة «${m.audience}»` : ""}</option>
+              <option key={m.id} value={m.id}>{orFallback(m.nameAr)}{m.official ? " (رسمي)" : ""}{m.audience !== cycleType ? ` — لفئة «${m.audience}»` : ""}</option>
             ))}
           </select>
           {noMatchingModel && (
@@ -59,7 +60,7 @@ export function NewCycleForm({
           )}
         </div>
         <div className="w-36">
-          <Field label={cycleType === "معلم" ? "السنة الدراسية" : "السنة الميلادية"} name="yearKey" defaultValue={cycleType === "معلم" ? "1448-1449" : "2026"} required dir="ltr" />
+          <Field label={cycleType === "معلم" ? "السنة الدراسية" : "السنة الميلادية"} name="yearKey" defaultValue={cycleType === "معلم" ? "1448-1449" : "2026"} dir="ltr" />
         </div>
       </div>
       {cycleType === "موظف" && (

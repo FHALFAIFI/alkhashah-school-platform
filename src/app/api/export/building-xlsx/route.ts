@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { getCurrentUser } from "@/lib/auth/session";
 import { collectBuildingReportData } from "@/lib/reports/building-report";
 import { audit } from "@/lib/audit";
+import { orFallback } from "@/lib/format";
 
 /** تصدير Excel لتقرير المبنى: أوراق الغرف والأصول والفحوص والصيانة (مجمع البنين) */
 export async function GET() {
@@ -26,7 +27,7 @@ export async function GET() {
     { header: "السعة", key: "cap", width: 8 },
   ];
   wsR.getRow(1).font = { bold: true };
-  for (const r of rms) wsR.addRow({ code: r.code, name: r.nameAr, floor: floorName.get(r.floorId) ?? "—", type: r.roomType, len: r.lengthM ? Number(r.lengthM) : "—", wid: r.widthM ? Number(r.widthM) : "—", area: r.areaM2 ? Number(r.areaM2) : "—", cap: r.capacity ?? "—" });
+  for (const r of rms) wsR.addRow({ code: r.code, name: orFallback(r.nameAr), floor: floorName.get(r.floorId) ?? "—", type: orFallback(r.roomType), len: r.lengthM ? Number(r.lengthM) : "—", wid: r.widthM ? Number(r.widthM) : "—", area: r.areaM2 ? Number(r.areaM2) : "—", cap: r.capacity ?? "—" });
 
   const wsA = wb.addWorksheet("الأصول", { views: [{ rightToLeft: true }] });
   wsA.columns = [
@@ -38,7 +39,7 @@ export async function GET() {
     { header: "الحالة", key: "cond", width: 14 },
   ];
   wsA.getRow(1).font = { bold: true };
-  for (const a of asts) wsA.addRow({ code: a.code, name: a.nameAr, cat: a.category ?? "—", room: a.roomId ? roomName.get(a.roomId) ?? "—" : "—", qty: a.quantity, cond: a.condition });
+  for (const a of asts) wsA.addRow({ code: a.code, name: orFallback(a.nameAr), cat: a.category ?? "—", room: a.roomId ? roomName.get(a.roomId) ?? "—" : "—", qty: a.quantity, cond: a.condition });
 
   const wsI = wb.addWorksheet("الفحوص والجاهزية", { views: [{ rightToLeft: true }] });
   wsI.columns = [
@@ -62,7 +63,7 @@ export async function GET() {
     { header: "الحالة", key: "status", width: 16 },
   ];
   wsM.getRow(1).font = { bold: true };
-  for (const m of maint) wsM.addRow({ code: m.code, title: m.title, room: m.roomId ? roomName.get(m.roomId) ?? "—" : "—", priority: m.priority, status: m.status });
+  for (const m of maint) wsM.addRow({ code: m.code, title: orFallback(m.title), room: m.roomId ? roomName.get(m.roomId) ?? "—" : "—", priority: m.priority, status: m.status });
 
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   await audit({ actorId: user.id, action: "export.building_xlsx", summary: "تصدير Excel لتقرير المبنى" });

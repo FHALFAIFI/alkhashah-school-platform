@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { floors, rooms, assets } from "@/db/schema";
 import { PageHeader, Card, EmptyState } from "@/components/ui";
 import { SCAN_TARGETS, listScannedDocuments } from "@/lib/building/document-scan";
+import { orFallback } from "@/lib/format";
 import { DocumentScanner } from "./document-scanner";
 
 export const metadata = { title: "مسح المستندات" };
@@ -46,8 +47,8 @@ export default async function BuildingDocumentsPage() {
             csrfToken={user.csrfToken}
             targetTypes={targetTypes}
             floors={allFloors.map((f) => ({ value: f.id, label: f.nameAr }))}
-            rooms={allRooms.map((r) => ({ value: r.id, label: `${r.nameAr} (${r.code})` }))}
-            assets={allAssets.map((a) => ({ value: a.id, label: `${a.nameAr} (${a.code})` }))}
+            rooms={allRooms.map((r) => ({ value: r.id, label: `${orFallback(r.nameAr)} (${r.code})` }))}
+            assets={allAssets.map((a) => ({ value: a.id, label: `${orFallback(a.nameAr)} (${a.code})` }))}
           />
         </Card>
       ) : (

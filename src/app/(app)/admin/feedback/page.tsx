@@ -8,6 +8,7 @@ import {
   FEEDBACK_MODULES,
 } from "@/lib/feedback/constants";
 import { PageHeader, Card, Badge, Table, EmptyState } from "@/components/ui";
+import { orFallback } from "@/lib/format";
 import { FeedbackListActions } from "./list-actions";
 
 export const dynamic = "force-dynamic";
@@ -117,7 +118,7 @@ export default async function FeedbackAdminPage({ searchParams }: { searchParams
                   <span className="font-bold tabular-nums text-brand-800" dir="ltr">{r.ref}</span>
                   <Badge value={r.status} />
                 </div>
-                <p className="mb-1 break-words font-medium text-brand-900">{r.title}</p>
+                <p className="mb-1 break-words font-medium text-brand-900">{orFallback(r.title)}</p>
                 <div className="flex flex-wrap gap-1.5 text-xs">
                   <Badge value={r.category} />
                   <Badge value={r.severity} />
@@ -138,7 +139,7 @@ export default async function FeedbackAdminPage({ searchParams }: { searchParams
                 <tr key={r.id} className={r.archivedAt ? "opacity-60" : ""}>
                   <td className="px-3 py-2 tabular-nums" dir="ltr">{r.ref}</td>
                   <td className="px-3 py-2">
-                    {r.title}
+                    {orFallback(r.title)}
                     {r.blocked && <span className="ms-1 text-xs text-red-600">(يعيق العمل)</span>}
                   </td>
                   <td className="px-3 py-2">{r.module}</td>

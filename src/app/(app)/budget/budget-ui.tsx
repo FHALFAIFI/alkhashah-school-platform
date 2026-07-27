@@ -27,8 +27,8 @@ export function AddIncomeForm({ planYearId, programs }: { planYearId: string; pr
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="planYearId" value={planYearId} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="مصدر الإيراد" name="source" required />
-            <Field label="المبلغ" name="amount" type="number" required />
+            <Field label="مصدر الإيراد" name="source" />
+            <Field label="المبلغ" name="amount" type="number" />
             <Field label="التاريخ" name="incomeDate" />
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="in-status">الحالة</label>
@@ -86,7 +86,6 @@ export function AddExpenseForm({ planYearId, programs }: { planYearId: string; p
                 id="ex-amount"
                 name="amount"
                 type="number"
-                required
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm lg:min-h-0"
@@ -110,9 +109,34 @@ export function AddExpenseForm({ planYearId, programs }: { planYearId: string; p
             </div>
             <Field label="التصنيف" name="category" />
             <Field label="المورّد (اختياري)" name="supplier" />
-            <Field label="مرجع الدفع (اختياري)" name="paymentReference" />
+            <Field label="رقم الفاتورة (اختياري)" name="paymentReference" />
           </div>
-          <Field label="البند" name="items" />
+          {/* B3: «البند» قائمة اختيارية بقيم ثابتة تُخزَّن في العمود النصي items نفسه */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-items">البند</label>
+            <select
+              id="ex-items"
+              name="items"
+              defaultValue=""
+              className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+            >
+              <option value="">— بدون —</option>
+              <option value="المستلزمات">المستلزمات</option>
+              <option value="النشاط">النشاط</option>
+            </select>
+          </div>
+          {/* B2: إرفاق فاتورة اختياري — يُحفظ عبر خط الشواهد الآمن ويُربط بالمصروف بعد حفظه */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-invoice">إرفاق الفاتورة</label>
+            <input
+              id="ex-invoice"
+              name="invoice"
+              type="file"
+              accept="image/*,application/pdf"
+              className="w-full rounded-lg border border-dashed border-gray-300 p-3 text-sm"
+            />
+            <p className="mt-1 text-xs text-gray-400">يمكن رفع صورة أو ملف PDF، والحقل اختياري.</p>
+          </div>
           <TextArea label="ملاحظات" name="notes" rows={2} />
 
           {wouldOverspend && (

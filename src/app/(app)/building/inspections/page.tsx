@@ -7,6 +7,7 @@ import { PageHeader, Card, Badge, Table, LinkButton, ProgressBar } from "@/compo
 import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { computeRoomReadiness } from "@/lib/building/readiness";
 import { statusLabel } from "@/lib/building/inspection-template-defs";
+import { orFallback } from "@/lib/format";
 import { ApproveTemplateButton } from "./inspections-ui";
 
 export const metadata = { title: "الفحص والجاهزية" };
@@ -68,7 +69,7 @@ export default async function InspectionsPage() {
             <tr key={t.id} id={`tpl-${t.id}`} className="scroll-mt-20">
               <td className="px-3 py-2 font-medium">
                 <Link href={`/building/inspections/templates/${t.id}`} className="text-brand-700 hover:underline">
-                  {t.nameAr}
+                  {orFallback(t.nameAr)}
                 </Link>
               </td>
               <td className="px-3 py-2 text-xs">{t.roomType ?? "عام"}</td>
@@ -89,7 +90,7 @@ export default async function InspectionsPage() {
             <tr key={room.id}>
               <td className="px-3 py-2 tabular-nums">{room.code}</td>
               <td className="px-3 py-2 font-medium">
-                <Link href={`/building/rooms/${room.id}`} className="text-brand-700 hover:underline">{room.nameAr}</Link>
+                <Link href={`/building/rooms/${room.id}`} className="text-brand-700 hover:underline">{orFallback(room.nameAr)}</Link>
               </td>
               <td className="px-3 py-2 text-xs">{floorName.get(room.floorId)}</td>
               <td className="px-3 py-2"><ProgressBar value={readiness} /></td>

@@ -12,6 +12,8 @@ import { evidenceForEntity } from "@/lib/evidence";
 import { generateSessionReport } from "@/lib/reports/session-report";
 import { getSetting } from "@/lib/settings";
 import { getVersions } from "@/lib/versioning";
+import { BackButton } from "@/components/back-button";
+import { orFallback, orDash } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -59,8 +61,13 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
     <div className="space-y-5">
       <PageHeader
         title={`جلسة ${session.sessionType} — ${person.fullName}`}
-        subtitle={`${snapshot.model.nameAr} — ${cycle.yearKey}${session.sessionDate ? ` — ${session.sessionDate}` : ""}`}
-        actions={<Badge value={session.status} />}
+        subtitle={`${orFallback(snapshot.model.nameAr)} — ${orDash(cycle.yearKey)}${session.sessionDate ? ` — ${session.sessionDate}` : ""}`}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <BackButton fallbackHref={`/performance/cycles/${cycle.id}`} />
+            <Badge value={session.status} />
+          </div>
+        }
       />
 
       {(session.warningFlags ?? []).length > 0 && (
@@ -73,27 +80,29 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
 
       {session.sessionType === "نهائي" && (
         <Card>
-          <h2 className="mb-2 font-bold text-brand-900">شواهد المؤشرات المطلوبة لإقفال التقييم النهائي</h2>
+          <h2 className="mb-2 font-bold text-brand-900">شواهد المؤشرات (اختيارية)</h2>
           <p className="mb-3 text-xs text-gray-400">
-            كل مؤشر يتطلب شواهد يجب ربط شاهد به من لوحة الشواهد أدناه (حقل «المؤشر المرتبط») قبل الإقفال.
+            يمكن ربط الشواهد بالمؤشرات من لوحة الشواهد أدناه (حقل «المؤشر المرتبط»). الشواهد اختيارية ولا تمنع إقفال التقييم النهائي.
           </p>
           <ul className="space-y-1.5 text-sm">
             {snapshot.indicators.filter((i) => i.requiresEvidence).map((ind) => {
-              const has = (evidenceByIndicator.get(ind.id) ?? 0) > 0;
+              const count = evidenceByIndicator.get(ind.id) ?? 0;
               return (
                 <li key={ind.id} className="flex flex-wrap items-center gap-2">
-                  {has ? (
+                  {count > 0 ? (
                     <span className="text-emerald-600" aria-hidden>✓</span>
                   ) : (
-                    <span className="text-red-500" aria-hidden>✗</span>
+                    <span className="text-gray-300" aria-hidden>—</span>
                   )}
-                  <span>{ind.nameAr}</span>
-                  {!has && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">ينقص شاهد</span>}
+                  <span>{orFallback(ind.nameAr)}</span>
+                  <span className="text-xs tabular-nums text-gray-400">
+                    {count > 0 ? `${count} شاهد` : "لا شواهد بعد"}
+                  </span>
                 </li>
               );
             })}
             {snapshot.indicators.every((i) => !i.requiresEvidence) && (
-              <li className="text-gray-400">لا مؤشرات تتطلب شواهد في هذا النموذج</li>
+              <li className="text-gray-400">لا مؤشرات موسومة بالشواهد في هذا النموذج</li>
             )}
           </ul>
         </Card>
@@ -139,7 +148,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
         entityId={sid}
         items={evidence.map((e) => ({ id: e.item.id, title: e.item.title, kind: e.item.kind, role: e.item.role, fileId: e.item.fileId, subKey: e.link.subKey }))}
         canWrite={user.permissions.has("evidence.write") && editable}
-        subKeys={snapshot.indicators.map((ind) => ({ value: ind.id, label: ind.nameAr }))}
+        subKeys={snapshot.indicators.map((ind) => ({ value: ind.id, label: orFallback(ind.nameAr) }))}
         subKeyLabel="المؤشر المرتبط"
       />
 
@@ -185,7 +194,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
               ✓ التقرير الموقع مرفوع — <a href={`/api/files/${session.signedReportFileId}`} className="underline">تنزيل</a>
             </p>
           ) : (
-            <p className="text-amber-700">لم يرفع التقرير الموقع — لا تكتمل الجلسة بدونه</p>
+            <p className="text-gray-500">لم يرفع التقرير الموقع بعد (اختياري)</p>
           )}
           {editable && <SignedReportUpload sessionId={sid} />}
           <div className="flex flex-wrap items-center gap-3">
@@ -193,7 +202,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
               <CompleteSessionButton
                 sessionId={sid}
                 isFinal={session.sessionType === "نهائي"}
-                disabled={!session.reportDocId || !session.signedReportFileId}
+                disabled={!session.reportDocId}
               />
             )}
             {(session.status === "مكتملة" || session.status === "مقفلة") && canApprove && (

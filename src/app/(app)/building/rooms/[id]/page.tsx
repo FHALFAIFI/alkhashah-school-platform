@@ -10,6 +10,7 @@ import {
 import { PageHeader, Card, Badge, LinkButton, Table, ProgressBar } from "@/components/ui";
 import { computeRoomReadiness } from "@/lib/building/readiness";
 import { isUuid } from "@/lib/validation";
+import { orFallback } from "@/lib/format";
 import { InspectionRunForm, ReadinessOverrideForm, RoomEditForm, RoomIssueForm } from "./room-ui";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { headers } from "next/headers";
@@ -65,14 +66,14 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
   const draftPending =
     latestGeometry?.status === "مسودة" && (!publishedGeometry || latestGeometry.version > publishedGeometry.version);
 
-  const peopleOptions = activePeople.map((p) => ({ id: p.id, label: p.fullName }));
+  const peopleOptions = activePeople.map((p) => ({ id: p.id, label: orFallback(p.fullName) }));
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`${room.nameAr} (${room.code})`}
-        subtitle={`${floor.nameAr} — ${room.roomType}${room.lengthM && room.widthM ? ` — ${Number(room.lengthM).toFixed(1)}×${Number(room.widthM).toFixed(1)}م` : ""}${room.areaM2 ? ` — ${Number(room.areaM2).toFixed(1)} م²` : ""}`}
-        actions={user.permissions.has("ai.use") ? <AskAssistant type="room" id={id} label={`غرفة ${room.nameAr} (${room.code})`} /> : undefined}
+        title={`${orFallback(room.nameAr)} (${room.code})`}
+        subtitle={`${floor.nameAr} — ${orFallback(room.roomType)}${room.lengthM && room.widthM ? ` — ${Number(room.lengthM).toFixed(1)}×${Number(room.widthM).toFixed(1)}م` : ""}${room.areaM2 ? ` — ${Number(room.areaM2).toFixed(1)} م²` : ""}`}
+        actions={user.permissions.has("ai.use") ? <AskAssistant type="room" id={id} label={`غرفة ${orFallback(room.nameAr)} (${room.code})`} /> : undefined}
       />
 
       {/* صف الإجراء التالي — أين أنا وماذا أفعل الآن */}
@@ -137,7 +138,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
         <Card>
           <h2 className="mb-2 text-sm font-bold text-gray-600">رمز الاستجابة السريعة للغرفة</h2>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qrDataUrl} alt={`رمز ${room.nameAr}`} className="mx-auto" />
+          <img src={qrDataUrl} alt={`رمز ${orFallback(room.nameAr)}`} className="mx-auto" />
           <p className="text-center text-xs text-gray-400 tabular-nums">{room.code}</p>
         </Card>
         <Card>
@@ -156,7 +157,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
             {roomAssets.map((a) => (
               <tr key={a.id}>
                 <td className="px-3 py-2 tabular-nums">{a.code}</td>
-                <td className="px-3 py-2 font-medium">{a.nameAr}</td>
+                <td className="px-3 py-2 font-medium">{orFallback(a.nameAr)}</td>
                 <td className="px-3 py-2 text-xs">{a.important ? "أصل مهم (سجل فردي)" : "متكرر بالكمية"}</td>
                 <td className="px-3 py-2 text-xs tabular-nums">{a.important ? a.serialNumber ?? "—" : a.quantity}</td>
                 <td className="px-3 py-2"><Badge value={a.condition === "جيدة" || a.condition === "ممتازة" ? "مكتمل" : "متأخر"} /> <span className="text-xs">{a.condition}</span></td>

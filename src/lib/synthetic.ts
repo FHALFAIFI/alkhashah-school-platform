@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { inArray, notInArray, like, eq, or, sql, type SQL, type AnyColumn } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -198,8 +199,16 @@ function unionInto(target: SyntheticIdSets, extra: SyntheticIdSets): SyntheticId
 
 /**
  * يحسب التصنيف الكامل بأدلة بنيوية. للقراءة فقط — لا يعدّل أي سجل.
+ *
+ * Per-request memoized with React `cache()`: this read path performs ~20+ full-table
+ * scans, and a single dynamic render fans out to it many times (the page itself plus
+ * helpers such as worklist / pilot-status / strategic-decisions / committee prerequisites,
+ * each of which calls the central filter). `cache()` dedupes all of those to ONE run per
+ * server request/render. It memoizes only inside an active React request scope; outside
+ * one (e.g. vitest, CLI scripts) it transparently falls through to the raw function, so
+ * test behavior — including env-toggle tests — is unchanged. Takes no args → single key.
  */
-export async function classifySynthetic(): Promise<SyntheticClassification> {
+export const classifySynthetic = cache(async function classifySynthetic(): Promise<SyntheticClassification> {
   // 1) المراسي البنيوية
   const synthBatches = await db
     .select({ id: importBatches.id })
@@ -444,7 +453,7 @@ export async function classifySynthetic(): Promise<SyntheticClassification> {
   ) as Record<SyntheticEntityType, number>;
 
   return { syntheticBatchIds, ids, candidates, nameOnlySuspects, counts };
-}
+});
 
 /** سجلات اسمها يحوي «تجريبي» لكنها بلا مرسى بنيوي — تعرض للمراجعة اليدوية فقط */
 async function collectNameOnlySuspects(ids: SyntheticIdSets): Promise<SyntheticCandidate[]> {
@@ -471,7 +480,7 @@ export function syntheticExclusionEnabled(): boolean {
  * مجموعات المعرفات المؤرشفة فعلياً (دفعات حالتها «مؤرشف»). دائمة التفعيل — مستقلة عن
  * مفتاح MADRASA_INCLUDE_SYNTHETIC: ما أُرشف صراحةً يبقى مخفياً حتى يُسترجع.
  */
-export async function getArchivedIdSets(): Promise<SyntheticIdSets> {
+export const getArchivedIdSets = cache(async function getArchivedIdSets(): Promise<SyntheticIdSets> {
   const sets = emptySets();
   let rows: { entityType: string; entityId: string }[];
   try {
@@ -489,18 +498,23 @@ export async function getArchivedIdSets(): Promise<SyntheticIdSets> {
     if (field) sets[field].add(r.entityId);
   }
   return sets;
-}
+});
 
 /**
  * مجموعات المعرفات المستبعدة من كل الواجهات الموجّهة للمستخدم — المرشّح المركزي الوحيد.
  * تُوحِّد: (أ) المؤرشف فعلياً (دائماً)، (ب) الاصطناعي المصنّف بنيوياً (ما لم يُعطَّل الاستبعاد).
  */
-export async function getExcludedIdSets(): Promise<SyntheticIdSets> {
+export const getExcludedIdSets = cache(async function getExcludedIdSets(): Promise<SyntheticIdSets> {
   const archived = await getArchivedIdSets();
   if (!syntheticExclusionEnabled()) return archived;
   const { ids } = await classifySynthetic();
-  return unionInto(ids, archived);
-}
+  // Merge into a FRESH set. `classifySynthetic()` / `getArchivedIdSets()` are now per-request
+  // memoized, so their returned Sets are shared references — mutating them (as the old
+  // `unionInto(ids, archived)` did) would pollute the cached classification for every other
+  // caller in the same request. Build a new copy instead: same contents (ids ∪ archived),
+  // no mutation of cached state.
+  return unionInto(unionInto(emptySets(), ids), archived);
+});
 
 /** يصفّي قائمة عناصر مجلوبة مسبقاً حسب مجموعة معرفات مستبعدة */
 export function filterOutSynthetic<T extends { id: string }>(rows: T[], excluded: Set<string>): T[] {

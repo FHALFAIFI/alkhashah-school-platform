@@ -12,6 +12,7 @@ import {
 } from "./actions";
 import { FACILITY_STATUSES } from "./constants";
 import { Field, SubmitButton, Badge } from "@/components/ui";
+import { orFallback } from "@/lib/format";
 
 type Room = { id: string; label: string };
 export type FacilityView = {
@@ -34,7 +35,7 @@ export function AddFacilityForm({ hasStandard }: { hasStandard: boolean }) {
         {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
         {state?.success && <div role="status" className="w-full rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
         <input type="hidden" name="kind" value="مخصص" />
-        <Field label="مرفق مخصص" name="facilityType" required />
+        <Field label="مرفق مخصص" name="facilityType" />
         <Field label="العدد المطلوب (اختياري)" name="requiredQty" type="number" />
         <SubmitButton variant="secondary">إضافة مرفق</SubmitButton>
       </form>
@@ -85,7 +86,7 @@ export function FacilityRow({ facility, rooms, canWrite }: { facility: FacilityV
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-brand-900">{facility.facilityType}</span>
+          <span className="font-medium text-brand-900">{orFallback(facility.facilityType)}</span>
           {facility.kind === "مخصص" && <span className="rounded bg-sand-100 px-1.5 py-0.5 text-xs text-gray-500">مخصص</span>}
           <Badge value={facility.status} />
           <span className={`text-xs ${statusTone === "warn" ? "text-amber-600" : "text-gray-500"}`}>

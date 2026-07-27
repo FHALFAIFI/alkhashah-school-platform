@@ -26,12 +26,11 @@ export function PersonForm({ person }: { person?: Person }) {
     <form action={formAction} className="space-y-4">
       {state?.error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{state.error}</div>}
       {state?.success && <div role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{state.success}</div>}
-      <Field label="الاسم الكامل" name="fullName" defaultValue={person?.fullName} required />
+      <Field label="الاسم الكامل" name="fullName" defaultValue={person?.fullName} />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Select
           label="نوع الموظف"
           name="employeeType"
-          required
           defaultValue={employeeTypeOf({ category: person?.category ?? "معلم", employeeType: person?.employeeType })}
           options={[
             { value: "معلم", label: "معلم — يتبع التقويم الدراسي" },

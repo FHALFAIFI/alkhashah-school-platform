@@ -9,6 +9,8 @@ import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { cycleProgress, weakIndicators } from "@/lib/performance/scoring";
 import { NewSessionForm, ImprovementPlanForm, PlanStatusControl } from "./cycle-ui";
 import { dualDisplay, todayIso } from "@/lib/dates";
+import { BackButton } from "@/components/back-button";
+import { orFallback, orDash } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +42,7 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
   }));
   const progress = cycleProgress(sessionRatings);
   const weak = weakIndicators(progress.entries);
-  const weakNames = snapshot.indicators.filter((i) => weak.includes(i.id)).map((i) => i.nameAr);
+  const weakNames = snapshot.indicators.filter((i) => weak.includes(i.id)).map((i) => orFallback(i.nameAr));
 
   const visits = sessions.filter((s) => s.sessionType === "زيارة").length;
   const followups = sessions.filter((s) => s.sessionType === "متابعة").length;
@@ -74,9 +76,10 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
     <div className="space-y-5">
       <PageHeader
         title={`دورة أداء: ${person.fullName}`}
-        subtitle={`${cycle.cycleType} — ${snapshot.model.nameAr} — ${cycle.yearKey}`}
+        subtitle={`${cycle.cycleType} — ${orFallback(snapshot.model.nameAr)} — ${orDash(cycle.yearKey)}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <BackButton fallbackHref="/performance" />
             <Badge value={cycle.status} />
             {user.permissions.has("ai.use") && (
               <AskAssistant type="performance" id={id} label={`دورة أداء: ${person.fullName} (${cycle.yearKey})`} />
@@ -217,14 +220,14 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
             {plans.map((p) => (
               <li key={p.id} className="rounded-lg border border-sand-200 p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{p.title}</span>
+                  <span className="font-medium">{orFallback(p.title)}</span>
                   <span className="flex items-center gap-2">
                     <Badge value={p.status} />
                     {canWrite && p.status !== "مكتملة" && <PlanStatusControl planId={p.id} status={p.status} />}
                   </span>
                 </div>
                 {p.goals && <p className="mt-1 text-xs text-gray-500">الأهداف: {p.goals}</p>}
-                {p.actions && <p className="text-xs text-gray-500">الإجراءات: {p.actions}</p>}
+                {p.actions && <p className="text-xs text-gray-500">التوصيات: {p.actions}</p>}
               </li>
             ))}
           </ul>
@@ -240,7 +243,7 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
             return (
               <tr key={ind.id}>
                 <td className="px-3 py-2 tabular-nums">{i + 1}</td>
-                <td className="px-3 py-2">{ind.nameAr}</td>
+                <td className="px-3 py-2">{orFallback(ind.nameAr)}</td>
                 <td className="px-3 py-2 tabular-nums">{Number(ind.weight)}٪</td>
                 <td className="px-3 py-2 tabular-nums">{entry?.rating ?? "غير مقيم"}</td>
               </tr>

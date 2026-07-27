@@ -6,6 +6,7 @@ import {
   type ActionState,
 } from "../../../../actions";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
+import { orFallback } from "@/lib/format";
 
 type IndicatorRow = {
   id: string;
@@ -71,7 +72,7 @@ export function RatingsForm({
         <TextArea label="الملاحظات" name="notes" defaultValue={sessionFields.notes} rows={2} />
         <TextArea label="نقاط القوة" name="strengths" defaultValue={sessionFields.strengths} rows={2} />
         <TextArea label="فرص التحسين" name="improvementAreas" defaultValue={sessionFields.improvementAreas} rows={2} />
-        <TextArea label="الإجراءات" name="actionsText" defaultValue={sessionFields.actionsText} rows={2} />
+        <TextArea label="التوصيات" name="actionsText" defaultValue={sessionFields.actionsText} rows={2} />
       </div>
       {editable && <SubmitButton>حفظ التقديرات (تحسب النتيجة تلقائياً)</SubmitButton>}
     </form>
@@ -86,8 +87,8 @@ function IndicatorRowView({ ind, index, editable }: { ind: IndicatorRow; index: 
     <tr>
       <td className="px-3 py-2 tabular-nums">{index + 1}</td>
       <td className="px-3 py-2">
-        {ind.nameAr}
-        {ind.requiresEvidence && <span className="ms-1 text-xs text-purple-600">(شواهد مطلوبة)</span>}
+        {orFallback(ind.nameAr)}
+        {ind.requiresEvidence && <span className="ms-1 text-xs text-purple-600">(شواهد موصى بها)</span>}
       </td>
       <td className="px-3 py-2 tabular-nums">{ind.weight}٪</td>
       <td className="px-3 py-2">
@@ -135,7 +136,7 @@ export function SignedReportUpload({ sessionId }: { sessionId: string }) {
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       <div className="min-w-64 flex-1">
         <label className="mb-1 block text-sm font-medium text-gray-700">رفع التقرير الموقع</label>
-        <input name="file" type="file" accept="application/pdf,image/*" required className="w-full rounded-lg border border-dashed border-gray-300 p-3 text-sm" />
+        <input name="file" type="file" accept="application/pdf,image/*" className="w-full rounded-lg border border-dashed border-gray-300 p-3 text-sm" />
       </div>
       <SubmitButton variant="secondary">رفع</SubmitButton>
     </form>
@@ -161,7 +162,7 @@ export function CompleteSessionButton({ sessionId, isFinal, disabled }: { sessio
       >
         {isFinal ? "اعتماد وإقفال التقييم النهائي" : "اعتماد اكتمال الجلسة"}
       </button>
-      {disabled && <p className="mt-1 text-xs text-amber-600">يتطلب إصدار التقرير ورفع النسخة الموقعة أولاً</p>}
+      {disabled && <p className="mt-1 text-xs text-amber-600">يتطلب إصدار التقرير أولاً</p>}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useActionState, useState, useTransition } from "react";
 import {
   approveProgramAction, reopenProgramAction, createChangeRequestAction, decideChangeRequestAction,
   approvePackageAction, updateProgramExecutionAction,
+  archiveProgramAction, unarchiveProgramAction,
   type ActionState,
 } from "../actions";
 import { SubmitButton } from "@/components/ui";
@@ -132,8 +133,9 @@ export function ChangeRequestForm({ programId }: { programId: string }) {
         <input type="hidden" name="fieldLabel" value={FIELD_OPTIONS.find((o) => o.value === field)?.label ?? field} />
       </div>
       <div className="min-w-0 flex-1 basis-52">
+        {/* حقل تجاري اختياري (v2.1 §H): يُسمح بقيمة فارغة لمسح الحقل عبر طلب تغيير موثق */}
         <label className="block text-xs text-gray-500">القيمة الجديدة</label>
-        <input name="newValue" required className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        <input name="newValue" className="w-full min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm" />
       </div>
       <div className="min-w-0 flex-1 basis-52">
         <label className="block text-xs text-gray-500">السبب (إلزامي)</label>
@@ -176,5 +178,64 @@ export function ApprovePackageButton({ deliverableId }: { deliverableId: string 
     >
       اعتماد الحزمة
     </button>
+  );
+}
+
+/**
+ * أرشفة البرنامج (حذف ناعم، v2.1 §A1): تأكيد عربي يسمّي البرنامج، وسبب اختياري.
+ * عند وجود سجلات مرتبطة يوضّح التأكيد أن البرنامج سيُخفى مع الاحتفاظ بالسجلات التاريخية.
+ * يستخدم SubmitButton (confirmText) لمنع الإرسال المزدوج بالخطأ.
+ */
+export function ArchiveProgramForm({
+  programId, programName, hasLinkedData,
+}: {
+  programId: string;
+  programName: string;
+  hasLinkedData: boolean;
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(archiveProgramAction.bind(null, programId), null);
+  const confirmText =
+    (hasLinkedData
+      ? "هذا البرنامج مرتبط بسجلات أخرى. سيتم إخفاؤه من الاستخدام مع الاحتفاظ بالسجلات التاريخية.\n\n"
+      : "") + `هل أنت متأكد من حذف هذا البرنامج؟\n«${programName}»`;
+  return (
+    <form action={formAction} className="space-y-2">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <p className="text-xs text-gray-500">
+        {hasLinkedData
+          ? "هذا البرنامج مرتبط بسجلات أخرى. الأرشفة تخفيه من الاستخدام مع الاحتفاظ بكل سجلاته التاريخية، ويمكن استرجاعه لاحقاً."
+          : "الأرشفة تخفي البرنامج من القوائم والتقارير، ويمكن استرجاعه لاحقاً."}
+      </p>
+      <input
+        name="reason"
+        placeholder="سبب الأرشفة (اختياري)"
+        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+      />
+      <SubmitButton variant="danger" confirmText={confirmText}>أرشفة البرنامج</SubmitButton>
+    </form>
+  );
+}
+
+/** استرجاع برنامج مؤرشف — يعيده للاستخدام والقوائم التشغيلية */
+export function UnarchiveProgramButton({ programId }: { programId: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  return (
+    <div className="space-y-2">
+      {error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
+      <button
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            const res = await unarchiveProgramAction(programId);
+            if (res?.error) setError(res.error);
+          })
+        }
+        className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+      >
+        استرجاع
+      </button>
+    </div>
   );
 }

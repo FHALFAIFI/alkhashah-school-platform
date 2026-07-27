@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, planYears, meetingTypes, meetingAttachments, committeeImpacts } from "@/db/schema";
+import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, planYears, meetingTypes, meetingAttachments } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { buildWordReport } from "@/lib/reports/word-export";
 import { audit } from "@/lib/audit";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
+import { orFallback, orDash } from "@/lib/format";
 
 /** تصدير تقرير اللجنة بصيغة Word قابلة للتحرير — لا حضور ولا غياب ولا نصاب */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -35,7 +36,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const attachments = meetingIds.length
     ? await db.select().from(meetingAttachments).where(inArray(meetingAttachments.meetingId, meetingIds)).orderBy(asc(meetingAttachments.createdAt))
     : [];
-  const impacts = await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, id)).orderBy(asc(committeeImpacts.createdAt));
   const allTypes = await db.select().from(meetingTypes);
   const typeName = new Map(allTypes.map((t) => [t.id, t.nameAr]));
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
@@ -45,7 +45,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   const now = new Date();
   const buf = await buildWordReport({
-    title: `تقرير اللجنة: ${c.nameAr}`,
+    title: `تقرير اللجنة: ${orFallback(c.nameAr)}`,
     meta: [
       ["تاريخ الإصدار", `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`],
       ["النوع", c.kind],
@@ -55,7 +55,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     sections: [
       {
         heading: "الأعضاء (تسجيل التشكيل — لا حضور ولا غياب)",
-        table: { headers: ["الاسم", "الصفة", "العمل في اللجنة"], rows: members.map((m) => [m.name, m.position ?? "—", m.role]) },
+        table: { headers: ["الاسم", "الصفة", "العمل في اللجنة"], rows: members.map((m) => [orFallback(m.name), orDash(m.position), orDash(m.role)]) },
       },
       {
         heading: "الاجتماعات",
@@ -63,7 +63,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           headers: ["م", "العنوان", "النوع", "التاريخ", "الحالة"],
           rows: ms.map((m) => [
             String(m.seq),
-            m.title ?? "—",
+            orFallback(m.title, `الاجتماع ${m.seq}`),
             m.typeId ? typeName.get(m.typeId) ?? "—" : "—",
             m.meetingDate ? `${toHijriNumeric(m.meetingDate)}هـ` : "—",
             m.status,
@@ -79,7 +79,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
             return [
               `الاجتماع ${seqByMeeting.get(o.meetingId) ?? "—"}`,
               o.outcomeType,
-              o.text,
+              orDash(o.text),
               t ? `${t.mandatory ? "إلزامي" : "اختياري"} — ${t.status}` : "—",
             ];
           }),
@@ -89,14 +89,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         heading: "المرفقات",
         table: {
           headers: ["الاجتماع", "العنوان", "الفئة", "الوصف"],
-          rows: attachments.map((a) => [`الاجتماع ${seqByMeeting.get(a.meetingId) ?? "—"}`, a.title, a.category, a.description ?? "—"]),
-        },
-      },
-      {
-        heading: "النتائج والأثر",
-        table: {
-          headers: ["النتيجة", "الأثر", "القياس/المؤشر", "تاريخ الملاحظة"],
-          rows: impacts.map((im) => [im.result, im.impact, im.measurement ?? "—", im.observedAt ? `${toHijriNumeric(im.observedAt)}هـ` : "—"]),
+          rows: attachments.map((a) => [`الاجتماع ${seqByMeeting.get(a.meetingId) ?? "—"}`, orFallback(a.title), orDash(a.category), orDash(a.description)]),
         },
       },
     ],

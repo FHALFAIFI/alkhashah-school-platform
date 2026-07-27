@@ -101,11 +101,70 @@ export async function reopenProgramAction(programId: string, formData: FormData)
   return { success: "أعيد فتح البرنامج" };
 }
 
+/**
+ * حذف البرنامج = أرشفة ناعمة (تصحيحات v2.1 §A1). يعيد استخدام أعمدة الأرشفة الخاملة
+ * (`archivedAt`/`archivedBy`/`archivedReason`) — إخفاء غير مدمّر قابل للاستعادة:
+ * يختفي البرنامج من القوائم التشغيلية والاختيار والتقارير والتصدير مع بقاء كل سجلاته
+ * التاريخية (الأنشطة، الشواهد، الميزانية، المتابعات...) سليمة. لا يمس أي ملف أو شاهد،
+ * ولا يمرّ بقيد RESTRICT للمفتاح الأجنبي لأنه لا يحذف أي صف. فعل idempotent: أرشفة
+ * برنامج مؤرشف مسبقاً لا تفعل شيئاً وتعيد رسالة ودّية (تمنع الحذف المزدوج بالخطأ). */
+export async function archiveProgramAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.approve");
+  const reason = String(formData.get("reason") ?? "").trim();
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (program.archivedAt) return { success: "البرنامج مؤرشف مسبقاً — لا حاجة لإجراء آخر" };
+
+  await db
+    .update(programs)
+    .set({ archivedAt: new Date(), archivedBy: user.id, archivedReason: reason || null, updatedAt: new Date() })
+    .where(eq(programs.id, programId));
+  await audit({
+    actorId: user.id,
+    action: "program.archived",
+    entityType: "program",
+    entityId: programId,
+    summary: `أرشفة برنامج «${program.name}»${reason ? ` — السبب: ${reason}` : ""}`,
+  });
+  revalidatePath("/plan");
+  revalidatePath(`/plan/${programId}`);
+  revalidatePath("/plan/classifications");
+  revalidatePath("/plan/followup");
+  return { success: "أُرشف البرنامج وأُخفي من الاستخدام — يمكن استرجاعه لاحقاً" };
+}
+
+/** استرجاع برنامج مؤرشف — يمسح حقول الأرشفة فيعود للاستخدام والقوائم التشغيلية */
+export async function unarchiveProgramAction(programId: string): Promise<ActionState> {
+  const user = await requirePermission("plan.approve");
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (!program.archivedAt) return { success: "البرنامج غير مؤرشف" };
+
+  await db
+    .update(programs)
+    .set({ archivedAt: null, archivedBy: null, archivedReason: null, updatedAt: new Date() })
+    .where(eq(programs.id, programId));
+  await audit({
+    actorId: user.id,
+    action: "program.unarchived",
+    entityType: "program",
+    entityId: programId,
+    summary: `استرجاع برنامج «${program.name}» من الأرشيف`,
+  });
+  revalidatePath("/plan");
+  revalidatePath(`/plan/${programId}`);
+  revalidatePath("/plan/classifications");
+  revalidatePath("/plan/followup");
+  return { success: "استُرجع البرنامج" };
+}
+
 /** طلب تغيير على برنامج معتمد: قيمة قديمة/جديدة وسبب واعتماد */
 const changeRequestSchema = z.object({
-  field: z.string().min(1),
-  fieldLabel: z.string().min(1),
-  newValue: z.string().min(1, "القيمة الجديدة مطلوبة"),
+  // الحقول التجارية اختيارية (تصحيحات v2.1 §H): القيمة الجديدة قد تكون فارغة (مسح الحقل).
+  // بوابة الأمان تبقى: `field` يُقيَّد بقائمة الحقول المسموحة أدناه، والسبب المدقق إلزامي.
+  field: z.string(),
+  fieldLabel: z.string(),
+  newValue: z.string(),
   reason: z.string().min(5, "السبب إلزامي"),
 });
 
@@ -193,7 +252,8 @@ export async function decideChangeRequestAction(requestId: string, decision: "م
 /** المتابعة الأسبوعية لبرنامج معتمد — سجل واحد لكل أسبوع ISO (إعادة الإرسال تحدث سجل الأسبوع نفسه).
  *  التقدم يُدخل مباشرةً هنا (D-024) — لا يُشتقّ من الأنشطة. */
 const followupSchema = z.object({
-  note: z.string().trim().min(2, "نص المتابعة مطلوب"),
+  // نص المتابعة اختياري (تصحيحات v2.1 §H) — يُخزَّن "" عند الفراغ (العمود NOT NULL).
+  note: z.string().trim().optional(),
   executionStatus: z.enum(FOLLOWUP_STATUSES, { message: "حالة التنفيذ غير صحيحة" }),
   progress: z.coerce.number().int().min(0, "النسبة بين 0 و100").max(100, "النسبة بين 0 و100").optional(),
 });
@@ -208,6 +268,8 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
 
   // التقدم المُدخل مباشرةً إن وُجد، وإلا يبقى تقدم البرنامج كما هو
   const progress = parsed.data.progress ?? program.progress;
+  // نص المتابعة اختياري (v2.1 §H) — "" يفي بقيد NOT NULL على العمود
+  const note = parsed.data.note ?? "";
   const now = new Date();
   const weekKey = isoWeekKey(now);
   await db
@@ -215,7 +277,7 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
     .values({
       programId,
       weekKey,
-      note: parsed.data.note,
+      note,
       executionStatus: parsed.data.executionStatus,
       progressSnapshot: progress,
       createdBy: user.id,
@@ -223,7 +285,7 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
     .onConflictDoUpdate({
       target: [programFollowups.programId, programFollowups.weekKey],
       set: {
-        note: parsed.data.note,
+        note,
         executionStatus: parsed.data.executionStatus,
         progressSnapshot: progress,
         createdBy: user.id,

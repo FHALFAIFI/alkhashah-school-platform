@@ -18,7 +18,7 @@ export function NewIssueForm({
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{state.success}</div>}
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-64 flex-1">
-          <Field label="عنوان البلاغ" name="title" required />
+          <Field label="عنوان البلاغ" name="title" />
         </div>
         <div className="min-w-56 max-w-full">
           <label className="mb-1 block text-sm font-medium text-gray-700">الغرفة</label>

@@ -27,7 +27,9 @@ export const budgetIncome = pgTable(
     planYearId: uuid("plan_year_id").notNull().references(() => planYears.id),
     source: text("source").notNull(),
     incomeDate: text("income_date"),
-    amount: numeric("amount").notNull(),
+    // اختياري (قاعدة v2.1: كل الحقول المُدخلة من المستخدم اختيارية) — الحساب null-safe،
+    // ويُعرض «—» بدل صفر مضلِّل عند غياب القيمة.
+    amount: numeric("amount"),
     /** الغرض/التخصيص */
     purpose: text("purpose"),
     periodText: text("period_text"),
@@ -58,8 +60,9 @@ export const budgetExpenses = pgTable(
     /** المستلزمات/البنود */
     items: text("items"),
     supplier: text("supplier"),
-    amount: numeric("amount").notNull(),
-    /** مرجع الدفع الاختياري */
+    // اختياري (قاعدة v2.1) — null-safe في الحساب والتقارير والتصدير.
+    amount: numeric("amount"),
+    /** رقم الفاتورة الاختياري (كان «مرجع الدفع») — العمود يبقى payment_reference للتوافق */
     paymentReference: text("payment_reference"),
     /** المسؤول الاختياري من سجل المنسوبين */
     responsiblePersonId: uuid("responsible_person_id").references(() => people.id, { onDelete: "set null" }),

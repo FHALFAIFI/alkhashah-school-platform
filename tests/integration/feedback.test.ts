@@ -81,7 +81,7 @@ describe("قناة ملاحظات التشغيل — الخدمة", () => {
     }
   });
 
-  it("يرفض الفئة/الأهمية/المسار غير الصالح والعنوان الفارغ", async () => {
+  it("يرفض الفئة/الأهمية/المسار غير الصالح، ويقبل العنوان الفارغ (v2.1: الحقول اختيارية)", async () => {
     const { createFeedback, FeedbackError } = await import("@/lib/feedback/service");
     const u = await makeUser();
     const base = {
@@ -93,15 +93,19 @@ describe("قناة ملاحظات التشغيل — الخدمة", () => {
       title: "عنوان",
       blocked: false,
     };
-    await expect(createFeedback({ ...base, category: "غير موجودة" })).rejects.toBeInstanceOf(FeedbackError);
-    await expect(createFeedback({ ...base, severity: "خطيرة جداً" })).rejects.toBeInstanceOf(FeedbackError);
-    await expect(createFeedback({ ...base, pagePath: "https://evil.com" })).rejects.toBeInstanceOf(FeedbackError);
-    await expect(createFeedback({ ...base, title: "   " })).rejects.toBeInstanceOf(FeedbackError);
-    // وحدة غير معروفة تُطبّع إلى «أخرى» (لا ترفض)
-    const ok = await createFeedback({ ...base, module: "وحدة وهمية" });
     const { db } = await import("@/db");
     const { feedback } = await import("@/db/schema");
     const { eq } = await import("drizzle-orm");
+    // قيمة غير فارغة لكنها غير صالحة → ما زالت تُرفض (تحقّق الصيغة/القائمة البيضاء باقٍ)
+    await expect(createFeedback({ ...base, category: "غير موجودة" })).rejects.toBeInstanceOf(FeedbackError);
+    await expect(createFeedback({ ...base, severity: "خطيرة جداً" })).rejects.toBeInstanceOf(FeedbackError);
+    await expect(createFeedback({ ...base, pagePath: "https://evil.com" })).rejects.toBeInstanceOf(FeedbackError);
+    // العنوان الفارغ صار مقبولاً (لم يعد يُرفض) — يُخزَّن فارغاً
+    const emptyTitle = await createFeedback({ ...base, title: "   " });
+    const [t] = await db.select().from(feedback).where(eq(feedback.id, emptyTitle.id));
+    expect(t.title.trim()).toBe("");
+    // وحدة غير معروفة تُطبّع إلى «أخرى» (لا ترفض)
+    const ok = await createFeedback({ ...base, module: "وحدة وهمية" });
     const [row] = await db.select().from(feedback).where(eq(feedback.id, ok.id));
     expect(row.module).toBe("أخرى");
   });

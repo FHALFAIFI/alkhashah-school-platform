@@ -16,10 +16,10 @@ export function FollowupForm({ programId, defaultStatus, defaultProgress = 0 }: 
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-0 flex-1 basis-56">
           <label htmlFor={`fu-note-${programId}`} className="mb-1 block text-xs text-gray-500">متابعة هذا الأسبوع</label>
+          {/* حقل تجاري اختياري (v2.1 §H): يُخزَّن "" عند الفراغ */}
           <input
             id={`fu-note-${programId}`}
             name="note"
-            required
             placeholder="ماذا أنجز؟ وما العوائق؟"
             className="w-full min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
           />

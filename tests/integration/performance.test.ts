@@ -152,79 +152,47 @@ describe("إدارة الأداء (A3, A4 وبوابة المرحلة 3)", () =>
     expect(session!.warningFlags?.[0]).toContain("قبل بداية دراسة الطلاب");
   });
 
-  it("A3: الجلسة لا تكتمل دون تقرير صادر وتقرير موقع مرفوع", async () => {
+  it("A3: الجلسة لا تكتمل دون تقرير صادر، لكنها تكتمل دون تقرير موقّع (v2.1)", async () => {
     const { db } = await import("@/db");
-    const { perfSessions, storedFiles, documents } = await import("@/db/schema");
+    const { perfSessions, documents } = await import("@/db/schema");
     const { completeSessionAction } = await import("@/app/(app)/performance/actions");
     const { cycle } = await seedPerformanceFixture();
     const { session } = await createSessionViaAction(cycle.id, "متابعة");
 
-    // بلا تقرير صادر
+    // بلا تقرير صادر → يُرفض (بوابة إصدار التقرير باقية)
     const r1 = await completeSessionAction(session!.id);
     expect(r1?.error).toContain("تقرير");
 
-    // تقرير صادر لكن بلا نسخة موقعة
+    // تقرير صادر وبلا نسخة موقّعة → يكتمل الآن (أُزيلت بوابة التقرير الموقّع في v2.1)
     const [doc] = await db
       .insert(documents)
       .values({ docNumber: `T-${Math.random()}`, verificationCode: `V-${Math.random()}`, docType: "performance_report", title: "ت", issuedBy: testUserId })
       .returning();
     await db.update(perfSessions).set({ reportDocId: doc.id }).where(eq(perfSessions.id, session!.id));
     const r2 = await completeSessionAction(session!.id);
-    expect(r2?.error).toContain("الموقع");
-
-    // برفع النسخة الموقعة يكتمل
-    const [f] = await db
-      .insert(storedFiles)
-      .values({ originalName: "تقرير-موقع.pdf", mime: "application/pdf", size: 10, sha256: "x", storagePath: `attachments/p-${Math.random()}.pdf` })
-      .returning();
-    await db.update(perfSessions).set({ signedReportFileId: f.id }).where(eq(perfSessions.id, session!.id));
-    const r3 = await completeSessionAction(session!.id);
-    expect(r3?.error).toBeUndefined();
+    expect(r2?.error).toBeUndefined();
     const [done] = await db.select().from(perfSessions).where(eq(perfSessions.id, session!.id));
     expect(done.status).toBe("مكتملة");
   });
 
-  it("التقييم النهائي لا يقفل قبل تقييم كل المؤشرات واكتمال الشواهد المطلوبة — وإقفاله يكمل الدورة وإعادة فتحه تعيدها نشطة", async () => {
+  it("التقييم النهائي يقفل بمجرّد إصدار التقرير — دون تقييم كل المؤشرات ودون شواهد (v2.1) — ويكمل الدورة وإعادة فتحه تعيدها نشطة", async () => {
     const { db } = await import("@/db");
-    const { perfSessions, perfCycles, storedFiles, documents, evidenceItems } = await import("@/db/schema");
-    const { completeSessionAction, saveRatingsAction } = await import("@/app/(app)/performance/actions");
-    const { linkEvidence } = await import("@/lib/evidence");
-    const { cycle, inds } = await seedPerformanceFixture();
+    const { perfSessions, perfCycles, documents } = await import("@/db/schema");
+    const { completeSessionAction } = await import("@/app/(app)/performance/actions");
+    const { cycle } = await seedPerformanceFixture();
     const { session } = await createSessionViaAction(cycle.id, "نهائي");
 
-    // تجهيز التقرير والنسخة الموقعة أولاً
+    // بلا تقرير صادر → يُرفض (بوابة الإصدار باقية)
+    expect((await completeSessionAction(session!.id))?.error).toContain("تقرير");
+
+    // إصدار التقرير فقط — دون تقييم أي مؤشر ودون أي شاهد ودون تقرير موقّع → يقفل الآن
+    // (أُزيلت بوابات: كل المؤشرات مقيّمة / الشواهد المطلوبة / التقرير الموقّع في v2.1)
     const [doc] = await db
       .insert(documents)
       .values({ docNumber: `TF-${Math.random()}`, verificationCode: `VF-${Math.random()}`, docType: "performance_report", title: "ت", issuedBy: testUserId })
       .returning();
-    const [f] = await db
-      .insert(storedFiles)
-      .values({ originalName: "موقع.pdf", mime: "application/pdf", size: 10, sha256: "x", storagePath: `attachments/f-${Math.random()}.pdf` })
-      .returning();
-    await db.update(perfSessions).set({ reportDocId: doc.id, signedReportFileId: f.id }).where(eq(perfSessions.id, session!.id));
+    await db.update(perfSessions).set({ reportDocId: doc.id }).where(eq(perfSessions.id, session!.id));
 
-    // تقييم ناقص → يرفض
-    const fd1 = new FormData();
-    fd1.set(`rating_${inds[0].id}`, "4");
-    await saveRatingsAction(session!.id, null, fd1);
-    const r1 = await completeSessionAction(session!.id);
-    expect(r1?.error).toContain("جميع المؤشرات");
-
-    // تقييم كامل لكن شاهد المؤشر الأول (يتطلب شواهد) مفقود → يرفض
-    const fd2 = new FormData();
-    fd2.set(`rating_${inds[0].id}`, "4");
-    fd2.set(`rating_${inds[1].id}`, "5");
-    fd2.set(`rating_${inds[2].id}`, "3");
-    await saveRatingsAction(session!.id, null, fd2);
-    const r2 = await completeSessionAction(session!.id);
-    expect(r2?.error).toContain("الشواهد");
-
-    // ربط شاهد بكل مؤشر يتطلب شواهد (subKey = معرف المؤشر) عبر المسار الحقيقي → يقفل
-    const requiresEvidence = inds.filter((i) => i.requiresEvidence);
-    for (const ind of requiresEvidence) {
-      const [ev] = await db.insert(evidenceItems).values({ title: `شاهد ${ind.nameAr}`, kind: "text", textContent: "ن" }).returning();
-      await linkEvidence({ evidenceId: ev.id, entityType: "perf_session", entityId: session!.id, subKey: ind.id });
-    }
     const r3 = await completeSessionAction(session!.id);
     expect(r3?.error).toBeUndefined();
     const [locked] = await db.select().from(perfSessions).where(eq(perfSessions.id, session!.id));

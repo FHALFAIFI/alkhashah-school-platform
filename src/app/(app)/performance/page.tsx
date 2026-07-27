@@ -8,6 +8,7 @@ import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { faresPreviewBatchId } from "@/lib/committees/prerequisites";
 import { missingSignedReports } from "@/lib/performance/signed-reports";
 import { NewCycleForm } from "./performance-ui";
+import { orDash } from "@/lib/format";
 
 export const metadata = { title: "دورات الأداء" };
 export const dynamic = "force-dynamic";
@@ -106,7 +107,7 @@ export default async function PerformancePage() {
               {group.data.map((c) => (
                 <tr key={c.id}>
                   <td className="px-3 py-2 font-medium">{personName.get(c.personId) ?? "—"}</td>
-                  <td className="px-3 py-2 tabular-nums">{c.yearKey}</td>
+                  <td className="px-3 py-2 tabular-nums">{orDash(c.yearKey)}</td>
                   <td className="px-3 py-2 text-xs tabular-nums">{c.startDate ?? "—"}</td>
                   <td className="px-3 py-2 text-xs tabular-nums">{c.endDate ?? "—"}</td>
                   <td className="px-3 py-2"><Badge value={c.status} /></td>

@@ -12,6 +12,7 @@ import { generateMinutesDocument } from "@/lib/reports/minutes-report";
 import { SubmitButton } from "@/components/ui";
 import { aiEnabled } from "@/lib/ai/provider";
 import { AiMeetingAssistant } from "@/components/integrations-ui";
+import { orFallback, orDash } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -75,14 +76,14 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   return (
     <div className="space-y-5">
       <PageHeader
-        title={`${meeting.title ?? `الاجتماع ${meeting.seq}`}`}
-        subtitle={committee.nameAr}
+        title={orFallback(meeting.title, `الاجتماع ${meeting.seq}`)}
+        subtitle={orFallback(committee.nameAr)}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {typeName && <Badge value={typeName} />}
             <Badge value={meeting.status} />
             {user.permissions.has("ai.use") && (
-              <AskAssistant type="meeting" id={mid} label={`اجتماع ${committee.nameAr}: ${meeting.title ?? meeting.seq}`} />
+              <AskAssistant type="meeting" id={mid} label={`اجتماع ${orFallback(committee.nameAr)}: ${orFallback(meeting.title, String(meeting.seq))}`} />
             )}
           </div>
         }
@@ -149,7 +150,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
               return (
                 <tr key={o.id}>
                   <td className="px-3 py-2"><Badge value={o.outcomeType === "قرار" ? "عالية" : o.outcomeType === "توصية" ? "متوسطة" : "منخفضة"} /> <span className="text-xs">{o.outcomeType}</span></td>
-                  <td className="px-3 py-2">{o.text}</td>
+                  <td className="px-3 py-2">{orDash(o.text)}</td>
                   <td className="px-3 py-2 text-xs">
                     {task ? (
                       <Link href={`/tasks#task-${task.id}`} className="inline-flex items-center gap-1 hover:underline" title="فتح الإجراء في قائمة المهام">
@@ -178,9 +179,9 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
           <Table headers={["العنوان", "الفئة", "الوصف", "تاريخ الرفع", "الملف", ""]}>
             {attachments.map(({ a, name }) => (
               <tr key={a.id}>
-                <td className="px-3 py-2 font-medium">{a.title}</td>
-                <td className="px-3 py-2"><Badge value={a.category} /></td>
-                <td className="px-3 py-2 text-xs text-gray-600">{a.description ?? "—"}</td>
+                <td className="px-3 py-2 font-medium">{orFallback(a.title)}</td>
+                <td className="px-3 py-2">{a.category ? <Badge value={a.category} /> : <span className="text-xs text-gray-400">—</span>}</td>
+                <td className="px-3 py-2 text-xs text-gray-600">{orDash(a.description)}</td>
                 <td className="px-3 py-2 text-xs tabular-nums">{a.createdAt.toLocaleDateString("ar-SA-u-nu-latn")}</td>
                 <td className="px-3 py-2"><a href={`/api/files/${a.fileId}`} className="text-xs text-brand-700 underline">{name ?? "تنزيل"}</a></td>
                 <td className="px-3 py-2">{canWrite && <DeleteAttachmentButton attachmentId={a.id} />}</td>

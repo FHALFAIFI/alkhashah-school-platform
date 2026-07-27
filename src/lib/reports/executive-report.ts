@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   programs, planYears, committees, meetings, actionTasks, perfCycles, perfSessions,
@@ -10,6 +10,7 @@ import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric, todayIso } from "@/lib/dates";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { orFallback } from "@/lib/format";
 
 function esc(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -33,7 +34,8 @@ export async function generateExecutiveReport(opts: {
   const excluded = await getExcludedIdSets();
   const [allPrograms, years, allCommittees, allMeetings, tasks, cycles, sessions, persons, allRooms, issues, allInspections, evidenceCount] =
     await Promise.all([
-      db.select().from(programs).where(notSynthetic(programs.id, excluded.programs)).orderBy(asc(programs.seq)),
+      // البرامج المؤرشفة (v2.1 §A1) مستبعدة من التقرير التنفيذي
+      db.select().from(programs).where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt))).orderBy(asc(programs.seq)),
       db.select().from(planYears),
       db.select().from(committees).where(notSynthetic(committees.id, excluded.committees)),
       db.select().from(meetings).where(notSynthetic(meetings.id, excluded.meetings)),
@@ -64,12 +66,12 @@ export async function generateExecutiveReport(opts: {
       .map((d) => {
         const dp = allPrograms.filter((p) => p.domain === d);
         const avg = Math.round(dp.reduce((s, p) => s + p.progress, 0) / dp.length);
-        return `<tr><td>${esc(d)}</td><td>${dp.length}</td><td>${avg}٪</td><td>${dp.filter((p) => p.status !== "مسودة").length}</td></tr>`;
+        return `<tr><td>${esc(orFallback(d, "بدون تصنيف"))}</td><td>${dp.length}</td><td>${avg}٪</td><td>${dp.filter((p) => p.status !== "مسودة").length}</td></tr>`;
       })
       .join("")}
     <tr><th>الإجمالي</th><th>${allPrograms.length}</th><th>${avgProgress}٪</th><th>${allPrograms.filter((p) => p.status !== "مسودة").length}</th></tr>
   </table>
-  <p class="meta">أقل ثلاثة برامج إنجازاً: ${[...allPrograms].sort((a, b) => a.progress - b.progress).slice(0, 3).map((p) => `${esc(p.name)} (${p.progress}٪)`).join("، ") || "—"}</p>
+  <p class="meta">أقل ثلاثة برامج إنجازاً: ${[...allPrograms].sort((a, b) => a.progress - b.progress).slice(0, 3).map((p) => `${esc(orFallback(p.name))} (${p.progress}٪)`).join("، ") || "—"}</p>
 
   <h2>ثانياً: اللجان والمجالس</h2>
   <table>

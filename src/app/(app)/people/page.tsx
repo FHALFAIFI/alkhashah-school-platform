@@ -5,6 +5,7 @@ import { people, importBatches } from "@/db/schema";
 import { PageHeader, Table, Badge, LinkButton, EmptyState, Card } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { employeeTypeOf } from "@/lib/employee-type";
+import { orFallback } from "@/lib/format";
 
 export const metadata = { title: "سجل المعلمين والموظفين" };
 export const dynamic = "force-dynamic";
@@ -79,7 +80,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         <Table headers={["الاسم", "نوع الموظف", "الوظيفة", "السلك/الكادر", "الحالة الوظيفية", "رقم الوظيفة", "الحالة", ""]}>
           {filtered.map((p) => (
             <tr key={p.id} className={!p.active ? "opacity-50" : ""}>
-              <td className="px-3 py-2 font-medium">{p.fullName}</td>
+              <td className="px-3 py-2 font-medium">{orFallback(p.fullName)}</td>
               <td className="px-3 py-2"><Badge value={p.employeeTypeAr} /></td>
               <td className="px-3 py-2">{p.jobTitle ?? "—"}</td>
               <td className="px-3 py-2">{p.cadre ?? "—"}</td>

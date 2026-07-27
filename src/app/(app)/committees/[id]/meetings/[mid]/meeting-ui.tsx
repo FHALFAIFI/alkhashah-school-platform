@@ -56,10 +56,10 @@ export function MeetingAttachmentForm({ meetingId }: { meetingId: string }) {
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="عنوان المرفق" name="title" required />
+        <Field label="عنوان المرفق" name="title" />
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700">فئة المرفق</label>
-          <select name="category" required className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+          <select name="category" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
             {MEETING_ATTACHMENT_CATEGORIES.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
@@ -108,7 +108,7 @@ export function OutcomeForm({ meetingId, people }: { meetingId: string; people: 
           </select>
         </div>
         <div className="min-w-64 flex-1">
-          <Field label="النص" name="text" required />
+          <Field label="النص" name="text" />
         </div>
       </div>
       {(type === "قرار" || type === "توصية") && (

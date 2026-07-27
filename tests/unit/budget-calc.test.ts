@@ -60,6 +60,25 @@ describe("حسابات الميزانية (§8)", () => {
     expect(p2.spentPercent).toBe(140);
   });
 
+  it("hasAllocation: برنامج بلا ميزانية معتمدة يظهر بحالة محايدة لا صفر/سالب مضلِّل", () => {
+    const lines = programBudgetLines(
+      [{ programId: "p1", amount: 1000 }], // p1 له مخصص، p2 بلا مخصص
+      [
+        exp({ id: "a", amount: 200, programId: "p1" }),
+        exp({ id: "b", amount: 300, programId: "p2" }),
+      ],
+    );
+    const p1 = lines.get("p1")!;
+    expect(p1.hasAllocation).toBe(true);
+    expect(p1.allocated).toBe(1000);
+    expect(p1.remaining).toBe(800);
+
+    const p2 = lines.get("p2")!;
+    expect(p2.hasAllocation).toBe(false); // العرض يستعمل «—» بدل المتبقي/النسبة
+    expect(p2.spent).toBe(300);
+    expect(p2.overspent).toBe(false); // لا تجاوز بلا مخصص معتمد
+  });
+
   it("wouldOverspend يقارن بالمخصص المتبقي لا بالرصيد الكلي", () => {
     const w = wouldOverspend({ programAllocated: 1000, programSpentSoFar: 800, newAmount: 300 });
     expect(w.overspend).toBe(true);

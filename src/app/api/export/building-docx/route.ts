@@ -4,6 +4,7 @@ import { buildWordReport } from "@/lib/reports/word-export";
 import { collectBuildingReportData } from "@/lib/reports/building-report";
 import { audit } from "@/lib/audit";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
+import { orFallback } from "@/lib/format";
 
 /** تصدير تقرير المبنى Word: الغرف والأبعاد، الأصول، الفحوص، الصيانة (مجمع البنين) */
 export async function GET() {
@@ -28,15 +29,15 @@ export async function GET() {
           headers: ["الرمز", "الاسم", "الطابق", "النوع", "الطول×العرض", "المساحة"],
           rows: rms.map((r) => [
             r.code,
-            r.nameAr,
+            orFallback(r.nameAr),
             floorName.get(r.floorId) ?? "—",
-            r.roomType,
+            orFallback(r.roomType),
             r.lengthM && r.widthM ? `${Number(r.lengthM)}×${Number(r.widthM)}م` : "—",
             r.areaM2 ? `${Number(r.areaM2)} م²` : "—",
           ]),
         },
       },
-      { heading: "الأصول", table: { headers: ["الرمز", "الاسم", "الفئة", "الغرفة", "الكمية", "الحالة"], rows: asts.map((a) => [a.code, a.nameAr, a.category ?? "—", a.roomId ? roomName.get(a.roomId) ?? "—" : "—", String(a.quantity), a.condition]) } },
+      { heading: "الأصول", table: { headers: ["الرمز", "الاسم", "الفئة", "الغرفة", "الكمية", "الحالة"], rows: asts.map((a) => [a.code, orFallback(a.nameAr), a.category ?? "—", a.roomId ? roomName.get(a.roomId) ?? "—" : "—", String(a.quantity), a.condition]) } },
       {
         heading: "الفحوص والجاهزية",
         table: {
@@ -47,7 +48,7 @@ export async function GET() {
           }),
         },
       },
-      { heading: "بلاغات الصيانة (المفتوحة والمكتملة)", table: { headers: ["الرمز", "العنوان", "الغرفة", "الأولوية", "الحالة"], rows: maint.map((m) => [m.code, m.title, m.roomId ? roomName.get(m.roomId) ?? "—" : "—", m.priority, m.status]) } },
+      { heading: "بلاغات الصيانة (المفتوحة والمكتملة)", table: { headers: ["الرمز", "العنوان", "الغرفة", "الأولوية", "الحالة"], rows: maint.map((m) => [m.code, orFallback(m.title), m.roomId ? roomName.get(m.roomId) ?? "—" : "—", m.priority, m.status]) } },
     ],
   });
   void flrs;

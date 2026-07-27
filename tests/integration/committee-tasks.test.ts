@@ -88,10 +88,19 @@ describe("مهام اللجان: القوالب المعرّفة مسبقاً + 
     expect(excluded.excluded).toBe(true);
   });
 
-  it("توليد جدول التوزيع يرفض بلا مهام موزّعة (رسالة عربية لا خطأ تقني)", async () => {
+  it("توليد جدول التوزيع يُصدر الوثيقة حتى بلا مهام موزّعة — قائمة الأعضاء مستقلة (v2.1)", async () => {
+    const { db } = await import("@/db");
+    const { documents } = await import("@/db/schema");
     const { generateAssignmentForm } = await import("@/lib/reports/assignment-form");
     const { committee } = await seedCommittee(); // بلا تحميل مهام
-    await expect(generateAssignmentForm({ committeeId: committee.id, issuedBy: testUserId })).rejects.toThrow(/لا مهام موزّعة/);
+    // لم يعد يُرمى خطأ عند غياب المهام — تظهر قائمة الأعضاء وقسم مهام فارغ، وتصدر الوثيقة
+    const result = await generateAssignmentForm({ committeeId: committee.id, issuedBy: testUserId });
+    const [doc] = await db.select().from(documents).where(eq(documents.id, result.docId));
+    expect(doc.docType).toBe("committee_assignment");
+    expect(doc.htmlSnapshot).toContain("أعضاء اللجنة");
+    expect(doc.htmlSnapshot).toContain("مهام اللجنة");
+    // العضو يظهر رغم غياب أي مهمة مسندة (دور «رئيس» في عمود العمل في اللجنة)
+    expect(doc.htmlSnapshot).toContain("رئيس");
   });
 
   it("التوقيع حسب نوع الاجتماع: نوع بلا اشتراط يكتمل دون محضر موقّع، ونوع باشتراط يُحجب", async () => {

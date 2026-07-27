@@ -6,6 +6,7 @@ import { evidenceForEntity } from "@/lib/evidence";
 import { getProgram } from "@/lib/plan/program-service";
 import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
 import { num } from "@/lib/budget/calc";
+import { formatMoney, orDash, numOrNull } from "@/lib/format";
 import { renderEvidenceContent } from "@/lib/evidence-render";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
@@ -48,6 +49,12 @@ export async function generateProgramReport(opts: {
     .orderBy(desc(programFollowups.createdAt))
     .limit(12);
   const spent = expenses.reduce((s, e) => s + num(e.amount), 0);
+  // «الميزانية المعتمدة» من programs.budget (اختيارية، null-safe)؛ «المتبقي» محايد («—») بلا مخصص.
+  const allocated = numOrNull(program.budget);
+  const remaining = allocated === null ? null : allocated - spent;
+  const allocatedText = allocated === null ? "—" : `${formatMoney(program.budget)} ريال`;
+  const spentText = `${formatMoney(spent)} ريال (${expenses.length} مصروفاً مرتبطاً)`;
+  const remainingText = remaining === null ? "—" : `${formatMoney(remaining)} ريال`;
 
   const now = new Date();
   const issuedAtText = `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`;
@@ -78,11 +85,28 @@ export async function generateProgramReport(opts: {
       .join("")}
     <tr><th>الحالة</th><td>${esc(program.status)} — نسبة الإنجاز ${program.progress}٪</td></tr>
     <tr><th>حالة التنفيذ</th><td>${esc(program.executionStatus)}</td></tr>
-    <tr><th>الميزانية المخططة</th><td>${program.budget ? `${program.budget} ريال` : "0"}</td></tr>
-    <tr><th>المصروف الفعلي</th><td>${spent.toLocaleString("ar")} (${expenses.length} مصروفاً مرتبطاً)</td></tr>
+    <tr><th>الميزانية المعتمدة</th><td>${allocatedText}</td></tr>
+    <tr><th>المصروف</th><td>${spentText}</td></tr>
+    <tr><th>المتبقي</th><td>${remainingText}</td></tr>
     ${program.principalNotes ? `<tr><th>ملاحظات</th><td>${esc(program.principalNotes)}</td></tr>` : ""}
   </table>
   `;
+
+  // B1: المصروفات المرتبطة مع «رقم الفاتورة» — يجعل أرقام الفواتير ظاهرة في التقرير الرسمي.
+  if (expenses.length > 0) {
+    body += `
+    <h2>المصروفات المرتبطة</h2>
+    <table>
+      <tr><th>التاريخ</th><th>البند</th><th>المبلغ</th><th>رقم الفاتورة</th></tr>
+      ${expenses
+        .map(
+          (e) =>
+            `<tr><td>${esc(orDash(e.expenseDate))}</td><td>${esc(orDash(e.items))}</td><td>${esc(formatMoney(e.amount))}</td><td>${esc(orDash(e.paymentReference))}</td></tr>`,
+        )
+        .join("")}
+    </table>
+    `;
+  }
 
   if (deliverables.length > 0) {
     body += `

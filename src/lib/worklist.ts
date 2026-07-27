@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   actionTasks,
@@ -23,6 +23,7 @@ import {
 import type { CurrentUser } from "@/lib/auth/session";
 import { todayIso } from "@/lib/dates";
 import { getExcludedIdSets, notSynthetic, type SyntheticIdSets } from "@/lib/synthetic";
+import { orFallback } from "@/lib/format";
 
 /**
  * قوائم عمل المدير — تجميع كل ما يحتاج إجراء عبر الوحدات في مكان واحد.
@@ -177,11 +178,12 @@ async function planItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ appr
       })
       .from(programChangeRequests)
       .innerJoin(programs, eq(programChangeRequests.programId, programs.id))
-      .where(and(eq(programChangeRequests.status, "قيد الاعتماد"), notSynthetic(programs.id, ex.programs)))
+      // البرامج المؤرشفة (v2.1 §A1) مستبعدة من قوائم عمل المدير
+      .where(and(eq(programChangeRequests.status, "قيد الاعتماد"), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)))
       .orderBy(desc(programChangeRequests.createdAt));
     for (const cr of crs) {
       approve.push({
-        title: `طلب تعديل «${cr.fieldLabel}» — ${cr.seq}. ${cr.programName}`,
+        title: `طلب تعديل «${orFallback(cr.fieldLabel)}» — ${cr.seq}. ${orFallback(cr.programName)}`,
         status: "قيد الاعتماد",
         href: `/plan/${cr.programId}#change-requests`,
         action: "اعتمد التعديل أو ارفضه",

@@ -77,7 +77,7 @@ export function TemplateEditor({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">
           <span className="mb-1 block font-medium text-gray-700">اسم القالب</span>
-          <input name="nameAr" required value={meta.nameAr} onChange={(e) => setMeta({ ...meta, nameAr: e.target.value })} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <input name="nameAr" value={meta.nameAr} onChange={(e) => setMeta({ ...meta, nameAr: e.target.value })} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
         </label>
         <label className="text-sm">
           <span className="mb-1 block font-medium text-gray-700">نوع الغرفة (اختياري)</span>

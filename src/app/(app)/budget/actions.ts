@@ -4,16 +4,27 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { budgetIncome, budgetExpenses, programs, programActivities, people, planYears } from "@/db/schema";
+import { budgetIncome, budgetExpenses, programs, programActivities, people, planYears, evidenceItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { saveUploadedFile, validateUpload } from "@/lib/storage";
+import { linkEvidence } from "@/lib/evidence";
+
+/**
+ * مبلغ اختياري (قاعدة v2.1 §H): الحقل الفارغ يُخزَّن null، وإن أُدخلت قيمة وجب أن تكون عدداً
+ * موجباً صحيح الصيغة. لا تطبيع صامت.
+ */
+const optionalPositiveAmount = z.preprocess(
+  (v) => (v === "" || v === null || v === undefined ? undefined : v),
+  z.coerce.number().positive("المبلغ يجب أن يكون موجباً").optional(),
+);
 
 export type ActionState = { error?: string; success?: string } | null;
 
 const incomeSchema = z.object({
   planYearId: z.string().uuid(),
-  source: z.string().min(2, "مصدر الإيراد مطلوب"),
-  amount: z.coerce.number().positive("المبلغ يجب أن يكون موجباً"),
+  source: z.string().optional(),
+  amount: optionalPositiveAmount,
   incomeDate: z.string().optional(),
   purpose: z.string().optional(),
   periodText: z.string().optional(),
@@ -39,8 +50,10 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
     .insert(budgetIncome)
     .values({
       planYearId: d.planYearId,
-      source: d.source,
-      amount: String(d.amount),
+      // مصدر اختياري: يُخزَّن "" عند الفراغ (العمود notNull) — null-safe في العرض عبر orFallback/orDash
+      source: d.source ?? "",
+      // مبلغ اختياري: null عند الفراغ، لا "0" مضلِّل
+      amount: d.amount === undefined ? null : String(d.amount),
       incomeDate: d.incomeDate || null,
       purpose: d.purpose || null,
       periodText: d.periodText || null,
@@ -50,14 +63,14 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
       createdBy: user.id,
     })
     .returning();
-  await audit({ actorId: user.id, action: "budget.income_added", entityType: "budget_income", entityId: row.id, summary: `إيراد «${d.source}» ${d.amount}` });
+  await audit({ actorId: user.id, action: "budget.income_added", entityType: "budget_income", entityId: row.id, summary: `إيراد «${d.source ?? ""}» ${d.amount ?? ""}`.trim() });
   revalidatePath("/budget");
   return { success: "أُضيف الإيراد" };
 }
 
 const expenseSchema = z.object({
   planYearId: z.string().uuid(),
-  amount: z.coerce.number().positive("المبلغ يجب أن يكون موجباً"),
+  amount: optionalPositiveAmount,
   expenseDate: z.string().optional(),
   programId: z.string().uuid().optional().or(z.literal("")),
   activityId: z.string().uuid().optional().or(z.literal("")),
@@ -77,6 +90,15 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
   const parsed = expenseSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const d = parsed.data;
+
+  // B2: فاتورة اختيارية مرفقة — نتحقق من صحتها قبل الإدراج حتى لا يبقى مصروف نصفه محفوظ عند ملف غير صالح.
+  const invoice = formData.get("invoice");
+  let invoiceFile: File | null = null;
+  if (invoice instanceof File && invoice.size > 0) {
+    const invErr = validateUpload(invoice.name, invoice.type || "application/octet-stream", invoice.size);
+    if (invErr) return { error: invErr };
+    invoiceFile = invoice;
+  }
 
   const [year] = await db.select().from(planYears).where(eq(planYears.id, d.planYearId));
   if (!year) return { error: "السنة غير موجودة" };
@@ -99,7 +121,8 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
     .insert(budgetExpenses)
     .values({
       planYearId: d.planYearId,
-      amount: String(d.amount),
+      // مبلغ اختياري: null عند الفراغ، لا "0" مضلِّل — null-safe في الحساب والتقارير والتصدير
+      amount: d.amount === undefined ? null : String(d.amount),
       expenseDate: d.expenseDate || null,
       programId: d.programId || null,
       activityId: d.activityId || null,
@@ -121,9 +144,41 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
     action: "budget.expense_added",
     entityType: "budget_expense",
     entityId: row.id,
-    summary: `مصروف ${d.amount}${d.category ? ` — ${d.category}` : ""}${overspendAck ? " (تجاوز مُقَر)" : ""}`,
+    summary: `مصروف ${d.amount ?? ""}${d.category ? ` — ${d.category}` : ""}${overspendAck ? " (تجاوز مُقَر)" : ""}`.trim(),
     detail: overspendAck ? { overspend: true, reason: d.overspendAckReason } : undefined,
   });
+
+  // B2: احفظ الفاتورة المرفقة (إن وُجدت) عبر خط الشواهد الآمن نفسه (تحقق MIME/امتداد/حجم،
+  // اسم UUID من الخادم، حارس المسار، sha256) ثم أنشئ شاهداً واربطه بالمصروف حتى يظهر في لوحة
+  // الفاتورة/الشواهد. الإرفاق اختياري: حفظ مصروف بلا فاتورة يعمل.
+  if (invoiceFile) {
+    try {
+      const stored = await saveUploadedFile({
+        originalName: invoiceFile.name,
+        mime: invoiceFile.type || "application/octet-stream",
+        data: Buffer.from(await invoiceFile.arrayBuffer()),
+        scope: "attachments",
+        uploadedBy: user.id,
+      });
+      const [ev] = await db
+        .insert(evidenceItems)
+        .values({
+          title: `فاتورة مصروف${d.category ? ` — ${d.category}` : ""}`,
+          kind: "file",
+          fileId: stored.id,
+          description: invoiceFile.name,
+          createdBy: user.id,
+        })
+        .returning();
+      await linkEvidence({ evidenceId: ev.id, entityType: "budget_expense", entityId: row.id, linkedBy: user.id });
+      await audit({ actorId: user.id, action: "evidence.created", entityType: "evidence", entityId: ev.id, summary: "إرفاق فاتورة بمصروف" });
+    } catch (e) {
+      // المصروف حُفظ؛ فشل الإرفاق فقط — رسالة عربية واضحة، وتبقى الفاتورة قابلة للإرفاق لاحقاً من اللوحة.
+      revalidatePath("/budget");
+      return { error: e instanceof Error ? e.message : "تعذر حفظ الفاتورة المرفقة — حُفظ المصروف ويمكن إرفاق الفاتورة لاحقاً من لوحة الفاتورة." };
+    }
+  }
+
   revalidatePath("/budget");
   // القيم المالية لا تُغيَّر صامتاً؛ التحذير والإقرار للعرض والتقارير فقط
   return { success: overspendAck ? "سُجّل المصروف مع إقرار التجاوز" : "أُضيف المصروف" };
@@ -162,7 +217,7 @@ export async function deleteExpenseAction(expenseId: string): Promise<ActionStat
   if (!row) return { error: "المصروف غير موجود" };
   // الحذف مسموح للمصروف؛ الشواهد المرتبطة تبقى في المكتبة (لا حذف تعاقبي للشواهد)
   await db.delete(budgetExpenses).where(eq(budgetExpenses.id, expenseId));
-  await audit({ actorId: user.id, action: "budget.expense_deleted", entityType: "budget_expense", entityId: expenseId, summary: `حذف مصروف ${row.amount}` });
+  await audit({ actorId: user.id, action: "budget.expense_deleted", entityType: "budget_expense", entityId: expenseId, summary: `حذف مصروف ${row.amount ?? ""}`.trim() });
   revalidatePath("/budget");
   return { success: "حُذف المصروف" };
 }

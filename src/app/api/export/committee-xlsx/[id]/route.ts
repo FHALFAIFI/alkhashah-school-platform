@@ -3,9 +3,10 @@ import ExcelJS from "exceljs";
 import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, meetingTypes, meetingAttachments, committeeImpacts } from "@/db/schema";
+import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, meetingTypes, meetingAttachments } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { orFallback, orDash } from "@/lib/format";
 
 /** تصدير Excel تحليلي للجنة: الأعضاء والاجتماعات والنتائج — لا حضور ولا غياب ولا نصاب */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -33,7 +34,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const attachments = meetingIds.length
     ? await db.select().from(meetingAttachments).where(inArray(meetingAttachments.meetingId, meetingIds)).orderBy(asc(meetingAttachments.createdAt))
     : [];
-  const impacts = await db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, id)).orderBy(asc(committeeImpacts.createdAt));
   const allTypes = await db.select().from(meetingTypes);
   const typeName = new Map(allTypes.map((t) => [t.id, t.nameAr]));
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
@@ -49,7 +49,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     { header: "العمل في اللجنة", key: "role", width: 14 },
   ];
   wsM.getRow(1).font = { bold: true };
-  for (const m of members) wsM.addRow({ name: m.name, position: m.position ?? "—", role: m.role });
+  for (const m of members) wsM.addRow({ name: orFallback(m.name), position: orDash(m.position), role: orDash(m.role) });
 
   const wsMe = wb.addWorksheet("الاجتماعات", { views: [{ rightToLeft: true }] });
   wsMe.columns = [
@@ -59,7 +59,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     { header: "الحالة", key: "status", width: 16 },
   ];
   wsMe.getRow(1).font = { bold: true };
-  for (const m of ms) wsMe.addRow({ seq: m.seq, title: m.title ?? "—", type: m.typeId ? typeName.get(m.typeId) ?? "—" : "—", status: m.status });
+  for (const m of ms) wsMe.addRow({ seq: m.seq, title: orFallback(m.title, `الاجتماع ${m.seq}`), type: m.typeId ? typeName.get(m.typeId) ?? "—" : "—", status: m.status });
 
   const wsO = wb.addWorksheet("النتائج", { views: [{ rightToLeft: true }] });
   wsO.columns = [
@@ -74,7 +74,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     wsO.addRow({
       meeting: `الاجتماع ${seqByMeeting.get(o.meetingId) ?? "—"}`,
       type: o.outcomeType,
-      text: o.text,
+      text: orDash(o.text),
       action: t ? `${t.mandatory ? "إلزامي" : "اختياري"} — ${t.status}` : "—",
     });
   }
@@ -88,19 +88,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   ];
   wsA.getRow(1).font = { bold: true };
   for (const a of attachments) {
-    wsA.addRow({ meeting: `الاجتماع ${seqByMeeting.get(a.meetingId) ?? "—"}`, title: a.title, category: a.category, description: a.description ?? "—" });
-  }
-
-  const wsI = wb.addWorksheet("النتائج والأثر", { views: [{ rightToLeft: true }] });
-  wsI.columns = [
-    { header: "النتيجة", key: "result", width: 40 },
-    { header: "الأثر", key: "impact", width: 40 },
-    { header: "القياس/المؤشر", key: "measurement", width: 24 },
-    { header: "تاريخ الملاحظة", key: "observed", width: 16 },
-  ];
-  wsI.getRow(1).font = { bold: true };
-  for (const im of impacts) {
-    wsI.addRow({ result: im.result, impact: im.impact, measurement: im.measurement ?? "—", observed: im.observedAt ? im.observedAt.toISOString().slice(0, 10) : "—" });
+    wsA.addRow({ meeting: `الاجتماع ${seqByMeeting.get(a.meetingId) ?? "—"}`, title: orFallback(a.title), category: orDash(a.category), description: orDash(a.description) });
   }
 
   const buf = Buffer.from(await wb.xlsx.writeBuffer());

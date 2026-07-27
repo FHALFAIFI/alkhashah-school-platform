@@ -32,7 +32,7 @@ export function RoomEditForm({
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{state.success}</div>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="اسم الغرفة" name="nameAr" defaultValue={initial.nameAr} required />
+        <Field label="اسم الغرفة" name="nameAr" defaultValue={initial.nameAr} />
         <div>
           <label htmlFor="roomType" className="mb-1 block text-sm font-medium text-gray-700">النوع</label>
           <select id="roomType" name="roomType" defaultValue={initial.roomType} className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
@@ -68,7 +68,7 @@ export function RoomIssueForm({ roomId, people }: { roomId: string; people: { id
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{state.success}</div>}
       <input type="hidden" name="roomId" value={roomId} />
-      <Field label="عنوان البلاغ" name="title" required />
+      <Field label="عنوان البلاغ" name="title" />
       <Field label="الوصف" name="description" />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>

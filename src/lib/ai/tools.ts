@@ -161,7 +161,7 @@ const searchRecords: ReadTool = {
       const r = await db.select().from(people).where(and(eq(people.active, true), notSynthetic(people.id, ex.people), or(ilike(people.fullName, q), ilike(people.jobTitle, q), ilike(people.orgUnit, q)))).limit(limit);
       rows = r.map((p) => ({ title: p.fullName, detail: `${p.category}${p.jobTitle ? ` — ${p.jobTitle}` : ""}`, href: `/people/${p.id}` }));
     } else if (entity === "programs") {
-      const r = await db.select().from(programs).where(and(or(ilike(programs.name, q), ilike(programs.domain, q), ilike(programs.generalGoal, q)), notSynthetic(programs.id, ex.programs))).limit(limit);
+      const r = await db.select().from(programs).where(and(or(ilike(programs.name, q), ilike(programs.domain, q), ilike(programs.generalGoal, q)), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt))).limit(limit);
       rows = r.map((p) => ({ title: p.name, detail: `${p.status} — ${p.executionStatus} — الإنجاز ${p.progress}٪`, href: `/plan/${p.id}` }));
     } else if (entity === "committees") {
       const r = await db.select().from(committees).where(and(ilike(committees.nameAr, q), notSynthetic(committees.id, ex.committees))).limit(limit);
@@ -221,7 +221,7 @@ const overduePrograms: ReadTool = {
     const r = await db
       .select()
       .from(programs)
-      .where(and(or(eq(programs.executionStatus, "متأخر"), and(eq(programs.status, "معتمد"), lt(programs.progress, 100), lt(programs.lastReviewAt, new Date(Date.now() - 30 * 24 * 3600 * 1000)))), notSynthetic(programs.id, ex.programs)))
+      .where(and(or(eq(programs.executionStatus, "متأخر"), and(eq(programs.status, "معتمد"), lt(programs.progress, 100), lt(programs.lastReviewAt, new Date(Date.now() - 30 * 24 * 3600 * 1000)))), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)))
       .limit(25);
     return {
       summary: `البرامج المتأخرة أو المتوقفة عن المراجعة: ${r.length}`,
@@ -269,7 +269,7 @@ const missingEvidence: ReadTool = {
     const r = await db
       .select()
       .from(programs)
-      .where(and(eq(programs.status, "معتمد"), notInArray(programs.id, linked), notSynthetic(programs.id, ex.programs)))
+      .where(and(eq(programs.status, "معتمد"), notInArray(programs.id, linked), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)))
       .limit(25);
     return {
       summary: `برامج معتمدة لم يُرفع لها أي شاهد بعد: ${r.length}`,
@@ -376,7 +376,7 @@ const dashboardSummary: ReadTool = {
       const [prog] = await db
         .select({ total: sql<number>`count(*)`, approved: sql<number>`count(*) filter (where ${programs.status} = 'معتمد')`, late: sql<number>`count(*) filter (where ${programs.executionStatus} = 'متأخر')`, avg: sql<number>`coalesce(avg(${programs.progress}), 0)` })
         .from(programs)
-        .where(notSynthetic(programs.id, ex.programs));
+        .where(and(notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)));
       rows.push({ title: `برامج الخطة: ${prog.total}`, detail: `المعتمد ${prog.approved} — المتأخر ${prog.late} — متوسط الإنجاز ${Math.round(Number(prog.avg))}٪`, href: "/plan" });
     }
     if (user.permissions.has("people.read")) {
@@ -419,7 +419,8 @@ const programBrief: ReadTool = {
     const programId = a.programId ?? contextIdFor(context, "program");
     if (!programId) throw new Error("حدد معرف البرنامج أو افتح المساعد من صفحة البرنامج");
     const ex = await getExcludedIdSets();
-    const [program] = await db.select().from(programs).where(and(eq(programs.id, programId), notSynthetic(programs.id, ex.programs)));
+    // البرامج المؤرشفة (v2.1 §A1) مستبعدة من مساعد المدير الذكي
+    const [program] = await db.select().from(programs).where(and(eq(programs.id, programId), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)));
     if (!program) throw new Error("البرنامج غير موجود");
 
     // البرنامج وحدة التنفيذ (D-024): التقدم مباشر من سجل البرنامج، لا من معالم/أنشطة موزونة.
