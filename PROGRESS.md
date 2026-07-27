@@ -2,7 +2,38 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — SCOPE v2.1 CORRECTIONS DELIVERED to dev/test (2026-07-25)
+## Latest checkpoint — SCOPE v2.1 FINAL-DEMO CORRECTIONS (round 4) — VERIFIED, DEPLOY PAUSED (2026-07-27)
+- **Principal's 4th feedback round** (final-demo corrections) implemented on top of deployed v2.1
+  (`8fb59c1`, prod migration `0016`, image `a492d908…`). Corrective commit **`1bbf797`** on
+  `scope-v2.1-corrections`. Full report `docs/DELIVERY_MAC_MINI_V2_1/CORRECTIONS_REPORT_20260727.md`.
+- **A** program archive (dormant `programs.archivedAt` cols — no migration) + Arabic confirm + restore;
+  new `/plan/classifications` manage page (rename/reassign — **no program deleted**); archived hidden
+  from lists/selects/reports/exports. **B** «مرجع الدفع»→«رقم الفاتورة» (now shown) + optional invoice
+  attachment (reuses secure storage+evidence pipeline) + «البند» select (المستلزمات/النشاط) + server-side
+  allocated/spent/remaining from `programs.budget` (neutral/over-budget states). **C** shared
+  `BackButton` (history-or-fallback) on perf session/cycle + plan. **D** «الإجراءات»→«التوصيات» (perf);
+  finalize/close a perf session with **ZERO evidence** — signed-report + all-rated + evidence gates
+  removed (issue-report + D-014 kept; existing completed sessions unchanged). **E** classifier memoized
+  (React `cache()`, N→1/request) + single-shot guarded evidence refresh + async mkdir + SQL GROUP BY
+  count (measured ~30ms→~4.5ms for an 8-caller render). **F** committee assignment doc rebuilt into two
+  independent lists «أعضاء اللجنة» + «مهام اللجنة» — members shown without tasks, no throw on empty.
+  **G** minutes drop «الصفة», add «التوقيع»; committee النتائج/الأثر (`committee_impacts`) removed from
+  workflow/exports/close-gate (0 prod rows; table + rows preserved). **H** all user-facing business
+  fields optional + null-safe «بدون عنوان» (`src/lib/format.ts`); internal/security/audit/identity kept.
+- **Migration `0017`** (additive, forward-only): `budget_income.amount` + `budget_expenses.amount` →
+  nullable. **No seed; 0000–0016 not rerun.** Rehearsed on a **production clone**: 17→18, counts
+  unchanged (26/129/129), milestone fingerprint **`8d5375…a382cf` UNCHANGED**, idempotent.
+- **ALL GATES GREEN:** typecheck 0 · lint 0/0 · build ✓ · **vitest 281** (was 280, +1) · **Playwright
+  60 pass / 1 skip** (skip = C5 D-018). 6 existing tests rewritten to the corrected behavior (not weakened).
+- **Pre-deploy encrypted backup taken + verified** (`backups/predeploy/*-20260727-114825`; SHA-256 in
+  `SHA256SUMS-20260727-114825.txt`; 502 DB objects / 58 files; restore-verified). Prod baseline
+  26/129/129/54; **exposure unchanged** (pg `5432/tcp` unpublished, Ollama `127.0.0.1:11434`, app
+  `0.0.0.0:3080` = existing LAN binding). LAN `compose.production.yml` diff still **uncommitted**.
+- **PRODUCTION DEPLOY PAUSED — awaiting explicit go-ahead.** `0017` applied only to the clone; no
+  release tag. No-seed deploy runbook in report §G. **Live LAN IP is `192.168.0.171`** (not `.48`) —
+  keep `TRUSTED_ORIGINS`/`APP_BIND` matched to it on any redeploy.
+
+## Earlier checkpoint — SCOPE v2.1 CORRECTIONS DELIVERED to dev/test (2026-07-25)
 - **Principal's 3rd feedback round (Scope v2.1) supersedes conflicting Scope v2.** Recorded as
   **D-024 … D-029** (`docs/DECISIONS.md`); impact map `docs/SCOPE_IMPACT_V2_1.md`; deployment package
   `docs/DEPLOYMENT_REPORT_V2_1.md`. Branch `scope-v2.1-corrections` (NOT committed to main). **Production
