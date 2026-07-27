@@ -27,8 +27,8 @@ test("لوحة إعادة الاختبار: الدعوة + المهام + حفظ
   await page.goto("/pilot");
   await expect(page.getByRole("heading", { name: "دعوة لإعادة اختبار المنصة" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "قائمة إعادة اختبار المدير" })).toBeVisible();
-  // خمس عشرة مهمة
-  await expect(page.getByRole("link", { name: "افتح الصفحة" })).toHaveCount(15);
+  // سبع عشرة مهمة (نطاق v2.1 المصحّح)
+  await expect(page.getByRole("link", { name: "افتح الصفحة" })).toHaveCount(17);
 
   // اضبط حالة أول مهمة وأضف تعليقاً ثم احفظ كمسودة
   const first = page.locator("ol > li").first();
