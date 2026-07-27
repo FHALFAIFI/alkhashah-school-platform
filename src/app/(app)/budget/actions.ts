@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { budgetIncome, budgetExpenses, programs, programActivities, people, planYears, evidenceItems } from "@/db/schema";
+import { budgetIncome, budgetExpenses, planBudgetItems, programs, programActivities, people, planYears, evidenceItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { saveUploadedFile, validateUpload } from "@/lib/storage";
@@ -215,9 +215,56 @@ export async function deleteExpenseAction(expenseId: string): Promise<ActionStat
   const user = await requirePermission("budget.write");
   const [row] = await db.select().from(budgetExpenses).where(eq(budgetExpenses.id, expenseId));
   if (!row) return { error: "المصروف غير موجود" };
-  // الحذف مسموح للمصروف؛ الشواهد المرتبطة تبقى في المكتبة (لا حذف تعاقبي للشواهد)
+  // الحذف مسموح للمصروف؛ الشواهد المرتبطة تبقى في المكتبة (لا حذف تعاقبي للشواهد).
+  // «المنفَق» لكل بند مجموع حيّ من المصروفات، فحذف مصروف يعيد حساب بنده فقط تلقائياً (B4).
   await db.delete(budgetExpenses).where(eq(budgetExpenses.id, expenseId));
   await audit({ actorId: user.id, action: "budget.expense_deleted", entityType: "budget_expense", entityId: expenseId, summary: `حذف مصروف ${row.amount ?? ""}`.trim() });
   revalidatePath("/budget");
   return { success: "حُذف المصروف" };
+}
+
+/**
+ * B4: بند ميزانية له مخصص مستقل (المستلزمات/النشاط). اسم البند مفتاح المطابقة (بنية، لا محتوى حر)
+ * فيبقى مطلوباً؛ والمخصص اختياري (بند بلا مخصص يظهر بحالة محايدة). upsert بالاسم داخل السنة يمنع
+ * التكرار — تحديث مخصص بند قائم بدل إنشاء ثانٍ بالاسم نفسه.
+ */
+const budgetItemSchema = z.object({
+  planYearId: z.string().uuid(),
+  item: z.string().trim().min(1, "اسم البند مطلوب"),
+  amount: optionalPositiveAmount,
+});
+
+export async function setBudgetItemAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("budget.write");
+  const parsed = budgetItemSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const d = parsed.data;
+  const [year] = await db.select().from(planYears).where(eq(planYears.id, d.planYearId));
+  if (!year) return { error: "السنة غير موجودة" };
+  const item = d.item.trim();
+  const amount = d.amount === undefined ? null : String(d.amount);
+  const [existing] = await db
+    .select()
+    .from(planBudgetItems)
+    .where(and(eq(planBudgetItems.planYearId, d.planYearId), eq(planBudgetItems.item, item)));
+  if (existing) {
+    await db.update(planBudgetItems).set({ amount }).where(eq(planBudgetItems.id, existing.id));
+    await audit({ actorId: user.id, action: "budget.item_updated", entityType: "plan_budget_item", entityId: existing.id, summary: `تحديث مخصص البند «${item}» = ${d.amount ?? "—"}` });
+  } else {
+    const [row] = await db.insert(planBudgetItems).values({ planYearId: d.planYearId, item, amount }).returning();
+    await audit({ actorId: user.id, action: "budget.item_added", entityType: "plan_budget_item", entityId: row.id, summary: `مخصص البند «${item}» = ${d.amount ?? "—"}` });
+  }
+  revalidatePath("/budget");
+  return { success: `حُفظ مخصص البند «${item}»` };
+}
+
+export async function deleteBudgetItemAction(itemId: string): Promise<ActionState> {
+  const user = await requirePermission("budget.write");
+  const [row] = await db.select().from(planBudgetItems).where(eq(planBudgetItems.id, itemId));
+  if (!row) return { error: "البند غير موجود" };
+  // حذف مخصص البند فقط — المصروفات المختارة له تبقى، ويظهر البند بحالة محايدة (بلا مخصص) لا حذف بيانات.
+  await db.delete(planBudgetItems).where(eq(planBudgetItems.id, itemId));
+  await audit({ actorId: user.id, action: "budget.item_deleted", entityType: "plan_budget_item", entityId: itemId, summary: `حذف مخصص البند «${row.item}»` });
+  revalidatePath("/budget");
+  return { success: "حُذف مخصص البند" };
 }

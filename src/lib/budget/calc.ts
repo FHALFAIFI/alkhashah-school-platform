@@ -126,6 +126,65 @@ export function programBudgetLines(planned: PlannedRow[], expenses: ExpenseRow[]
   return lines;
 }
 
+export type BudgetItemLine = {
+  /** اسم البند (المستلزمات / النشاط / ...) */
+  item: string;
+  /** هل للبند مخصص معتمد موجب؟ عند false يُعرض «المتبقي» و«٪» بحالة محايدة «—» لا صفر مضلِّل. */
+  hasAllocation: boolean;
+  /** الميزانية المعتمدة لهذا البند (plan_budget_items.amount) */
+  allocated: number;
+  /** المنفَق على هذا البند = مجموع مصروفاته المختارة له */
+  spent: number;
+  /** المتبقي = المخصص − المنفَق (قد يكون سالباً عند التجاوز) */
+  remaining: number;
+  spentPercent: number;
+  /** تجاوز = المنفَق > المخصص */
+  overspent: boolean;
+};
+
+/**
+ * Per-budget-item (البند) allocation vs spent — each item (المستلزمات / النشاط / …) is tracked
+ * SEPARATELY, never as a shared pool. Allocation comes from the plan_budget_items row of the same
+ * name; spent is the sum of expenses whose «البند» (items) equals that name; remaining = allocated −
+ * spent. No normalization: spent stays as-is past the allocation and `overspent` is flagged.
+ * Because spent is a live sum keyed by item name, creating / editing / deleting / re-tagging an
+ * expense recomputes ONLY the affected item(s) — no double counting, no cross-item leakage.
+ */
+export function budgetItemLines(
+  allocations: { item: string; amount: number }[],
+  expenses: { items: string | null; amount: number }[],
+): Map<string, BudgetItemLine> {
+  const allocByItem = new Map<string, number>();
+  const defined = new Set<string>();
+  for (const a of allocations) {
+    const name = (a.item ?? "").trim();
+    if (!name) continue;
+    defined.add(name); // بند معرَّف يظهر ولو بلا مصروفات (المنفَق 0)
+    allocByItem.set(name, (allocByItem.get(name) ?? 0) + num(a.amount));
+  }
+  const spentByItem = new Map<string, number>();
+  for (const e of expenses) {
+    const name = (e.items ?? "").trim();
+    if (!name) continue; // مصروف بلا «بند» لا يُنسب لأي بند
+    spentByItem.set(name, (spentByItem.get(name) ?? 0) + num(e.amount));
+  }
+  const lines = new Map<string, BudgetItemLine>();
+  for (const item of new Set([...defined, ...spentByItem.keys()])) {
+    const allocated = allocByItem.get(item) ?? 0;
+    const spent = spentByItem.get(item) ?? 0;
+    lines.set(item, {
+      item,
+      hasAllocation: allocated > 0,
+      allocated,
+      spent,
+      remaining: allocated - spent,
+      spentPercent: allocated > 0 ? Math.round((spent / allocated) * 100) : 0,
+      overspent: spent > allocated && allocated > 0,
+    });
+  }
+  return lines;
+}
+
 /**
  * هل يتجاوز مصروف جديد المخصص المتبقي للبرنامج؟ يُستعمل لإظهار التحذير وطلب الإقرار.
  * يقارن بالمخصص المخطط، لا بالرصيد الكلي.

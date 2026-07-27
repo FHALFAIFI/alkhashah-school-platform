@@ -1,15 +1,16 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   budgetIncome,
   budgetExpenses,
+  planBudgetItems,
   programs,
   people,
   evidenceItems,
   evidenceLinks,
 } from "@/db/schema";
-import { summarize, programBudgetLines, num, type BudgetSummary, type ProgramBudgetLine, type PlannedRow } from "./calc";
+import { summarize, programBudgetLines, budgetItemLines, num, type BudgetSummary, type ProgramBudgetLine, type BudgetItemLine, type PlannedRow } from "./calc";
 import { numOrNull } from "@/lib/format";
 
 /** أي السجلات (مصروف/إيراد) لديها إيصال/شاهد غير مؤرشف مرتبط — معلوماتي فقط، غير إلزامي (D-026). */
@@ -34,6 +35,10 @@ export type BudgetOverview = {
   income: ((typeof budgetIncome.$inferSelect) & { hasReceipt: boolean })[];
   expenses: ((typeof budgetExpenses.$inferSelect) & { hasReceipt: boolean; programName: string | null; responsibleName: string | null })[];
   programLines: (ProgramBudgetLine & { programName: string })[];
+  /** المخصص/المنفَق/المتبقي لكل بند ميزانية (المستلزمات/النشاط) — كلٌّ مستقل (B4) */
+  itemLines: BudgetItemLine[];
+  /** بنود الميزانية المعرَّفة للسنة (plan_budget_items) — لإدارة المخصصات وخيارات «البند» */
+  budgetItems: (typeof planBudgetItems.$inferSelect)[];
 };
 
 export async function getBudgetOverview(planYearId: string): Promise<BudgetOverview> {
@@ -41,6 +46,13 @@ export async function getBudgetOverview(planYearId: string): Promise<BudgetOverv
     db.select().from(budgetIncome).where(eq(budgetIncome.planYearId, planYearId)).orderBy(desc(budgetIncome.createdAt)),
     db.select().from(budgetExpenses).where(eq(budgetExpenses.planYearId, planYearId)).orderBy(desc(budgetExpenses.createdAt)),
   ]);
+
+  // بنود الميزانية للسنة — مصدر «الميزانية المعتمدة» لكل بند (المستلزمات/النشاط) (B4)
+  const budgetItems = await db
+    .select()
+    .from(planBudgetItems)
+    .where(eq(planBudgetItems.planYearId, planYearId))
+    .orderBy(asc(planBudgetItems.item));
 
   const [receipts, incomeReceipts] = await Promise.all([
     receiptFlags("budget_expense", expenses.map((e) => e.id)),
@@ -79,6 +91,7 @@ export async function getBudgetOverview(planYearId: string): Promise<BudgetOverv
     amount: num(e.amount),
     programId: e.programId,
     activityId: e.activityId,
+    items: e.items,
     hasReceipt: e.hasReceipt,
     overspendAcknowledged: e.overspendAcknowledged,
   }));
@@ -99,5 +112,13 @@ export async function getBudgetOverview(planYearId: string): Promise<BudgetOverv
     .map((line) => ({ ...line, programName: progName.get(line.programId) ?? "برنامج" }))
     .sort((a, b) => a.programName.localeCompare(b.programName, "ar"));
 
-  return { summary, income: incomeRows, expenses: expenseRows, programLines };
+  // «الميزانية المعتمدة/المصروف/المتبقي» لكل بند (المستلزمات/النشاط) — مستقل تماماً عن مسار البرنامج (B4).
+  // المخصص من plan_budget_items؛ المنفَق مجموع مصروفات البند حسب نص «items»؛ الحذف/التعديل يعيد حساب بنده فقط.
+  const itemLinesMap = budgetItemLines(
+    budgetItems.map((b) => ({ item: b.item, amount: numOrNull(b.amount) ?? 0 })),
+    expenseCalc.map((e) => ({ items: e.items, amount: e.amount })),
+  );
+  const itemLines = [...itemLinesMap.values()].sort((a, b) => a.item.localeCompare(b.item, "ar"));
+
+  return { summary, income: incomeRows, expenses: expenseRows, programLines, itemLines, budgetItems };
 }

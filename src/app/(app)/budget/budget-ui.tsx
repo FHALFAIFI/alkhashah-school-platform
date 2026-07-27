@@ -7,11 +7,16 @@ import {
   acknowledgeOverspendAction,
   deleteIncomeAction,
   deleteExpenseAction,
+  setBudgetItemAction,
+  deleteBudgetItemAction,
   type ActionState,
 } from "./actions";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
 
 type Program = { id: string; name: string; allocated: number; spent: number };
+/** بند ميزانية بمخصصه المستقل ومصروفه ومتبقّيه (B4) */
+type ItemLine = { item: string; allocated: number; spent: number; remaining: number; hasAllocation: boolean };
+const money = (n: number) => n.toLocaleString("ar", { maximumFractionDigits: 2 });
 
 export function AddIncomeForm({ planYearId, programs }: { planYearId: string; programs: Program[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addIncomeAction, null);
@@ -58,16 +63,28 @@ export function AddIncomeForm({ planYearId, programs }: { planYearId: string; pr
   );
 }
 
-export function AddExpenseForm({ planYearId, programs }: { planYearId: string; programs: Program[] }) {
+export function AddExpenseForm({
+  planYearId,
+  programs,
+  itemLines,
+  itemNames,
+}: {
+  planYearId: string;
+  programs: Program[];
+  itemLines: ItemLine[];
+  itemNames: string[];
+}) {
   const [state, formAction] = useActionState<ActionState, FormData>(addExpenseAction, null);
   const [open, setOpen] = useState(false);
-  const [programId, setProgramId] = useState("");
+  const [itemName, setItemName] = useState("");
   const [amount, setAmount] = useState("");
   const [ackChecked, setAckChecked] = useState(false);
 
-  const selected = programs.find((p) => p.id === programId);
-  const remaining = selected ? selected.allocated - selected.spent : 0;
-  const wouldOverspend = !!selected && selected.allocated > 0 && Number(amount || 0) > remaining;
+  // B4: التجاوز والمتبقي يُحسبان على مخصص «البند» المختار (المستلزمات/النشاط)، لا على البرنامج،
+  // فكل بند يُخصم منه مستقلاً.
+  const selectedItem = itemLines.find((l) => l.item === itemName);
+  const remaining = selectedItem ? selectedItem.remaining : 0;
+  const wouldOverspend = !!selectedItem && selectedItem.hasAllocation && Number(amount || 0) > remaining;
 
   return (
     <div>
@@ -97,8 +114,7 @@ export function AddExpenseForm({ planYearId, programs }: { planYearId: string; p
               <select
                 id="ex-program"
                 name="programId"
-                value={programId}
-                onChange={(e) => setProgramId(e.target.value)}
+                defaultValue=""
                 className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
               >
                 <option value="">— بلا ربط —</option>
@@ -111,19 +127,34 @@ export function AddExpenseForm({ planYearId, programs }: { planYearId: string; p
             <Field label="المورّد (اختياري)" name="supplier" />
             <Field label="رقم الفاتورة (اختياري)" name="paymentReference" />
           </div>
-          {/* B3: «البند» قائمة اختيارية بقيم ثابتة تُخزَّن في العمود النصي items نفسه */}
+          {/* B3/B4: «البند» (المستلزمات/النشاط) — المصروف يُخصم من مخصص البند المختار */}
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-items">البند</label>
             <select
               id="ex-items"
               name="items"
-              defaultValue=""
+              value={itemName}
+              onChange={(e) => setItemName(e.target.value)}
               className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
             >
               <option value="">— بدون —</option>
-              <option value="المستلزمات">المستلزمات</option>
-              <option value="النشاط">النشاط</option>
+              {itemNames.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
             </select>
+            {selectedItem && (
+              <p className="mt-1 text-xs text-gray-500">
+                {selectedItem.hasAllocation ? (
+                  <>
+                    الميزانية المعتمدة: <span className="tabular-nums">{money(selectedItem.allocated)}</span> — المصروف:{" "}
+                    <span className="tabular-nums">{money(selectedItem.spent)}</span> — المتبقي:{" "}
+                    <span className={`tabular-nums ${remaining < 0 ? "text-red-600" : "text-emerald-700"}`}>{money(remaining)}</span>
+                  </>
+                ) : (
+                  <>لا يوجد مخصص معتمد لهذا البند بعد — عيّنه من «بنود الميزانية».</>
+                )}
+              </p>
+            )}
           </div>
           {/* B2: إرفاق فاتورة اختياري — يُحفظ عبر خط الشواهد الآمن ويُربط بالمصروف بعد حفظه */}
           <div>
@@ -142,8 +173,8 @@ export function AddExpenseForm({ planYearId, programs }: { planYearId: string; p
           {wouldOverspend && (
             <div className="rounded-lg border border-red-300 bg-red-50 p-3">
               <p className="text-sm font-medium text-red-800">
-                تنبيه تجاوز: هذا المصروف ({Number(amount).toLocaleString("ar")}) يتجاوز المتبقي من مخصص البرنامج
-                ({remaining.toLocaleString("ar")}). يُسمح بالتسجيل مع إقرار صريح — ولن تُغيَّر أي قيمة مالية.
+                تنبيه تجاوز: هذا المصروف ({money(Number(amount))}) يتجاوز المتبقي من مخصص البند «{itemName}»
+                ({money(remaining)}). يُسمح بالتسجيل مع إقرار صريح — ولن تُغيَّر أي قيمة مالية.
               </p>
               <label className="mt-2 flex items-center gap-2 text-sm text-red-800">
                 <input type="checkbox" name="overspendAck" checked={ackChecked} onChange={(e) => setAckChecked(e.target.checked)} />
@@ -155,15 +186,74 @@ export function AddExpenseForm({ planYearId, programs }: { planYearId: string; p
             </div>
           )}
 
-          <SubmitButton confirmText={wouldOverspend && !ackChecked ? "المصروف يتجاوز المخصص — أقرّ بالتجاوز أولاً" : undefined}>
+          <SubmitButton confirmText={wouldOverspend && !ackChecked ? "المصروف يتجاوز مخصص البند — أقرّ بالتجاوز أولاً" : undefined}>
             حفظ المصروف
           </SubmitButton>
           {wouldOverspend && !ackChecked && (
-            <p className="text-xs text-red-600">علّم إقرار التجاوز لحفظ مصروف يتجاوز المخصص.</p>
+            <p className="text-xs text-red-600">علّم إقرار التجاوز لحفظ مصروف يتجاوز مخصص البند.</p>
           )}
         </form>
       )}
     </div>
+  );
+}
+
+/** B4: تعيين/تحديث الميزانية المعتمدة لبند (المستلزمات/النشاط) — upsert بالاسم يمنع التكرار. */
+export function AddBudgetItemForm({ planYearId, options }: { planYearId: string; options: string[] }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(setBudgetItemAction, null);
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)} className="min-h-11 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100 lg:min-h-0">
+        {open ? "إغلاق" : "تعيين مخصص بند"}
+      </button>
+      {open && (
+        <form key={state?.success} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
+          {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+          {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+          <input type="hidden" name="planYearId" value={planYearId} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="bi-item">البند</label>
+              <select
+                id="bi-item"
+                name="item"
+                defaultValue={options[0] ?? "المستلزمات"}
+                className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+              >
+                {options.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <Field label="الميزانية المعتمدة" name="amount" type="number" />
+          </div>
+          <SubmitButton>حفظ المخصص</SubmitButton>
+        </form>
+      )}
+    </div>
+  );
+}
+
+export function DeleteBudgetItemButton({ id }: { id: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        onClick={() =>
+          startTransition(async () => {
+            if (!window.confirm("حذف مخصص هذا البند؟ (المصروفات المرتبطة به تبقى)")) return;
+            const res = await deleteBudgetItemAction(id);
+            if (res?.error) setError(res.error);
+          })
+        }
+        className="text-xs text-red-500 hover:underline"
+      >
+        حذف المخصص
+      </button>
+      {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
+    </span>
   );
 }
 

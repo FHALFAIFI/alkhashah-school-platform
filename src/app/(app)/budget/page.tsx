@@ -9,7 +9,7 @@ import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { getBudgetOverview } from "@/lib/budget/service";
 import { evidenceForEntity } from "@/lib/evidence";
 import { EvidencePanel } from "@/components/evidence-panel";
-import { AddIncomeForm, AddExpenseForm, DeleteButton, AcknowledgeOverspendForm } from "./budget-ui";
+import { AddIncomeForm, AddExpenseForm, AddBudgetItemForm, DeleteBudgetItemButton, DeleteButton, AcknowledgeOverspendForm } from "./budget-ui";
 
 export const metadata = { title: "الميزانية والمصروفات" };
 export const dynamic = "force-dynamic";
@@ -42,12 +42,21 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
       .where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)))
       .orderBy(asc(programs.seq)),
   ]);
-  const { summary, income, expenses, programLines } = overview;
+  const { summary, income, expenses, programLines, itemLines, budgetItems } = overview;
   const lineByProgram = new Map(programLines.map((l) => [l.programId, l]));
   const programOptions = programRows.map((p) => {
     const line = lineByProgram.get(p.id);
     return { id: p.id, name: p.name, allocated: line?.allocated ?? 0, spent: line?.spent ?? 0 };
   });
+  // خيارات «البند»: القيمتان الافتراضيتان (المستلزمات/النشاط) + أي بند معرَّف أو مستعمَل في مصروف
+  const DEFAULT_ITEMS = ["المستلزمات", "النشاط"];
+  const itemNameOptions = [
+    ...new Set([
+      ...DEFAULT_ITEMS,
+      ...budgetItems.map((b) => b.item),
+      ...expenses.map((e) => e.items).filter((x): x is string => !!x),
+    ]),
+  ];
 
   // السجل المحدد لعرض/رفع/ربط إيصاله (روابط «الإيصال» في الجداول، وروابط سجل الشواهد)
   const selIncomeId = sp["إيراد"];
@@ -106,6 +115,43 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
         <Stat label="تجاوزات غير مُقَرّة" value={`${summary.unacknowledgedOverspendCount}`} tone={summary.unacknowledgedOverspendCount > 0 ? "bad" : "good"} />
       </div>
 
+      {/* بنود الميزانية — المخصص والمصروف والمتبقي لكل بند مستقلاً (المستلزمات/النشاط) — B4 */}
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold text-brand-900">بنود الميزانية — المخصص والمصروف والمتبقي لكل بند</h2>
+          {canWrite && <AddBudgetItemForm planYearId={activeYear.id} options={itemNameOptions} />}
+        </div>
+        {itemLines.length === 0 ? (
+          <p className="text-sm text-gray-400">لا بنود معرَّفة بعد — عيّن مخصص «المستلزمات» و«النشاط» من «تعيين مخصص بند».</p>
+        ) : (
+          <Table headers={["البند", "الميزانية المعتمدة", "المصروف", "المتبقي", "٪ الإنفاق", "", ""]}>
+            {itemLines.map((l) => {
+              const bi = budgetItems.find((b) => b.item === l.item);
+              return (
+                <tr key={l.item} className={l.overspent ? "bg-red-50" : ""}>
+                  <td className="px-3 py-2 font-medium">{l.item}</td>
+                  {/* البند بلا مخصص معتمد: حالة محايدة لا صفر/سالب مضلِّل */}
+                  <td className="px-3 py-2 tabular-nums">
+                    {l.hasAllocation ? money(l.allocated) : <span className="text-gray-400">لا يوجد مخصص معتمد</span>}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums">{money(l.spent)}</td>
+                  <td className={`px-3 py-2 tabular-nums ${l.hasAllocation && l.remaining < 0 ? "text-red-600" : ""}`}>
+                    {l.hasAllocation ? money(l.remaining) : "—"}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums">{l.hasAllocation ? `${l.spentPercent}٪` : "—"}</td>
+                  <td className="px-3 py-2">{l.overspent && <Badge value="تجاوز" />}</td>
+                  <td className="px-3 py-2">{canWrite && bi && <DeleteBudgetItemButton id={bi.id} />}</td>
+                </tr>
+              );
+            })}
+          </Table>
+        )}
+        <p className="mt-3 text-xs text-gray-400">
+          لكل بند مخصص مستقل: «المتبقي = المخصص − مصروفات البند». عند تسجيل مصروف اختر بنده «المستلزمات» أو «النشاط»
+          ليُخصم منه؛ حذف/تعديل المصروف يعيد حساب بنده فقط.
+        </p>
+      </Card>
+
       {/* مقارنة المخطط بالفعلي لكل برنامج */}
       {programLines.length > 0 && (
         <Card>
@@ -161,7 +207,7 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
       <Card>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold text-brand-900">المصروفات ({expenses.length})</h2>
-          {canWrite && <AddExpenseForm planYearId={activeYear.id} programs={programOptions} />}
+          {canWrite && <AddExpenseForm planYearId={activeYear.id} programs={programOptions} itemLines={itemLines} itemNames={itemNameOptions} />}
         </div>
         {expenses.length === 0 ? (
           <p className="text-sm text-gray-400">لا مصروفات مسجّلة بعد</p>

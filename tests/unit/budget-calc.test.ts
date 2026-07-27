@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarize, programBudgetLines, wouldOverspend, type ExpenseRow, type IncomeRow } from "@/lib/budget/calc";
+import { summarize, programBudgetLines, budgetItemLines, wouldOverspend, type ExpenseRow, type IncomeRow } from "@/lib/budget/calc";
 
 const inc = (amount: number, status = "مستلم", programId: string | null = null): IncomeRow => ({ amount, status, programId });
 const exp = (o: Partial<ExpenseRow> & { id: string; amount: number }): ExpenseRow => ({
@@ -91,5 +91,69 @@ describe("حسابات الميزانية (§8)", () => {
     // بلا مخصص مخطط لا يُحسب تجاوز
     const noAlloc = wouldOverspend({ programAllocated: 0, programSpentSoFar: 0, newAmount: 500 });
     expect(noAlloc.overspend).toBe(false);
+  });
+});
+
+describe("بنود الميزانية — مخصص/مصروف/متبقٍ مستقل لكل بند (B4)", () => {
+  const alloc = (item: string, amount: number) => ({ item, amount });
+  const iexp = (items: string | null, amount: number) => ({ items, amount });
+
+  it("المستلزمات 5000 والنشاط 3000؛ مصروف 1200 و800 → المتبقي 3800 و2200 (كلٌّ مستقل)", () => {
+    const lines = budgetItemLines(
+      [alloc("المستلزمات", 5000), alloc("النشاط", 3000)],
+      [iexp("المستلزمات", 1200), iexp("النشاط", 800)],
+    );
+    const sup = lines.get("المستلزمات")!;
+    expect(sup.allocated).toBe(5000);
+    expect(sup.spent).toBe(1200);
+    expect(sup.remaining).toBe(3800);
+    const act = lines.get("النشاط")!;
+    expect(act.allocated).toBe(3000);
+    expect(act.spent).toBe(800);
+    expect(act.remaining).toBe(2200);
+  });
+
+  it("حذف مصروف يعيد حساب بنده فقط — النشاط يعود 0/3000 والمستلزمات كما هي", () => {
+    const afterDelete = budgetItemLines(
+      [alloc("المستلزمات", 5000), alloc("النشاط", 3000)],
+      [iexp("المستلزمات", 1200)], // حُذف مصروف النشاط 800
+    );
+    expect(afterDelete.get("النشاط")!.spent).toBe(0);
+    expect(afterDelete.get("النشاط")!.remaining).toBe(3000);
+    expect(afterDelete.get("المستلزمات")!.remaining).toBe(3800); // بند المستلزمات لم يتغيّر
+  });
+
+  it("تعديل مبلغ مصروف يعيد حساب بنده فقط — المستلزمات 1200→2000، النشاط ثابت", () => {
+    const afterEdit = budgetItemLines(
+      [alloc("المستلزمات", 5000), alloc("النشاط", 3000)],
+      [iexp("المستلزمات", 2000), iexp("النشاط", 800)],
+    );
+    expect(afterEdit.get("المستلزمات")!.spent).toBe(2000);
+    expect(afterEdit.get("المستلزمات")!.remaining).toBe(3000);
+    expect(afterEdit.get("النشاط")!.remaining).toBe(2200); // بند النشاط لم يتغيّر
+  });
+
+  it("إعادة تصنيف مصروف من بند لآخر تنقل المبلغ بين البندين فقط", () => {
+    // نُقل 1200 من المستلزمات إلى النشاط
+    const moved = budgetItemLines(
+      [alloc("المستلزمات", 5000), alloc("النشاط", 3000)],
+      [iexp("النشاط", 1200), iexp("النشاط", 800)],
+    );
+    expect(moved.get("المستلزمات")!.spent).toBe(0);
+    expect(moved.get("المستلزمات")!.remaining).toBe(5000);
+    expect(moved.get("النشاط")!.spent).toBe(2000);
+    expect(moved.get("النشاط")!.remaining).toBe(1000);
+  });
+
+  it("بند بلا مخصص معتمد يظهر محايداً؛ التجاوز يُعلَّم على بنده وحده", () => {
+    const lines = budgetItemLines(
+      [alloc("المستلزمات", 1000)],
+      [iexp("المستلزمات", 1500), iexp("النشاط", 200)],
+    );
+    expect(lines.get("المستلزمات")!.overspent).toBe(true);
+    expect(lines.get("المستلزمات")!.remaining).toBe(-500);
+    // النشاط له مصروف بلا مخصص → حالة محايدة، لا تجاوز
+    expect(lines.get("النشاط")!.hasAllocation).toBe(false);
+    expect(lines.get("النشاط")!.overspent).toBe(false);
   });
 });

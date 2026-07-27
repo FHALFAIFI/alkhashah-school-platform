@@ -92,4 +92,36 @@ describe("وحدة الميزانية — التكامل مع الشواهد ا�
     const o = await getBudgetOverview(year.id);
     expect(o.summary.unacknowledgedOverspendCount).toBe(0);
   });
+
+  it("B4: بنود المستلزمات/النشاط لكلٍّ مخصص ومصروف ومتبقٍ مستقل، والحذف يعيد حساب بنده فقط", async () => {
+    await truncateAll(pool);
+    const { db } = await import("@/db");
+    const { planBudgetItems, budgetExpenses } = await import("@/db/schema");
+    const { getBudgetOverview } = await import("@/lib/budget/service");
+    const { eq } = await import("drizzle-orm");
+
+    const year = await seedYear();
+    await db.insert(planBudgetItems).values([
+      { planYearId: year.id, item: "المستلزمات", amount: "5000" },
+      { planYearId: year.id, item: "النشاط", amount: "3000" },
+    ]);
+    const [supExp] = await db
+      .insert(budgetExpenses)
+      .values({ planYearId: year.id, amount: "1200", items: "المستلزمات" })
+      .returning();
+    await db.insert(budgetExpenses).values({ planYearId: year.id, amount: "800", items: "النشاط" });
+
+    const byItem = (o: Awaited<ReturnType<typeof getBudgetOverview>>) =>
+      new Map(o.itemLines.map((l) => [l.item, l]));
+
+    let m = byItem(await getBudgetOverview(year.id));
+    expect(m.get("المستلزمات")).toMatchObject({ allocated: 5000, spent: 1200, remaining: 3800 });
+    expect(m.get("النشاط")).toMatchObject({ allocated: 3000, spent: 800, remaining: 2200 });
+
+    // حذف مصروف المستلزمات → المستلزمات 0/5000، والنشاط دون تغيير (بنده وحده أُعيد حسابه)
+    await db.delete(budgetExpenses).where(eq(budgetExpenses.id, supExp.id));
+    m = byItem(await getBudgetOverview(year.id));
+    expect(m.get("المستلزمات")).toMatchObject({ spent: 0, remaining: 5000 });
+    expect(m.get("النشاط")).toMatchObject({ spent: 800, remaining: 2200 });
+  });
 });
