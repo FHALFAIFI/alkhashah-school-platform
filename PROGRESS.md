@@ -2,7 +2,7 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — SCOPE v2.1 FINAL-DEMO CORRECTIONS (round 4) — VERIFIED, DEPLOY PAUSED (2026-07-27)
+## Latest checkpoint — SCOPE v2.1 FINAL-DEMO CORRECTIONS (round 4) — DEPLOYED to production (2026-07-27)
 - **Principal's 4th feedback round** (final-demo corrections) implemented on top of deployed v2.1
   (`8fb59c1`, prod migration `0016`, image `a492d908…`). Corrective commit **`1bbf797`** on
   `scope-v2.1-corrections`. Full report `docs/DELIVERY_MAC_MINI_V2_1/CORRECTIONS_REPORT_20260727.md`.
@@ -31,9 +31,16 @@
   `SHA256SUMS-20260727-114825.txt`; 502 DB objects / 58 files; restore-verified). Prod baseline
   26/129/129/54; **exposure unchanged** (pg `5432/tcp` unpublished, Ollama `127.0.0.1:11434`, app
   `0.0.0.0:3080` = existing LAN binding). LAN `compose.production.yml` diff still **uncommitted**.
-- **PRODUCTION DEPLOY PAUSED — awaiting explicit go-ahead.** `0017` applied only to the clone; no
-  release tag. No-seed deploy runbook in report §G. **Live LAN IP is `192.168.0.171`** (not `.48`) —
-  keep `TRUSTED_ORIGINS`/`APP_BIND` matched to it on any redeploy.
+- **DEPLOYED to production 2026-07-27 (authorized).** Migration **0016→0017** (migrate-only, NO seed;
+  fingerprint `8d5375…` unchanged; all counts unchanged; only 0017 added). App image `a492d908…` →
+  **`fc8654e2…`** (built from commit `49ac5b6` = `02a5a19` B4 + `68c2f26` docs + `49ac5b6` test-count fix).
+  Full Playwright 60/1-skip pre-deploy; fresh encrypted backup `backups/predeploy/*-20260727-131643`
+  (SHA-256 recorded, 502 objs/58 files, verified). Exposure UNCHANGED (pg 5432 unpublished, Ollama loopback,
+  app `0.0.0.0:3080` existing LAN binding). Rollback image tagged `madrasa-app:0.1.0-prev-v2_1-20260727`
+  (= a492d908). Restart-persistence PASS; login/auth-gating smoke PASS on loopback + `192.168.0.171:3080`.
+  **NO release tag; host-PC migration NOT started.** Authenticated UI acceptance = principal via `/pilot`
+  (I don't hold the changed principal password; did not impersonate/write business data to prod).
+  **Live LAN IP `192.168.0.171`** — keep `TRUSTED_ORIGINS`/`APP_BIND` matched on any future redeploy.
 
 ## Earlier checkpoint — SCOPE v2.1 CORRECTIONS DELIVERED to dev/test (2026-07-25)
 - **Principal's 3rd feedback round (Scope v2.1) supersedes conflicting Scope v2.** Recorded as

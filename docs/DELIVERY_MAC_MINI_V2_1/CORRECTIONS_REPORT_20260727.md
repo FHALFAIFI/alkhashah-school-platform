@@ -180,6 +180,33 @@ docker compose -f compose.production.yml --env-file .env.production -p madrasa-p
 16. اختبار الاستقرار: «حفظ» مرتين بسرعة + فتح/إغلاق حوار + رفع ملف — بلا خطأ إنجليزي وبلا تكرار.
 17. أرسل ملاحظة تشغيل واحدة.
 
+## Deployment EXECUTED (2026-07-27) — production cutover complete (authorized)
+
+Release gate all-green, then controlled cutover on the Mac mini. **Production migration `0016` → `0017`;
+app image `a492d908…` → `fc8654e2…` (built from commit `49ac5b6`).**
+
+- **Gate 1 — full Playwright:** 60 passed / 1 skipped (C5/D-018) / 0 failed. (Caught + fixed a stale
+  15-task assertion in `pilot-retest.spec.ts` → 17; commit `49ac5b6`, test-only.)
+- **Gate 2 — state:** branch `scope-v2.1-corrections`; HEAD `49ac5b6` includes `02a5a19` + `68c2f26`;
+  working tree = only the intentional LAN `compose.production.yml` diff; prod at 0016.
+- **Gate 3 — fresh backup (verified):**
+  `backups/predeploy/db-20260727-131643.dump.enc` SHA-256 `04b68404a3176358fcee32e596cec1697b1d941007aa59b0f4c6dffa05341374` (502 objects);
+  `backups/predeploy/storage-20260727-131643.tar.gz.enc` SHA-256 `9dc25e9a6fef9afe3a932a10ebdfbe999853d5d994ee77be595b4dbe7499097e` (58 files);
+  `SHA256SUMS-20260727-131643.txt`.
+- **Migration:** applied **only 0017** (migrate-only override, `&& seed` dropped) — ledger 17→18, row 17
+  (0016) unchanged, `budget_income/expenses.amount` now nullable, **no seed output**. Milestone baseline
+  fingerprint on prod = `8d5375…a382cf` (== F0, 129, "مطابق"). All data counts identical before/after.
+- **App cutover:** `up -d --build --no-deps app` → image `fc8654e2bdf8…`; healthy; restart-persistence PASS;
+  58 storage files accessible. Previous image retained as `madrasa-app:0.1.0-prev-v2_1-20260727` (rollback).
+- **Exposure unchanged:** pg `5432/tcp` unpublished · Ollama `127.0.0.1:11434` loopback · app `0.0.0.0:3080`
+  (existing LAN binding, not broadened). DB container not restarted.
+- **Smoke (infra + unauthenticated):** health ok on loopback + `192.168.0.171:3080`; login page Arabic, 0
+  English/insertBefore; all protected routes 307→`/login` when logged out. **Authenticated UI workflows are
+  covered by the 60-test Playwright suite on the exact deployed commit `49ac5b6`; the principal performs the
+  final live authenticated acceptance via `/pilot`** (I don't hold the principal's password — changed at
+  go-live — and did not impersonate or write business data to production).
+- **No stop-condition triggered.** No release tag; host-PC migration not started.
+
 ## Addendum (2026-07-27) — B4 corrected to per-item allocation (commit `02a5a19`)
 
 Principal review flagged that B4 must track **each budget item separately**, not deduct both
