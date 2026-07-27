@@ -60,7 +60,7 @@ Grouped by requirement (representative files; full set in commit `1bbf797`):
 | B1 رقم الفاتورة | Implemented | Label renamed + value now shown (table column + program report); DB col `payment_reference` kept. e2e asserts «رقم الفاتورة» present, «مرجع الدفع» absent. |
 | B2 invoice attachment | Implemented | Optional file input on expense create → secure `saveUploadedFile` (MIME/ext/size/UUID/sha256) + evidence link; openable/replaceable via panel; Arabic errors. |
 | B3 «البند» options | Implemented | Optional select المستلزمات/النشاط stored in existing `items` col (no competing concept). |
-| B4 spent/remaining | Implemented | Server-side allocated (`programs.budget`) / spent / remaining; over-budget + neutral «لا توجد ميزانية معتمدة»; same calc in reports; null-safe. |
+| B4 spent/remaining | Implemented (corrected — per-item) | **Per budget item** (المستلزمات/النشاط) each carries its OWN allocation (`plan_budget_items`), spent (Σ expenses with that «البند»), and remaining — deducted independently; over-budget flagged; neutral state when unallocated; live sum so edit/delete recomputes only the affected item. Clone-verified (see Addendum). Corrected from the initial per-program (`programs.budget`) reading in commit `02a5a19`. |
 | C back nav | Implemented | `BackButton` (real history else safe fallback, RTL) on perf session/cycle + plan pages; works after save/cancel + direct URL; mobile RTL e2e green. |
 | D1 التوصيات | Implemented | 5 perf-context occurrences renamed; 20+ unrelated «الإجراءات» untouched. |
 | D2 finalize w/o evidence | Implemented | Evidence + signed-report + all-rated gates removed; issue-report + D-014 kept; existing completed sessions unchanged; no placeholder evidence. |
@@ -179,3 +179,25 @@ docker compose -f compose.production.yml --env-file .env.production -p madrasa-p
 15. أصدر تقرير برنامج مركّزاً على المعلومات والتقدم والشواهد والميزانية.
 16. اختبار الاستقرار: «حفظ» مرتين بسرعة + فتح/إغلاق حوار + رفع ملف — بلا خطأ إنجليزي وبلا تكرار.
 17. أرسل ملاحظة تشغيل واحدة.
+
+## Addendum (2026-07-27) — B4 corrected to per-item allocation (commit `02a5a19`)
+
+Principal review flagged that B4 must track **each budget item separately**, not deduct both
+items from one shared `programs.budget`. Corrected: budget items are `plan_budget_items` rows
+(item name → allocation); an expense's «البند» (`budget_expenses.items`) selects the item; per
+item `remaining = allocation − Σ(expenses of that item)`. No schema change, no new migration;
+existing records preserved. A new «بنود الميزانية» card manages allocations and shows
+allocated/spent/remaining per item; the expense form shows the selected item's live remaining and
+per-item over-budget warning.
+
+Clone demonstration (real `getBudgetOverview` on a restored production clone):
+
+| step | المستلزمات | النشاط |
+|---|---|---|
+| allocations 5000 / 3000; expenses 1200 & 800 | allocated 5000 · spent **1200** · remaining **3800** | allocated 3000 · spent **800** · remaining **2200** |
+| EDIT النشاط 800→1000 | unchanged 1200 / 3800 | spent 1000 · remaining 2000 (only النشاط) |
+| DELETE المستلزمات 1200 | spent 0 · remaining 5000 (only المستلزمات) | unchanged 1000 / 2000 |
+
+New tests: 5 `budgetItemLines` unit cases + 1 `getBudgetOverview` integration case (exact
+scenario + delete recalc). Gates after correction: typecheck 0 · lint 0/0 · **vitest 287** ·
+scenario e2e 16/16.

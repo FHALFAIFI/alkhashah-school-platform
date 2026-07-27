@@ -9,8 +9,10 @@
 - **A** program archive (dormant `programs.archivedAt` cols — no migration) + Arabic confirm + restore;
   new `/plan/classifications` manage page (rename/reassign — **no program deleted**); archived hidden
   from lists/selects/reports/exports. **B** «مرجع الدفع»→«رقم الفاتورة» (now shown) + optional invoice
-  attachment (reuses secure storage+evidence pipeline) + «البند» select (المستلزمات/النشاط) + server-side
-  allocated/spent/remaining from `programs.budget` (neutral/over-budget states). **C** shared
+  attachment (reuses secure storage+evidence pipeline) + «البند» select (المستلزمات/النشاط) + **per-item**
+  allocated/spent/remaining — each item independent via `plan_budget_items` (corrected 2026-07-27, commit
+  `02a5a19`; clone-verified 5000/3000→1200/3800 & 800/2200; edit/delete recompute only the affected item).
+  **C** shared
   `BackButton` (history-or-fallback) on perf session/cycle + plan. **D** «الإجراءات»→«التوصيات» (perf);
   finalize/close a perf session with **ZERO evidence** — signed-report + all-rated + evidence gates
   removed (issue-report + D-014 kept; existing completed sessions unchanged). **E** classifier memoized
@@ -23,8 +25,8 @@
 - **Migration `0017`** (additive, forward-only): `budget_income.amount` + `budget_expenses.amount` →
   nullable. **No seed; 0000–0016 not rerun.** Rehearsed on a **production clone**: 17→18, counts
   unchanged (26/129/129), milestone fingerprint **`8d5375…a382cf` UNCHANGED**, idempotent.
-- **ALL GATES GREEN:** typecheck 0 · lint 0/0 · build ✓ · **vitest 281** (was 280, +1) · **Playwright
-  60 pass / 1 skip** (skip = C5 D-018). 6 existing tests rewritten to the corrected behavior (not weakened).
+- **ALL GATES GREEN:** typecheck 0 · lint 0/0 · build ✓ · **vitest 287** (was 280; +6 B4 per-item, +1) ·
+  **Playwright 60 pass / 1 skip** (skip = C5 D-018). 6 existing tests rewritten to the corrected behavior.
 - **Pre-deploy encrypted backup taken + verified** (`backups/predeploy/*-20260727-114825`; SHA-256 in
   `SHA256SUMS-20260727-114825.txt`; 502 DB objects / 58 files; restore-verified). Prod baseline
   26/129/129/54; **exposure unchanged** (pg `5432/tcp` unpublished, Ollama `127.0.0.1:11434`, app
