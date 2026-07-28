@@ -61,6 +61,29 @@ function fd(values: Record<string, string>): FormData {
   return f;
 }
 
+/**
+ * ملفات إجراءات الخادم الحقيقية: التوجيه `"use server"` يجب أن يكون **أول عبارة فعلية**
+ * في الملف. البحث النصي وحده يلتقط أي ملف يذكر النص في تعليق، فيعطي نتائج كاذبة.
+ */
+function useServerFiles(): string[] {
+  const fs = require("node:fs") as typeof import("node:fs");
+  const cp = require("node:child_process") as typeof import("node:child_process");
+  const candidates = cp
+    .execSync('grep -rl \'"use server"\' src/ --include=*.ts', { encoding: "utf-8" })
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  return candidates.filter((f) => {
+    const src = fs.readFileSync(f, "utf-8");
+    // أول سطر غير فارغ وغير تعليق
+    const first = src
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0 && !l.startsWith("//") && !l.startsWith("/*") && !l.startsWith("*"));
+    return first === '"use server";' || first === "'use server';";
+  });
+}
+
 /* ────────────────────────── المصادقة وكلمات المرور ────────────────────────── */
 
 describe("§11.5.A — المصادقة", () => {
@@ -169,8 +192,7 @@ describe("§11.5.B — التفويض على حدود الخادم (وحدات �
 
   it("كل إجراء خادم يفرض تفويضاً (مسح شامل للمستودع)", async () => {
     const fs = await import("node:fs");
-    const cp = await import("node:child_process");
-    const files = cp.execSync('grep -rl \'"use server"\' src/ --include=*.ts', { encoding: "utf-8" }).trim().split("\n");
+    const files = useServerFiles();
     const unguarded: string[] = [];
     for (const f of files) {
       const src = fs.readFileSync(f, "utf-8");
@@ -186,6 +208,25 @@ describe("§11.5.B — التفويض على حدود الخادم (وحدات �
       }
     }
     expect(unguarded, `إجراءات بلا تفويض: ${unguarded.join(", ")}`).toEqual([]);
+  });
+
+  it("ملفات «use server» لا تصدّر إلا دوال async", async () => {
+    // Next يرفض أي تصدير غير دالة async من ملف إجراءات خادم، ويُسقط شجرة مكوّنات العميل
+    // بالكامل عند تحميلها في المتصفّح. اختبارات الوحدة والتكامل لا تكشف ذلك لأنها تستورد
+    // الوحدة مباشرةً في Node بلا قيود Next — ولذلك يلزم هذا الحارس الثابت.
+    const fs = await import("node:fs");
+    const files = useServerFiles();
+    expect(files.length, "لم يُعثر على أي ملف إجراءات خادم — الكاشف معطوب").toBeGreaterThan(10);
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = fs.readFileSync(f, "utf-8");
+      for (const m of src.matchAll(/^export\s+(?!async\s+function)(const|let|var|class|type|interface|enum)\s+(\w+)/gm)) {
+        // `export type` و`export interface` تُمحى عند الترجمة فلا تصل وقت التشغيل
+        if (m[1] === "type" || m[1] === "interface") continue;
+        offenders.push(`${f}::${m[1]} ${m[2]}`);
+      }
+    }
+    expect(offenders, `تصديرات غير مسموحة من ملفات "use server": ${offenders.join(", ")}`).toEqual([]);
   });
 
   it("كل مسار API يفرض مصادقة (عدا فحص الصحة)", async () => {

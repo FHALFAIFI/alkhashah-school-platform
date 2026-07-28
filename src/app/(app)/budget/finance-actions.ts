@@ -8,6 +8,8 @@ import { budgetExpenses, budgetIncome, financialItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { orFallback } from "@/lib/format";
+// ملف `"use server"` لا يُصدِّر إلا دوال async — الثوابت تعيش في وحدة عادية
+import { ITEM_COLORS } from "@/lib/finance/colors";
 
 /**
  * إدارة بنود الصرف المدرسية والعمليات المالية (v2.2 §B).
@@ -19,12 +21,6 @@ import { orFallback } from "@/lib/format";
 
 export type ActionState = { error?: string; success?: string } | null;
 
-/**
- * ألوان العرض المسموحة — قائمة مغلقة (allowlist) لا نص CSS حر من المستخدم.
- * تمنع حقن CSS وتحافظ على اتساق الواجهة.
- */
-export const ITEM_COLORS = ["أزرق", "أخضر", "كهرماني", "أحمر", "بنفسجي", "رمادي"] as const;
-export type ItemColor = (typeof ITEM_COLORS)[number];
 
 /** مبلغ اختياري: الفارغ يبقى null، والمُدخَل يجب أن يكون عدداً صحيح الصيغة غير سالب */
 const optionalAmount = z.preprocess(

@@ -14,9 +14,9 @@
 | Severity | Count | Fixed | Accepted / Deferred |
 |---|---|---|---|
 | Blocker | 0 | — | — |
-| High | 4 | 4 | 0 |
+| High | 6 | 6 | 0 |
 | Medium | 6 | 5 | 1 |
-| Low | 5 | 4 | 1 |
+| Low | 5 | 5 | 0 |
 | Accepted technical debt | 4 | — | 4 |
 | False positive / not applicable | 3 | — | — |
 
@@ -73,6 +73,35 @@ server memory. Reachable, though it requires an authenticated administrative acc
 **Fix:** upgraded to 0.6.0 (semver-major, done deliberately and verified).
 **Evidence:** all 31 import/xlsx integration tests pass on 0.6.0; `npm audit` now reports **no
 direct dependency with its own advisory**.
+
+### H5 — Receipt attachment to an existing finance record was lost (regression I introduced)
+**Module:** `src/app/(app)/budget/page.tsx` (M2 rewrite)
+**Issue:** The rewrite dropped the per-row «الإيصال»/«الفاتورة» link that opened the evidence panel
+for an **already-saved** income or expense. I added upload-at-creation and treated it as equivalent.
+**Impact:** Real loss of delivered v2.1 capability (D-026). Invoices commonly arrive after the
+operation is recorded; without the link the principal could not attach one at all afterwards.
+**Fix:** restored the receipt panel and both per-row cells (status badge + link) on the new page.
+**Evidence:** Playwright `workflows.spec.ts` س2ب — the test that caught it now passes.
+**Residual risk:** none. Recorded prominently because it was self-inflicted and only the operational
+gate caught it — the unit and integration suites did not.
+
+### H6 — `"use server"` file exported a non-async constant (regression I introduced)
+**Module:** `src/app/(app)/budget/finance-actions.ts` (M2)
+**Issue:** The file exported `ITEM_COLORS`. Next.js permits only async function exports from a
+`"use server"` module.
+**Impact:** **The entire budget page's client components failed to load** — add income, add expense
+and the financial-item forms were all unusable in a browser. Severity is High because the feature
+was completely broken in the product while appearing healthy in CI.
+**Why the test suite missed it:** unit and integration tests import the action module directly in
+Node, where Next's module constraints do not apply. All 527 passed against a broken page. Only the
+browser gate could catch this.
+**Fix:** constant moved to `src/lib/finance/colors.ts` (a plain module), imported by both the action
+file and the UI.
+**Evidence:** Playwright now green (60 passed / 1 skipped / 0 failed); added a permanent guard test
+asserting no `"use server"` file exports a non-async value. The guard initially produced false
+positives on files that merely *mention* `"use server"` in a comment, so its detection was tightened
+to require the directive to be the file's first real statement.
+**Residual risk:** none — the class of bug is now covered by a standing test.
 
 ---
 

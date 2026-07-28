@@ -19,8 +19,8 @@ import {
   restoreIncomeAction,
   archiveExpenseAction,
   restoreExpenseAction,
-  ITEM_COLORS,
 } from "./finance-actions";
+import { ITEM_COLORS } from "@/lib/finance/colors";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
 import { formatMoney, orFallback } from "@/lib/format";
 import { overrunWarning } from "@/lib/finance/calc";

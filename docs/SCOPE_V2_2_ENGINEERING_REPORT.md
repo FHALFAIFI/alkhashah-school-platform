@@ -345,14 +345,35 @@ Issued/frozen documents: **verified unchanged**, by fingerprint above.
 | `npm run typecheck` | **PASS** (strict, no errors) |
 | `npm run lint` | **PASS** (0 errors, 0 warnings) |
 | `npm run build` | **PASS** |
-| `npm test` (vitest) | **PASS — 526/526**, 62 files (baseline 287) |
-| **Playwright e2e** | see §F.1 |
+| `npm test` (vitest) | **PASS — 527/527**, 62 files (baseline 287) |
+| **Playwright e2e** | **PASS — 60 passed, 1 skipped, 0 failed** (matches the v2.1 baseline) |
 | **Restart rehearsal** | **PASS** — §F.2 |
 | **Backup rehearsal** | **PASS** — §F.3 |
 | **Restore rehearsal** | **PASS** — §F.4 |
 | Production-clone migration rehearsal (0018+0019, then 0020) | **PASS** — §D |
 | All 46 reports against real production data | **PASS** — 803 rows |
 | `npm audit` — direct dependencies | **PASS** — no direct dependency carries its own advisory |
+
+### F.1 Playwright — PASS (60 passed · 1 skipped · 0 failed)
+
+This gate earned its place three times over. Each of the following passed every one of the 527
+unit and integration tests while being genuinely broken in a browser:
+
+1. **My CSP broke every page.** `default-src 'self'` with no `script-src` override made script-src
+   inherit `'self'`, blocking Next.js's inline hydration scripts. Pages rendered empty.
+2. **`finance-actions.ts` exported a constant from a `"use server"` file.** Next.js permits only
+   async function exports there; the violation took down the *entire* budget page's client
+   components — add income, add expense, and the financial-item forms. Unit and integration tests
+   import the module directly in Node, where that rule does not apply, so all of them passed.
+   Constant moved to `src/lib/finance/colors.ts`, with a new guard test asserting no `"use server"`
+   file exports a non-async value.
+3. **My M2 rewrite silently removed a delivered feature** — attaching a receipt to an already-saved
+   income or expense (finding H5).
+
+Two stale assertions were updated because v2.2 intentionally changed the UI (budget heading, report
+centre structure). One label was reverted instead of changing its test: the reports action is
+«إصدار التقرير التنفيذي» again, as the principal knows it — redesigning the report centre was in
+scope, renaming a familiar action was not.
 
 ### F.2 Restart rehearsal — PASS
 
@@ -399,7 +420,7 @@ This also disproved a concern raised during review: the held backups do contain 
 data. The related defect was that *future* backups could silently target the dev database — fixed
 under M4 in the findings register.
 
-**+239 tests added:**
+**+240 tests added:**
 - 13 integration — program creation and closure (empty save, title fallback, no auto-activities, duplicate-click, sequence allocation, closure with nothing, separation from archive/approval, idempotency, **concurrent closure**, reopen history accumulation, evidence preservation)
 - 11 unit — navigation (logical parent, dynamic ids, non-page segments, loop guard, and an **exhaustive check that all 64 routes resolve to a real parent page**)
 - 26 unit — finance calculations (per-item independence, null≠zero, no NaN, overspend flagging, archived exclusion, cancelled/expected income, no double counting, warning never blocks)
