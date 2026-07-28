@@ -359,17 +359,19 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     page.on("dialog", (d) => void d.accept());
     await login(page);
     await page.goto("/budget");
-    await expect(page.getByRole("heading", { name: "الميزانية والمصروفات" })).toBeVisible();
+    // v2.2 §B: صارت «المالية المدرسية» بعد فصل المالية عن البرامج
+    await expect(page.getByRole("heading", { name: "المالية المدرسية" })).toBeVisible();
 
     // إيراد بلا إيصال أولاً (اختياري) — التحقق من تسمية الحقل «البند» (لا «الغرض/التخصيص»)
     await page.getByRole("button", { name: "إضافة إيراد" }).click();
     const incForm = page.locator('form:has(input[name="source"])');
-    await expect(incForm.getByText("البند", { exact: true })).toBeVisible();
+    // v2.2 §B3: «بند الصرف» صار اختياراً من بنود مدرسية بمفتاح أجنبي لا نصاً حراً
+    await expect(incForm.getByText("بند الصرف (اختياري)")).toBeVisible();
     await expect(page.getByText("الغرض/التخصيص")).toHaveCount(0);
     const incSource = `إيراد تجريبي آلي ${TAG}`;
     await incForm.locator('input[name="source"]').fill(incSource);
     await incForm.locator('input[name="amount"]').fill("5000");
-    await incForm.locator('input[name="purpose"]').fill(`بند إيراد ${TAG}`);
+    await incForm.locator('input[name="purpose"]').fill(`غرض إيراد ${TAG}`);
     await incForm.getByRole("button", { name: "حفظ الإيراد" }).click();
     await expect(page.getByText("أُضيف الإيراد")).toBeVisible({ timeout: 20_000 });
 
@@ -393,14 +395,16 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.goto("/budget");
     await page.getByRole("button", { name: "إضافة مصروف" }).click();
     const exForm = page.locator('form:has(input[name="amount"])').last();
-    await expect(exForm.getByText("البند", { exact: true })).toBeVisible();
+    await expect(exForm.getByText("بند الصرف (اختياري)")).toBeVisible();
     await expect(page.getByText("المستلزمات/البنود")).toHaveCount(0);
     // B1: «رقم الفاتورة» حاضرة و«مرجع الدفع» أُزيلت من كل الواجهة
-    await expect(exForm.getByText("رقم الفاتورة (اختياري)")).toBeVisible();
+    await expect(exForm.getByText("رقم الفاتورة", { exact: true })).toBeVisible();
     await expect(page.getByText("مرجع الدفع")).toHaveCount(0);
     await exForm.locator('input[name="amount"]').fill("300");
-    // B3: «البند» قائمة اختيارية بقيمتين ثابتتين
-    await exForm.locator('select[name="items"]').selectOption("المستلزمات");
+    // v2.2 §B4: البند مفتاح أجنبي إلى بنود الصرف المدرسية؛ نختار أول بند متاح إن وُجد
+    const itemSelect = exForm.locator('select[name="financialItemId"]');
+    const itemOptions = await itemSelect.locator("option").count();
+    if (itemOptions > 1) await itemSelect.selectOption({ index: 1 });
     await exForm.locator('input[name="category"]').fill(`تصنيف ${TAG}`);
     await exForm.locator('input[name="paymentReference"]').fill(`INV-${TAG}`);
     await exForm.getByRole("button", { name: "حفظ المصروف" }).click();

@@ -6,6 +6,8 @@ import { planYears } from "@/db/schema";
 import { formatMoney, orDash, orFallback } from "@/lib/format";
 import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
 import { getSchoolFinance } from "@/lib/finance/service";
+import { evidenceForEntity } from "@/lib/evidence";
+import { EvidencePanel } from "@/components/evidence-panel";
 import {
   AddIncomeForm,
   AddExpenseForm,
@@ -58,9 +60,15 @@ function Stat({
   );
 }
 
-export default async function BudgetPage() {
+export default async function BudgetPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | undefined }>;
+}) {
   const user = await requirePermission("budget.read");
   const canWrite = user.permissions.has("budget.write");
+  const canWriteEvidence = user.permissions.has("evidence.write");
+  const sp = await searchParams;
 
   const [activeYear] = await db.select().from(planYears).where(eq(planYears.status, "نشطة")).orderBy(desc(planYears.createdAt)).limit(1);
   if (!activeYear) {
@@ -98,6 +106,25 @@ export default async function BudgetPage() {
   const activeExpenses = expenses.filter((r) => !r.archivedAt);
   const archivedCount = income.length - activeIncome.length + (expenses.length - activeExpenses.length);
 
+  // لوحة الإيصال/الفاتورة للسجل المحدد (D-026) — تتيح إرفاق إيصال بسجل **محفوظ مسبقاً**
+  // أو ربط شاهد قائم بلا رفع مكرر. الرفع عند الإنشاء لا يغني عنها: كثيراً ما تصل الفاتورة
+  // بعد تسجيل العملية.
+  const selIncomeId = sp["إيراد"];
+  const selExpenseId = sp["مصروف"];
+  let receipt:
+    | { entityType: "budget_income" | "budget_expense"; id: string; title: string; items: Awaited<ReturnType<typeof evidenceForEntity>> }
+    | null = null;
+  if (selIncomeId) {
+    const inc = income.find((i) => i.id === selIncomeId);
+    if (inc) receipt = { entityType: "budget_income", id: inc.id, title: `إيراد: ${orFallback(inc.source, "بدون مصدر")}`, items: await evidenceForEntity("budget_income", inc.id) };
+  } else if (selExpenseId) {
+    const exp = expenses.find((e) => e.id === selExpenseId);
+    if (exp) receipt = { entityType: "budget_expense", id: exp.id, title: `مصروف: ${orFallback(exp.category, formatMoney(exp.amount))}`, items: await evidenceForEntity("budget_expense", exp.id) };
+  }
+  // الوسم: «فاتورة» للمصروف و«إيصال» للإيراد (D-026)
+  const isExpenseReceipt = receipt?.entityType === "budget_expense";
+  const receiptWord = isExpenseReceipt ? "الفاتورة" : "الإيصال";
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -110,6 +137,27 @@ export default async function BudgetPage() {
           </div>
         }
       />
+
+      {/* لوحة الإيصال/الفاتورة للسجل المحدد — رفع مباشر أو ربط شاهد قائم */}
+      {receipt && (
+        <div id="receipt" className="scroll-mt-20">
+          <Card>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-bold text-brand-900">{receiptWord}/شاهد — {receipt.title}</h2>
+              <Link href="/budget" className="text-xs text-gray-500 hover:underline">إغلاق</Link>
+            </div>
+            <p className="mb-3 text-xs text-gray-400">
+              {isExpenseReceipt ? "إرفاق الفاتورة اختياري" : "الإيصال اختياري"} ولا يُطلب رفعه مكرراً إن كان الشاهد نفسه موجوداً في السجل الموحّد.
+            </p>
+            <EvidencePanel
+              entityType={receipt.entityType}
+              entityId={receipt.id}
+              items={receipt.items.map((e) => ({ id: e.item.id, title: e.item.title, kind: e.item.kind, role: e.item.role, fileId: e.item.fileId }))}
+              canWrite={canWriteEvidence}
+            />
+          </Card>
+        </div>
+      )}
 
       {/* ── المؤشرات العليا ───────────────────────────────────────────── */}
       <section>
@@ -242,15 +290,15 @@ export default async function BudgetPage() {
         {activeIncome.length === 0 ? (
           <EmptyState title="لا إيرادات مسجّلة" />
         ) : (
-          <Table headers={["المصدر", "المبلغ", "التاريخ", "البند", "الحالة", "فاتورة", ""]}>
+          <Table headers={["المصدر", "المبلغ", "التاريخ", "البند", "الحالة", "الإيصال", ""]}>
             {activeIncome.map((r) => (
-              <tr key={r.id}>
+              <tr key={r.id} className={selIncomeId === r.id ? "bg-brand-50" : undefined}>
                 <td className="px-3 py-2">{orFallback(r.source, "بدون مصدر")}</td>
                 <td className="px-3 py-2 tabular-nums">{formatMoney(r.amount)}</td>
                 <td className="px-3 py-2 text-xs tabular-nums">{orDash(r.incomeDate)}</td>
                 <td className="px-3 py-2 text-xs">{r.itemName ? orFallback(r.itemName, "بند بدون اسم") : "—"}</td>
                 <td className="px-3 py-2"><Badge value={r.status} /></td>
-                <td className="px-3 py-2 text-xs">{r.hasInvoice ? "✓" : "—"}</td>
+                <td className="px-3 py-2 text-xs"><ReceiptCell hasReceipt={r.hasInvoice} href={`/budget?إيراد=${r.id}#receipt`} label="الإيصال" /></td>
                 <td className="px-3 py-2">{canWrite && <RecordRowActions kind="income" id={r.id} archived={false} />}</td>
               </tr>
             ))}
@@ -267,9 +315,9 @@ export default async function BudgetPage() {
         {activeExpenses.length === 0 ? (
           <EmptyState title="لا مصروفات مسجّلة" />
         ) : (
-          <Table headers={["المبلغ", "التاريخ", "البند", "رقم الفاتورة", "المورّد", "فاتورة", ""]}>
+          <Table headers={["المبلغ", "التاريخ", "البند", "رقم الفاتورة", "المورّد", "الفاتورة", ""]}>
             {activeExpenses.map((r) => (
-              <tr key={r.id}>
+              <tr key={r.id} className={selExpenseId === r.id ? "bg-brand-50" : undefined}>
                 <td className="px-3 py-2 tabular-nums">{formatMoney(r.amount)}</td>
                 <td className="px-3 py-2 text-xs tabular-nums">{orDash(r.expenseDate)}</td>
                 <td className="px-3 py-2 text-xs">
@@ -284,7 +332,7 @@ export default async function BudgetPage() {
                 </td>
                 <td className="px-3 py-2 text-xs">{orDash(r.paymentReference)}</td>
                 <td className="px-3 py-2 text-xs">{orDash(r.supplier)}</td>
-                <td className="px-3 py-2 text-xs">{r.hasInvoice ? "✓" : "—"}</td>
+                <td className="px-3 py-2 text-xs"><ReceiptCell hasReceipt={r.hasInvoice} href={`/budget?مصروف=${r.id}#receipt`} label="الفاتورة" /></td>
                 <td className="px-3 py-2">{canWrite && <RecordRowActions kind="expense" id={r.id} archived={false} />}</td>
               </tr>
             ))}
@@ -297,5 +345,18 @@ export default async function BudgetPage() {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * خلية الإيصال/الفاتورة — تعرض حالة الإرفاق وتفتح لوحة الشواهد للسجل نفسه.
+ * وجودها يسمح بإرفاق إيصال بسجل محفوظ مسبقاً، لا عند الإنشاء فقط (D-026).
+ */
+function ReceiptCell({ hasReceipt, href, label }: { hasReceipt: boolean; href: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {hasReceipt ? <Badge value="مرفق" /> : <span className="text-gray-400">—</span>}
+      <Link href={href} className="text-brand-700 hover:underline">{label}</Link>
+    </span>
   );
 }

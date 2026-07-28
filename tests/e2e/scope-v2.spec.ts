@@ -46,22 +46,30 @@ test.describe("نطاق v2 — دخان الواجهة", () => {
     await expect(row.getByText("حُدّثت الحالة")).toBeVisible({ timeout: 15_000 });
   });
 
-  test("صفحة الميزانية تُعرض (ملخص أو حالة فارغة) بلا خطأ", async ({ page }) => {
+  // v2.2 §B: صارت الصفحة «المالية المدرسية» بعد فصل المالية عن البرامج، والملخص يعرض
+  // «إجمالي الإيرادات» لا «إجمالي الإيرادات المستلمة».
+  test("صفحة المالية تُعرض (ملخص أو حالة فارغة) بلا خطأ", async ({ page }) => {
     await login(page);
     await page.goto("/budget");
-    await expect(page.getByRole("heading", { name: "الميزانية والمصروفات" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "المالية المدرسية" })).toBeVisible();
     // إمّا الملخص (عند وجود سنة نشطة) أو الحالة الفارغة الواضحة
-    const hasSummary = await page.getByText("إجمالي الإيرادات المستلمة").isVisible().catch(() => false);
+    const hasSummary = await page.getByText("إجمالي الإيرادات").first().isVisible().catch(() => false);
     const hasEmpty = await page.getByText("لا سنة تخطيطية نشطة").isVisible().catch(() => false);
     expect(hasSummary || hasEmpty).toBe(true);
   });
 
-  test("مركز التقارير بثلاثة مستويات", async ({ page }) => {
+  // v2.2 §D: حلّ مركز التقارير المركزي (فئات + محرّك واحد) محلّ الهيكل الثلاثي القديم.
+  test("مركز التقارير يعرض فئاته ويشغّل تقريراً", async ({ page }) => {
     await login(page);
     await page.goto("/reports");
     await expect(page.getByRole("heading", { name: "مركز التقارير" })).toBeVisible();
-    await expect(page.getByText("أ) تقارير الوحدات الرئيسة")).toBeVisible();
-    await expect(page.getByText("ب) تقرير تفصيلي لكل برنامج")).toBeVisible();
-    await expect(page.getByText("ج) التقرير التنفيذي الشامل")).toBeVisible();
+    // فئات معروفة من السجل المركزي
+    await expect(page.getByRole("link", { name: "الخطة والبرامج" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "المالية والميزانية" })).toBeVisible();
+    // فتح فئة ثم تشغيل تقرير منها
+    await page.goto("/reports?category=plan");
+    await expect(page.getByRole("heading", { name: "البرامج النشطة" })).toBeVisible();
+    await page.goto("/reports?category=plan&report=programs-active");
+    await expect(page.getByRole("heading", { name: "البرامج النشطة", level: 2 })).toBeVisible();
   });
 });

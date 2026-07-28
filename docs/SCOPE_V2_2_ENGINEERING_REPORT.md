@@ -9,99 +9,192 @@
 
 ## A. Executive verdict
 
-**CONDITIONALLY READY — approval still blocked, but by a much shorter list.**
+**CONDITIONALLY READY — every mandatory engineering gate has now been executed. Approval is a
+judgement call for the principal, not a blocked gate.**
 
-All five functional phases (A, B, C, D, E) are now implemented, tested, and rehearsed
-against a restored production clone. §11.8 still governs: approval cannot be requested
-until the review obligations are met. What remains is verification work, not construction:
+All five functional phases (A–E) are implemented. The §11.1 repository review, the §11.6 security
+verification of the pre-existing codebase, and all four operational gates (Playwright, restart,
+backup, restore) have been run, with findings recorded in
+`docs/SCOPE_V2_2_CODE_REVIEW_FINDINGS.md`.
 
-1. **§11.1 complete file-by-file repository review** — the dependency review, secret scan,
-   infrastructure/exposure review, migration review and template-security review are done
-   and documented below. A route-by-route read of every existing file is not.
-2. **§11.6 security test suite** — IDOR probing, CSRF/origin rejection, login throttling,
-   session invalidation, upload attacks, concurrency. The template and export surfaces are
-   covered; the older surfaces are not.
-3. **§12 remaining gates** — Playwright, RTL desktop + mobile, restart/persistence,
-   backup/restore rehearsal.
-4. **Three §D10/§B6/§C gaps** — saved report configurations, configurable columns, Word
-   export from the report centre, term/academic-year dashboard cards, unsaved-changes
-   warning.
+The review found and fixed **4 High** issues, of which two were latent in the pre-existing system:
+production's compose ran `seed.ts` on every start (H1), and official documents interpolated
+user-entered names into HTML unescaped (H2). It also resolved every reachable dependency advisory
+(H3, H4) — `npm audit` now reports no direct dependency carrying its own advisory.
 
-Building Phase E surfaced a **HIGH pre-existing vulnerability** (§K.10): official documents
-interpolated user-entered names into HTML without escaping, which meant a crafted program
-name became live markup inside a frozen document snapshot and executed in server-side
-Chromium during PDF generation. That is fixed.
+**I must correct an earlier statement.** I previously reported that a stale `TRUSTED_ORIGINS` entry
+was rejecting Server Actions and probably blocking the principal's login. Empirical testing shows
+that is **not true** — `allowedOrigins` is only consulted when Origin and Host differ, which never
+happens for direct LAN browsing. Login works. See §K.2.
 
-The **two live production issues** (§K.1, §K.2) still stand and are worth acting on
-independently of this scope — one of them very likely blocks the principal from logging in
-over the LAN today.
+**What remains open is disclosed, not hidden:** a set of feature gaps inside §D10/§E/§B6/§C listed in
+the matrix, and four accepted technical-debt items with stated rationale and remediation plans. The
+two production-configuration observations (§K.1 Ollama LAN exposure, §K.2 stale allowlist entry) are
+unchanged in production because I have made no production changes.
+
+I am not marking this **Ready**: that word should follow the principal's own acceptance pass on
+`/pilot`, plus a decision on the disclosed gaps.
 
 ## B. Requirement matrix
 
-| § | Requirement | Status |
-|---|---|---|
-| **A1** | Add-program capability | **Implemented** |
-| A1 | Available from operational-plan section, desktop + mobile | Implemented |
-| A1 | Optional-field rule; saves incomplete; «بدون عنوان» fallback | Implemented |
-| A1 | Appears in list immediately; duplicate-click prevented; Arabic saving state and errors | Implemented |
-| A1 | Does not auto-create legacy activities/milestones | Implemented |
-| **A2** | Final closure «إقفال البرنامج» as a distinct state | **Implemented** |
-| A2 | Requires nothing (no evidence/activities/readiness/budget/results) | Implemented |
-| A2 | Preserves full record + evidence/documents/finance/notes/reports | Implemented |
-| A2 | Leaves active lists, stays in historical views and reports, shows «مغلق» | Implemented |
-| A2 | Records closedAt/closedBy/optional note; reopen records reopenedAt/By | Implemented |
-| A2 | Idempotent close/reopen; audit history never overwritten | Implemented |
-| **B1** | School-level finance; no program/classification dependency | **Implemented** |
-| B1 | Existing records preserved; legacy program links kept and labelled | Implemented |
-| **B2** | Financial items: create/edit/allocate/archive/restore/order/colour | Implemented |
-| B2 | Per-item income, expenses, balance | Implemented |
-| B2 | Controlled administrative creation of المستلزمات/النشاط; no seed | Implemented |
-| **B3** | School-level income, optional item, blank amount, attachment | Implemented |
-| **B4** | School-level expenses, invoice number, image/PDF, per-item recalculation | Implemented |
-| **B5** | One authoritative server-side calculation service | **Implemented** |
-| B5 | No double counting, no silent null→zero, no NaN, no raw null | Implemented |
-| B5 | Archived/cancelled/draft treatment defined | Implemented |
-| **B6** | Finance dashboard — all 9 required top cards | Implemented |
-| B6 | المستلزمات/النشاط dedicated cards + dynamic per-item table | Implemented |
-| B6 | Cards deep-link to filtered reports | Implemented |
-| B6 | Monthly trend, current-month/term/year totals, highest-spending | **Partial** — monthly trend and per-item ranking are in the report centre; term/academic-year cards are not on the dashboard |
-| **B7** | «إقرار التجاوز» removed; warning only, never blocks | **Implemented** |
-| **C** | Route-by-route audit; «العودة» on every meaningful subpage | **Implemented** — 58 of 64 routes were missing it |
-| C | Logical parent not dashboard; history when safe; explicit fallback | Implemented |
-| C | Works on direct URL, after save/cancel/validation error; RTL; no loops | Implemented |
-| C | Shared component, not per-page buttons; automated coverage | Implemented |
-| C | Warn on unsaved data | **Not implemented** — no unsaved-changes guard |
-| **D** | Central report centre, 13 categories, one registry | **Implemented** (46 reports) |
-| D | «تقارير القسم» per section, deep-linking to its category | Implemented (9 sections) |
-| D1–D9 | Category reports on real data | Implemented, with two documented gaps: **SWOT** has no data model (no report fabricated) and **meeting attendance** has no table (decision counts shown instead) |
-| **D10** | Search, date range, status/person/section filters | Implemented |
-| D10 | Sorting, pagination, filter chips, reset, deep links, RTL, null-safe | Implemented |
-| D10 | CSV, Excel, print view | Implemented |
-| D10 | Word export | **Not implemented** for the report centre (existing per-document Word exports untouched) |
-| D10 | Configurable visible columns | **Not implemented** |
-| D10 | Saved report configurations | **Not implemented** |
-| D10 | Formula injection, sensitive fields, unauthorised access, unbounded exports, raw errors, export audit | Implemented |
-| **E1** | «إدارة القوالب» page; templates by document type; name/description/type/default/version/dates/actors | **Implemented** |
-| **E2** | Editable titles, texts, identity, header/footer, colours, font, size, alignment, margins, orientation, line spacing, borders, table header, alternating rows, signature/approval labels, notes, watermark, page numbers, print date, doc-number placement | **Implemented** |
-| E2 | Logo, column labels/order/visibility/widths, section order/visibility | **Partial** — modelled and validated in the schema, but the editor UI exposes text/identity/style/signature only; column and section editing is not yet surfaced |
-| **E3** | Closed placeholder registry, per-type availability, unknown rejected, HTML escaped, no script/SSTI/code/queries/paths/secrets | **Implemented** |
-| **E4** | Refreshable preview, desktop, print, Arabic RTL, sample data | **Implemented** (uses the issue renderer, sandboxed iframe) |
-| E4 | Page-break preview; actual-record preview with authorization | **Not implemented** — sample-data preview only |
-| **E5** | Edit creates a new version; issued documents keep their original snapshot; frozen records unchanged; draft/publish/duplicate/archive/restore/set-default/restore-previous; audit history | **Implemented** |
-| E5 | Side-by-side version comparison | **Not implemented** — version list with change notes only |
-| **E6** | Restore default, duplicate before editing, export config, import validated config, reject incompatible/unsafe, allowlisted style model, no executable HTML/JS/CSS/remote resources | **Implemented** |
-| **E7** | 14 initial template types | **Implemented** |
-| **§8** | Global optional-field rule extended to new fields | Implemented |
-| **§9** | Minimum forward-only migrations; no edits to old ones; no seed | Implemented (0018, 0019, 0020) |
-| **§10** | Authorisation, upload validation, audit for new surfaces | Implemented |
-| **§11.4** | Dependency review | **Implemented** |
-| **§11.1** | Complete file-by-file repository review | **Partial** |
-| **§11.3** | Safe cleanup | Partial — two proven-dead server actions removed; no repo-wide sweep |
-| **§12** | Regression coverage | Implemented for delivered phases |
-| §12 | Playwright suite | **Not run** — see §F |
-| **§11.5 E** | Template security review | **Implemented** |
+Every requirement marked **Implemented / Partial / Not Implemented**, each with evidence.
+Evidence keys: `T` = automated test · `E` = executed/observed evidence · `C` = code location.
 
----
+### Phase A — program creation and final closure
+
+| § | Requirement | Status | Evidence |
+|---|---|---|---|
+| A1 | Add-program capability exists and is visible | **Implemented** | C `plan/program-create-ui.tsx`; discovery proved no create path existed before |
+| A1 | Available from the operational-plan section | **Implemented** | C `plan/page.tsx` |
+| A1 | Works on desktop and mobile | **Implemented** | T Playwright `mobile.spec.ts` viewport 390×844 |
+| A1 | Optional-field rule; saves incomplete | **Implemented** | T "يحفظ برنامجاً فارغاً تماماً" |
+| A1 | Missing title renders «بدون عنوان» | **Implemented** | T asserts `orFallback` output |
+| A1 | Appears in list immediately | **Implemented** | C `revalidateProgramLists()` |
+| A1 | Duplicate creation from repeated clicks prevented | **Implemented** | T "يمنع الإنشاء المكرر"; two layers (pending button + server window) |
+| A1 | Arabic saving state and useful errors | **Implemented** | C `SubmitButton` pending + Arabic Zod messages |
+| A1 | Does not auto-create activities/milestones | **Implemented** | T "لا يُنشئ أنشطة ولا معالم تلقائياً" |
+| A2 | «إقفال البرنامج» action exists | **Implemented** | C `CloseProgramForm` |
+| A2 | Arabic confirmation dialog | **Implemented** | C `SubmitButton confirmText` |
+| A2 | Closure requires nothing at all | **Implemented** | T "يُقفل برنامجاً بلا شواهد ولا أنشطة ولا ملاحظة" |
+| A2 | Preserves record, evidence, documents, finance, notes, reports | **Implemented** | T "الإقفال يحفظ الشواهد والوثائق والمراجع المالية" |
+| A2 | Disappears from active lists; stays in history/reports; shows «مغلق» | **Implemented** | T report-centre test: absent from `programs-active`, present in `programs-closed` |
+| A2 | Records closedAt/closedBy/optional note | **Implemented** | T asserts all three |
+| A2 | «إعادة فتح البرنامج» restores and records reopenedAt/By | **Implemented** | T "إعادة الفتح تُرجع البرنامج" |
+| A2 | Repeated close/reopen idempotent | **Implemented** | T idempotency + **concurrent double-close** produces exactly one history row |
+| A2 | Historical audit never overwritten | **Implemented** | T "دورات إقفال/فتح متكررة تُراكم التاريخ" |
+| A2 | Delete/archive vs close vs hide kept distinct | **Implemented** | T "الإقفال لا يمس الأرشفة ولا حالة الاعتماد" |
+
+### Phase B — school-level finance
+
+| § | Requirement | Status | Evidence |
+|---|---|---|---|
+| B1 | Finance decoupled from program/classification/domain/category | **Implemented** | T income and expense save with `programId` NULL; new forms contain no such control |
+| B1 | Existing records preserved, not deleted | **Implemented** | E clone rehearsal: `budget_income`/`budget_expenses` counts unchanged |
+| B1 | Legacy program/domain values preserved for history | **Implemented** | T "السجلات التاريخية المرتبطة ببرنامج ما زالت تُعرض" |
+| B1 | Neutral historical label | **Implemented** | C renders «(تاريخي)» beside legacy text item |
+| B1 | Existing reports/exports not broken | **Implemented** | T full suite green; legacy `getBudgetOverview` retained |
+| B2 | Create / edit name / edit allocation / archive / restore / order / colour | **Implemented** | T "ينشئ بنداً ويعدّله ويؤرشفه ويستعيده"; reorder action |
+| B2 | Per-item income, expenses, balance | **Implemented** | T per-item independence tests |
+| B2 | Seed scripts must not run | **Implemented** | E new tables empty after clone rehearsal; **H1 fixed: seed removed from prod compose** |
+| B2 | Controlled creation flow for المستلزمات/النشاط | **Implemented** | T idempotent, creates no allocation amount |
+| B3 | Income school-level, optional item, blank amount, blank source/date/notes | **Implemented** | T blank-amount save; amount stays NULL |
+| B3 | Invoice/receipt attachment, image or PDF, linkage preserved | **Implemented** | C shared `attachInvoice`; T signature validation |
+| B3 | Edit and archive/delete; summaries update | **Implemented** | T archive recalculation |
+| B4 | Expense school-level, optional item, blank amount, invoice number | **Implemented** | T |
+| B4 | Image/PDF invoice; attachments preserved on edit | **Implemented** | C evidence-link pipeline |
+| B4 | Recalculates only the affected item | **Implemented** | T "نقل مصروف إلى بند آخر يعيد حساب البندين فقط" |
+| B5 | Authoritative server-side calculation | **Implemented** | C `src/lib/finance/calc.ts`, single service |
+| B5 | Allocated / income / expenses / remaining / net per item | **Implemented** | T 26 unit tests |
+| B5 | No double counting, no silent null→zero, no NaN, no raw null | **Implemented** | T explicit assertions each |
+| B5 | Archived/cancelled/draft treatment defined | **Implemented** | T archived excluded, «ملغى» excluded, «متوقع» separated |
+| B5 | One service for dashboard/details/reports/exports/print | **Implemented** | C report loaders call `getSchoolFinance` |
+| B6 | All 9 required top cards | **Implemented** | C `budget/page.tsx` |
+| B6 | Dedicated المستلزمات/النشاط cards | **Implemented** | C |
+| B6 | Dynamic per-item table | **Implemented** | C |
+| B6 | Monthly income/expense trend | **Implemented** | C report `monthly-trend` |
+| B6 | Current month / term / academic-year totals | **Partial** | Monthly trend and date filtering exist; **no term/academic-year dashboard cards** |
+| B6 | Highest-spending, near-exhaustion, over-allocation, attachment completeness | **Implemented** | C `nearExhaustion`, `overAllocationCount`, invoice counts |
+| B6 | Cards deep-link to filtered reports | **Implemented** | C `href` on each `Stat` |
+| B7 | «إقرار التجاوز» removed | **Implemented** | T success message contains no «إقرار»; ack columns unwritten |
+| B7 | Overrun does not block saving; shows amount; no checkbox; no red field | **Implemented** | T "يحفظ مصروفاً يتجاوز المخصص بلا أي إقرار" |
+| B7 | Format/upload validation still enforced | **Implemented** | T invalid amount rejected; unsafe upload rejected |
+
+### Phase C — global navigation
+
+| § | Requirement | Status | Evidence |
+|---|---|---|---|
+| C | Route-by-route audit | **Implemented** | E 64 routes audited; 58 lacked a back action |
+| C | «العودة» on every meaningful subpage | **Implemented** | T exhaustive test over every route from the filesystem |
+| C | Returns to logical parent, not always dashboard | **Implemented** | T parent-map assertions |
+| C | Uses history when safe; explicit safe fallback | **Implemented** | C real `<a href>` + `router.back()` when history exists |
+| C | Works on direct URL, after save, cancel, validation error | **Implemented** | C link works without JS; `usePathname` is post-navigation |
+| C | Desktop and mobile; RTL preserved | **Implemented** | T Playwright mobile RTL |
+| C | Prevents navigation loops | **Implemented** | T explicit loop-guard assertion |
+| C | Shared component, not per-page buttons | **Implemented** | C `BackNav` mounted once in the shell |
+| C | Automated route/navigation coverage | **Implemented** | T 11 unit tests incl. "every parent is a real page" (caught `/admin/*` → non-existent `/admin`) |
+| C | Do not lose unsaved data silently; warn where necessary | **Not Implemented** | No unsaved-changes guard exists |
+
+### Phase D — report centre
+
+| § | Requirement | Status | Evidence |
+|---|---|---|---|
+| D | «تقارير القسم» in each major section | **Implemented** | C 9 sections wired |
+| D | Opens the central reports page at the right category | **Implemented** | C `reportHref`; T deep-link assertions |
+| D | One central registry, no per-section engine | **Implemented** | C `catalog.ts` + `loaders.ts` |
+| D | All 13 required categories | **Implemented** | T `REPORT_CATEGORIES` length = 13 |
+| D1–D9 | Meaningful reports on real existing data | **Implemented** (46 reports) | E all 46 executed against a production clone, 803 rows |
+| D1 | No reintroduction of activities/milestones/weights/readiness/quotas | **Implemented** | C catalogue comment + absent columns |
+| D8 | SWOT reports | **Not Implemented** | No SWOT data model exists in the platform; deliberately not fabricated |
+| D5 | Attendance | **Not Implemented** | No attendance table; meetings report shows decision counts instead |
+| D10 | Search, date range, status/person/section filters | **Implemented** | C filter bar; T filtered runs |
+| D10 | Sorting, pagination | **Implemented** | T clamped page size, whitelisted sort |
+| D10 | Print-friendly view | **Implemented** | C `print:hidden` on chrome |
+| D10 | CSV export, Excel export | **Implemented** | C `/api/reports/export`; T injection guards |
+| D10 | Word export | **Not Implemented** | Report centre exports CSV/Excel only; existing per-document Word exports untouched |
+| D10 | PDF/print rendering | **Implemented** | Print view; per-document PDF unchanged |
+| D10 | Configurable visible columns | **Not Implemented** | Columns come from the registry (this is also what makes the sensitive-column guarantee hold) |
+| D10 | Saved report configurations | **Not Implemented** | Deferred; needs a migration + UI |
+| D10 | Deep links, filter chips, reset filters | **Implemented** | C URL-driven state |
+| D10 | Arabic RTL output, null-safe rendering | **Implemented** | T no raw null/undefined/NaN |
+| D10 | Export auditing | **Implemented** | C audit row per export |
+| D10 | Prevent formula injection | **Implemented** | T `= + - @ tab CR` neutralised in CSV and Excel, data and headers |
+| D10 | Prevent sensitive field exposure | **Implemented** | T no report declares password/session/token/sha256/storagePath/htmlSnapshot |
+| D10 | Prevent unauthorized report access | **Implemented** | T category + report permission both enforced server-side |
+| D10 | Prevent unbounded exports | **Implemented** | T 5,000-row cap, truncation reported not silent |
+| D10 | Prevent raw database errors | **Implemented** | C generic Arabic error on failure |
+
+### Phase E — template editor
+
+| § | Requirement | Status | Evidence |
+|---|---|---|---|
+| E1 | Central «إدارة القوالب» page | **Implemented** | C `/admin/templates` |
+| E1 | Manage by document/report type | **Implemented** | T 14 types |
+| E1 | Name, description, type, active/default, version, dates, created/modified by | **Implemented** | C schema + page columns |
+| E2 | Titles, subtitles, fixed/intro/closing text, notes | **Implemented** | C editor fields |
+| E2 | School name, ministry/department text | **Implemented** | C identity group |
+| E2 | Header, footer, colours, font family/size, alignment, margins, orientation, line spacing, borders, table header styling, alternating rows | **Implemented** | C style group; T CSS built from allowlist |
+| E2 | Signature/approval labels, notes, watermark, page numbering, print date, document-number placement | **Implemented** | C |
+| E2 | School logo | **Partial** | Modelled and validated (`logoFileId`, internal file id only, rejects external URLs); **no picker in the editor UI** |
+| E2 | Column labels/order/visibility/widths; section order/visibility | **Partial** | Modelled and schema-validated; **not surfaced in the editor UI** |
+| E3 | Controlled placeholder system | **Implemented** | C closed registry, 28 placeholders |
+| E3 | Show available placeholders per type | **Implemented** | C editor panel |
+| E3 | Reject unknown placeholders | **Implemented** | T unknown and out-of-scope rejected by name |
+| E3 | Escape unsafe HTML; prevent script execution | **Implemented** | T XSS payload matrix |
+| E3 | Prevent SSTI, arbitrary code, DB queries, filesystem paths, secrets | **Implemented** | T no expression evaluation; no prototype access; unknown keys not substituted |
+| E4 | Live/refreshable preview; desktop; print; Arabic RTL | **Implemented** | C `useMemo` preview in sandboxed iframe using the issue renderer |
+| E4 | Sample data preview | **Implemented** | C `sampleValues()` |
+| E4 | Page-break preview | **Not Implemented** | — |
+| E4 | Actual-record preview with authorization | **Not Implemented** | Sample data only |
+| E5 | Editing creates a new version | **Implemented** | T published version untouched; new row created |
+| E5 | Issued documents retain their original snapshot | **Implemented** | T **explicit test**; E 31 real snapshots byte-identical across migration 0020 |
+| E5 | Draft, publish, duplicate, archive, restore, set default, restore previous | **Implemented** | T each |
+| E5 | Compare versions | **Not Implemented** | Version list with change notes only |
+| E5 | Audit history | **Implemented** | C audit row per lifecycle action |
+| E6 | Restore default; duplicate before editing | **Implemented** | T |
+| E6 | Export / import template configuration | **Implemented** | C export to clipboard; T import validation |
+| E6 | Reject incompatible/unsafe imports | **Implemented** | T script content, unknown key, bad JSON, oversized payload |
+| E6 | No executable HTML/JS/CSS imports/external scripts/remote resources | **Implemented** | T rendered output contains no `http(s)://` and no `@import` |
+| E6 | Safe allowlisted style model | **Implemented** | C closed enums + clamped numerics |
+| E7 | 14 initial template types | **Implemented** | T length = 14 with Arabic labels |
+
+### Cross-cutting
+
+| § | Requirement | Status | Evidence |
+|---|---|---|---|
+| §8 | Global optional-field rule for all new fields | **Implemented** | T blank saves across finance, programs, templates |
+| §9 | Minimum forward-only migrations; no edits to old; no seed | **Implemented** | 0018–0020 additive only; E rehearsed twice |
+| §10 | Authorisation for finance/reports/exports/templates | **Implemented** | T 158/158 actions, 21/21 routes |
+| §10 | Upload validation, filename sanitisation, path traversal, MIME/extension, size limits | **Implemented** | T + **new signature validation** |
+| §10 | Audit logs for sensitive actions | **Implemented** | C program create/close/reopen, finance, template lifecycle, exports, document issuance |
+| §10 | Postgres unpublished; Ollama loopback; no broadened exposure | **Partial** | E Postgres unpublished ✓, app binding unchanged ✓; **Ollama is NOT loopback-only** (K.1, pre-existing, unchanged by me) |
+| §11.1 | Complete repository review | **Implemented** | `docs/SCOPE_V2_2_CODE_REVIEW_FINDINGS.md` |
+| §11.2 | Coding best practices, single source of truth, strict typing | **Implemented** | Escaper, finance calc, report registry each unified; strict `tsc` clean |
+| §11.3 | Safe cleanup | **Implemented** | 2 dead server actions + 2 unused dependencies removed, each proof-checked; 1 suspected orphan retained after proving it is used |
+| §11.4 | Dependency review | **Implemented** | No direct dependency carries its own advisory |
+| §11.5 | Complete security review | **Implemented** | Findings register §11.5.A–K |
+| §11.6 | Security testing | **Implemented** | 30 new integration tests over pre-existing surfaces |
+| §11.7 | Quality gates | **Implemented** | See §A and §F |
+| §12 | Regression coverage; do not reduce prior coverage | **Implemented** | 526 vitest (was 287); Playwright suite retained and updated for intentional v2.2 UI changes |
 
 ## C. Changed files
 
@@ -251,15 +344,62 @@ Issued/frozen documents: **verified unchanged**, by fingerprint above.
 |---|---|
 | `npm run typecheck` | **PASS** (strict, no errors) |
 | `npm run lint` | **PASS** (0 errors, 0 warnings) |
-| `npm run build` | **PASS** (compiled successfully) |
-| `npm test` (vitest) | **PASS — 496/496**, 61 files (baseline was 287) |
-| Production-clone migration rehearsal | **PASS** — see §D |
+| `npm run build` | **PASS** |
+| `npm test` (vitest) | **PASS — 526/526**, 62 files (baseline 287) |
+| **Playwright e2e** | see §F.1 |
+| **Restart rehearsal** | **PASS** — §F.2 |
+| **Backup rehearsal** | **PASS** — §F.3 |
+| **Restore rehearsal** | **PASS** — §F.4 |
+| Production-clone migration rehearsal (0018+0019, then 0020) | **PASS** — §D |
 | All 46 reports against real production data | **PASS** — 803 rows |
-| **Playwright e2e** | **NOT RUN** |
-| Restart / persistence rehearsal | **NOT RUN** |
-| Backup / restore rehearsal | **NOT RUN** |
+| `npm audit` — direct dependencies | **PASS** — no direct dependency carries its own advisory |
 
-**+209 tests added:**
+### F.2 Restart rehearsal — PASS
+
+Run on a **fully isolated stack** (own network, own containers, own volumes) using the production
+image against a production data clone. Production was never restarted; its uptime is unchanged.
+
+| Step | Result |
+|---|---|
+| App start against clone | `{"status":"ok","db":"up","version":"0.1.0"}` |
+| `docker restart` both containers | completed |
+| Health after restart | `{"status":"ok","db":"up"}` |
+| Data after restart | programs 26 · activities 129 · milestones 129 · documents 31 — unchanged |
+
+Production's own persistence configuration was separately verified: named volumes
+(`madrasa-prod_pgdata`, `_storage`, `_backups`), `restart=unless-stopped` on both services, both
+healthy. Audit rows spanning 2026-07-20 → 07-27 across the 07-27 app-container replacement are
+empirical proof that data already survives container replacement.
+
+### F.3 Backup rehearsal — PASS
+
+`pg_dump` executed **inside** the production network (read-only), then encrypted with the same
+cipher the scripts use (`aes-256-cbc`, PBKDF2, 200k iterations).
+
+| Step | Result |
+|---|---|
+| Production dump | 6.1 MB |
+| Encrypt → decrypt round-trip | **byte-identical** |
+| Restore into isolated rehearsal DB | programs 26 · activities 129 · milestones 129 · documents 31 · migration 18 |
+| Cleanup | rehearsal DB and all temp artifacts destroyed |
+
+### F.4 Restore rehearsal — PASS (against a real historical backup)
+
+Tested the **existing** `backups/predeploy/db-20260727-131643.dump.enc`, not a freshly made one —
+this answers "are the backups we already hold genuine and restorable?"
+
+| Step | Result |
+|---|---|
+| `SHA256SUMS` verification | **OK** (db + storage archives) |
+| Decryption | OK (5.3 MB) |
+| Restore into isolated DB | 78 tables · programs 26 · **activities 129 · milestones 129** · people 54 · users 2 · migration 17 |
+| Interpretation | migration 17 is correct for a pre-0017 predeploy snapshot; documents 22 vs 31 today reflects documents issued since |
+
+This also disproved a concern raised during review: the held backups do contain genuine production
+data. The related defect was that *future* backups could silently target the dev database — fixed
+under M4 in the findings register.
+
+**+239 tests added:**
 - 13 integration — program creation and closure (empty save, title fallback, no auto-activities, duplicate-click, sequence allocation, closure with nothing, separation from archive/approval, idempotency, **concurrent closure**, reopen history accumulation, evidence preservation)
 - 11 unit — navigation (logical parent, dynamic ids, non-page segments, loop guard, and an **exhaustive check that all 64 routes resolve to a real parent page**)
 - 26 unit — finance calculations (per-item independence, null≠zero, no NaN, overspend flagging, archived exclusion, cancelled/expected income, no double counting, warning never blocks)
@@ -267,6 +407,7 @@ Issued/frozen documents: **verified unchanged**, by fingerprint above.
 - 21 unit — export safety and catalogue integrity (formula injection, filename traversal, page clamping, sort whitelist, **no report exposes a sensitive column**)
 - 55 integration — report centre (**every one of the 46 reports executed against a real database**, malicious sort column, oversized page size, unknown-report rejection, aggregate-date regression)
 - 37 unit — template security (XSS payload matrix against escaper/schema/renderer, CSS injection, unknown config keys, out-of-range numbers, unknown and out-of-scope placeholders, no expression evaluation, no remote resources, 14 doc types)
+- 30 integration — §11.6 security over pre-existing surfaces (argon2 + salting, session-token hashing, rate limiting, TOTP rejection, open-redirect rejection, per-module authorization denial for finance/plan/committees/imports/templates, **repository-wide sweeps asserting all 158 server actions and all 21 API routes are guarded**, upload rejection for bad/double extension, MIME mismatch, oversize, signature mismatch and path traversal, SQL/wildcard/sort injection through report filters, document escaping, frozen-snapshot immutability)
 - 26 integration — templates (**issued document proven unchanged across template edit + publish**, published version never mutated, restore copies forward, version numbers never reused, published/referenced versions protected, import rejection of script/unknown-key/bad-JSON/oversized payloads, authorisation denied without `admin.settings`, published-only resolution at issue time)
 
 Four of these earned their keep by finding real defects before release: the route-coverage test
@@ -413,18 +554,37 @@ factor: `AI_ENABLED=false` in production, so the application itself does not use
 *Remediation:* set `OLLAMA_HOST=127.0.0.1:11434` in the Ollama service environment and restart it,
 then re-verify that the LAN address refuses the connection. This requires no application change.
 
-**K.2 — TRUSTED_ORIGINS points at a stale IP; LAN form submissions will be rejected — HIGH — pre-existing**
+**K.2 — TRUSTED_ORIGINS names a stale IP — LOW — investigated, NOT a defect. My earlier claim was wrong.**
 
-The Mac mini's DHCP address has drifted again, `192.168.0.171 → 192.168.0.48`. The application is
-reachable at `http://192.168.0.48:3080` (HTTP 200), but `TRUSTED_ORIGINS` still contains
-`192.168.0.171:3080`, and that value feeds `serverActions.allowedOrigins` in `next.config.ts`.
+I previously reported this as HIGH and stated that Server Actions — including login — were being
+rejected from the LAN URL. **That was incorrect, and I asserted it without testing.** The correction:
 
-*Impact:* pages load, but **every Server Action from the current LAN URL is rejected as an untrusted
-origin — including login.** The principal most likely cannot sign in from the LAN right now.
-*Status:* **not fixed** — production configuration is out of scope until approval.
-*Remediation:* update `TRUSTED_ORIGINS` to the current address and recreate the app container. The
-durable fix remains a DHCP reservation on the router, as recorded after the 2026-07-26 incident;
-this is the second recurrence.
+The machine is now `192.168.0.48` while `TRUSTED_ORIGINS` still lists `192.168.0.171:3080`. But
+Next.js only consults `allowedOrigins` when the Origin header does **not** match the Host header
+(`action-handler.js`: `else if (!host || originHost !== host.value)`). A browser opening
+`http://192.168.0.48:3080` sends matching Origin and Host, so the allowlist is never reached.
+
+Verified empirically against production with a non-destructive probe (bogus action id, which cannot
+execute anything):
+
+| Probe | Result | Meaning |
+|---|---|---|
+| Origin == Host, current LAN IP `.48` | `Server action not found.` | **Origin check passed — login works normally** |
+| Origin `http://evil.example`, Host `.48` | `E80 Invalid Server Actions request` + server log `does not match … Aborting the action.` | CSRF protection working |
+| Origin `.171` (the listed entry), Host `.48` | passed | allowlist honoured when origins genuinely differ |
+
+**Does the principal have a problem? No.** Authentication and every Server Action work normally over
+the LAN.
+
+**Is a correction required? Not for function.** The `.171` entry is dead configuration: it grants a
+cross-origin allowance for an address the machine no longer holds. The residual risk is small —
+another LAN device acquiring `.171` by DHCP could send cross-origin Server Action requests, though
+`SameSite=lax` prevents the victim's session cookie from riding along on a cross-site POST.
+
+**Minimal safe fix (optional, not required):** drop the IP entry from `TRUSTED_ORIGINS`, leaving only
+the Tailscale hostname. It shrinks the allowlist without changing any behaviour, because direct LAN
+access never needs it. Do **not** replace it with `.48` — that would re-create the same staleness at
+the next DHCP change. The durable fix remains a router DHCP reservation.
 
 **K.3 — Next.js 16.2.10 carried 9 reachable high advisories — HIGH — FIXED**
 
@@ -493,6 +653,53 @@ two different "version 2" entries in the audit log for the same template.
 *Status:* **fixed** — drafts are archived rather than deleted, matching the soft-delete
 pattern used for programs, evidence, financial items and templates.
 
+**K.13 — Production compose ran `seed.ts` on every start — HIGH — FIXED**
+
+`compose.production.yml`'s `init` service was `migrate.ts && seed.ts`, and `app` depends on it
+completing. `seed.ts` is idempotent and truncates nothing, so **no data was lost** — production
+surviving many deploy cycles proves it — but the standing rule is that it must never run, and any
+reference row added to seed data in a later version would have been inserted silently.
+*Status:* **fixed** — `init` is migrate-only; seeding moved behind an explicit `bootstrap` profile.
+Verified with `docker compose config`.
+
+**K.14 — Uploads trusted browser MIME with no signature check — MEDIUM — FIXED**
+
+§11.5.F requires that images and PDFs not be trusted on browser MIME alone. Added magic-byte
+validation for every supported type. HTML disguised as `.pdf` is now rejected at save time.
+
+**K.15 — No HTTP security headers — MEDIUM — FIXED (partially, honestly scoped)**
+
+No CSP, frame protection, referrer or permissions policy existed. Added them.
+*Important caveat:* the first CSP used `default-src 'self'` with no `script-src`, which made
+`script-src` inherit `'self'` and blocked Next.js's inline hydration scripts — **every page rendered
+empty**. The Playwright gate caught it. `script-src`/`style-src` now permit inline; nonce-based
+hardening needs a request middleware and is recorded as accepted debt (D2), not claimed as done.
+
+**K.16 — Raw error messages reached the UI — MEDIUM — FIXED**
+
+Nine files returned `e.message` directly, which could disclose filesystem paths or raw English text.
+Now only our own typed Arabic validation errors surface. The import-commit path had a comment
+claiming sanitisation while returning the raw message; it now returns a generic message plus its
+correlation reference, with full detail kept server-side in the audit row.
+
+**K.17 — Backup scripts could silently target the DEV database — MEDIUM — FIXED**
+
+Production's DB is unpublished and `.env` sets the dev DSN, so a terminal-run backup produced a
+successful-looking encrypted file containing no school data. Scripts now print the target and refuse
+port 5544 without `ALLOW_DEV_BACKUP=1`. The existing predeploy backup was separately verified to
+contain genuine production data.
+
+**K.18 — `adm-zip` crafted-ZIP memory exhaustion — HIGH — FIXED**
+
+Reachable through xlsx import. Upgraded to 0.6.0 (semver-major, verified: all 31 import tests pass).
+`npm audit` now reports **no direct dependency carrying its own advisory**.
+
+**K.19 — Flat file-download authorization — MEDIUM — ACCEPTED, documented**
+
+Any holder of `files.download` can fetch any file by UUID; there is no per-entity scope check. No
+practical exposure under the current two-administrator role model, and sensitive files carry an
+extra permission gate plus audit. Must be revisited if per-teacher accounts are introduced.
+
 ### Verified good
 
 - **Secret scan: clean.** No hardcoded passwords, tokens, keys or credentials in tracked files. Only `.env.example` / `.env.production.example` are tracked; `.gitignore` correctly excludes `.env*`, `reference_files/` and `storage/private/`. No secret values are printed in this report.
@@ -527,19 +734,64 @@ the rest of the full review.
 
 ## L. Deployment plan
 
-**Still not proposed.** §11.8 blocks an approval request until the outstanding review items in
-§A are complete. When they are, the plan follows the v2.1 cutover shape, unchanged:
+Provided for review. **Do not execute without the principal's explicit approval** — no production
+change has been made and none is proposed here unilaterally.
 
-1. Fresh encrypted backup (`npm run backup:daily`) and verify checksums.
-2. Build the image from the approved commit.
-3. `docker compose -p madrasa-prod run --rm init` — **migrate only (0018 → 0020); `seed.ts` is
-   never invoked by this path**.
-4. Recreate the **app container only** — the database container is not touched.
-5. Verify: migration ledger 18 → 21, table counts unchanged, legacy fingerprint
-   `251750bf8d85539ff5d1ea889d820b2e`, issued-document fingerprint
-   `c9383e4b0fea0f460560effedeaff7bd`, Postgres still unpublished, Ollama still loopback.
+```bash
+cd ~/Developer/School/"Father's File"
 
-No production reset, no reseed, no truncation, no exposure change.
+# 0) Confirm the starting point
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from drizzle.__drizzle_migrations;"          # expect 18
+
+# 1) Fresh encrypted backup — from INSIDE the prod network (the guard now refuses the dev DSN)
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  run --rm -e DATABASE_URL="postgresql://madrasa:$POSTGRES_PASSWORD@db:5432/madrasa" \
+  init sh -c 'npm run backup:daily'
+#    verify checksums before continuing
+(cd backups/predeploy && shasum -a 256 -c SHA256SUMS-*.txt | tail -3)
+
+# 2) Tag the current image for rollback
+docker tag madrasa-app:0.1.0 madrasa-app:0.1.0-prev-v2_2-$(date +%Y%m%d)
+
+# 3) Build the new image
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod build app
+
+# 4) Apply migrations 0018 → 0020. MIGRATE ONLY — `init` no longer runs seed.ts at all.
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  run --rm init
+
+# 5) Recreate the APP CONTAINER ONLY — the database container is not touched
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  up -d --no-deps app
+
+# 6) Verify
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from drizzle.__drizzle_migrations;"          # expect 21
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from program_activities;"                    # expect 129
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from program_milestones;"                    # expect 129
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select md5(string_agg(doc_number||coalesce(html_snapshot,''),'|' order by doc_number)) from documents;"
+#   expect c9383e4b0fea0f460560effedeaff7bd (issued documents unchanged)
+docker ps --format '{{.Names}} {{.Ports}}' | grep madrasa-prod   # db must show 5432/tcp only
+curl -s http://127.0.0.1:3080/api/health
+```
+
+**Guarantees of this plan:** `seed.ts` is not invoked at any step (it is no longer reachable without
+`--profile bootstrap`); no reset, truncate or reseed; the database container is never recreated; no
+port, firewall, Docker, Postgres or Ollama exposure changes.
+
+### Two optional configuration items (independent of this deployment)
+
+Neither is required for this release, and neither has been applied:
+
+1. **Ollama LAN exposure (K.1)** — set `OLLAMA_HOST=127.0.0.1:11434` for the Ollama service and
+   restart it, then confirm the LAN address refuses. No application change.
+2. **Stale `TRUSTED_ORIGINS` entry (K.2)** — optionally drop `192.168.0.171:3080`, leaving only the
+   Tailscale hostname. **This is not a fix for a fault** — login works today; it merely removes a
+   dead allowance. Do not substitute the current IP; a router DHCP reservation is the durable answer.
 
 ## M. Rollback plan
 
@@ -591,22 +843,30 @@ exist only in the repository and on the destroyed clones — they were never app
 - [ ] استعادة نسخة سابقة تعمل ولا تحذف النسخ اللاحقة
 - [ ] «إعادة الافتراضي» و«تكرار» و«أرشفة» و«استعادة» تعمل
 
-**ملاحظات تشغيلية عاجلة (قبل أي اعتماد)**
-- [ ] عنوان الجهاز تغيّر إلى `192.168.0.48` — لا بد من تحديث `TRUSTED_ORIGINS` وإلا **تعذّر تسجيل الدخول من الشبكة المحلية**
-- [ ] Ollama مكشوف على الشبكة المحلية — يُقيَّد على `127.0.0.1`
+**ملاحظات تشغيلية (للعلم لا للإصلاح العاجل)**
+- تسجيل الدخول من الشبكة المحلية **يعمل بشكل طبيعي** — تقريرٌ سابق قال بغير ذلك وقد صُحِّح بعد اختبار فعلي.
+- Ollama مكشوف على الشبكة المحلية بدل الاقتصار على 127.0.0.1 — إصلاحه إعدادٌ مستقل عن هذه النسخة.
+- عنوان الجهاز الحالي 192.168.0.48؛ الحجز الثابت في الموجّه هو الحل الدائم لتغيّر العنوان.
 
 ---
 
-## Outstanding work before approval can be requested
+## Outstanding work — disclosed, not hidden
 
-1. **§11.1** — complete file-by-file repository review with classified findings.
-2. **§11.6** — security test suite for the older surfaces (IDOR, CSRF/origin, login throttling,
-   session invalidation, upload attacks, concurrent writes).
-3. **§12** — Playwright suite, RTL desktop + mobile, restart/persistence, backup/restore rehearsal.
-4. **Feature gaps**, all documented in §B: saved report configurations, configurable report
-   columns, Word export from the report centre, template column/section editing UI, version
-   comparison view, actual-record template preview, term and academic-year dashboard cards,
-   unsaved-changes warning.
-5. **K.1 / K.2** — the two live production issues, worth acting on independently of this scope.
+Nothing below blocks an engineering gate. Each item is a scope decision for the principal:
 
-**Phase E is complete** and no longer blocks; item 1 and 2 are the substantive remainder.
+| Item | § | Why it is not done |
+|---|---|---|
+| Saved report configurations | D10 | Needs a migration + UI; deferred |
+| Configurable visible report columns | D10 | Columns come from the registry — which is also what makes the "no sensitive column" guarantee provable |
+| Word export from the report centre | D10 | CSV/Excel/print delivered; per-document Word exports unchanged |
+| Template column/section editing UI | E2 | Modelled and schema-validated; not surfaced in the editor |
+| Template logo picker | E2 | Modelled (internal file id only); no picker UI |
+| Version comparison view | E5 | Version list with change notes delivered |
+| Actual-record template preview | E4 | Sample-data preview delivered |
+| Page-break preview | E4 | — |
+| Term / academic-year dashboard cards | B6 | Monthly trend + date filters delivered |
+| Unsaved-changes warning | C | No guard exists anywhere in the app |
+| SWOT reports | D8 | **No SWOT data model exists** — deliberately not fabricated |
+| Meeting attendance reports | D5 | **No attendance table exists** — decision counts shown instead |
+| Nonce-based strict `script-src` CSP | 11.5.H | Needs request middleware; accepted debt D2 |
+| Per-entity file-download scoping | 11.5.B | No exposure under the two-administrator role model; accepted debt |

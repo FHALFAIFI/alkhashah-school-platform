@@ -168,7 +168,9 @@ export default async function ReportsPage({
         subtitle="محرّك تقارير واحد لكل الأقسام — كل رقم يعود إلى سجله المصدري"
         actions={
           user.permissions.has("reports.executive") ? (
-            <LinkButton href="/reports/executive" variant="secondary">التقرير التنفيذي</LinkButton>
+            // التسمية كما اعتادها المدير في النسخة السابقة — إعادة تصميم مركز التقارير
+            // لا تستلزم تغيير اسم إجراء قائم يعرفه المستخدم.
+            <LinkButton href="/reports/executive" variant="secondary">إصدار التقرير التنفيذي</LinkButton>
           ) : undefined
         }
       />
