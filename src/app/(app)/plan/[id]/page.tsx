@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import {
   programs, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups,
+  programClosureHistory,
 } from "@/db/schema";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { evidenceForEntity } from "@/lib/evidence";
@@ -13,13 +14,13 @@ import { isFollowupDue, FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 import { programStatusLabel } from "@/lib/plan/status-labels";
 import { getVersions } from "@/lib/versioning";
 import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps } from "@/components/ui";
-import { BackButton } from "@/components/back-button";
 import { orFallback, formatMoney, numOrNull } from "@/lib/format";
 import { FollowupDueBadge } from "../followup-badge";
 import {
   ApproveProgramButton, ReopenForm, ChangeRequestForm,
   ChangeRequestDecision, ProgramExecutionForm,
   ArchiveProgramForm, UnarchiveProgramButton,
+  CloseProgramForm, ReopenClosedProgramForm,
 } from "./program-ui";
 import { EvidencePanel } from "@/components/evidence-panel";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
@@ -36,7 +37,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
     .where(and(eq(programs.id, id), notSynthetic(programs.id, excluded.programs)));
   if (!program) notFound();
 
-  const [deliverables, changeRequests, roadmap, evidence, evidenceSummary, versions, followups] = await Promise.all([
+  const [deliverables, changeRequests, roadmap, evidence, evidenceSummary, versions, followups, closureHistory] = await Promise.all([
     db.select().from(programDeliverables).where(eq(programDeliverables.programId, id)),
     db.select().from(programChangeRequests).where(eq(programChangeRequests.programId, id)),
     db.select().from(programRoadmapCells).where(eq(programRoadmapCells.programId, id)).orderBy(asc(programRoadmapCells.sortOrder)),
@@ -44,13 +45,16 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
     programEvidenceSummary(id),
     getVersions("program", id),
     db.select().from(programFollowups).where(eq(programFollowups.programId, id)).orderBy(desc(programFollowups.createdAt)).limit(8),
+    db.select().from(programClosureHistory).where(eq(programClosureHistory.programId, id)).orderBy(desc(programClosureHistory.at)),
   ]);
 
   // البرنامج نفسه وحدة التنفيذ (D-024): التقدم والحالة مقروءان مباشرةً من سجل البرنامج،
   // لا من أنشطة موزونة. الشواهد معلوماتية فقط بلا هدف أو نسبة جاهزية (D-025).
   // البرنامج المؤرشف (v2.1 §A1) للقراءة فقط — لا تحديث تنفيذ حتى يُسترجع.
   const isArchived = Boolean(program.archivedAt);
-  const canWrite = user.permissions.has("plan.write") && program.status !== "مقفل" && !isArchived;
+  // البرنامج المغلق نهائياً (v2.2 §A2) للقراءة فقط أيضاً — لا تحديث تنفيذ حتى يُعاد فتحه.
+  const isClosed = Boolean(program.closedAt);
+  const canWrite = user.permissions.has("plan.write") && program.status !== "مقفل" && !isArchived && !isClosed;
   const canApprove = user.permissions.has("plan.approve");
   // سجلات مرتبطة تحدد صياغة تأكيد الأرشفة (إخفاء مع الاحتفاظ بالسجلات التاريخية)
   const hasLinkedData =
@@ -91,8 +95,8 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         subtitle={orFallback(program.domain, "بدون تصنيف")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <BackButton fallbackHref="/plan" />
             {isArchived && <Badge value="مؤرشف" />}
+            {isClosed && <Badge value="مغلق" />}
             <Badge value={programStatusLabel(program.status)} />
             {user.permissions.has("ai.use") && <AskAssistant type="program" id={id} label={`برنامج: ${orFallback(program.name)}`} />}
             <LinkButton href={`/plan/${id}/report`} variant="secondary">تقرير البرنامج</LinkButton>
@@ -111,6 +115,19 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
               </p>
             </div>
             {canApprove && <UnarchiveProgramButton programId={id} />}
+          </div>
+        </Card>
+      )}
+
+      {isClosed && (
+        <Card className="border-gray-300 bg-gray-50">
+          <div className="min-w-0">
+            <p className="font-medium text-gray-800">هذا البرنامج مغلق — مرفوع من القوائم التشغيلية</p>
+            <p className="mt-1 text-xs text-gray-600">
+              السجل كامل ومحفوظ: الشواهد والوثائق والمراجع المالية والملاحظات والتقارير كما هي،
+              ويظهر البرنامج في التقارير والعروض التاريخية.
+              {program.closureNote ? ` ملاحظة الإقفال: ${program.closureNote}` : ""}
+            </p>
           </div>
         </Card>
       )}
@@ -359,6 +376,34 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
               </div>
             ))}
           </div>
+        </Card>
+      )}
+
+      {/* الإقفال النهائي وإعادة الفتح (v2.2 §A2) — حالة عمل منفصلة عن الأرشفة (الحذف الناعم) */}
+      {canApprove && !isArchived && (
+        <Card>
+          <h2 className="mb-2 font-bold text-brand-900">{isClosed ? "إعادة فتح البرنامج" : "إقفال البرنامج"}</h2>
+          {isClosed ? (
+            <ReopenClosedProgramForm programId={id} programName={orFallback(program.name)} />
+          ) : (
+            <CloseProgramForm programId={id} programName={orFallback(program.name)} />
+          )}
+          {closureHistory.length > 0 && (
+            <div className="mt-4 border-t border-sand-100 pt-3">
+              <h3 className="mb-2 text-xs font-bold text-gray-600">سجل الإقفال وإعادة الفتح</h3>
+              <ul className="space-y-1 text-xs text-gray-600">
+                {closureHistory.map((h) => (
+                  <li key={h.id} className="flex flex-wrap items-center gap-2">
+                    <Badge value={h.action} />
+                    <span className="tabular-nums text-gray-400">
+                      {h.at.toLocaleDateString("ar-SA-u-nu-latn")}
+                    </span>
+                    {h.note && <span className="text-gray-500">— {h.note}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
       )}
 

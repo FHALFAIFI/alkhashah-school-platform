@@ -26,8 +26,14 @@ export default async function FollowupPage() {
     ? (await db
         .select()
         .from(programs)
-        // البرامج المؤرشفة (v2.1 §A1) مستبعدة من المتابعة الأسبوعية
-        .where(and(eq(programs.planYearId, activeYear.id), notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)))
+        // البرامج المؤرشفة (v2.1 §A1) والمغلقة نهائياً (v2.2 §A2) مستبعدة من المتابعة الأسبوعية —
+        // البرنامج المنتهي لا يُطالَب بمتابعة، ويبقى كاملاً في التقارير التاريخية.
+        .where(and(
+          eq(programs.planYearId, activeYear.id),
+          notSynthetic(programs.id, excluded.programs),
+          isNull(programs.archivedAt),
+          isNull(programs.closedAt),
+        ))
         .orderBy(asc(programs.seq)))
         .filter((p) => p.status === "معتمد")
     : [];

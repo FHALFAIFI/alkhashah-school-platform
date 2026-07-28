@@ -1,14 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
   programs, programChangeRequests, programDeliverables, planYears, programFollowups,
+  programClosureHistory,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { orFallback } from "@/lib/format";
 import { snapshotRecord } from "@/lib/versioning";
 import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
 import { notifyAll, notifyUser } from "@/lib/notify";
@@ -156,6 +158,209 @@ export async function unarchiveProgramAction(programId: string): Promise<ActionS
   revalidatePath("/plan/classifications");
   revalidatePath("/plan/followup");
   return { success: "استُرجع البرنامج" };
+}
+
+/* ────────────────────────── إنشاء البرنامج وإقفاله النهائي (v2.2 §A) ────────────────────────── */
+
+/** المسارات التي تعرض قوائم البرامج — تُحدَّث بعد كل إنشاء/إقفال/إعادة فتح */
+function revalidateProgramLists(programId?: string) {
+  revalidatePath("/plan");
+  revalidatePath("/plan/classifications");
+  revalidatePath("/plan/followup");
+  revalidatePath("/dashboard");
+  if (programId) revalidatePath(`/plan/${programId}`);
+}
+
+/**
+ * إضافة برنامج جديد للخطة التشغيلية (v2.2 §A1).
+ *
+ * كل الحقول التي يُدخلها المستخدم اختيارية: يجوز حفظ برنامج بمعلومات ناقصة تماماً، ويُعرض
+ * العنوان الفارغ لاحقاً بالبديل «بدون عنوان» عبر `orFallback` (لا تُخترع بيانات ولا تُملأ
+ * قيم افتراضية وهمية). لا تُنشأ أنشطة ولا معالم تلقائياً (D-024).
+ *
+ * الحقول الداخلية فقط إلزامية ويولّدها النظام: المعرّف، السنة التخطيطية، الرقم التسلسلي،
+ * الحالة الابتدائية، وبيانات التدقيق.
+ */
+const createProgramSchema = z.object({
+  name: z.string().max(300, "اسم البرنامج طويل جداً").optional(),
+  domain: z.string().max(200, "المجال طويل جداً").optional(),
+  generalGoal: z.string().max(1000).optional(),
+  specificGoal: z.string().max(1000).optional(),
+  ownerPosition: z.string().max(200).optional(),
+  periodText: z.string().max(200).optional(),
+  principalNotes: z.string().max(2000).optional(),
+});
+
+/** نافذة منع الإنشاء المكرر من نقر متكرر على الزر نفسه (ثوانٍ) */
+const DUPLICATE_WINDOW_MS = 20_000;
+
+export async function createProgramAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.write");
+  const parsed = createProgramSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+  const name = (parsed.data.name ?? "").trim();
+  const domain = (parsed.data.domain ?? "").trim();
+
+  const years = await db.select().from(planYears).orderBy(asc(planYears.key));
+  const activeYear = years.find((y) => y.status === "نشطة") ?? years[0];
+  if (!activeYear) return { error: "لا توجد سنة تخطيطية — استورد الخطة التشغيلية أولاً" };
+  if (activeYear.status === "مقفلة") return { error: "السنة التخطيطية مقفلة — لا يمكن إضافة برنامج" };
+
+  // حارس الإرسال المزدوج على الخادم: نقرتان متتاليتان على «إضافة برنامج» تنتجان طلبين
+  // متطابقين؛ نعيد نتيجة الأول بدل إنشاء سجل ثانٍ. (زر الإرسال يعطّل نفسه على العميل أيضاً،
+  // لكن العميل وحده ليس ضماناً.)
+  const recent = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.planYearId, activeYear.id), eq(programs.createdBy, user.id)))
+    .orderBy(desc(programs.createdAt))
+    .limit(1);
+  const last = recent[0];
+  if (
+    last &&
+    (last.name ?? "").trim() === name &&
+    Date.now() - new Date(last.createdAt).getTime() < DUPLICATE_WINDOW_MS
+  ) {
+    return { success: "أُضيف البرنامج" };
+  }
+
+  // الرقم التسلسلي فريد داخل السنة (`programs_year_seq_unique`). نحسبه ونُدرج داخل معاملة
+  // واحدة، ونعيد المحاولة عند تسابق إدراجين متزامنين بدل إظهار خطأ قاعدة بيانات خام.
+  let createdId: string | null = null;
+  for (let attempt = 0; attempt < 5 && !createdId; attempt++) {
+    try {
+      createdId = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .select({ maxSeq: sql<number | null>`max(${programs.seq})` })
+          .from(programs)
+          .where(eq(programs.planYearId, activeYear.id));
+        const nextSeq = (row?.maxSeq ?? 0) + 1;
+        const [created] = await tx
+          .insert(programs)
+          .values({
+            planYearId: activeYear.id,
+            seq: nextSeq,
+            // الأعمدة NOT NULL تاريخياً: يُخزَّن نص فارغ بدل قيمة مُختلقة، والعرض يتكفّل
+            // بالبديل العربي «بدون عنوان» / «بدون تصنيف».
+            name,
+            domain,
+            generalGoal: parsed.data.generalGoal?.trim() || null,
+            specificGoal: parsed.data.specificGoal?.trim() || null,
+            ownerPosition: parsed.data.ownerPosition?.trim() || null,
+            periodText: parsed.data.periodText?.trim() || null,
+            principalNotes: parsed.data.principalNotes?.trim() || null,
+            status: "مسودة",
+            createdBy: user.id,
+          })
+          .returning({ id: programs.id });
+        return created.id;
+      });
+    } catch (err) {
+      // 23505 = انتهاك قيد الفريد على (plan_year_id, seq) — سباق إدراج، نعيد المحاولة
+      const code = (err as { code?: string })?.code;
+      if (code !== "23505" || attempt === 4) throw err;
+    }
+  }
+  if (!createdId) return { error: "تعذّر إنشاء البرنامج — حاول مرة أخرى" };
+
+  await audit({
+    actorId: user.id,
+    action: "program.created",
+    entityType: "program",
+    entityId: createdId,
+    summary: `إضافة برنامج «${name || "بدون عنوان"}» إلى ${activeYear.nameAr}`,
+  });
+  revalidateProgramLists(createdId);
+  return { success: "أُضيف البرنامج" };
+}
+
+/**
+ * الإقفال النهائي للبرنامج (v2.2 §A2).
+ *
+ * لا يشترط شاهداً ولا نشاطاً ولا معلماً ولا نسبة جاهزية ولا اكتمال ميزانية ولا نتائج ولا أثراً
+ * ولا أي حقل من إدخال المستخدم — ملاحظة الإقفال اختيارية. السجل كامل وتاريخه يبقيان سليمين:
+ * لا يُحذف شيء ولا تُعدَّل شواهد أو وثائق أو مراجع مالية، ويبقى البرنامج في التقارير التاريخية.
+ *
+ * فعل idempotent: إقفال برنامج مقفل مسبقاً لا يضيف صفاً جديداً للتاريخ ولا يكتب فوق `closedAt`
+ * الأصلي — فالنقر المتكرر (أو طلبان متزامنان) لا ينتج إقفالاً مزدوجاً.
+ */
+export async function closeProgramAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.approve");
+  const note = String(formData.get("note") ?? "").trim();
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (program.closedAt) return { success: "البرنامج مغلق مسبقاً" };
+
+  // شرط `isNull(closedAt)` داخل التحديث نفسه يجعل الإقفال ذرّياً: طلبان متزامنان ينجح
+  // أحدهما فقط في تغيير الصف، فلا يُسجَّل إقفالان في التاريخ.
+  const closed = await db
+    .update(programs)
+    .set({ closedAt: new Date(), closedBy: user.id, closureNote: note || null, updatedAt: new Date() })
+    .where(and(eq(programs.id, programId), isNull(programs.closedAt)))
+    .returning({ id: programs.id });
+  if (closed.length === 0) return { success: "البرنامج مغلق مسبقاً" };
+
+  await db.insert(programClosureHistory).values({
+    programId,
+    action: "إقفال",
+    note: note || null,
+    actorId: user.id,
+  });
+  await audit({
+    actorId: user.id,
+    action: "program.closed",
+    entityType: "program",
+    entityId: programId,
+    summary: `إقفال برنامج «${orFallback(program.name)}»${note ? ` — ${note}` : ""}`,
+  });
+  revalidateProgramLists(programId);
+  return { success: "أُقفل البرنامج — يبقى في التقارير والعروض التاريخية" };
+}
+
+/**
+ * إعادة فتح برنامج مغلق (v2.2 §A2) — يعود إلى القوائم التشغيلية النشطة.
+ *
+ * التاريخ السابق لا يُمسح: صفوف `program_closure_history` تبقى كما هي ويُضاف صف «إعادة فتح»،
+ * فتُقرأ دورات الإقفال والفتح كاملة. idempotent كذلك: إعادة فتح برنامج مفتوح لا تفعل شيئاً.
+ */
+export async function reopenClosedProgramAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.approve");
+  const note = String(formData.get("note") ?? "").trim();
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (!program.closedAt) return { success: "البرنامج مفتوح أصلاً" };
+
+  const reopened = await db
+    .update(programs)
+    .set({
+      closedAt: null,
+      closedBy: null,
+      // ملاحظة الإقفال الأخيرة تبقى محفوظة في سجل التاريخ، وتُمسح من الحالة الراهنة فقط.
+      closureNote: null,
+      reopenedAt: new Date(),
+      reopenedBy: user.id,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(programs.id, programId), isNotNull(programs.closedAt)))
+    .returning({ id: programs.id });
+  if (reopened.length === 0) return { success: "البرنامج مفتوح أصلاً" };
+
+  await db.insert(programClosureHistory).values({
+    programId,
+    action: "إعادة فتح",
+    note: note || null,
+    actorId: user.id,
+  });
+  await audit({
+    actorId: user.id,
+    action: "program.closure_reopened",
+    entityType: "program",
+    entityId: programId,
+    summary: `إعادة فتح برنامج «${orFallback(program.name)}»${note ? ` — ${note}` : ""}`,
+  });
+  revalidateProgramLists(programId);
+  return { success: "أُعيد فتح البرنامج" };
 }
 
 /** طلب تغيير على برنامج معتمد: قيمة قديمة/جديدة وسبب واعتماد */

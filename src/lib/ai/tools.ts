@@ -221,7 +221,8 @@ const overduePrograms: ReadTool = {
     const r = await db
       .select()
       .from(programs)
-      .where(and(or(eq(programs.executionStatus, "متأخر"), and(eq(programs.status, "معتمد"), lt(programs.progress, 100), lt(programs.lastReviewAt, new Date(Date.now() - 30 * 24 * 3600 * 1000)))), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)))
+      // البرنامج المغلق نهائياً (v2.2 §A2) لا يُعدّ متأخراً ولا متوقفاً عن المراجعة
+      .where(and(or(eq(programs.executionStatus, "متأخر"), and(eq(programs.status, "معتمد"), lt(programs.progress, 100), lt(programs.lastReviewAt, new Date(Date.now() - 30 * 24 * 3600 * 1000)))), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt), isNull(programs.closedAt)))
       .limit(25);
     return {
       summary: `البرامج المتأخرة أو المتوقفة عن المراجعة: ${r.length}`,
@@ -269,7 +270,8 @@ const missingEvidence: ReadTool = {
     const r = await db
       .select()
       .from(programs)
-      .where(and(eq(programs.status, "معتمد"), notInArray(programs.id, linked), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)))
+      // البرنامج المغلق لا يُطالَب برفع شواهد جديدة (الشواهد معلوماتية أصلاً — D-025)
+      .where(and(eq(programs.status, "معتمد"), notInArray(programs.id, linked), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt), isNull(programs.closedAt)))
       .limit(25);
     return {
       summary: `برامج معتمدة لم يُرفع لها أي شاهد بعد: ${r.length}`,

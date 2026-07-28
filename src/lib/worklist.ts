@@ -178,8 +178,13 @@ async function planItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ appr
       })
       .from(programChangeRequests)
       .innerJoin(programs, eq(programChangeRequests.programId, programs.id))
-      // البرامج المؤرشفة (v2.1 §A1) مستبعدة من قوائم عمل المدير
-      .where(and(eq(programChangeRequests.status, "قيد الاعتماد"), notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)))
+      // البرامج المؤرشفة (v2.1 §A1) والمغلقة نهائياً (v2.2 §A2) مستبعدة من قوائم عمل المدير
+      .where(and(
+        eq(programChangeRequests.status, "قيد الاعتماد"),
+        notSynthetic(programs.id, ex.programs),
+        isNull(programs.archivedAt),
+        isNull(programs.closedAt),
+      ))
       .orderBy(desc(programChangeRequests.createdAt));
     for (const cr of crs) {
       approve.push({

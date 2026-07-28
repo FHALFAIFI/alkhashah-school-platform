@@ -92,6 +92,28 @@ export const programs = pgTable(
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     archivedBy: uuid("archived_by").references(() => users.id),
     archivedReason: text("archived_reason"),
+    /**
+     * الإقفال النهائي للبرنامج (v2.2 §A2) — حالة عمل مستقلة تماماً عن:
+     *  - الأرشفة (`archivedAt`) = إخفاء/حذف ناعم قابل للاستعادة،
+     *  - الاعتماد (`status = "معتمد"`) = اعتماد حزمة البرنامج،
+     *  - إقفال السنة (`status = "مقفل"`) = إقفال السنة التخطيطية كاملة.
+     *
+     * الإقفال لا يشترط شاهداً ولا نشاطاً ولا معلماً ولا نسبة جاهزية ولا اكتمال ميزانية
+     * ولا نتائج ولا أثراً ولا أي حقل يُدخله المستخدم. السجل كامل يُحفَظ كما هو، ويختفي
+     * البرنامج من القوائم التشغيلية فقط مع بقائه في العروض التاريخية والتقارير.
+     */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedBy: uuid("closed_by").references(() => users.id),
+    /** ملاحظة إقفال اختيارية (القاعدة العامة: كل حقل يُدخله المستخدم اختياري) */
+    closureNote: text("closure_note"),
+    /** آخر إعادة فتح — التاريخ الكامل محفوظ في `program_closure_history` ولا يُكتب فوقه */
+    reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+    reopenedBy: uuid("reopened_by").references(() => users.id),
+    /**
+     * مُنشئ البرنامج (v2.2 §A1) — قابل للفراغ: البرامج المستوردة تاريخياً بلا منشئ مسجَّل،
+     * ولا تُكتب لها قيمة بأثر رجعي. يُستعمل للتدقيق ولمنع الإنشاء المكرر من نقر متتابع.
+     */
+    createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -344,6 +366,28 @@ export const programFollowups = pgTable(
     uniqueIndex("followups_program_week_unique").on(t.programId, t.weekKey),
     index("followups_program_idx").on(t.programId),
   ],
+);
+
+/**
+ * سجل إقفال/إعادة فتح البرامج (v2.2 §A2) — سجل تاريخي **يُضاف إليه فقط**.
+ *
+ * لا يُحدَّث صف سابق ولا يُحذف أبداً: كل إقفال وكل إعادة فتح يُضيف صفاً جديداً، فيبقى
+ * التسلسل التاريخي كاملاً حتى بعد إقفال/فتح متكرر. أعمدة `programs.closed_at` وأخواتها
+ * تمثّل الحالة الراهنة فقط، وهذا الجدول هو المرجع التاريخي.
+ */
+export const programClosureHistory = pgTable(
+  "program_closure_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    programId: uuid("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
+    /** «إقفال» | «إعادة فتح» */
+    action: text("action").notNull(),
+    /** ملاحظة اختيارية يُدخلها المستخدم */
+    note: text("note"),
+    actorId: uuid("actor_id").references(() => users.id),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("program_closure_history_program_idx").on(t.programId, t.at)],
 );
 
 /** طلبات تغيير البرامج المعتمدة */

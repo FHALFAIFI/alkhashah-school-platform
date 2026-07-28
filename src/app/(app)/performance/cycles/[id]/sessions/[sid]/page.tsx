@@ -12,7 +12,6 @@ import { evidenceForEntity } from "@/lib/evidence";
 import { generateSessionReport } from "@/lib/reports/session-report";
 import { getSetting } from "@/lib/settings";
 import { getVersions } from "@/lib/versioning";
-import { BackButton } from "@/components/back-button";
 import { orFallback, orDash } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -64,7 +63,6 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
         subtitle={`${orFallback(snapshot.model.nameAr)} — ${orDash(cycle.yearKey)}${session.sessionDate ? ` — ${session.sessionDate}` : ""}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <BackButton fallbackHref={`/performance/cycles/${cycle.id}`} />
             <Badge value={session.status} />
           </div>
         }

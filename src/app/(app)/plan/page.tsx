@@ -3,18 +3,21 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs } from "@/db/schema";
-import { PageHeader, Table, Badge, LinkButton, EmptyState, ProgressBar, Card } from "@/components/ui";
+import { PageHeader, Table, Badge, LinkButton, EmptyState, ProgressBar, Card, DualDate } from "@/components/ui";
 import { isFollowupDue } from "@/lib/plan/followup";
 import { programStatusLabel } from "@/lib/plan/status-labels";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { orFallback, orDash } from "@/lib/format";
+import { dualDisplay } from "@/lib/dates";
 import { FollowupDueBadge } from "./followup-badge";
+import { AddProgramPanel } from "./program-create-ui";
 
 export const metadata = { title: "الخطة التشغيلية" };
 export const dynamic = "force-dynamic";
 
 export default async function PlanPage() {
-  await requirePermission("plan.read");
+  const user = await requirePermission("plan.read");
+  const canWrite = user.permissions.has("plan.write");
   const years = await db.select().from(planYears).orderBy(asc(planYears.key));
   const activeYear = years.find((y) => y.status === "نشطة") ?? years[0];
 
@@ -35,11 +38,16 @@ export default async function PlanPage() {
 
   const excluded = await getExcludedIdSets();
   // البرامج المؤرشفة (حذف ناعم، v2.1 §A1) مخفية من القائمة التشغيلية وبطاقات المجالات
-  const progs = await db
+  const all = await db
     .select()
     .from(programs)
     .where(and(eq(programs.planYearId, activeYear.id), notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)))
     .orderBy(asc(programs.seq));
+
+  // البرامج المغلقة نهائياً (v2.2 §A2) تُرفع من القائمة التشغيلية وتُعرض في قسم تاريخي
+  // منفصل أسفل الصفحة — لا تُحذف ولا تختفي من التقارير.
+  const progs = all.filter((p) => !p.closedAt);
+  const closed = all.filter((p) => p.closedAt);
 
   const domains = [...new Set(progs.map((p) => p.domain))];
   const approved = progs.filter((p) => p.status !== "مسودة").length;
@@ -49,7 +57,7 @@ export default async function PlanPage() {
     <div>
       <PageHeader
         title={`الخطة التشغيلية — ${activeYear.nameAr}`}
-        subtitle={`${progs.length} برنامجاً · معتمد: ${approved} · متوسط الإنجاز: ${avgProgress}٪ · تنتهي جميع البرامج في 5/1/1449هـ`}
+        subtitle={`${progs.length} برنامجاً · معتمد: ${approved} · متوسط الإنجاز: ${avgProgress}٪${closed.length ? ` · مغلق: ${closed.length}` : ""} · تنتهي جميع البرامج في 5/1/1449هـ`}
         actions={
           <>
             <LinkButton href="/plan/classifications" variant="secondary">إدارة التصنيفات</LinkButton>
@@ -58,6 +66,11 @@ export default async function PlanPage() {
           </>
         }
       />
+      {canWrite && (
+        <div className="mb-4">
+          <AddProgramPanel />
+        </div>
+      )}
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {domains.map((d) => {
           const dp = progs.filter((p) => p.domain === d);
@@ -94,6 +107,37 @@ export default async function PlanPage() {
           </tr>
         ))}
       </Table>
+
+      {closed.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-sm font-bold text-gray-600">
+            البرامج المغلقة ({closed.length})
+          </h2>
+          <p className="mb-3 text-xs text-gray-500">
+            برامج أُقفلت نهائياً — مرفوعة من القوائم التشغيلية وباقية كاملة في التقارير والعروض
+            التاريخية. يمكن إعادة فتح أي منها من صفحته.
+          </p>
+          <Table headers={["م", "البرنامج", "المجال", "تاريخ الإقفال", "الحالة", ""]}>
+            {closed.map((p) => {
+              const d = p.closedAt ? dualDisplay(p.closedAt, "employee") : null;
+              return (
+                <tr key={p.id} className="text-gray-500">
+                  <td className="px-3 py-2 tabular-nums">{p.seq}</td>
+                  <td className="px-3 py-2 font-medium">
+                    <Link href={`/plan/${p.id}`} className="text-brand-700 hover:underline">{orFallback(p.name)}</Link>
+                  </td>
+                  <td className="px-3 py-2 text-xs">{orFallback(p.domain, "بدون تصنيف")}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {d ? <DualDate primary={d.primary} secondary={d.secondary} /> : "—"}
+                  </td>
+                  <td className="px-3 py-2"><Badge value="مغلق" /></td>
+                  <td className="px-3 py-2"><LinkButton href={`/plan/${p.id}`} variant="secondary">فتح</LinkButton></td>
+                </tr>
+              );
+            })}
+          </Table>
+        </section>
+      )}
     </div>
   );
 }

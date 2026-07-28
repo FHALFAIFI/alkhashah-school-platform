@@ -3,7 +3,6 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs } from "@/db/schema";
 import { PageHeader, Card, EmptyState } from "@/components/ui";
-import { BackButton } from "@/components/back-button";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { ClassificationsManager } from "./classifications-ui";
 
@@ -42,7 +41,6 @@ export default async function ClassificationsPage() {
       <PageHeader
         title="إدارة التصنيفات"
         subtitle={`«المجال» تصنيف حرّ للبرامج — أعد التسمية (دمج) أو أعد التوزيع دون حذف أي برنامج · ${classifications.length} تصنيفاً`}
-        actions={<BackButton fallbackHref="/plan" />}
       />
       {classifications.length === 0 ? (
         <EmptyState

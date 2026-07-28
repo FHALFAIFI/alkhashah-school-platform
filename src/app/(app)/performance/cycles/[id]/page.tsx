@@ -9,7 +9,6 @@ import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { cycleProgress, weakIndicators } from "@/lib/performance/scoring";
 import { NewSessionForm, ImprovementPlanForm, PlanStatusControl } from "./cycle-ui";
 import { dualDisplay, todayIso } from "@/lib/dates";
-import { BackButton } from "@/components/back-button";
 import { orFallback, orDash } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -79,7 +78,6 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
         subtitle={`${cycle.cycleType} — ${orFallback(snapshot.model.nameAr)} — ${orDash(cycle.yearKey)}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <BackButton fallbackHref="/performance" />
             <Badge value={cycle.status} />
             {user.permissions.has("ai.use") && (
               <AskAssistant type="performance" id={id} label={`دورة أداء: ${person.fullName} (${cycle.yearKey})`} />

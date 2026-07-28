@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { OfflineBanner } from "./offline-banner";
+import { BackNav } from "./back-nav";
 
 type NavItem = { href: string; label: string; permission?: string; icon: string };
 
@@ -219,6 +220,8 @@ export function AppShell({
         <OfflineBanner />
         {/* حاشية سفلية على الجوال تكفي لتمرير آخر المحتوى فوق زر المساعد العائم */}
         <main className="min-w-0 flex-1 p-3 pb-24 sm:p-4 sm:pb-24 lg:p-6 lg:pb-6">
+          {/* زر «العودة» الموحّد — يظهر تلقائياً في كل صفحة فرعية (v2.2 §C) */}
+          <BackNav />
           {children}
         </main>
       </div>

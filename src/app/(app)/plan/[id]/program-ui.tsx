@@ -5,6 +5,7 @@ import {
   approveProgramAction, reopenProgramAction, createChangeRequestAction, decideChangeRequestAction,
   approvePackageAction, updateProgramExecutionAction,
   archiveProgramAction, unarchiveProgramAction,
+  closeProgramAction, reopenClosedProgramAction,
   type ActionState,
 } from "../actions";
 import { SubmitButton } from "@/components/ui";
@@ -213,6 +214,59 @@ export function ArchiveProgramForm({
         className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
       />
       <SubmitButton variant="danger" confirmText={confirmText}>أرشفة البرنامج</SubmitButton>
+    </form>
+  );
+}
+
+/**
+ * «إقفال البرنامج» (v2.2 §A2) — الإقفال النهائي لبرنامج منتهٍ.
+ *
+ * حالة عمل مستقلة عن الأرشفة (حذف ناعم) وعن الاعتماد وعن إقفال السنة. لا يشترط شاهداً ولا
+ * نشاطاً ولا نسبة جاهزية ولا اكتمال ميزانية ولا نتائج — وملاحظة الإقفال اختيارية. يبقى
+ * السجل كاملاً في التقارير والعروض التاريخية.
+ */
+export function CloseProgramForm({ programId, programName }: { programId: string; programName: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(closeProgramAction.bind(null, programId), null);
+  return (
+    <form action={formAction} className="space-y-2">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <p className="text-xs text-gray-500">
+        الإقفال يُنهي البرنامج ويخفيه من القوائم التشغيلية، ويبقى كاملاً في التقارير والعروض
+        التاريخية بكل شواهده ووثائقه ومراجعه المالية. يمكن إعادة فتحه لاحقاً.
+      </p>
+      <input
+        name="note"
+        placeholder="ملاحظة الإقفال (اختيارية)"
+        maxLength={2000}
+        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+      />
+      <SubmitButton confirmText={`هل تريد إقفال هذا البرنامج نهائياً؟\n«${programName}»\n\nسيختفي من القوائم التشغيلية ويبقى في التقارير التاريخية، ويمكن إعادة فتحه لاحقاً.`}>
+        إقفال البرنامج
+      </SubmitButton>
+    </form>
+  );
+}
+
+/** «إعادة فتح البرنامج» — يعيد برنامجاً مغلقاً إلى القوائم التشغيلية دون مساس بتاريخ الإقفال */
+export function ReopenClosedProgramForm({ programId, programName }: { programId: string; programName: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(reopenClosedProgramAction.bind(null, programId), null);
+  return (
+    <form action={formAction} className="space-y-2">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <p className="text-xs text-gray-500">
+        إعادة الفتح تُرجع البرنامج إلى القوائم التشغيلية النشطة، ويبقى سجل الإقفال السابق محفوظاً.
+      </p>
+      <input
+        name="note"
+        placeholder="سبب إعادة الفتح (اختياري)"
+        maxLength={2000}
+        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+      />
+      <SubmitButton variant="secondary" confirmText={`هل تريد إعادة فتح هذا البرنامج؟\n«${programName}»`}>
+        إعادة فتح البرنامج
+      </SubmitButton>
     </form>
   );
 }

@@ -3,7 +3,6 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programRisks } from "@/db/schema";
 import { PageHeader, Table, EmptyState, Badge } from "@/components/ui";
-import { BackButton } from "@/components/back-button";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "سجل المخاطر" };
@@ -18,7 +17,6 @@ export default async function RisksPage() {
       <PageHeader
         title="سجل المخاطر"
         subtitle="من مصنف الخطة التشغيلية"
-        actions={<BackButton fallbackHref="/plan" />}
       />
       {risks.length === 0 ? (
         <EmptyState title="لا مخاطر مسجلة بعد" hint="تستورد المخاطر ضمن دفعة استيراد الخطة التشغيلية" />
