@@ -9,6 +9,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { saveUploadedFile, validateUpload } from "@/lib/storage";
 import { linkEvidence } from "@/lib/evidence";
+import { userFacingError } from "@/lib/user-error";
 
 /**
  * مبلغ اختياري (قاعدة v2.1 §H): الحقل الفارغ يُخزَّن null، وإن أُدخلت قيمة وجب أن تكون عدداً
@@ -138,7 +139,7 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
     } catch (e) {
       // الإيراد حُفظ؛ فشل الإرفاق وحده — يبقى الإيصال قابلاً للإرفاق لاحقاً من لوحة الشواهد.
       revalidatePath("/budget");
-      return { error: e instanceof Error ? e.message : "تعذر حفظ الإيصال المرفق — حُفظ الإيراد ويمكن إرفاق الإيصال لاحقاً." };
+      return { error: userFacingError(e, "تعذر حفظ الإيصال المرفق — حُفظ الإيراد ويمكن إرفاق الإيصال لاحقاً.") };
     }
   }
 
@@ -241,7 +242,7 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
     } catch (e) {
       // المصروف حُفظ؛ فشل الإرفاق فقط — رسالة عربية واضحة، وتبقى الفاتورة قابلة للإرفاق لاحقاً من اللوحة.
       revalidatePath("/budget");
-      return { error: e instanceof Error ? e.message : "تعذر حفظ الفاتورة المرفقة — حُفظ المصروف ويمكن إرفاق الفاتورة لاحقاً من لوحة الفاتورة." };
+      return { error: userFacingError(e, "تعذر حفظ الفاتورة المرفقة — حُفظ المصروف ويمكن إرفاق الفاتورة لاحقاً من لوحة الفاتورة.") };
     }
   }
 

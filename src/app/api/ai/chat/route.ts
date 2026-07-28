@@ -50,7 +50,9 @@ export async function POST(req: NextRequest) {
           signal: req.signal,
         });
       } catch (e) {
-        emit({ type: "error", message: e instanceof Error ? e.message : "خطأ غير متوقع" });
+        // التفاصيل الفنية إلى سجل الخادم لا إلى المتصفّح — قد تحوي مساراً أو عنوان خدمة
+        console.error("ai.chat stream error", e);
+        emit({ type: "error", message: "تعذّرت معالجة الطلب — حاول مرة أخرى" });
       } finally {
         try {
           controller.close();

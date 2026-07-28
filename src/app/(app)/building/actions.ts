@@ -17,6 +17,7 @@ import { nextRoomCode, nextAssetCode, nextMaintenanceCode, findRoomByCode } from
 import { getAssetDependencies, ASSET_EVENT } from "@/lib/building/asset-lifecycle";
 import { ASSET_DELETE_CONFIRM } from "@/lib/building/asset-constants";
 import { orFallback } from "@/lib/format";
+import { userFacingError } from "@/lib/user-error";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -305,7 +306,7 @@ export async function replaceBackgroundAction(floorId: string, _prev: ActionStat
       label: file.name,
     });
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر الرفع" };
+    return { error: userFacingError(e, "تعذر الرفع") };
   }
   await audit({ actorId: user.id, action: "background.replaced", entityType: "floor", entityId: floorId, summary: "استبدال الخلفية دون مساس بالهندسة" });
   revalidatePath("/building");

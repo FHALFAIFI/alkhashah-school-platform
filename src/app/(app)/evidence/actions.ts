@@ -10,6 +10,7 @@ import { saveUploadedFile } from "@/lib/storage";
 import { canDeleteEvidence, linkEvidence } from "@/lib/evidence";
 import { entityLabelAr, isLinkableEntityKey, resolveEntities } from "@/lib/entity-registry";
 import { audit } from "@/lib/audit";
+import { userFacingError } from "@/lib/user-error";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -59,7 +60,7 @@ export async function createEvidenceAction(_prev: ActionState, formData: FormDat
       if (!textContent) return { error: "أدخل نص الشاهد" };
     }
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر حفظ الملف" };
+    return { error: userFacingError(e, "تعذر حفظ الملف") };
   }
 
   // The uploaded file (if any) is already persisted before this point: storage writes the
@@ -308,7 +309,7 @@ export async function replaceEvidenceContentAction(_prev: ActionState, formData:
       if (!textContent) return { error: "أدخل نص الشاهد البديل" };
     }
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر حفظ الملف" };
+    return { error: userFacingError(e, "تعذر حفظ الملف") };
   }
 
   // معاملة واحدة: لقطة النسخة الحالية ثم تحديث الشاهد ورفع رقم النسخة.

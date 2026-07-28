@@ -6,6 +6,7 @@ import { saveUploadedFile, validateUpload } from "@/lib/storage";
 import { appVersion } from "@/lib/app-version";
 import { createFeedback, FeedbackError } from "@/lib/feedback/service";
 import { browserFamilyFromUA } from "@/lib/feedback/constants";
+import { userFacingError } from "@/lib/user-error";
 
 export type FeedbackSubmitState = { ok?: true; ref?: string; error?: string };
 
@@ -48,7 +49,7 @@ export async function submitFeedbackAction(formData: FormData): Promise<Feedback
       });
       attachmentFileId = saved.id;
     } catch (e) {
-      return { error: e instanceof Error ? e.message : "تعذّر حفظ المرفق" };
+      return { error: userFacingError(e, "تعذّر حفظ المرفق") };
     }
   }
 

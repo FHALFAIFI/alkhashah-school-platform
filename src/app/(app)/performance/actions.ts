@@ -17,6 +17,7 @@ import { getSetting } from "@/lib/settings";
 import { sessionResult, validRating } from "@/lib/performance/scoring";
 import { snapshotAwaitingFaresCells } from "@/lib/performance/d014";
 import { numOrNull } from "@/lib/format";
+import { userFacingError } from "@/lib/user-error";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -379,7 +380,7 @@ export async function uploadSignedReportAction(sessionId: string, _prev: ActionS
       await tx.update(perfSessions).set({ signedReportFileId: stored.id }).where(eq(perfSessions.id, sessionId));
     });
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر الرفع" };
+    return { error: userFacingError(e, "تعذر الرفع") };
   }
   await audit({
     actorId: user.id,

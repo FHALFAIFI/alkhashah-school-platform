@@ -13,6 +13,7 @@ import { db } from "@/db";
 import { planYears } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { userFacingError } from "@/lib/user-error";
 
 export type ImportActionState =
   | {
@@ -77,7 +78,7 @@ export async function uploadImportAction(_prev: ImportActionState, formData: For
       batchId = batch.id;
     }
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر تحليل الملف" };
+    return { error: userFacingError(e, "تعذر تحليل الملف") };
   }
   redirect(`/imports/${batchId}`);
 }
@@ -127,7 +128,7 @@ export async function cancelBatchAction(batchId: string): Promise<ImportActionSt
   try {
     await cancelBatch(batchId, user.id);
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر إلغاء الدفعة" };
+    return { error: userFacingError(e, "تعذر إلغاء الدفعة") };
   }
   revalidatePath(`/imports/${batchId}`);
   revalidatePath("/imports");
@@ -192,17 +193,19 @@ export async function commitBatchAction(batchId: string): Promise<ImportActionSt
     if (fresh?.batch.status === "منفذة") {
       return { code: "ALREADY_EXECUTED" };
     }
-    // حدث «فشل التنفيذ» برسالة معقّمة ومعرّف مرجعي — لا يُسرَّب تفاصيل داخلية
-    const message = e instanceof Error ? e.message : "فشل التنفيذ";
+    // التفاصيل الفنية تبقى في سجل التدقيق على الخادم فقط. المستخدم يرى رسالة عربية عامة
+    // ومعرّفاً مرجعياً يربط شكواه بالسجل — فلا يتسرّب مسار ملف ولا اسم جدول ولا نص خطأ
+    // إنجليزي خام إلى الواجهة (كان يُعاد `e.message` كما هو رغم أن التعليق يقول عكس ذلك).
+    const technical = e instanceof Error ? e.message : "فشل التنفيذ";
     await audit({
       actorId: user.id,
       action: "import.batch_commit_failed",
       entityType: "import_batch",
       entityId: batchId,
       summary: "فشل تنفيذ دفعة استيراد",
-      detail: { correlationId, error: message.slice(0, 300) },
+      detail: { correlationId, error: technical.slice(0, 300) },
     });
-    return { error: `${message} (مرجع الخطأ: ${ref})` };
+    return { error: `تعذّر تنفيذ الدفعة ولم تُحفظ أي بيانات. (مرجع الخطأ: ${ref})` };
   }
 
   // آثار جانبية بعد نجاح المعاملة — يجب ألا يُفشل إخفاقُها نتيجةَ تنفيذٍ نجح فعلاً
@@ -229,7 +232,7 @@ export async function rollbackBatchAction(batchId: string): Promise<ImportAction
       await rollbackBatch(batchId, user.id, (tx) => rollbackPlanBatch(tx, batchId));
     }
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "فشل التراجع" };
+    return { error: userFacingError(e, "فشل التراجع") };
   }
   revalidatePath(`/imports/${batchId}`);
   revalidatePath("/imports");

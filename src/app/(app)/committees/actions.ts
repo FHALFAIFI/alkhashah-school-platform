@@ -15,6 +15,7 @@ import { snapshotRecord } from "@/lib/versioning";
 import { saveUploadedFile } from "@/lib/storage";
 import { notifyAll } from "@/lib/notify";
 import { committedEmployeeCount } from "@/lib/committees/prerequisites";
+import { userFacingError } from "@/lib/user-error";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -175,7 +176,7 @@ export async function generateAssignmentFormAction(committeeId: string): Promise
     result = await generateAssignmentForm({ committeeId, issuedBy: user.id });
   } catch (e) {
     // رسالة عربية واضحة بدل خطأ تقني (لا يُرمى استثناء على قائمة فارغة بعد الآن)
-    return { error: e instanceof Error ? e.message : "تعذّر توليد نموذج التكليف" };
+    return { error: userFacingError(e, "تعذّر توليد نموذج التكليف") };
   }
   await db.update(committees).set({ assignmentDocId: result.docId }).where(eq(committees.id, committeeId));
   await audit({
@@ -209,7 +210,7 @@ export async function uploadSignedAssignmentAction(committeeId: string, _prev: A
     });
     await db.update(committees).set({ signedAssignmentFileId: stored.id }).where(eq(committees.id, committeeId));
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر الرفع" };
+    return { error: userFacingError(e, "تعذر الرفع") };
   }
   await audit({ actorId: user.id, action: "committee.signed_assignment_uploaded", entityType: "committee", entityId: committeeId });
   revalidatePath(`/committees/${committeeId}`);
@@ -405,7 +406,7 @@ export async function uploadSignedMinutesAction(meetingId: string, _prev: Action
       .set({ signedMinutesFileId: stored.id, status: m.status === "مسودة" ? "بانتظار التوقيع" : m.status })
       .where(eq(meetings.id, meetingId));
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر رفع الملف" };
+    return { error: userFacingError(e, "تعذر رفع الملف") };
   }
   await audit({ actorId: user.id, action: "meeting.signed_minutes_uploaded", entityType: "meeting", entityId: meetingId });
   revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);
@@ -551,7 +552,7 @@ export async function addMeetingAttachmentAction(meetingId: string, _prev: Actio
       uploadedBy: user.id,
     });
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر رفع المرفق" };
+    return { error: userFacingError(e, "تعذر رفع المرفق") };
   }
   await audit({ actorId: user.id, action: "meeting.attachment_added", entityType: "meeting", entityId: meetingId, summary: `مرفق «${title}» (${category})` });
   revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);

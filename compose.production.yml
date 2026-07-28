@@ -23,6 +23,9 @@ x-app-build: &app-build
     APP_URL: ${APP_URL:-http://localhost:3080}
     APP_VERSION: ${APP_VERSION:-0.1.0}
     TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-*.ts.net}
+    # TEMPORARY (principal LAN retest): when true, allows a non-Secure session cookie for plain-HTTP
+    # requests on the trusted LAN. Default false — HTTPS (Tailscale) stays always-Secure. See .env.production.
+    ALLOW_INSECURE_LAN_HTTP: ${ALLOW_INSECURE_LAN_HTTP:-false}
     AI_ENABLED: ${AI_ENABLED:-false}
     AI_PROVIDER: ${AI_PROVIDER:-ollama}
     OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
@@ -50,13 +53,37 @@ services:
     stop_grace_period: 30s
     logging: *logging
 
-  # خدمة لمرة واحدة: تطبيق الهجرات + بذر البيانات المرجعية فقط (لا بيانات تشغيلية تجريبية)
+  # خدمة لمرة واحدة: **تطبيق الهجرات فقط**.
+  #
+  # كان هذا الأمر يشغّل `seed.ts` أيضاً في كل `compose up`. البذرة idempotent ولا تحذف ولا
+  # تقتطع شيئاً — ولذلك لم تُفقد أي بيانات إنتاجية — لكن تشغيلها التلقائي يخالف القاعدة
+  # القائمة «seed.ts لا يعمل على الإنتاج أبداً»، ويعني أن أي صف مرجعي يُضاف إلى بيانات
+  # البذرة في إصدار لاحق كان سيُدرَج في الإنتاج صامتاً عند أول إعادة تشغيل.
+  #
+  # التثبيت الجديد يحتاج البذرة مرة واحدة (الأدوار والصلاحيات والمدرسة والتقويم)، ولذلك
+  # بقيت متاحة في خدمة `seed` أدناه خلف profile صريح لا يعمل تلقائياً أبداً.
   init:
     <<: *app-build
     depends_on:
       db:
         condition: service_healthy
-    command: ["sh", "-c", "npx tsx src/db/migrate.ts && npx tsx src/db/seed.ts"]
+    command: ["sh", "-c", "npx tsx src/db/migrate.ts"]
+    volumes:
+      - storage:/data/storage
+      - backups:/data/backups
+    restart: "no"
+    logging: *logging
+
+  # البذر الأولي — **للتثبيت الجديد فقط**، ولا يعمل إلا باستدعاء صريح:
+  #   docker compose -p madrasa-prod --profile bootstrap run --rm seed
+  # لا تشغّله على قاعدة فيها بيانات مدرسة حقيقية.
+  seed:
+    <<: *app-build
+    profiles: ["bootstrap"]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "npx tsx src/db/seed.ts"]
     volumes:
       - storage:/data/storage
       - backups:/data/backups
@@ -70,9 +97,12 @@ services:
         condition: service_healthy
       init:
         condition: service_completed_successfully
-    # يرتبط بالمضيف المحلي فقط — الوصول عبر Tailscale Serve على المضيف
+    # يرتبط بالمضيف المحلي فقط افتراضياً — الوصول عبر Tailscale Serve على المضيف.
+    # APP_BIND يسمح مؤقتاً بربط واجهة الشبكة المحلية (LAN IP) لاختبار المدير؛ الافتراضي 127.0.0.1.
+    # Default binds to loopback only. Set APP_BIND=<LAN-IP> in .env.production ONLY for the temporary
+    # principal retest, then remove it to return to localhost-only.
     ports:
-      - "127.0.0.1:${APP_PORT:-3080}:3080"
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3080}:3080"
     # للوصول إلى Ollama على المضيف (Mac Apple Silicon أو Ubuntu بلا تسريع حاوية)
     extra_hosts:
       - "host.docker.internal:host-gateway"

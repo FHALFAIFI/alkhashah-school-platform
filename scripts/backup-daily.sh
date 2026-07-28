@@ -3,6 +3,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/backup-lib.sh"
 require_passphrase
+require_explicit_database
 
 RETENTION="${BACKUP_DAILY_RETENTION:-14}"
 mkdir -p "$BACKUP_DIR/daily"

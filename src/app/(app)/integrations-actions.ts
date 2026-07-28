@@ -8,6 +8,7 @@ import { aiEnabled } from "@/lib/ai/provider";
 import { draftMeetingSummary } from "@/lib/ai/assist";
 import { m365Enabled, createDraftEmail } from "@/lib/email/m365";
 import { readStoredFile } from "@/lib/storage";
+import { userFacingError } from "@/lib/user-error";
 
 export type AiState = { error?: string; draft?: string } | null;
 
@@ -27,7 +28,7 @@ export async function aiMeetingSummaryAction(meetingId: string): Promise<AiState
     });
     return { draft };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر توليد المسودة" };
+    return { error: userFacingError(e, "تعذر توليد المسودة") };
   }
 }
 
@@ -57,6 +58,6 @@ export async function emailDocumentAction(docId: string, formData: FormData): Pr
     });
     return { webLink: result.webLink };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "تعذر إنشاء المسودة" };
+    return { error: userFacingError(e, "تعذر إنشاء المسودة") };
   }
 }

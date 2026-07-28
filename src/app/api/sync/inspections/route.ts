@@ -6,6 +6,7 @@ import { inspections, rooms, floors, siteZones, inspectionTemplates } from "@/db
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { saveUploadedFile } from "@/lib/storage";
+import { userFacingError } from "@/lib/user-error";
 
 /**
  * مزامنة فحوصات وضع عدم الاتصال — idempotent عبر clientOpId:
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
       if (inserted.length > 0) applied.push(op.clientOpId);
       else skipped.push(op.clientOpId); // مزامن مسبقاً — لا تكرار
     } catch (e) {
-      failed.push({ clientOpId: op.clientOpId, error: e instanceof Error ? e.message : "خطأ" });
+      failed.push({ clientOpId: op.clientOpId, error: userFacingError(e, "خطأ") });
     }
   }
 

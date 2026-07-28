@@ -5,7 +5,6 @@ import { dualDisplay } from "@/lib/dates";
 import { listTemplates, getTemplate, configOf } from "@/lib/templates/service";
 import { DOC_TYPE_LABELS, TEMPLATE_DOC_TYPES, type TemplateDocType } from "@/lib/templates/schema";
 import { placeholdersFor } from "@/lib/templates/placeholders";
-import { templateDocTypeOptions } from "./actions";
 import {
   CreateTemplateForm,
   TemplateActions,
@@ -41,7 +40,8 @@ export default async function TemplatesPage({
 
   // القالب المفتوح للتحرير — يُتحقق أنه موجود فعلاً قبل أي عرض
   const selected = sp.template ? await getTemplate(sp.template) : null;
-  const docTypes = await templateDocTypeOptions();
+  // قائمة ثابتة تُبنى موضعياً — لم تكن تستحق أن تكون إجراء خادم مكشوفاً بلا حارس
+  const docTypes = TEMPLATE_DOC_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t] }));
 
   // الأنواع التي ليس لها قالب بعد — تستعمل الإعداد الافتراضي عند الإصدار
   const typesWithTemplate = new Set(active.map((t) => t.docType));

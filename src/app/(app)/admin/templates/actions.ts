@@ -12,7 +12,6 @@ import {
   DEFAULT_TEMPLATE_CONFIG,
   DOC_TYPE_LABELS,
   parseTemplateConfig,
-  TEMPLATE_DOC_TYPES,
   type TemplateConfig,
   type TemplateDocType,
 } from "@/lib/templates/schema";
@@ -443,9 +442,4 @@ function validateAllPlaceholders(config: TemplateConfig, docType: TemplateDocTyp
     if (!res.ok) return res.error;
   }
   return null;
-}
-
-/** أنواع الوثائق المتاحة لإنشاء قالب — تُعرض في النموذج */
-export async function templateDocTypeOptions(): Promise<{ value: string; label: string }[]> {
-  return TEMPLATE_DOC_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t] }));
 }

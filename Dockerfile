@@ -43,4 +43,7 @@ ENV STORAGE_DIR=/data/storage
 ENV BACKUP_DIR=/data/backups
 EXPOSE 3080
 
-CMD ["sh", "-c", "npx tsx src/db/migrate.ts && npx tsx src/db/seed.ts && npm run start"]
+# الأمر الافتراضي: تطبيق الهجرات ثم التشغيل. **لا بذرة هنا** — كان الأمر السابق يشغّل
+# `seed.ts` تلقائياً، وهو ما تمنعه القاعدة القائمة على الإنتاج. البذر الأولي للتثبيت
+# الجديد يُستدعى صراحةً عبر خدمة `seed` في compose.production.yml (profile: bootstrap).
+CMD ["sh", "-c", "npx tsx src/db/migrate.ts && npm run start"]
