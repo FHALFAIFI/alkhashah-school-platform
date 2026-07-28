@@ -9,6 +9,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { users } from "./core";
 
 /** الملفات المخزنة — خارج المجلد العام، تنزيل عبر مسارات مصادق عليها فقط */
@@ -138,6 +139,13 @@ export const documents = pgTable("documents", {
   entityId: uuid("entity_id"),
   /** HTML snapshot rendered at issue time — frozen */
   htmlSnapshot: text("html_snapshot"),
+  /**
+   * نسخة القالب التي أنتجت هذه الوثيقة (v2.2 §E5) — أثر تدقيقي فقط.
+   *
+   * اللقطة أعلاه هي ما يُعرض دائماً؛ هذا العمود يجيب «بأي نسخة قالب صدرت؟» ويمنع حذف
+   * نسخة ما زالت وثيقة صادرة تشير إليها. قابل للفراغ: الوثائق الصادرة قبل v2.2 بلا نسخة.
+   */
+  templateVersionId: uuid("template_version_id"),
   pdfFileId: uuid("pdf_file_id").references(() => storedFiles.id),
   withSignature: boolean("with_signature").notNull().default(false),
   withStamp: boolean("with_stamp").notNull().default(false),
@@ -230,4 +238,71 @@ export const importRows = pgTable(
     createdEntityId: uuid("created_entity_id"),
   },
   (t) => [index("import_rows_batch_idx").on(t.batchId)],
+);
+
+/**
+ * تعريفات القوالب (v2.2 §E1) — قالب واحد لكل نوع وثيقة/تقرير، وقد يوجد أكثر من قالب
+ * للنوع نفسه مع واحد افتراضي.
+ *
+ * الإعداد نفسه لا يُخزَّن هنا: يعيش في `template_versions` غير القابلة للتعديل، وهذا الجدول
+ * يحمل الهوية والحالة ومؤشر النسخة المنشورة الحالية.
+ */
+export const templateDefinitions = pgTable(
+  "template_definitions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** نوع الوثيقة من القائمة المغلقة في `src/lib/templates/schema.ts` */
+    docType: text("doc_type").notNull(),
+    /** الاسم والوصف اختياريان (القاعدة العامة §8) — يُعرض بديل عربي عند الفراغ */
+    nameAr: text("name_ar"),
+    description: text("description"),
+    /** القالب الافتراضي لنوعه — واحد فقط لكل نوع (يُضمن بفهرس جزئي فريد) */
+    isDefault: boolean("is_default").notNull().default(false),
+    /** النسخة المنشورة المستعملة في التصيير؛ فارغة تعني «مسودة فقط، لم يُنشر بعد» */
+    currentVersionId: uuid("current_version_id"),
+    /** الأرشفة — إخفاء غير مدمّر: النسخ واللقطات تبقى سليمة */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("template_definitions_type_idx").on(t.docType),
+    // قالب افتراضي واحد لكل نوع بين القوالب غير المؤرشفة — يُفرض في قاعدة البيانات
+    // لا في الشيفرة وحدها، فلا ينتج افتراضيان من طلبين متزامنين.
+    uniqueIndex("template_default_per_type_unique")
+      .on(t.docType)
+      .where(sql`${t.isDefault} = true and ${t.archivedAt} is null`),
+  ],
+);
+
+/**
+ * نسخ القوالب (v2.2 §E5) — **غير قابلة للتعديل بعد النشر**.
+ *
+ * تحرير قالب منشور لا يعدّل نسخته: يُنشئ نسخة جديدة برقم أعلى. النسخة المنشورة سابقاً تبقى
+ * كما هي إلى الأبد لأن وثائق صادرة قد تشير إليها. هذا شرط «التاريخ المجمَّد» صراحةً.
+ */
+export const templateVersions = pgTable(
+  "template_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    templateId: uuid("template_id").notNull().references(() => templateDefinitions.id, { onDelete: "cascade" }),
+    /** رقم تسلسلي داخل القالب — فريد، ولا يُعاد استعماله */
+    versionNumber: integer("version_number").notNull(),
+    /** إعداد القالب المُتحقَّق منه بمخطط القائمة البيضاء — لا HTML ولا CSS حر */
+    config: jsonb("config").notNull(),
+    /** مسودة | منشورة | مؤرشفة */
+    status: text("status").notNull().default("مسودة"),
+    changeNote: text("change_note"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    publishedBy: uuid("published_by").references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("template_version_unique").on(t.templateId, t.versionNumber),
+    index("template_versions_template_idx").on(t.templateId),
+  ],
 );

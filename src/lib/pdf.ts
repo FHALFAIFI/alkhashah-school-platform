@@ -1,6 +1,7 @@
 import "server-only";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { escapeHtml } from "@/lib/html-escape";
 
 /**
  * توليد PDF عربي A4 من HTML مضبوط عبر متصفح Playwright Chromium —
@@ -42,16 +43,20 @@ export function officialPageHtml(opts: {
   /** الهوية المركزية؛ عند غيابها تُستعمل القيم الرسمية الافتراضية للمجمع (توافق رجعي) */
   identity?: PageHeaderIdentity;
 }): string {
+  // كل قيمة تُحقن هنا تُهرَّب: العناوين تُبنى من أسماء يُدخلها المستخدم (اسم برنامج،
+  // اسم لجنة، اسم منسوب)، والهوية قابلة للتحرير من إدارة القوالب. بلا تهريب يصبح اسم
+  // مثل `<img src=x onerror=…>` وسماً حياً داخل لقطة الوثيقة المجمّدة، ويُنفَّذ أيضاً في
+  // متصفّح Chromium أثناء توليد PDF على الخادم.
   const org = opts.identity?.orgLines?.length
     ? opts.identity.orgLines
-        .map((l, i) => (i === opts.identity!.orgLines.length - 1 ? `<strong>${l}</strong>` : l))
+        .map((l, i) => (i === opts.identity!.orgLines.length - 1 ? `<strong>${escapeHtml(l)}</strong>` : escapeHtml(l)))
         .join("<br>")
     : "المملكة العربية السعودية<br>وزارة التعليم<br>إدارة التعليم في محافظة صبيا<br>مكتب تعليم العيدابي<br><strong>مجمع الخشعة التعليمي للبنين</strong>";
-  const metaNote = opts.identity?.footerNote ?? "منصة الإدارة المدرسية المتكاملة";
-  const headerNote = opts.identity?.headerNote ? `<br>${opts.identity.headerNote}` : "";
-  const yearLine = opts.identity?.academicYear ? `<br>العام الدراسي: ${opts.identity.academicYear}` : "";
-  const signerTitle = opts.identity?.signerTitle ?? "مدير المجمع";
-  const principalLine = opts.identity?.principalName ? `<br>${opts.identity.principalName}` : "";
+  const metaNote = escapeHtml(opts.identity?.footerNote ?? "منصة الإدارة المدرسية المتكاملة");
+  const headerNote = opts.identity?.headerNote ? `<br>${escapeHtml(opts.identity.headerNote)}` : "";
+  const yearLine = opts.identity?.academicYear ? `<br>العام الدراسي: ${escapeHtml(opts.identity.academicYear)}` : "";
+  const signerTitle = escapeHtml(opts.identity?.signerTitle ?? "مدير المجمع");
+  const principalLine = opts.identity?.principalName ? `<br>${escapeHtml(opts.identity.principalName)}` : "";
   return `<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
@@ -86,13 +91,13 @@ th { background: #f2f0eb; font-weight: 700; }
     ${org}${headerNote}
   </div>
   <div class="title">
-    <h1>${opts.title}</h1>
+    <h1>${escapeHtml(opts.title)}</h1>
     <div class="meta">${metaNote}${yearLine}</div>
   </div>
   <div class="org meta">
-    ${opts.docNumber ? `رقم الوثيقة: <strong>${opts.docNumber}</strong><br>` : ""}
-    ${opts.verificationCode ? `رمز التحقق: <strong>${opts.verificationCode}</strong><br>` : ""}
-    ${opts.issuedAtText ? `تاريخ الإصدار: ${opts.issuedAtText}` : ""}
+    ${opts.docNumber ? `رقم الوثيقة: <strong>${escapeHtml(opts.docNumber)}</strong><br>` : ""}
+    ${opts.verificationCode ? `رمز التحقق: <strong>${escapeHtml(opts.verificationCode)}</strong><br>` : ""}
+    ${opts.issuedAtText ? `تاريخ الإصدار: ${escapeHtml(opts.issuedAtText)}` : ""}
   </div>
 </div>
 ${opts.bodyHtml}
@@ -100,11 +105,11 @@ ${
   opts.signatureDataUri || opts.stampDataUri
     ? `<div class="signatures">
         <div class="sig-block">
-          ${opts.signatureDataUri ? `<img class="sig-img" src="${opts.signatureDataUri}" alt="">` : ""}
+          ${opts.signatureDataUri ? `<img class="sig-img" src="${escapeHtml(opts.signatureDataUri)}" alt="">` : ""}
           <div class="sig-line">${signerTitle}${principalLine}</div>
         </div>
         <div class="sig-block">
-          ${opts.stampDataUri ? `<img class="stamp-img" src="${opts.stampDataUri}" alt="">` : ""}
+          ${opts.stampDataUri ? `<img class="stamp-img" src="${escapeHtml(opts.stampDataUri)}" alt="">` : ""}
         </div>
       </div>`
     : ""

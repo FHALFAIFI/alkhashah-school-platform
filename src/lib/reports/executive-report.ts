@@ -11,10 +11,7 @@ import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric, todayIso } from "@/lib/dates";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { orFallback } from "@/lib/format";
-
-function esc(s: string): string {
-  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+import { escapeHtml as esc } from "@/lib/html-escape";
 
 /**
  * التقرير التنفيذي الشامل عبر جميع الوحدات.

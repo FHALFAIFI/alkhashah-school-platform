@@ -7,10 +7,7 @@ import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
 import { orFallback } from "@/lib/format";
-
-function esc(s: string): string {
-  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+import { escapeHtml as esc } from "@/lib/html-escape";
 
 /** بيانات تقرير المبنى (مجمع البنين): الغرف والأبعاد، الأصول، الفحوص والجاهزية، الصيانة. */
 export async function collectBuildingReportData() {

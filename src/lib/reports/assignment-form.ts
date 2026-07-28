@@ -8,10 +8,7 @@ import { saveUploadedFile } from "@/lib/storage";
 import { getDocumentIdentity, resolveHeader, type IdentityToggles } from "@/lib/document-identity";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
 import { orFallback, orDash } from "@/lib/format";
-
-function esc(s: string): string {
-  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+import { escapeHtml as esc } from "@/lib/html-escape";
 
 /**
  * نموذج التكليف على مستوى اللجنة (D-027): قائمتان مستقلتان — «أعضاء اللجنة» (كل الأعضاء الحاليين

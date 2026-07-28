@@ -7,10 +7,7 @@ import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
 import { orFallback, orDash } from "@/lib/format";
-
-function esc(s: string): string {
-  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+import { escapeHtml as esc } from "@/lib/html-escape";
 
 /**
  * تقرير اللجنة الرسمي: التشكيل والأعضاء (تسجيل عضوية فقط — لا حضور ولا غياب ولا نصاب)

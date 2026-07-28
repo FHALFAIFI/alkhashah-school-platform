@@ -2,6 +2,7 @@ import "server-only";
 import AdmZip from "adm-zip";
 import ExcelJS from "exceljs";
 import { readStoredFile } from "@/lib/storage";
+import { escapeHtml as esc } from "@/lib/html-escape";
 
 /**
  * عرض مضمون الشاهد داخل التقارير — لا أسماء ملفات فقط:
@@ -19,10 +20,6 @@ export type RenderedEvidence = {
   html: string;
   truncated: boolean;
 };
-
-function esc(s: string): string {
-  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
 
 async function renderPdfFirstPage(data: Buffer): Promise<string | null> {
   const { pdfFirstPageToPng } = await import("@/lib/pdf-to-image");

@@ -11,10 +11,7 @@ import { renderEvidenceContent } from "@/lib/evidence-render";
 import { weightedScore } from "@/lib/performance/scoring";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
 import { orFallback, orDash } from "@/lib/format";
-
-function esc(s: string): string {
-  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+import { escapeHtml as esc } from "@/lib/html-escape";
 
 async function brandingDataUri(settingKey: string): Promise<string | null> {
   const fileId = await getSetting<string | null>(settingKey, null);

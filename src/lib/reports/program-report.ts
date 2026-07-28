@@ -13,10 +13,7 @@ import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile, readStoredFile } from "@/lib/storage";
 import { getSetting } from "@/lib/settings";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
-
-function esc(s: string): string {
-  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+import { escapeHtml as esc } from "@/lib/html-escape";
 
 async function brandingDataUri(settingKey: string): Promise<string | null> {
   const fileId = await getSetting<string | null>(settingKey, null);

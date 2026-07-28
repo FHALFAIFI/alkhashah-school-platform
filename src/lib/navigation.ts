@@ -97,6 +97,7 @@ const PARENT_MAP: Readonly<Record<string, string>> = {
   "/admin/audit": APP_ROOT,
   "/admin/cleanup": APP_ROOT,
   "/admin/backup": APP_ROOT,
+  "/admin/templates": APP_ROOT,
   "/admin/settings/ai": "/admin/settings",
   "/admin/feedback/[id]": "/admin/feedback",
 };

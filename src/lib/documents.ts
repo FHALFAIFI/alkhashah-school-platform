@@ -6,7 +6,15 @@ import { documents } from "@/db/schema";
 import { getSetting } from "@/lib/settings";
 import { audit } from "@/lib/audit";
 
-/** إصدار وثيقة برقم فريد ورمز تحقق ولقطة HTML ثابتة */
+/**
+ * إصدار وثيقة برقم فريد ورمز تحقق ولقطة HTML ثابتة.
+ *
+ * اللقطة (`htmlSnapshot`) هي المرجع الأبدي للوثيقة: تُحفظ كما صُيّرت لحظة الإصدار ولا
+ * يُعاد توليدها أبداً. لذلك تغيير قالب لاحقاً — أو تغيير هوية المدرسة أو أي إعداد — لا
+ * يمسّ أي وثيقة صادرة (v2.2 §E5).
+ *
+ * `templateVersionId` أثر تدقيقي يجيب «بأي نسخة قالب صدرت؟» ولا يُستعمل في العرض.
+ */
 export async function issueDocument(opts: {
   docType: string;
   title: string;
@@ -16,6 +24,7 @@ export async function issueDocument(opts: {
   pdfFileId?: string;
   withSignature?: boolean;
   withStamp?: boolean;
+  templateVersionId?: string | null;
   issuedBy: string;
 }) {
   const prefix = await getSetting("documents.number_prefix", "KHS-DOC-");
@@ -36,6 +45,7 @@ export async function issueDocument(opts: {
       pdfFileId: opts.pdfFileId,
       withSignature: opts.withSignature ?? false,
       withStamp: opts.withStamp ?? false,
+      templateVersionId: opts.templateVersionId ?? null,
       issuedBy: opts.issuedBy,
     })
     .returning();
