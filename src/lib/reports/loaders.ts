@@ -55,9 +55,19 @@ function likeTerm(search: string): string {
   return `%${search.trim().replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
 }
 
-/** تنسيق تاريخ للعرض بلا اعتماد على منطقة زمنية متغيّرة */
-function isoDate(d: Date | null | undefined): string | null {
-  return d ? d.toISOString().slice(0, 10) : null;
+/**
+ * تنسيق تاريخ للعرض بلا اعتماد على منطقة زمنية متغيّرة.
+ *
+ * يقبل `Date` و`string` معاً عن قصد: أعمدة `timestamp` العادية تعود كـ`Date` من drizzle،
+ * بينما الدوال المجمَّعة (`max(created_at)`) تعود **نصاً** من سائق Postgres. توحيد المعالجة
+ * هنا يمنع سقوط التقرير عند وجود بيانات فعلية (لا يظهر الخلل على جدول فارغ لأن `max`
+ * تعيد null حينها).
+ */
+function isoDate(d: Date | string | null | undefined): string | null {
+  if (!d) return null;
+  if (d instanceof Date) return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  const parsed = new Date(d);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
 
 /** ترتيب وتقسيم صفحات في الذاكرة — للتقارير المجمَّعة أو المدمَجة من مصدرين */

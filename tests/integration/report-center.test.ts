@@ -115,6 +115,32 @@ describe("التقارير مع بيانات حقيقية", () => {
     expect(closed.rows[0].closureNote).toBe("انتهى");
   });
 
+  it("التقارير المجمَّعة تعمل مع بيانات فعلية لا مع جدول فارغ فقط", async () => {
+    // انحدار: الدوال المجمَّعة مثل max(created_at) تعيد **نصاً** من سائق Postgres لا كائن
+    // Date. على جدول فارغ تعيد null فلا يظهر الخلل؛ ومع بيانات فعلية كانت تُسقط التقرير.
+    const { db } = await import("@/db");
+    const { evidenceItems, evidenceLinks, planYears, programs } = await import("@/db/schema");
+    const suffix = Math.floor(Math.random() * 1e9);
+    const [year] = await db.insert(planYears).values({ key: `agg-${suffix}`, nameAr: `سنة ${suffix}` }).returning();
+    const [prog] = await db
+      .insert(programs)
+      .values({ planYearId: year.id, seq: 900 + (suffix % 90), domain: "مجال", name: "برنامج التجميع" })
+      .returning();
+    const [ev] = await db.insert(evidenceItems).values({ title: "شاهد تجميع", kind: "text", textContent: "نص" }).returning();
+    await db.insert(evidenceLinks).values({ evidenceId: ev.id, entityType: "program", entityId: prog.id });
+
+    const { runReport } = await import("@/lib/reports/loaders");
+    const byType = await runReport("evidence-by-type", {});
+    const byProgram = await runReport("evidence-by-program", {});
+
+    expect(byType.total).toBeGreaterThan(0);
+    expect(byProgram.total).toBeGreaterThan(0);
+    // التاريخ المجمَّع يُصيَّر نصاً بصيغة ISO لا كائناً ولا ينهار
+    const latest = byType.rows[0].latest;
+    expect(typeof latest === "string" || latest === null).toBe(true);
+    if (typeof latest === "string") expect(latest).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
   it("يعرض «—» بدل قيمة فارغة عبر تنسيق العرض null-safe", async () => {
     const { runReport } = await import("@/lib/reports/loaders");
     const result = await runReport("programs-active", {});
