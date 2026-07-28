@@ -5,6 +5,7 @@ import { documents } from "@/db/schema";
 import { PageHeader, Table, EmptyState } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { EmailDocumentButton } from "@/components/integrations-ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "الوثائق الصادرة" };
 export const dynamic = "force-dynamic";
@@ -23,7 +24,8 @@ export default async function DocumentsPage() {
   const docs = await db.select().from(documents).where(notSynthetic(documents.id, excluded.documents)).orderBy(desc(documents.issuedAt));
   return (
     <div>
-      <PageHeader title="الوثائق الصادرة" subtitle="لكل وثيقة رقم فريد ورمز تحقق ولقطة ثابتة لا تتغير" />
+      <PageHeader title="الوثائق الصادرة" subtitle="لكل وثيقة رقم فريد ورمز تحقق ولقطة ثابتة لا تتغير" actions={<SectionReportsLink category="documents" />}
+      />
       {docs.length === 0 ? (
         <EmptyState title="لا وثائق صادرة بعد" />
       ) : (

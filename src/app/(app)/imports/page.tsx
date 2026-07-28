@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { importBatches } from "@/db/schema";
 import { PageHeader, Table, Badge, LinkButton, EmptyState } from "@/components/ui";
 import { dualDisplay } from "@/lib/dates";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "الاستيراد" };
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ export default async function ImportsPage() {
         subtitle="كل استيراد يمر بمعاينة وتحقق وتصحيح ثم موافقة صريحة، ويمكن التراجع الكامل عند الأمان"
         actions={
           <>
+            <SectionReportsLink category="imports" />
             <LinkButton href="/imports/new?type=people" variant="secondary">استيراد أشخاص</LinkButton>
             <LinkButton href="/imports/new?type=operational_plan">استيراد الخطة التشغيلية</LinkButton>
           </>

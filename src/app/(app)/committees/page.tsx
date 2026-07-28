@@ -8,6 +8,7 @@ import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { committeeStatusLabel } from "@/lib/plan/status-labels";
 import { committedEmployeeCount, faresPreviewBatchId } from "@/lib/committees/prerequisites";
 import { FormCommitteeButton, NewPlcForm } from "./committees-ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "اللجان والفرق" };
 export const dynamic = "force-dynamic";
@@ -50,6 +51,7 @@ export default async function CommitteesPage() {
         subtitle="تشكل اللجان سنوياً من القوالب دون نسخ عضويات الأعوام السابقة — الأعضاء من منسوبي المدرسة حصراً"
         actions={
           <div className="flex flex-wrap gap-2">
+            <SectionReportsLink category="committees" />
             <LinkButton href="/committees/templates" variant="secondary">عرض القوالب</LinkButton>
             <LinkButton href="/committees/task-templates" variant="secondary">قوالب المهام</LinkButton>
             <LinkButton href="/committees/meeting-types" variant="secondary">أنواع الاجتماعات</LinkButton>

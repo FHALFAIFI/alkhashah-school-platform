@@ -95,7 +95,19 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
-export function Table({ headers, children }: { headers: string[]; children: React.ReactNode }) {
+export function Table({
+  headers,
+  children,
+  sortLinks,
+}: {
+  headers: string[];
+  children: React.ReactNode;
+  /**
+   * روابط الترتيب لكل عمود (اختيارية) — حين تُمرَّر يصبح عنوان العمود رابطاً يعيد
+   * ترتيب النتائج على الخادم. رابط حقيقي لا زر: يعمل بلا JavaScript وقابل للمشاركة.
+   */
+  sortLinks?: (string | undefined)[];
+}) {
   return (
     <div className="overflow-x-auto rounded-xl border border-sand-200 bg-white">
       <table className="w-full min-w-max text-sm">
@@ -103,11 +115,21 @@ export function Table({ headers, children }: { headers: string[]; children: Reac
           <tr className="border-b border-sand-200 bg-sand-100 text-start">
             {/* المفتاح بالفهرس لا بالنص: بعض الجداول تكرّر عناوين متطابقة («الحالة») فتتعارض المفاتيح
                 وتظهر تحذيرات مطابقة قد تزعزع استقرار DOM (يخدم D-029) */}
-            {headers.map((h, i) => (
-              <th key={i} className="px-3 py-2.5 text-start font-medium text-gray-600">
-                {h}
-              </th>
-            ))}
+            {headers.map((h, i) => {
+              const href = sortLinks?.[i];
+              return (
+                <th key={i} className="px-3 py-2.5 text-start font-medium text-gray-600">
+                  {href ? (
+                    <a href={href} className="inline-flex items-center gap-1 hover:text-brand-700 hover:underline">
+                      {h}
+                      <span aria-hidden className="text-[10px] text-gray-400">⇅</span>
+                    </a>
+                  ) : (
+                    h
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody className="divide-y divide-sand-100">{children}</tbody>

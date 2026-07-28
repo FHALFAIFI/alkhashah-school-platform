@@ -6,6 +6,7 @@ import { PageHeader, Table, Badge, LinkButton, EmptyState, Card } from "@/compon
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { employeeTypeOf } from "@/lib/employee-type";
 import { orFallback } from "@/lib/format";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "سجل المعلمين والموظفين" };
 export const dynamic = "force-dynamic";
@@ -51,6 +52,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         subtitle={`${all.length} منسوباً — ${teachers} معلماً و${staff} موظفاً إدارياً`}
         actions={
           <>
+            <SectionReportsLink category="employees" />
             <LinkButton href="/people/new" variant="secondary">إضافة شخص</LinkButton>
             <LinkButton href="/imports/new?type=people">استيراد من ملف فارس</LinkButton>
           </>

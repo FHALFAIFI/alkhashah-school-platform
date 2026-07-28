@@ -7,6 +7,7 @@ import { PageHeader, Card, Badge, LinkButton, Table } from "@/components/ui";
 import type { FloorGeometry } from "@/lib/building/geometry";
 import { FloorViewer } from "./floor-viewer";
 import { OpenRoomByCodeForm } from "./building-ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "مخطط المبنى" };
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export default async function BuildingPage({ searchParams }: { searchParams: Pro
         subtitle="مخطط تشغيلي وليس رسماً هندسياً معتمداً · الإحداثيات: 17.2484051، 43.0609594 · مجمع البنات يظهر سياقاً جغرافياً فقط"
         actions={
           <div className="flex flex-wrap gap-2">
+            <SectionReportsLink category="building" />
             <LinkButton href="/building/report" variant="secondary">تقرير المبنى</LinkButton>
             <LinkButton href="/building/documents" variant="secondary">مسح المستندات</LinkButton>
             <LinkButton href="/building/scan" variant="secondary">مسح رمز QR</LinkButton>

@@ -11,6 +11,7 @@ import { orFallback, orDash } from "@/lib/format";
 import { dualDisplay } from "@/lib/dates";
 import { FollowupDueBadge } from "./followup-badge";
 import { AddProgramPanel } from "./program-create-ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "الخطة التشغيلية" };
 export const dynamic = "force-dynamic";
@@ -60,6 +61,7 @@ export default async function PlanPage() {
         subtitle={`${progs.length} برنامجاً · معتمد: ${approved} · متوسط الإنجاز: ${avgProgress}٪${closed.length ? ` · مغلق: ${closed.length}` : ""} · تنتهي جميع البرامج في 5/1/1449هـ`}
         actions={
           <>
+            <SectionReportsLink category="plan" />
             <LinkButton href="/plan/classifications" variant="secondary">إدارة التصنيفات</LinkButton>
             <LinkButton href="/plan/followup">المتابعة الأسبوعية</LinkButton>
             <Badge value={activeYear.status} />

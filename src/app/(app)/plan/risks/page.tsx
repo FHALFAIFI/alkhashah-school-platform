@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { programRisks } from "@/db/schema";
 import { PageHeader, Table, EmptyState, Badge } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "سجل المخاطر" };
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export default async function RisksPage() {
       <PageHeader
         title="سجل المخاطر"
         subtitle="من مصنف الخطة التشغيلية"
+      actions={<SectionReportsLink category="risks" />}
       />
       {risks.length === 0 ? (
         <EmptyState title="لا مخاطر مسجلة بعد" hint="تستورد المخاطر ضمن دفعة استيراد الخطة التشغيلية" />

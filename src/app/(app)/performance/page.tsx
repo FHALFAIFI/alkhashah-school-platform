@@ -9,6 +9,7 @@ import { faresPreviewBatchId } from "@/lib/committees/prerequisites";
 import { missingSignedReports } from "@/lib/performance/signed-reports";
 import { NewCycleForm } from "./performance-ui";
 import { orDash } from "@/lib/format";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "دورات الأداء" };
 export const dynamic = "force-dynamic";
@@ -38,7 +39,12 @@ export default async function PerformancePage() {
       <PageHeader
         title="إدارة الأداء الوظيفي"
         subtitle="دورتا المعلم (التقويم الدراسي، تبدأ بعودة المعلمين) والموظف (السنة الميلادية) منفصلتان في لوحة موحدة"
-        actions={<LinkButton href="/performance/models" variant="secondary">نماذج الأداء</LinkButton>}
+        actions={
+          <>
+            <SectionReportsLink category="performance" />
+            <LinkButton href="/performance/models" variant="secondary">نماذج الأداء</LinkButton>
+          </>
+        }
       />
 
       {!canSeeIndividual && (

@@ -5,6 +5,7 @@ import { evidenceItems, evidenceLinks } from "@/db/schema";
 import { PageHeader, Table, Badge, EmptyState, LinkButton } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { EvidenceReviewControl } from "./review-ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "الشواهد" };
 export const dynamic = "force-dynamic";
@@ -45,6 +46,7 @@ export default async function EvidencePage({ searchParams }: { searchParams: Pro
       <PageHeader
         title="سجل الشواهد الموحد"
         subtitle="يُرفع الشاهد مرة واحدة ويُربط بعدة سجلات عبر جميع الوحدات — الاستبدال يحفظ النسخة السابقة، والحذف النهائي متاح فقط لشاهد غير مرتبط بأي سجل"
+      actions={<SectionReportsLink category="evidence" />}
       />
       <div className="mb-4 flex flex-wrap gap-2">
         <LinkButton href="/evidence" variant={!showArchived ? "primary" : "secondary"}>الشواهد النشطة</LinkButton>
