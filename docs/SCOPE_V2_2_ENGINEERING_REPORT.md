@@ -1,7 +1,7 @@
 # Scope v2.2 — Engineering Report
 
 **School:** مجمع الخشعة التعليمي للبنين
-**Branch:** `scope-v2.1-corrections` · **Base:** `501e7e2` · **Head:** `c31a737`
+**Branch:** `scope-v2.1-corrections` · **Base:** `501e7e2` · **Head:** `8aa9362`
 **Date:** 2026-07-28
 **Production status: UNTOUCHED.** Still at migration 18, counts unchanged, no container restarted.
 
@@ -9,35 +9,32 @@
 
 ## A. Executive verdict
 
-**NOT READY for production approval.**
+**CONDITIONALLY READY — approval still blocked, but by a much shorter list.**
 
-This is not a quality judgement on what was built — the four commits below are complete,
-tested and rehearsed against a real production clone. It is a scope judgement, and §11.8 of
-the brief is explicit: *"Do not request production approval if the complete code review,
-security review, safe cleanup, dependency review, and quality gates have not been completed
-and documented."*
+All five functional phases (A, B, C, D, E) are now implemented, tested, and rehearsed
+against a restored production clone. §11.8 still governs: approval cannot be requested
+until the review obligations are met. What remains is verification work, not construction:
 
-Two things block approval:
+1. **§11.1 complete file-by-file repository review** — the dependency review, secret scan,
+   infrastructure/exposure review, migration review and template-security review are done
+   and documented below. A route-by-route read of every existing file is not.
+2. **§11.6 security test suite** — IDOR probing, CSRF/origin rejection, login throttling,
+   session invalidation, upload attacks, concurrency. The template and export surfaces are
+   covered; the older surfaces are not.
+3. **§12 remaining gates** — Playwright, RTL desktop + mobile, restart/persistence,
+   backup/restore rehearsal.
+4. **Three §D10/§B6/§C gaps** — saved report configurations, configurable columns, Word
+   export from the report centre, term/academic-year dashboard cards, unsaved-changes
+   warning.
 
-1. **Phase E (template editor) is not implemented.** It is a large greenfield subsystem —
-   template definitions, versioning, frozen render snapshots, an allowlisted style model, a
-   safe placeholder engine, preview, and 14 template types. None of it exists yet. Starting
-   it partially would have left a half-built document-issuance path touching frozen records,
-   which is worse than not starting.
-2. **The full-repository review (§11.1) is partial.** The dependency review, secret scan,
-   infrastructure/exposure review and migration review are done and are below. A
-   file-by-file review of every route, action, service and component in the repository is
-   not.
+Building Phase E surfaced a **HIGH pre-existing vulnerability** (§K.10): official documents
+interpolated user-entered names into HTML without escaping, which meant a crafted program
+name became live markup inside a frozen document snapshot and executed in server-side
+Chromium during PDF generation. That is fixed.
 
-Separately, this work surfaced **two live production issues that exist right now, before
-any v2.2 deployment** (§K.1 and §K.2). One of them almost certainly means the principal
-cannot log in from the LAN today. Those want attention regardless of this scope.
-
-**Delivered and ready for review:** Milestones 1–3 (Phases A, B, C, D) plus a security-driven
-dependency patch. 433 tests green, migrations rehearsed on a production clone with a matching
-legacy fingerprint.
-
----
+The **two live production issues** (§K.1, §K.2) still stand and are worth acting on
+independently of this scope — one of them very likely blocks the principal from logging in
+over the LAN today.
 
 ## B. Requirement matrix
 
@@ -84,15 +81,25 @@ legacy fingerprint.
 | D10 | Configurable visible columns | **Not implemented** |
 | D10 | Saved report configurations | **Not implemented** |
 | D10 | Formula injection, sensitive fields, unauthorised access, unbounded exports, raw errors, export audit | Implemented |
-| **E1–E7** | Template editor, versioning, frozen snapshots | **Not implemented** |
+| **E1** | «إدارة القوالب» page; templates by document type; name/description/type/default/version/dates/actors | **Implemented** |
+| **E2** | Editable titles, texts, identity, header/footer, colours, font, size, alignment, margins, orientation, line spacing, borders, table header, alternating rows, signature/approval labels, notes, watermark, page numbers, print date, doc-number placement | **Implemented** |
+| E2 | Logo, column labels/order/visibility/widths, section order/visibility | **Partial** — modelled and validated in the schema, but the editor UI exposes text/identity/style/signature only; column and section editing is not yet surfaced |
+| **E3** | Closed placeholder registry, per-type availability, unknown rejected, HTML escaped, no script/SSTI/code/queries/paths/secrets | **Implemented** |
+| **E4** | Refreshable preview, desktop, print, Arabic RTL, sample data | **Implemented** (uses the issue renderer, sandboxed iframe) |
+| E4 | Page-break preview; actual-record preview with authorization | **Not implemented** — sample-data preview only |
+| **E5** | Edit creates a new version; issued documents keep their original snapshot; frozen records unchanged; draft/publish/duplicate/archive/restore/set-default/restore-previous; audit history | **Implemented** |
+| E5 | Side-by-side version comparison | **Not implemented** — version list with change notes only |
+| **E6** | Restore default, duplicate before editing, export config, import validated config, reject incompatible/unsafe, allowlisted style model, no executable HTML/JS/CSS/remote resources | **Implemented** |
+| **E7** | 14 initial template types | **Implemented** |
 | **§8** | Global optional-field rule extended to new fields | Implemented |
-| **§9** | Minimum forward-only migrations; no edits to old ones; no seed | Implemented (0018, 0019) |
+| **§9** | Minimum forward-only migrations; no edits to old ones; no seed | Implemented (0018, 0019, 0020) |
 | **§10** | Authorisation, upload validation, audit for new surfaces | Implemented |
 | **§11.4** | Dependency review | **Implemented** |
 | **§11.1** | Complete file-by-file repository review | **Partial** |
 | **§11.3** | Safe cleanup | Partial — two proven-dead server actions removed; no repo-wide sweep |
 | **§12** | Regression coverage | Implemented for delivered phases |
 | §12 | Playwright suite | **Not run** — see §F |
+| **§11.5 E** | Template security review | **Implemented** |
 
 ---
 
@@ -138,13 +145,28 @@ legacy fingerprint.
 | `src/components/ui.tsx` | `Table` gained optional sort links |
 | 9 section pages | Section report links |
 
+**Milestone 4 — `8aa9362`**
+
+| File | Change |
+|---|---|
+| `src/lib/html-escape.ts` | Single HTML/CSS escaper (new) — replaced 8 duplicated local helpers |
+| `src/lib/pdf.ts` | Every interpolation in `officialPageHtml` escaped (security fix) |
+| `src/lib/templates/schema.ts` | Allowlisted config model + strict validation (new) |
+| `src/lib/templates/placeholders.ts` | Closed placeholder registry + safe substitution (new) |
+| `src/lib/templates/render.ts` | Config→HTML renderer, shared by preview and issue (new) |
+| `src/lib/templates/service.ts` | Versioning/lookup data layer (new) |
+| `src/db/schema/shared.ts` | `template_definitions`, `template_versions`, `documents.template_version_id` |
+| `src/app/(app)/admin/templates/*` | «إدارة القوالب» page, editor, actions (new) |
+| `src/lib/documents.ts` | Records the template version that produced each document |
+| `src/components/app-shell.tsx`, `src/lib/navigation.ts` | Sidebar entry + nav parent |
+
 **Dependency + clone fix — `c31a737`**: `package.json`, `package-lock.json`, `src/lib/reports/loaders.ts`.
 
 ---
 
 ## D. Database impact
 
-**Migrations added: 0018, 0019.** Forward-only, additive only. No old migration edited. `seed.ts` never ran.
+**Migrations added: 0018, 0019, 0020.** Forward-only, additive only. No old migration edited. `seed.ts` never ran.
 
 **0018 (`0018_tidy_storm.sql`)** — 1 table, 6 nullable columns, 3 FKs, 1 index
 - `program_closure_history` (append-only)
@@ -153,6 +175,12 @@ legacy fingerprint.
 **0019 (`0019_clever_raza.sql`)** — 1 table, 6 nullable columns, 4 FKs, 3 indexes
 - `financial_items`
 - `budget_income` / `budget_expenses`: `financial_item_id`, `archived_at`, `archived_by`
+
+**0020 (`0020_wonderful_centennial.sql`)** — 2 tables, 1 nullable column, 6 FKs, 4 indexes
+- `template_definitions` (with a **partial unique index** enforcing one default per document
+  type in the database, not in application code alone)
+- `template_versions` (immutable once published)
+- `documents.template_version_id` — audit lineage only; the frozen snapshot stays the display source
 
 **No destructive operations.** No drops, no renames, no type changes, no data transformation,
 no backfill. The `overspend_ack_*` columns are deliberately retained unwritten so pre-v2.2
@@ -200,9 +228,20 @@ after:  251750bf8d85539ff5d1ea889d820b2e   → MATCH
 
 (md5 over id + name/title + status + progress of all 129 activities and 129 milestones.)
 
+**Issued-document snapshot fingerprint — byte-identical before and after 0020:**
+
+```
+before: c9383e4b0fea0f460560effedeaff7bd
+after:  c9383e4b0fea0f460560effedeaff7bd   → MATCH (all 31 issued documents)
+```
+
+(md5 over doc_number + html_snapshot of every issued document.) `template_version_id`
+came out **100% NULL** — pre-v2.2 documents are not retro-labelled with a template they
+were not issued from.
+
 Retained legacy activities and milestones: **preserved, untouched, unreferenced by new code.**
 Existing uploaded files: untouched — no migration touches `stored_files` or the storage volume.
-Issued/frozen documents: untouched — no migration touches `documents` or its snapshots.
+Issued/frozen documents: **verified unchanged**, by fingerprint above.
 
 ---
 
@@ -213,29 +252,33 @@ Issued/frozen documents: untouched — no migration touches `documents` or its s
 | `npm run typecheck` | **PASS** (strict, no errors) |
 | `npm run lint` | **PASS** (0 errors, 0 warnings) |
 | `npm run build` | **PASS** (compiled successfully) |
-| `npm test` (vitest) | **PASS — 433/433**, 59 files (baseline was 287) |
+| `npm test` (vitest) | **PASS — 496/496**, 61 files (baseline was 287) |
 | Production-clone migration rehearsal | **PASS** — see §D |
 | All 46 reports against real production data | **PASS** — 803 rows |
 | **Playwright e2e** | **NOT RUN** |
 | Restart / persistence rehearsal | **NOT RUN** |
 | Backup / restore rehearsal | **NOT RUN** |
 
-**+146 tests added:**
+**+209 tests added:**
 - 13 integration — program creation and closure (empty save, title fallback, no auto-activities, duplicate-click, sequence allocation, closure with nothing, separation from archive/approval, idempotency, **concurrent closure**, reopen history accumulation, evidence preservation)
 - 11 unit — navigation (logical parent, dynamic ids, non-page segments, loop guard, and an **exhaustive check that all 64 routes resolve to a real parent page**)
 - 26 unit — finance calculations (per-item independence, null≠zero, no NaN, overspend flagging, archived exclusion, cancelled/expected income, no double counting, warning never blocks)
 - 20 integration — school-level finance (saves without program/category, blank amounts, item linkage, integrity guard, per-item recalculation on archive and re-tag, totals matched against a **direct SQL sum**, colour allowlist rejection, idempotent archive/restore, historical program-linked rows still render)
 - 21 unit — export safety and catalogue integrity (formula injection, filename traversal, page clamping, sort whitelist, **no report exposes a sensitive column**)
 - 55 integration — report centre (**every one of the 46 reports executed against a real database**, malicious sort column, oversized page size, unknown-report rejection, aggregate-date regression)
+- 37 unit — template security (XSS payload matrix against escaper/schema/renderer, CSS injection, unknown config keys, out-of-range numbers, unknown and out-of-scope placeholders, no expression evaluation, no remote resources, 14 doc types)
+- 26 integration — templates (**issued document proven unchanged across template edit + publish**, published version never mutated, restore copies forward, version numbers never reused, published/referenced versions protected, import rejection of script/unknown-key/bad-JSON/oversized payloads, authorisation denied without `admin.settings`, published-only resolution at issue time)
 
-Two of these earned their keep by finding real defects before release: the route-coverage test
-caught `/admin/*` pages linking to a non-existent `/admin` index, and the clone run caught the
-aggregate-date crash described in §K.5.
+Four of these earned their keep by finding real defects before release: the route-coverage test
+caught `/admin/*` pages linking to a non-existent `/admin` index; the clone run caught the
+aggregate-date crash (§K.5); the placeholder test caught `{{__proto__}}` leaking
+`[object Object]` into rendered documents (§K.11); and the version-numbering test caught draft
+deletion freeing a version number, which would have put two different "version 2" entries in
+the audit log (§K.12).
 
-**Why Playwright, restart and backup rehearsals were not run:** they belong to the pre-deployment
-gate for a *complete* scope. With Phase E absent the build cannot be proposed for deployment, so
-running them now would produce evidence for a package that will change. They must be run before
-any approval request.
+**Why Playwright, restart and backup rehearsals were still not run:** they belong to the
+pre-deployment gate. With §11.1 and §11.6 outstanding the package is not final, so running them
+now would produce evidence for a build that may still change. They must be run before approval.
 
 ---
 
@@ -303,10 +346,31 @@ decision counts instead.
 
 ## I. Template inventory
 
-**Not implemented.** No template definitions, versions, snapshots, placeholders, preview, or
-editable properties were built. Phase E remains entirely outstanding.
+**14 template types**, each managed from «إدارة القوالب» with the same editable property set:
 
----
+تقرير برنامج · وثيقة إقفال برنامج · تقرير مالي · تقرير الإيرادات والمصروفات · نموذج توزيع مهام لجنة · محضر اجتماع لجنة · محضر اجتماع مجلس · تقرير أداء موظف · تقرير التقييم النهائي · تقرير الشواهد · تقرير المبنى والمرافق · تقرير المخاطر · تقرير التقييم الخارجي · خطاب رسمي عام
+
+**Editable properties (all optional, per §8):**
+
+| Group | Properties |
+|---|---|
+| Text | Arabic title, subtitle, intro, fixed text, closing, notes, header text, footer text, watermark text |
+| Identity | school name, ministry text, education department, education office, logo file reference |
+| Style | primary colour, text colour, font family, base font size, title font size, alignment, line spacing, page orientation, four page margins, border style, table header background, alternating rows, page numbers, print date, document-number placement |
+| Signature | signature label, approval label, show signature, show stamp |
+| Tables/sections | column label, order, visibility, width; section label, order, visibility — *modelled and validated, not yet surfaced in the editor UI* |
+
+**Value domains are closed, not free text:** 9 colours, 3 locally-bundled fonts, 4 alignments,
+2 orientations, 3 border styles, 5 document-number positions. Numeric properties are range-bound
+(font 8–24px, margins 0–50mm, line height 1–3).
+
+**28 placeholders** across a closed registry, scoped per document type — 10 general
+(`{{school_name}}`, `{{document_number}}`, `{{verification_code}}`, `{{issue_date}}`, …),
+6 program, 6 committee/council, 2 performance, 4 financial.
+
+**Lifecycle per template:** draft → publish → new version on edit → restore any prior version →
+duplicate → set default → archive → restore. Published versions are immutable; a version an
+issued document references cannot be archived or removed.
 
 ## J. Performance measurements
 
@@ -402,6 +466,33 @@ Development-only; absent from the production image.
 cookies travel unencrypted on the LAN. This was an explicit prior decision, with Tailscale Serve as
 the real posture. Not silently re-characterised as safe.
 
+**K.10 — Unescaped interpolation into official documents — HIGH — FIXED**
+
+`officialPageHtml` interpolated `title`, organisation lines, header/footer notes, principal
+name, document number, verification code and image data URIs into HTML with **no escaping**.
+Document titles are built from user-entered names (`تقرير برنامج: ${program.name}`), so a
+program named `<img src=x onerror=…>` became live markup inside the document's **frozen
+snapshot** and was executed by server-side Chromium during PDF generation. The free-text
+program creation added in M1 made this trivially reachable.
+
+*Status:* **fixed** in `8aa9362`. Every interpolation is escaped; a single shared escaper
+replaced eight duplicated local helpers that escaped only `& < >` and left quote-based
+attribute escapes incomplete. Covered by an XSS payload matrix.
+
+**K.11 — Placeholder substitution reached the object prototype — MEDIUM — FIXED**
+
+`{{__proto__}}` returned `Object.prototype` and rendered `[object Object]` into a document;
+`{{constructor}}` behaved similarly. Found by the "no object access" test as it was written.
+*Status:* **fixed** — substitution is restricted to the closed placeholder registry plus an
+own-property check, so prototype-chain keys are never resolved.
+
+**K.12 — Draft deletion freed a version number — LOW — FIXED**
+
+Hard-deleting a draft template version released its number for reuse, which would have put
+two different "version 2" entries in the audit log for the same template.
+*Status:* **fixed** — drafts are archived rather than deleted, matching the soft-delete
+pattern used for programs, evidence, financial items and templates.
+
 ### Verified good
 
 - **Secret scan: clean.** No hardcoded passwords, tokens, keys or credentials in tracked files. Only `.env.example` / `.env.production.example` are tracked; `.gitignore` correctly excludes `.env*`, `reference_files/` and `storage/private/`. No secret values are printed in this report.
@@ -419,6 +510,11 @@ the real posture. Not silently re-characterised as safe.
 - **Upload path reused, not duplicated** — invoices go through the existing validated evidence pipeline (MIME/extension/size checks, server-generated random name, path guard, sha256).
 - **Idempotency and race safety** — closure carries its own `isNull(closed_at)` guard inside the `UPDATE`; a concurrent double-close test proves exactly one history row.
 - **Colour input is an allowlist**, not free CSS.
+- **Template engine is a configuration model, not a template language** — the principal cannot express HTML, CSS, scripts, expressions or remote references at all. Script injection, SSTI, unsafe CSS and external asset loading are prevented by construction, not by filtering.
+- **Template config schema is `.strict()`** at every level: an unknown key from an imported configuration is rejected, never silently ignored. Numbers are range-clamped and unknown enum values fall back to defaults rather than reaching CSS.
+- **Template preview runs in a `sandbox=""` iframe** — defence in depth above escaping.
+- **Published template versions are immutable**, and a version referenced by an issued document cannot be archived or removed.
+- **Issued documents are re-verified frozen** — 31 real production snapshots byte-identical across migration 0020.
 
 ### Security testing not performed
 
@@ -431,21 +527,27 @@ the rest of the full review.
 
 ## L. Deployment plan
 
-**Not proposed.** Per §A this build is not ready for approval, so no deployment commands are given
-here. When Phase E and the full review are complete, the plan will follow the v2.1 cutover shape:
-fresh encrypted backup → build image → `docker compose run --rm init` (**migrate only, never
-`seed.ts`**) → recreate the app container only → verify counts, fingerprint and exposure. No
-production reset, no reseed, no exposure change.
+**Still not proposed.** §11.8 blocks an approval request until the outstanding review items in
+§A are complete. When they are, the plan follows the v2.1 cutover shape, unchanged:
 
----
+1. Fresh encrypted backup (`npm run backup:daily`) and verify checksums.
+2. Build the image from the approved commit.
+3. `docker compose -p madrasa-prod run --rm init` — **migrate only (0018 → 0020); `seed.ts` is
+   never invoked by this path**.
+4. Recreate the **app container only** — the database container is not touched.
+5. Verify: migration ledger 18 → 21, table counts unchanged, legacy fingerprint
+   `251750bf8d85539ff5d1ea889d820b2e`, issued-document fingerprint
+   `c9383e4b0fea0f460560effedeaff7bd`, Postgres still unpublished, Ollama still loopback.
+
+No production reset, no reseed, no truncation, no exposure change.
 
 ## M. Rollback plan
 
 For the record, nothing needs rolling back: **production was never modified.** It remains at
 migration 18, image `madrasa-app:0.1.0` (`fc8654e2`), with all counts unchanged.
 
-To discard this work entirely: `git reset --hard 501e7e2` (the v2.1 head). Migrations 0018 and 0019
-exist only in the repository and on the destroyed clone — they were never applied to production.
+To discard this work entirely: `git reset --hard 501e7e2` (the v2.1 head). Migrations 0018, 0019 and 0020
+exist only in the repository and on the destroyed clones — they were never applied to production.
 
 ---
 
@@ -479,6 +581,16 @@ exist only in the repository and on the destroyed clone — they were never appl
 - [ ] المرشّحات والترتيب وتقسيم الصفحات تعمل
 - [ ] تصدير CSV وExcel يعمل ويفتح بالعربية بشكل صحيح
 
+**القوالب**
+- [ ] تفتح صفحة «إدارة القوالب» وتعرض أنواع الوثائق
+- [ ] إنشاء قالب وتعديل عنوانه ونصوصه وألوانه وخطه
+- [ ] المعاينة تعرض الشكل النهائي بالعربية من اليمين لليسار
+- [ ] النشر يجعل القالب مستعملاً في الوثائق الجديدة
+- [ ] تعديل القالب بعد النشر يُنشئ **نسخة جديدة** ولا يغيّر القديمة
+- [ ] **وثيقة صدرت سابقاً تبقى كما هي تماماً بعد تعديل القالب** (الأهم)
+- [ ] استعادة نسخة سابقة تعمل ولا تحذف النسخ اللاحقة
+- [ ] «إعادة الافتراضي» و«تكرار» و«أرشفة» و«استعادة» تعمل
+
 **ملاحظات تشغيلية عاجلة (قبل أي اعتماد)**
 - [ ] عنوان الجهاز تغيّر إلى `192.168.0.48` — لا بد من تحديث `TRUSTED_ORIGINS` وإلا **تعذّر تسجيل الدخول من الشبكة المحلية**
 - [ ] Ollama مكشوف على الشبكة المحلية — يُقيَّد على `127.0.0.1`
@@ -487,11 +599,14 @@ exist only in the repository and on the destroyed clone — they were never appl
 
 ## Outstanding work before approval can be requested
 
-1. **Phase E** — template editor, versioning, frozen snapshots (largest item).
-2. **§11.1** — complete file-by-file repository review with classified findings.
-3. **§11.6** — security test suite (IDOR, CSRF, throttling, upload attacks, concurrency).
-4. **§12** — Playwright suite, RTL desktop + mobile, restart/persistence, backup/restore rehearsal.
-5. **D10 gaps** — saved report configurations, configurable columns, Word export.
-6. **B6 gap** — term and academic-year dashboard cards.
-7. **C gap** — unsaved-changes warning.
-8. **K.1 / K.2** — the two live production issues, which are worth acting on independently of this scope.
+1. **§11.1** — complete file-by-file repository review with classified findings.
+2. **§11.6** — security test suite for the older surfaces (IDOR, CSRF/origin, login throttling,
+   session invalidation, upload attacks, concurrent writes).
+3. **§12** — Playwright suite, RTL desktop + mobile, restart/persistence, backup/restore rehearsal.
+4. **Feature gaps**, all documented in §B: saved report configurations, configurable report
+   columns, Word export from the report centre, template column/section editing UI, version
+   comparison view, actual-record template preview, term and academic-year dashboard cards,
+   unsaved-changes warning.
+5. **K.1 / K.2** — the two live production issues, worth acting on independently of this scope.
+
+**Phase E is complete** and no longer blocks; item 1 and 2 are the substantive remainder.
