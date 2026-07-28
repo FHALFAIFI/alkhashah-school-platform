@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { budgetIncome, budgetExpenses, planBudgetItems, programs, programActivities, people, planYears, evidenceItems } from "@/db/schema";
+import { budgetIncome, budgetExpenses, planBudgetItems, programs, programActivities, people, planYears, evidenceItems, financialItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { saveUploadedFile, validateUpload } from "@/lib/storage";
@@ -21,6 +21,57 @@ const optionalPositiveAmount = z.preprocess(
 
 export type ActionState = { error?: string; success?: string } | null;
 
+/**
+ * التحقق من فاتورة/إيصال مرفق قبل أي إدراج — حتى لا يبقى سجل نصفه محفوظ عند ملف غير صالح.
+ * الإرفاق اختياري: غياب الملف ليس خطأ.
+ */
+function pickInvoiceFile(formData: FormData): { file: File | null; error?: string } {
+  const invoice = formData.get("invoice");
+  if (!(invoice instanceof File) || invoice.size === 0) return { file: null };
+  const err = validateUpload(invoice.name, invoice.type || "application/octet-stream", invoice.size);
+  if (err) return { file: null, error: err };
+  return { file: invoice };
+}
+
+/**
+ * حفظ الفاتورة المرفقة وربطها بالسجل المالي عبر خط الشواهد الآمن الموحّد:
+ * تحقق MIME/امتداد/حجم، اسم مخزَّن عشوائي من الخادم، حارس المسار، بصمة sha256.
+ *
+ * مشترك بين الإيراد والمصروف فلا يتكرّر منطق الرفع في مسارين (مصدر واحد للحقيقة).
+ */
+async function attachInvoice(opts: {
+  file: File;
+  entityType: "budget_income" | "budget_expense";
+  entityId: string;
+  title: string;
+  userId: string;
+}): Promise<void> {
+  const stored = await saveUploadedFile({
+    originalName: opts.file.name,
+    mime: opts.file.type || "application/octet-stream",
+    data: Buffer.from(await opts.file.arrayBuffer()),
+    scope: "attachments",
+    uploadedBy: opts.userId,
+  });
+  const [ev] = await db
+    .insert(evidenceItems)
+    .values({
+      title: opts.title,
+      kind: "file",
+      fileId: stored.id,
+      description: opts.file.name,
+      createdBy: opts.userId,
+    })
+    .returning();
+  await linkEvidence({ evidenceId: ev.id, entityType: opts.entityType, entityId: opts.entityId, linkedBy: opts.userId });
+  await audit({ actorId: opts.userId, action: "evidence.created", entityType: "evidence", entityId: ev.id, summary: opts.title });
+}
+
+/**
+ * الإيراد على مستوى المدرسة (v2.2 §B3): لا يشترط برنامجاً ولا تصنيفاً ولا مجالاً ولا فئة.
+ * `financialItemId` بند صرف مدرسي اختياري. `programId` لم يعد يُرسَل من النماذج الجديدة
+ * ويبقى مقبولاً هنا للتوافق مع السجلات والاختبارات التاريخية فقط.
+ */
 const incomeSchema = z.object({
   planYearId: z.string().uuid(),
   source: z.string().optional(),
@@ -29,6 +80,7 @@ const incomeSchema = z.object({
   purpose: z.string().optional(),
   periodText: z.string().optional(),
   programId: z.string().uuid().optional().or(z.literal("")),
+  financialItemId: z.string().uuid("البند المالي المختار غير صالح").optional().or(z.literal("")),
   status: z.enum(["متوقع", "مستلم", "ملغى"]).optional(),
   notes: z.string().optional(),
 });
@@ -39,11 +91,19 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const d = parsed.data;
 
+  const invoice = pickInvoiceFile(formData);
+  if (invoice.error) return { error: invoice.error };
+
   const [year] = await db.select().from(planYears).where(eq(planYears.id, d.planYearId));
   if (!year) return { error: "السنة غير موجودة" };
   if (d.programId) {
     const [p] = await db.select({ id: programs.id }).from(programs).where(eq(programs.id, d.programId));
     if (!p) return { error: "البرنامج المختار غير موجود" };
+  }
+  // البند المختار يجب أن يكون موجوداً — حارس تكامل لا شرط عمل (البند نفسه اختياري)
+  if (d.financialItemId) {
+    const [fi] = await db.select({ id: financialItems.id }).from(financialItems).where(eq(financialItems.id, d.financialItemId));
+    if (!fi) return { error: "البند المالي المختار غير موجود" };
   }
 
   const [row] = await db
@@ -58,31 +118,54 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
       purpose: d.purpose || null,
       periodText: d.periodText || null,
       programId: d.programId || null,
+      financialItemId: d.financialItemId || null,
       status: d.status ?? "مستلم",
       notes: d.notes || null,
       createdBy: user.id,
     })
     .returning();
   await audit({ actorId: user.id, action: "budget.income_added", entityType: "budget_income", entityId: row.id, summary: `إيراد «${d.source ?? ""}» ${d.amount ?? ""}`.trim() });
+
+  if (invoice.file) {
+    try {
+      await attachInvoice({
+        file: invoice.file,
+        entityType: "budget_income",
+        entityId: row.id,
+        title: `إيصال إيراد${d.source ? ` — ${d.source}` : ""}`,
+        userId: user.id,
+      });
+    } catch (e) {
+      // الإيراد حُفظ؛ فشل الإرفاق وحده — يبقى الإيصال قابلاً للإرفاق لاحقاً من لوحة الشواهد.
+      revalidatePath("/budget");
+      return { error: e instanceof Error ? e.message : "تعذر حفظ الإيصال المرفق — حُفظ الإيراد ويمكن إرفاق الإيصال لاحقاً." };
+    }
+  }
+
   revalidatePath("/budget");
   return { success: "أُضيف الإيراد" };
 }
 
+/**
+ * المصروف على مستوى المدرسة (v2.2 §B4): لا يشترط برنامجاً ولا تصنيفاً. البند المالي
+ * (`financialItemId`) اختياري وهو المصدر المعتمد لنسبة المصروف إلى بند.
+ *
+ * لا يوجد «إقرار تجاوز» (§B7): التجاوز يُظهر تحذيراً بمقداره ولا يمنع الحفظ ولا يطلب
+ * مربع اختيار ولا سبباً.
+ */
 const expenseSchema = z.object({
   planYearId: z.string().uuid(),
   amount: optionalPositiveAmount,
   expenseDate: z.string().optional(),
   programId: z.string().uuid().optional().or(z.literal("")),
   activityId: z.string().uuid().optional().or(z.literal("")),
+  financialItemId: z.string().uuid("البند المالي المختار غير صالح").optional().or(z.literal("")),
   category: z.string().optional(),
   items: z.string().optional(),
   supplier: z.string().optional(),
   paymentReference: z.string().optional(),
   responsiblePersonId: z.string().uuid().optional().or(z.literal("")),
   notes: z.string().optional(),
-  /** إقرار التجاوز — يُرسل حين ينبّه العميل إلى تجاوز المخصص */
-  overspendAck: z.string().optional(),
-  overspendAckReason: z.string().optional(),
 });
 
 export async function addExpenseAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -91,14 +174,9 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const d = parsed.data;
 
-  // B2: فاتورة اختيارية مرفقة — نتحقق من صحتها قبل الإدراج حتى لا يبقى مصروف نصفه محفوظ عند ملف غير صالح.
-  const invoice = formData.get("invoice");
-  let invoiceFile: File | null = null;
-  if (invoice instanceof File && invoice.size > 0) {
-    const invErr = validateUpload(invoice.name, invoice.type || "application/octet-stream", invoice.size);
-    if (invErr) return { error: invErr };
-    invoiceFile = invoice;
-  }
+  // فاتورة اختيارية مرفقة — يُتحقق منها قبل الإدراج حتى لا يبقى مصروف نصفه محفوظ عند ملف غير صالح.
+  const invoice = pickInvoiceFile(formData);
+  if (invoice.error) return { error: invoice.error };
 
   const [year] = await db.select().from(planYears).where(eq(planYears.id, d.planYearId));
   if (!year) return { error: "السنة غير موجودة" };
@@ -116,7 +194,11 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
     if (!person) return { error: "المسؤول المختار غير موجود في سجل المنسوبين" };
   }
 
-  const overspendAck = d.overspendAck === "on";
+  if (d.financialItemId) {
+    const [fi] = await db.select({ id: financialItems.id }).from(financialItems).where(eq(financialItems.id, d.financialItemId));
+    if (!fi) return { error: "البند المالي المختار غير موجود" };
+  }
+
   const [row] = await db
     .insert(budgetExpenses)
     .values({
@@ -126,16 +208,14 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
       expenseDate: d.expenseDate || null,
       programId: d.programId || null,
       activityId: d.activityId || null,
+      financialItemId: d.financialItemId || null,
       category: d.category || null,
       items: d.items || null,
       supplier: d.supplier || null,
       paymentReference: d.paymentReference || null,
       responsiblePersonId: d.responsiblePersonId || null,
       notes: d.notes || null,
-      overspendAcknowledged: overspendAck,
-      overspendAckReason: overspendAck ? d.overspendAckReason || null : null,
-      overspendAckBy: overspendAck ? user.id : null,
-      overspendAckAt: overspendAck ? new Date() : null,
+      // «إقرار التجاوز» أُلغي (§B7) — لا تُكتب أعمدته بعد الآن، وتبقى للسجلات التاريخية.
       createdBy: user.id,
     })
     .returning();
@@ -144,34 +224,20 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
     action: "budget.expense_added",
     entityType: "budget_expense",
     entityId: row.id,
-    summary: `مصروف ${d.amount ?? ""}${d.category ? ` — ${d.category}` : ""}${overspendAck ? " (تجاوز مُقَر)" : ""}`.trim(),
-    detail: overspendAck ? { overspend: true, reason: d.overspendAckReason } : undefined,
+    summary: `مصروف ${d.amount ?? ""}${d.category ? ` — ${d.category}` : ""}`.trim(),
   });
 
-  // B2: احفظ الفاتورة المرفقة (إن وُجدت) عبر خط الشواهد الآمن نفسه (تحقق MIME/امتداد/حجم،
-  // اسم UUID من الخادم، حارس المسار، sha256) ثم أنشئ شاهداً واربطه بالمصروف حتى يظهر في لوحة
-  // الفاتورة/الشواهد. الإرفاق اختياري: حفظ مصروف بلا فاتورة يعمل.
-  if (invoiceFile) {
+  // الفاتورة المرفقة (إن وُجدت) تمرّ بخط الشواهد الآمن الموحّد نفسه. الإرفاق اختياري:
+  // حفظ مصروف بلا فاتورة يعمل.
+  if (invoice.file) {
     try {
-      const stored = await saveUploadedFile({
-        originalName: invoiceFile.name,
-        mime: invoiceFile.type || "application/octet-stream",
-        data: Buffer.from(await invoiceFile.arrayBuffer()),
-        scope: "attachments",
-        uploadedBy: user.id,
+      await attachInvoice({
+        file: invoice.file,
+        entityType: "budget_expense",
+        entityId: row.id,
+        title: `فاتورة مصروف${d.category ? ` — ${d.category}` : ""}`,
+        userId: user.id,
       });
-      const [ev] = await db
-        .insert(evidenceItems)
-        .values({
-          title: `فاتورة مصروف${d.category ? ` — ${d.category}` : ""}`,
-          kind: "file",
-          fileId: stored.id,
-          description: invoiceFile.name,
-          createdBy: user.id,
-        })
-        .returning();
-      await linkEvidence({ evidenceId: ev.id, entityType: "budget_expense", entityId: row.id, linkedBy: user.id });
-      await audit({ actorId: user.id, action: "evidence.created", entityType: "evidence", entityId: ev.id, summary: "إرفاق فاتورة بمصروف" });
     } catch (e) {
       // المصروف حُفظ؛ فشل الإرفاق فقط — رسالة عربية واضحة، وتبقى الفاتورة قابلة للإرفاق لاحقاً من اللوحة.
       revalidatePath("/budget");
@@ -180,25 +246,8 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
   }
 
   revalidatePath("/budget");
-  // القيم المالية لا تُغيَّر صامتاً؛ التحذير والإقرار للعرض والتقارير فقط
-  return { success: overspendAck ? "سُجّل المصروف مع إقرار التجاوز" : "أُضيف المصروف" };
-}
-
-/** إقرار تجاوز مصروف موجود لاحقاً. */
-export async function acknowledgeOverspendAction(expenseId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
-  const user = await requirePermission("budget.write");
-  const reason = String(formData.get("reason") ?? "").trim();
-  if (reason.length < 3) return { error: "اذكر سبب الإقرار بالتجاوز" };
-  const [e] = await db.select().from(budgetExpenses).where(eq(budgetExpenses.id, expenseId));
-  if (!e) return { error: "المصروف غير موجود" };
-
-  await db
-    .update(budgetExpenses)
-    .set({ overspendAcknowledged: true, overspendAckReason: reason, overspendAckBy: user.id, overspendAckAt: new Date(), updatedAt: new Date() })
-    .where(eq(budgetExpenses.id, expenseId));
-  await audit({ actorId: user.id, action: "budget.overspend_acknowledged", entityType: "budget_expense", entityId: expenseId, summary: reason });
-  revalidatePath("/budget");
-  return { success: "أُقرّ التجاوز — القيم المالية كما هي" };
+  // القيم المالية لا تُغيَّر صامتاً. تجاوز المخصص لا يمنع الحفظ ولا يتطلب إقراراً (§B7).
+  return { success: "أُضيف المصروف" };
 }
 
 export async function deleteIncomeAction(incomeId: string): Promise<ActionState> {
@@ -223,48 +272,14 @@ export async function deleteExpenseAction(expenseId: string): Promise<ActionStat
   return { success: "حُذف المصروف" };
 }
 
-/**
- * B4: بند ميزانية له مخصص مستقل (المستلزمات/النشاط). اسم البند مفتاح المطابقة (بنية، لا محتوى حر)
- * فيبقى مطلوباً؛ والمخصص اختياري (بند بلا مخصص يظهر بحالة محايدة). upsert بالاسم داخل السنة يمنع
- * التكرار — تحديث مخصص بند قائم بدل إنشاء ثانٍ بالاسم نفسه.
+/*
+ * أُزيلت هنا إجراءات `plan_budget_items` (setBudgetItemAction / deleteBudgetItemAction).
+ *
+ * السبب (v2.2 §B2): بنود الصرف صارت سجلات مدرسية في `financial_items` تُدار من
+ * `./finance-actions`. لم يبقَ لهذين الإجراءين أي مستدعٍ: لا واجهة ولا اختبار ولا استيراد
+ * ديناميكي — وإبقاء إجراء خادم غير مستعمل يوسّع سطح الهجوم بلا فائدة.
+ *
+ * جدول `plan_budget_items` نفسه **باقٍ ولم يُمسّ**: يكتبه مستورد الخطة التشغيلية الرسمي
+ * (`src/lib/imports/plan.ts`) وفيه صفوف إنتاجية حقيقية، ويقرؤه العرض التاريخي في
+ * `src/lib/budget/service.ts` وسجلّا التنظيف والكيانات.
  */
-const budgetItemSchema = z.object({
-  planYearId: z.string().uuid(),
-  item: z.string().trim().min(1, "اسم البند مطلوب"),
-  amount: optionalPositiveAmount,
-});
-
-export async function setBudgetItemAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const user = await requirePermission("budget.write");
-  const parsed = budgetItemSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const d = parsed.data;
-  const [year] = await db.select().from(planYears).where(eq(planYears.id, d.planYearId));
-  if (!year) return { error: "السنة غير موجودة" };
-  const item = d.item.trim();
-  const amount = d.amount === undefined ? null : String(d.amount);
-  const [existing] = await db
-    .select()
-    .from(planBudgetItems)
-    .where(and(eq(planBudgetItems.planYearId, d.planYearId), eq(planBudgetItems.item, item)));
-  if (existing) {
-    await db.update(planBudgetItems).set({ amount }).where(eq(planBudgetItems.id, existing.id));
-    await audit({ actorId: user.id, action: "budget.item_updated", entityType: "plan_budget_item", entityId: existing.id, summary: `تحديث مخصص البند «${item}» = ${d.amount ?? "—"}` });
-  } else {
-    const [row] = await db.insert(planBudgetItems).values({ planYearId: d.planYearId, item, amount }).returning();
-    await audit({ actorId: user.id, action: "budget.item_added", entityType: "plan_budget_item", entityId: row.id, summary: `مخصص البند «${item}» = ${d.amount ?? "—"}` });
-  }
-  revalidatePath("/budget");
-  return { success: `حُفظ مخصص البند «${item}»` };
-}
-
-export async function deleteBudgetItemAction(itemId: string): Promise<ActionState> {
-  const user = await requirePermission("budget.write");
-  const [row] = await db.select().from(planBudgetItems).where(eq(planBudgetItems.id, itemId));
-  if (!row) return { error: "البند غير موجود" };
-  // حذف مخصص البند فقط — المصروفات المختارة له تبقى، ويظهر البند بحالة محايدة (بلا مخصص) لا حذف بيانات.
-  await db.delete(planBudgetItems).where(eq(planBudgetItems.id, itemId));
-  await audit({ actorId: user.id, action: "budget.item_deleted", entityType: "plan_budget_item", entityId: itemId, summary: `حذف مخصص البند «${row.item}»` });
-  revalidatePath("/budget");
-  return { success: "حُذف مخصص البند" };
-}

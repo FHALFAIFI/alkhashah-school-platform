@@ -1,268 +1,301 @@
 import Link from "next/link";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
-import { planYears, programs } from "@/db/schema";
-import { formatMoney, orDash } from "@/lib/format";
-import { PageHeader, Card, Badge, Table, EmptyState } from "@/components/ui";
-import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
-import { getBudgetOverview } from "@/lib/budget/service";
-import { evidenceForEntity } from "@/lib/evidence";
-import { EvidencePanel } from "@/components/evidence-panel";
-import { AddIncomeForm, AddExpenseForm, AddBudgetItemForm, DeleteBudgetItemButton, DeleteButton, AcknowledgeOverspendForm } from "./budget-ui";
+import { planYears } from "@/db/schema";
+import { formatMoney, orDash, orFallback } from "@/lib/format";
+import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
+import { getSchoolFinance } from "@/lib/finance/service";
+import {
+  AddIncomeForm,
+  AddExpenseForm,
+  FinancialItemForm,
+  CreateDefaultItemsButton,
+  ItemRowActions,
+  RecordRowActions,
+  type ItemLine,
+} from "./budget-ui";
 
-export const metadata = { title: "الميزانية والمصروفات" };
+export const metadata = { title: "المالية المدرسية" };
 export const dynamic = "force-dynamic";
 
-const money = (n: number) => n.toLocaleString("ar-SA", { maximumFractionDigits: 2 });
+/**
+ * لوحة المالية المدرسية (v2.2 §B6).
+ *
+ * كل رقم معروض يأتي من خدمة الحساب الموحّدة على الخادم (`@/lib/finance/calc`) — لا حساب
+ * على العميل ولا مسار حساب ثانٍ. القيم الفارغة تُعرض «—» لا صفراً مضلِّلاً.
+ *
+ * لا ارتباط تشغيلي ببرنامج أو تصنيف أو مجال (§B1): التبويب الوحيد هو «بند الصرف».
+ */
 
-export default async function BudgetPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
+/** بطاقة مؤشر — تدعم الربط العميق إلى التقرير المُرشَّح المقابل */
+function Stat({
+  label,
+  value,
+  tone = "plain",
+  href,
+  hint,
+}: {
+  label: string;
+  value: string;
+  tone?: "plain" | "good" | "bad" | "warn";
+  href?: string;
+  hint?: string;
+}) {
+  const toneCls =
+    tone === "good" ? "text-emerald-700" : tone === "bad" ? "text-red-700" : tone === "warn" ? "text-amber-700" : "text-brand-900";
+  const body = (
+    <>
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className={`mt-1 text-lg font-bold tabular-nums ${toneCls}`}>{value}</div>
+      {hint && <div className="mt-0.5 text-[11px] text-gray-400">{hint}</div>}
+    </>
+  );
+  return (
+    <Card className={href ? "transition hover:border-brand-300" : undefined}>
+      {href ? <Link href={href} className="block">{body}</Link> : body}
+    </Card>
+  );
+}
+
+export default async function BudgetPage() {
   const user = await requirePermission("budget.read");
   const canWrite = user.permissions.has("budget.write");
-  const canWriteEvidence = user.permissions.has("evidence.write");
-  const sp = await searchParams;
 
   const [activeYear] = await db.select().from(planYears).where(eq(planYears.status, "نشطة")).orderBy(desc(planYears.createdAt)).limit(1);
   if (!activeYear) {
     return (
       <div>
-        <PageHeader title="الميزانية والمصروفات" subtitle="متتبّع ميزانية وشواهد للمدرسة — لا نظام محاسبي كامل" />
+        <PageHeader title="المالية المدرسية" subtitle="متتبّع مالي للمدرسة — لا نظام محاسبي كامل" />
         <EmptyState title="لا سنة تخطيطية نشطة" hint="أنشئ سنة تخطيطية أولاً من الخطة التشغيلية" />
       </div>
     );
   }
 
-  const excluded = await getExcludedIdSets();
-  const [overview, programRows] = await Promise.all([
-    getBudgetOverview(activeYear.id),
-    db
-      .select({ id: programs.id, name: programs.name })
-      .from(programs)
-      // البرامج المؤرشفة مستبعدة من محدِّد ربط المصروف/الإيراد (soft-archive)
-      .where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)))
-      .orderBy(asc(programs.seq)),
-  ]);
-  const { summary, income, expenses, programLines, itemLines, budgetItems } = overview;
-  const lineByProgram = new Map(programLines.map((l) => [l.programId, l]));
-  const programOptions = programRows.map((p) => {
-    const line = lineByProgram.get(p.id);
-    return { id: p.id, name: p.name, allocated: line?.allocated ?? 0, spent: line?.spent ?? 0 };
-  });
-  // خيارات «البند»: القيمتان الافتراضيتان (المستلزمات/النشاط) + أي بند معرَّف أو مستعمَل في مصروف
-  const DEFAULT_ITEMS = ["المستلزمات", "النشاط"];
-  const itemNameOptions = [
-    ...new Set([
-      ...DEFAULT_ITEMS,
-      ...budgetItems.map((b) => b.item),
-      ...expenses.map((e) => e.items).filter((x): x is string => !!x),
-    ]),
-  ];
+  // المالية على مستوى المدرسة: السنة فترة محاسبية للترشيح الزمني لا ارتباط ببرنامج.
+  const finance = await getSchoolFinance({ planYearId: activeYear.id });
+  const { summary, items, lines, income, expenses } = finance;
 
-  // السجل المحدد لعرض/رفع/ربط إيصاله (روابط «الإيصال» في الجداول، وروابط سجل الشواهد)
-  const selIncomeId = sp["إيراد"];
-  const selExpenseId = sp["مصروف"];
-  let receipt: { entityType: "budget_income" | "budget_expense"; id: string; title: string; items: Awaited<ReturnType<typeof evidenceForEntity>> } | null = null;
-  if (selIncomeId) {
-    const inc = income.find((i) => i.id === selIncomeId);
-    if (inc) receipt = { entityType: "budget_income", id: inc.id, title: `إيراد: ${inc.source}`, items: await evidenceForEntity("budget_income", inc.id) };
-  } else if (selExpenseId) {
-    const exp = expenses.find((e) => e.id === selExpenseId);
-    if (exp) receipt = { entityType: "budget_expense", id: exp.id, title: `مصروف: ${exp.category ?? formatMoney(exp.amount)}`, items: await evidenceForEntity("budget_expense", exp.id) };
-  }
+  const liveLines = lines.filter((l) => !l.archived);
+  const archivedLines = lines.filter((l) => l.archived);
+  // بطاقات مخصّصة للبندين اللذين أكّدهما المدير، حين يكونا موجودين
+  const named = (name: string) => liveLines.find((l) => (l.name ?? "").trim() === name);
+  const supplies = named("المستلزمات");
+  const activity = named("النشاط");
 
-  // الوسم: فاتورة للمصروف، إيصال للإيراد (D-026)
-  const isExpenseReceipt = receipt?.entityType === "budget_expense";
-  const receiptWord = isExpenseReceipt ? "الفاتورة" : "الإيصال";
-  const receiptHint = isExpenseReceipt
-    ? "إرفاق الفاتورة اختياري ولا يُطلب رفعه مكرراً إن كان الشاهد نفسه موجوداً في السجل الموحّد."
-    : "الإيصال اختياري ولا يُطلب رفعه مكرراً إن كان الشاهد نفسه موجوداً في السجل الموحّد.";
+  // نموذج البنود لواجهة الإدخال — الأرقام محسوبة على الخادم ومُمرَّرة كما هي
+  const itemOptions: ItemLine[] = liveLines.map((l) => ({
+    id: l.id,
+    name: l.name,
+    allocated: l.allocated,
+    income: l.income,
+    expenses: l.expenses,
+    remaining: l.remaining,
+    hasAllocation: l.hasAllocation,
+  }));
+
+  const activeIncome = income.filter((r) => !r.archivedAt);
+  const activeExpenses = expenses.filter((r) => !r.archivedAt);
+  const archivedCount = income.length - activeIncome.length + (expenses.length - activeExpenses.length);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
-        title="الميزانية والمصروفات"
-        subtitle="متتبّع ميزانية وشواهد للمدرسة — لكل إيراد ومصروف إمكانية رفع الإيصال مباشرةً أو ربط شاهد قائم من السجل الموحّد دون رفع مكرر (الإيصال اختياري)"
+        title="المالية المدرسية"
+        subtitle={`${activeYear.nameAr} — الإيرادات والمصروفات وبنود الصرف على مستوى المدرسة`}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <LinkButton href="/reports?category=finance" variant="secondary">تقارير القسم</LinkButton>
+            <Badge value={activeYear.status} />
+          </div>
+        }
       />
 
-      {/* لوحة الإيصال للسجل المحدد — رفع مباشر أو ربط شاهد قائم */}
-      {receipt && (
-        <div id="receipt" className="scroll-mt-20">
-          <Card>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="font-bold text-brand-900">{receiptWord}/شاهد — {receipt.title}</h2>
-              <Link href="/budget" className="text-xs text-gray-500 hover:underline">إغلاق</Link>
+      {/* ── المؤشرات العليا ───────────────────────────────────────────── */}
+      <section>
+        <h2 className="mb-3 text-sm font-bold text-gray-600">الملخّص المالي</h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+          <Stat label="إجمالي الإيرادات" value={formatMoney(summary.totalIncome)} tone="good" href="/reports?category=finance&report=income-register" />
+          <Stat label="إجمالي المصروفات" value={formatMoney(summary.totalExpenses)} href="/reports?category=finance&report=expense-register" />
+          <Stat
+            label="الرصيد الحالي"
+            value={formatMoney(summary.cashBalance)}
+            tone={summary.cashBalance < 0 ? "bad" : "good"}
+            hint="الإيراد المستلم − المصروف"
+          />
+          <Stat label="إجمالي المخصصات" value={formatMoney(summary.totalAllocated)} href="/reports?category=finance&report=item-allocations" />
+          <Stat label="إجمالي المتبقي" value={formatMoney(summary.totalRemaining)} tone={summary.totalRemaining < 0 ? "bad" : "plain"} />
+          <Stat label="عدد العمليات المالية" value={String(summary.operationCount)} href="/reports?category=finance&report=all-operations" />
+          <Stat label="عدد الفواتير المرفقة" value={String(summary.withInvoiceCount)} href="/reports?category=finance&report=invoice-register" />
+          <Stat
+            label="عدد العمليات بدون فاتورة"
+            value={String(summary.withoutInvoiceCount)}
+            tone={summary.withoutInvoiceCount > 0 ? "warn" : "good"}
+            href="/reports?category=finance&report=missing-invoice"
+          />
+          <Stat
+            label="عدد البنود المتجاوزة للمخصص"
+            value={String(summary.overAllocationCount)}
+            tone={summary.overAllocationCount > 0 ? "bad" : "good"}
+            href="/reports?category=finance&report=over-budget"
+          />
+          <Stat
+            label="الإيراد المتوقع"
+            value={formatMoney(summary.totalExpectedIncome)}
+            hint="لم يُقبض — خارج الرصيد"
+          />
+        </div>
+      </section>
+
+      {/* ── بطاقات البندين المؤكَّدين ─────────────────────────────────── */}
+      {(supplies || activity) && (
+        <section>
+          <h2 className="mb-3 text-sm font-bold text-gray-600">المستلزمات والنشاط</h2>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {supplies && (
+              <>
+                <Stat label="مصروف المستلزمات" value={formatMoney(supplies.expenses)} />
+                <Stat
+                  label="متبقي المستلزمات"
+                  value={formatMoney(supplies.remaining)}
+                  tone={supplies.overspent ? "bad" : supplies.nearExhaustion ? "warn" : "good"}
+                  hint={supplies.hasAllocation ? undefined : "لا مخصص مُدخل"}
+                />
+              </>
+            )}
+            {activity && (
+              <>
+                <Stat label="مصروف النشاط" value={formatMoney(activity.expenses)} />
+                <Stat
+                  label="متبقي النشاط"
+                  value={formatMoney(activity.remaining)}
+                  tone={activity.overspent ? "bad" : activity.nearExhaustion ? "warn" : "good"}
+                  hint={activity.hasAllocation ? undefined : "لا مخصص مُدخل"}
+                />
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ── بنود الصرف ───────────────────────────────────────────────── */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold text-gray-600">بنود الصرف</h2>
+          {canWrite && (
+            <div className="flex flex-wrap items-center gap-2">
+              {items.length === 0 && <CreateDefaultItemsButton />}
+              <FinancialItemForm />
             </div>
-            <p className="mb-3 text-xs text-gray-400">{receiptHint}</p>
-            <EvidencePanel
-              entityType={receipt.entityType}
-              entityId={receipt.id}
-              items={receipt.items.map((e) => ({ id: e.item.id, title: e.item.title, kind: e.item.kind, role: e.item.role, fileId: e.item.fileId }))}
-              canWrite={canWriteEvidence}
-            />
-          </Card>
+          )}
         </div>
-      )}
-
-      {/* الملخص */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <Stat label="إجمالي الإيرادات المستلمة" value={money(summary.totalIncomeReceived)} />
-        <Stat label="إجمالي المصروفات" value={money(summary.totalExpenses)} />
-        <Stat label="الرصيد المتاح" value={money(summary.availableBalance)} tone={summary.availableBalance < 0 ? "bad" : "good"} />
-        <Stat label="نسبة الإنفاق" value={`${summary.spendingPercent}٪`} />
-        <Stat label="إيرادات متوقعة" value={money(summary.totalIncomeExpected)} />
-        <Stat label="مصروفات غير مرتبطة ببرنامج" value={`${summary.unlinkedExpenseCount}`} tone={summary.unlinkedExpenseCount > 0 ? "warn" : "good"} />
-        <Stat label="مصروفات دون فاتورة مرفقة (اختياري)" value={`${summary.missingReceiptCount}`} />
-        <Stat label="تجاوزات غير مُقَرّة" value={`${summary.unacknowledgedOverspendCount}`} tone={summary.unacknowledgedOverspendCount > 0 ? "bad" : "good"} />
-      </div>
-
-      {/* بنود الميزانية — المخصص والمصروف والمتبقي لكل بند مستقلاً (المستلزمات/النشاط) — B4 */}
-      <Card>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-bold text-brand-900">بنود الميزانية — المخصص والمصروف والمتبقي لكل بند</h2>
-          {canWrite && <AddBudgetItemForm planYearId={activeYear.id} options={itemNameOptions} />}
-        </div>
-        {itemLines.length === 0 ? (
-          <p className="text-sm text-gray-400">لا بنود معرَّفة بعد — عيّن مخصص «المستلزمات» و«النشاط» من «تعيين مخصص بند».</p>
+        {liveLines.length === 0 ? (
+          <EmptyState
+            title="لا توجد بنود صرف بعد"
+            hint="أنشئ بنداً، أو استعمل «إنشاء البندين الأساسيين» لإضافة المستلزمات والنشاط."
+          />
         ) : (
-          <Table headers={["البند", "الميزانية المعتمدة", "المصروف", "المتبقي", "٪ الإنفاق", "", ""]}>
-            {itemLines.map((l) => {
-              const bi = budgetItems.find((b) => b.item === l.item);
-              return (
-                <tr key={l.item} className={l.overspent ? "bg-red-50" : ""}>
-                  <td className="px-3 py-2 font-medium">{l.item}</td>
-                  {/* البند بلا مخصص معتمد: حالة محايدة لا صفر/سالب مضلِّل */}
-                  <td className="px-3 py-2 tabular-nums">
-                    {l.hasAllocation ? money(l.allocated) : <span className="text-gray-400">لا يوجد مخصص معتمد</span>}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums">{money(l.spent)}</td>
-                  <td className={`px-3 py-2 tabular-nums ${l.hasAllocation && l.remaining < 0 ? "text-red-600" : ""}`}>
-                    {l.hasAllocation ? money(l.remaining) : "—"}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums">{l.hasAllocation ? `${l.spentPercent}٪` : "—"}</td>
-                  <td className="px-3 py-2">{l.overspent && <Badge value="تجاوز" />}</td>
-                  <td className="px-3 py-2">{canWrite && bi && <DeleteBudgetItemButton id={bi.id} />}</td>
-                </tr>
-              );
-            })}
-          </Table>
-        )}
-        <p className="mt-3 text-xs text-gray-400">
-          لكل بند مخصص مستقل: «المتبقي = المخصص − مصروفات البند». عند تسجيل مصروف اختر بنده «المستلزمات» أو «النشاط»
-          ليُخصم منه؛ حذف/تعديل المصروف يعيد حساب بنده فقط.
-        </p>
-      </Card>
-
-      {/* مقارنة المخطط بالفعلي لكل برنامج */}
-      {programLines.length > 0 && (
-        <Card>
-          <h2 className="mb-3 font-bold text-brand-900">المخطط مقابل الفعلي (حسب البرنامج)</h2>
-          <Table headers={["البرنامج", "الميزانية المعتمدة", "المصروف", "المتبقي", "٪ الإنفاق", ""]}>
-            {programLines.map((l) => (
-              <tr key={l.programId} className={l.overspent ? "bg-red-50" : ""}>
-                <td className="px-3 py-2 font-medium">{l.programName}</td>
-                {/* البرنامج بلا ميزانية معتمدة: حالة محايدة لا صفر/سالب مضلِّل (D-026) */}
-                <td className="px-3 py-2 tabular-nums">
-                  {l.hasAllocation ? money(l.allocated) : <span className="text-gray-400">لا توجد ميزانية معتمدة</span>}
-                </td>
-                <td className="px-3 py-2 tabular-nums">{money(l.spent)}</td>
-                <td className={`px-3 py-2 tabular-nums ${l.hasAllocation && l.remaining < 0 ? "text-red-600" : ""}`}>
-                  {l.hasAllocation ? money(l.remaining) : "—"}
-                </td>
-                <td className="px-3 py-2 tabular-nums">{l.hasAllocation ? `${l.spentPercent}٪` : "—"}</td>
-                <td className="px-3 py-2">{l.overspent && <Badge value="تجاوز" />}</td>
-              </tr>
-            ))}
-          </Table>
-        </Card>
-      )}
-
-      {/* الإيرادات */}
-      <Card>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-bold text-brand-900">الإيرادات والتمويل ({income.length})</h2>
-          {canWrite && <AddIncomeForm planYearId={activeYear.id} programs={programOptions} />}
-        </div>
-        {income.length === 0 ? (
-          <p className="text-sm text-gray-400">لا إيرادات مسجّلة بعد</p>
-        ) : (
-          <Table headers={["المصدر", "المبلغ", "التاريخ", "البند", "الإيصال", "الحالة", ""]}>
-            {income.map((i) => (
-              <tr key={i.id} className={selIncomeId === i.id ? "bg-brand-50" : ""}>
-                <td className="px-3 py-2 font-medium">{orDash(i.source)}</td>
-                <td className="px-3 py-2 tabular-nums">{formatMoney(i.amount)}</td>
-                <td className="px-3 py-2 text-xs">{i.incomeDate ?? "—"}</td>
-                <td className="px-3 py-2 text-xs">{i.purpose ?? "—"}</td>
-                <td className="px-3 py-2 text-xs">
-                  <ReceiptCell hasReceipt={i.hasReceipt} href={`/budget?إيراد=${i.id}#receipt`} />
-                </td>
-                <td className="px-3 py-2"><Badge value={i.status} /></td>
-                <td className="px-3 py-2">{canWrite && <DeleteButton kind="income" id={i.id} />}</td>
-              </tr>
-            ))}
-          </Table>
-        )}
-      </Card>
-
-      {/* المصروفات */}
-      <Card>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-bold text-brand-900">المصروفات ({expenses.length})</h2>
-          {canWrite && <AddExpenseForm planYearId={activeYear.id} programs={programOptions} itemLines={itemLines} itemNames={itemNameOptions} />}
-        </div>
-        {expenses.length === 0 ? (
-          <p className="text-sm text-gray-400">لا مصروفات مسجّلة بعد</p>
-        ) : (
-          <Table headers={["التاريخ", "المبلغ", "التصنيف", "البند", "البرنامج", "رقم الفاتورة", "الفاتورة", "المسؤول", ""]}>
-            {expenses.map((e) => (
-              <tr key={e.id} className={`${e.overspendAcknowledged ? "bg-amber-50" : ""} ${selExpenseId === e.id ? "bg-brand-50" : ""}`}>
-                <td className="px-3 py-2 text-xs">{e.expenseDate ?? "—"}</td>
-                <td className="px-3 py-2 tabular-nums">{formatMoney(e.amount)}</td>
-                <td className="px-3 py-2 text-xs">{e.category ?? "—"}</td>
-                <td className="px-3 py-2 text-xs">{e.items ?? "—"}</td>
-                <td className="px-3 py-2 text-xs">{e.programName ?? <span className="text-amber-600">غير مرتبط</span>}</td>
-                <td className="px-3 py-2 text-xs tabular-nums">{orDash(e.paymentReference)}</td>
-                <td className="px-3 py-2 text-xs">
-                  <ReceiptCell hasReceipt={e.hasReceipt} href={`/budget?مصروف=${e.id}#receipt`} label="الفاتورة" />
-                </td>
-                <td className="px-3 py-2 text-xs">{e.responsibleName ?? "—"}</td>
+          <Table headers={["البند", "المخصص", "الإيراد", "المصروف", "المتبقي", "٪ الإنفاق", "العمليات", "الحالة", ""]}>
+            {liveLines.map((l) => (
+              <tr key={l.id}>
+                <td className="px-3 py-2 font-medium">{orFallback(l.name, "بند بدون اسم")}</td>
+                <td className="px-3 py-2 tabular-nums">{formatMoney(l.allocated)}</td>
+                <td className="px-3 py-2 tabular-nums">{formatMoney(l.income)}</td>
+                <td className="px-3 py-2 tabular-nums">{formatMoney(l.expenses)}</td>
+                <td className={`px-3 py-2 tabular-nums ${l.overspent ? "text-red-700" : ""}`}>{formatMoney(l.remaining)}</td>
+                <td className="px-3 py-2 tabular-nums">{l.spentPercent === null ? "—" : `${l.spentPercent}٪`}</td>
+                <td className="px-3 py-2 tabular-nums">{l.operationCount}</td>
                 <td className="px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {e.overspendAcknowledged ? (
-                      <Badge value="تجاوز مُقَر" />
-                    ) : (
-                      canWrite && <AcknowledgeOverspendForm expenseId={e.id} />
-                    )}
-                    {canWrite && <DeleteButton kind="expense" id={e.id} />}
-                  </div>
+                  {l.overspent ? <Badge value="تجاوز" /> : l.nearExhaustion ? <Badge value="قارب الاستنفاد" /> : null}
                 </td>
+                <td className="px-3 py-2">{canWrite && <ItemRowActions id={l.id} archived={false} />}</td>
               </tr>
             ))}
           </Table>
         )}
-        <p className="mt-3 text-xs text-gray-400">
-          لرفع فاتورة أو ربط شاهد قائم بمصروف: اضغط «الفاتورة» في صف المصروف — يمكنك الرفع المباشر أو اختيار شاهد
-          موجود في السجل الموحّد؛ الشاهد نفسه يبقى قابلاً للربط بالبرنامج أيضاً دون رفع مكرر. إرفاق الفاتورة اختياري.
-        </p>
-      </Card>
-    </div>
-  );
-}
 
-function ReceiptCell({ hasReceipt, href, label = "الإيصال" }: { hasReceipt: boolean; href: string; label?: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      {hasReceipt ? <Badge value="مرفق" /> : <span className="text-gray-400">—</span>}
-      <Link href={href} className="text-brand-700 hover:underline">{label}</Link>
-    </span>
-  );
-}
+        {archivedLines.length > 0 && (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs text-gray-500">بنود مؤرشفة ({archivedLines.length})</summary>
+            <div className="mt-2">
+              <Table headers={["البند", "المخصص", "المصروف", ""]}>
+                {archivedLines.map((l) => (
+                  <tr key={l.id} className="text-gray-500">
+                    <td className="px-3 py-2">{orFallback(l.name, "بند بدون اسم")}</td>
+                    <td className="px-3 py-2 tabular-nums">{formatMoney(l.allocated)}</td>
+                    <td className="px-3 py-2 tabular-nums">{formatMoney(l.expenses)}</td>
+                    <td className="px-3 py-2">{canWrite && <ItemRowActions id={l.id} archived />}</td>
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          </details>
+        )}
+      </section>
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "warn" | "bad" }) {
-  const color = tone === "bad" ? "text-red-700" : tone === "warn" ? "text-amber-700" : "text-brand-900";
-  return (
-    <div className="rounded-lg border border-sand-200 bg-white p-3">
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className={`mt-1 text-lg font-bold tabular-nums ${color}`}>{value}</div>
+      {/* ── الإيرادات ────────────────────────────────────────────────── */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold text-gray-600">الإيرادات ({activeIncome.length})</h2>
+          {canWrite && <AddIncomeForm planYearId={activeYear.id} items={itemOptions} />}
+        </div>
+        {activeIncome.length === 0 ? (
+          <EmptyState title="لا إيرادات مسجّلة" />
+        ) : (
+          <Table headers={["المصدر", "المبلغ", "التاريخ", "البند", "الحالة", "فاتورة", ""]}>
+            {activeIncome.map((r) => (
+              <tr key={r.id}>
+                <td className="px-3 py-2">{orFallback(r.source, "بدون مصدر")}</td>
+                <td className="px-3 py-2 tabular-nums">{formatMoney(r.amount)}</td>
+                <td className="px-3 py-2 text-xs tabular-nums">{orDash(r.incomeDate)}</td>
+                <td className="px-3 py-2 text-xs">{r.itemName ? orFallback(r.itemName, "بند بدون اسم") : "—"}</td>
+                <td className="px-3 py-2"><Badge value={r.status} /></td>
+                <td className="px-3 py-2 text-xs">{r.hasInvoice ? "✓" : "—"}</td>
+                <td className="px-3 py-2">{canWrite && <RecordRowActions kind="income" id={r.id} archived={false} />}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </section>
+
+      {/* ── المصروفات ────────────────────────────────────────────────── */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold text-gray-600">المصروفات ({activeExpenses.length})</h2>
+          {canWrite && <AddExpenseForm planYearId={activeYear.id} items={itemOptions} />}
+        </div>
+        {activeExpenses.length === 0 ? (
+          <EmptyState title="لا مصروفات مسجّلة" />
+        ) : (
+          <Table headers={["المبلغ", "التاريخ", "البند", "رقم الفاتورة", "المورّد", "فاتورة", ""]}>
+            {activeExpenses.map((r) => (
+              <tr key={r.id}>
+                <td className="px-3 py-2 tabular-nums">{formatMoney(r.amount)}</td>
+                <td className="px-3 py-2 text-xs tabular-nums">{orDash(r.expenseDate)}</td>
+                <td className="px-3 py-2 text-xs">
+                  {r.itemName ? (
+                    orFallback(r.itemName, "بند بدون اسم")
+                  ) : r.items ? (
+                    // «البند» النصي القديم — مرجع تاريخي لا يدخل الحساب الجديد
+                    <span className="text-gray-400" title="بند نصي تاريخي — قبل اعتماد بنود الصرف">{r.items} (تاريخي)</span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="px-3 py-2 text-xs">{orDash(r.paymentReference)}</td>
+                <td className="px-3 py-2 text-xs">{orDash(r.supplier)}</td>
+                <td className="px-3 py-2 text-xs">{r.hasInvoice ? "✓" : "—"}</td>
+                <td className="px-3 py-2">{canWrite && <RecordRowActions kind="expense" id={r.id} archived={false} />}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {archivedCount > 0 && (
+          <p className="mt-2 text-xs text-gray-500">
+            يوجد {archivedCount} سجل مؤرشف — يظهر في تقارير الأرشيف ولا يدخل المجاميع الجارية.
+          </p>
+        )}
+      </section>
     </div>
   );
 }

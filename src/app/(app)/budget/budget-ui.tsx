@@ -4,21 +4,49 @@ import { useActionState, useState, useTransition } from "react";
 import {
   addIncomeAction,
   addExpenseAction,
-  acknowledgeOverspendAction,
   deleteIncomeAction,
   deleteExpenseAction,
-  setBudgetItemAction,
-  deleteBudgetItemAction,
   type ActionState,
 } from "./actions";
+import {
+  createFinancialItemAction,
+  updateFinancialItemAction,
+  archiveFinancialItemAction,
+  restoreFinancialItemAction,
+  reorderFinancialItemAction,
+  createDefaultFinancialItemsAction,
+  archiveIncomeAction,
+  restoreIncomeAction,
+  archiveExpenseAction,
+  restoreExpenseAction,
+  ITEM_COLORS,
+} from "./finance-actions";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
+import { formatMoney, orFallback } from "@/lib/format";
+import { overrunWarning } from "@/lib/finance/calc";
 
-type Program = { id: string; name: string; allocated: number; spent: number };
-/** بند ميزانية بمخصصه المستقل ومصروفه ومتبقّيه (B4) */
-type ItemLine = { item: string; allocated: number; spent: number; remaining: number; hasAllocation: boolean };
-const money = (n: number) => n.toLocaleString("ar", { maximumFractionDigits: 2 });
+/**
+ * واجهة المالية المدرسية (v2.2 §B).
+ *
+ * لا يوجد في نماذج التسجيل أي اختيار لبرنامج أو تصنيف أو مجال — المالية على مستوى
+ * المدرسة. الاختيار الوحيد هو «بند الصرف» وهو اختياري كذلك.
+ */
 
-export function AddIncomeForm({ planYearId, programs }: { planYearId: string; programs: Program[] }) {
+/** خط بند مالي كما تعرضه اللوحة — الأرقام محسوبة على الخادم لا هنا */
+export type ItemLine = {
+  id: string;
+  name: string | null;
+  allocated: number | null;
+  income: number;
+  expenses: number;
+  remaining: number | null;
+  hasAllocation: boolean;
+};
+
+const money = (n: number | null | undefined) => formatMoney(n ?? null);
+const itemLabel = (name: string | null) => orFallback(name, "بند بدون اسم");
+
+export function AddIncomeForm({ planYearId, items }: { planYearId: string; items: ItemLine[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addIncomeAction, null);
   const [open, setOpen] = useState(false);
   return (
@@ -31,6 +59,7 @@ export function AddIncomeForm({ planYearId, programs }: { planYearId: string; pr
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="planYearId" value={planYearId} />
+          <p className="text-xs text-gray-500">كل الحقول اختيارية — يمكن حفظ الإيراد بمعلومات ناقصة.</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="مصدر الإيراد" name="source" />
             <Field label="المبلغ" name="amount" type="number" />
@@ -43,17 +72,22 @@ export function AddIncomeForm({ planYearId, programs }: { planYearId: string; pr
                 <option value="ملغى">ملغى</option>
               </select>
             </div>
-            <Field label="البند" name="purpose" />
-            <Field label="الفترة" name="periodText" />
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="in-program">ربط ببرنامج (اختياري)</label>
-              <select id="in-program" name="programId" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
-                <option value="">— بلا ربط —</option>
-                {programs.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="in-item">بند الصرف (اختياري)</label>
+              <select id="in-item" name="financialItemId" defaultValue="" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+                <option value="">— بدون بند —</option>
+                {items.map((i) => (
+                  <option key={i.id} value={i.id}>{itemLabel(i.name)}</option>
                 ))}
               </select>
             </div>
+            <Field label="الغرض" name="purpose" />
+          </div>
+          {/* الإيصال/المستند اختياري — يُحفظ عبر خط الشواهد الآمن نفسه */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="in-invoice">إرفاق الإيصال أو المستند</label>
+            <input id="in-invoice" name="invoice" type="file" accept="image/*,application/pdf" className="w-full rounded-lg border border-dashed border-gray-300 p-3 text-sm" />
+            <p className="mt-1 text-xs text-gray-400">صورة أو ملف PDF — اختياري.</p>
           </div>
           <Field label="ملاحظات" name="notes" />
           <SubmitButton>حفظ الإيراد</SubmitButton>
@@ -63,28 +97,23 @@ export function AddIncomeForm({ planYearId, programs }: { planYearId: string; pr
   );
 }
 
-export function AddExpenseForm({
-  planYearId,
-  programs,
-  itemLines,
-  itemNames,
-}: {
-  planYearId: string;
-  programs: Program[];
-  itemLines: ItemLine[];
-  itemNames: string[];
-}) {
+export function AddExpenseForm({ planYearId, items }: { planYearId: string; items: ItemLine[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addExpenseAction, null);
   const [open, setOpen] = useState(false);
-  const [itemName, setItemName] = useState("");
+  const [itemId, setItemId] = useState("");
   const [amount, setAmount] = useState("");
-  const [ackChecked, setAckChecked] = useState(false);
 
-  // B4: التجاوز والمتبقي يُحسبان على مخصص «البند» المختار (المستلزمات/النشاط)، لا على البرنامج،
-  // فكل بند يُخصم منه مستقلاً.
-  const selectedItem = itemLines.find((l) => l.item === itemName);
-  const remaining = selectedItem ? selectedItem.remaining : 0;
-  const wouldOverspend = !!selectedItem && selectedItem.hasAllocation && Number(amount || 0) > remaining;
+  // §B7: تحذير التجاوز معلوماتي بحت — لا يمنع الحفظ ولا يطلب إقراراً ولا يصبغ أي حقل
+  // بالأحمر لعدم الإقرار. الحساب من الخدمة الموحّدة نفسها المستعملة على الخادم.
+  const selected = items.find((i) => i.id === itemId);
+  const parsedAmount = amount.trim() === "" ? null : Number(amount);
+  const warning = selected
+    ? overrunWarning({
+        allocated: selected.allocated,
+        spentSoFar: selected.expenses,
+        newAmount: Number.isFinite(parsedAmount as number) ? parsedAmount : null,
+      })
+    : { willOverrun: false, overrunBy: 0, remainingAfter: null };
 
   return (
     <div>
@@ -96,6 +125,7 @@ export function AddExpenseForm({
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="planYearId" value={planYearId} />
+          <p className="text-xs text-gray-500">كل الحقول اختيارية — يمكن حفظ المصروف بمعلومات ناقصة.</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-amount">المبلغ</label>
@@ -110,188 +140,195 @@ export function AddExpenseForm({
             </div>
             <Field label="التاريخ" name="expenseDate" />
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-program">البرنامج (اختياري)</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-item">بند الصرف (اختياري)</label>
               <select
-                id="ex-program"
-                name="programId"
-                defaultValue=""
+                id="ex-item"
+                name="financialItemId"
+                value={itemId}
+                onChange={(e) => setItemId(e.target.value)}
                 className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
               >
-                <option value="">— بلا ربط —</option>
-                {programs.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                <option value="">— بدون بند —</option>
+                {items.map((i) => (
+                  <option key={i.id} value={i.id}>{itemLabel(i.name)}</option>
                 ))}
               </select>
             </div>
+            <Field label="رقم الفاتورة" name="paymentReference" />
+            <Field label="المورّد" name="supplier" />
             <Field label="التصنيف" name="category" />
-            <Field label="المورّد (اختياري)" name="supplier" />
-            <Field label="رقم الفاتورة (اختياري)" name="paymentReference" />
           </div>
-          {/* B3/B4: «البند» (المستلزمات/النشاط) — المصروف يُخصم من مخصص البند المختار */}
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-items">البند</label>
-            <select
-              id="ex-items"
-              name="items"
-              value={itemName}
-              onChange={(e) => setItemName(e.target.value)}
-              className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
-            >
-              <option value="">— بدون —</option>
-              {itemNames.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-            {selectedItem && (
-              <p className="mt-1 text-xs text-gray-500">
-                {selectedItem.hasAllocation ? (
-                  <>
-                    الميزانية المعتمدة: <span className="tabular-nums">{money(selectedItem.allocated)}</span> — المصروف:{" "}
-                    <span className="tabular-nums">{money(selectedItem.spent)}</span> — المتبقي:{" "}
-                    <span className={`tabular-nums ${remaining < 0 ? "text-red-600" : "text-emerald-700"}`}>{money(remaining)}</span>
-                  </>
-                ) : (
-                  <>لا يوجد مخصص معتمد لهذا البند بعد — عيّنه من «بنود الميزانية».</>
-                )}
-              </p>
-            )}
-          </div>
-          {/* B2: إرفاق فاتورة اختياري — يُحفظ عبر خط الشواهد الآمن ويُربط بالمصروف بعد حفظه */}
+
+          {selected && (
+            <p className="text-xs text-gray-500">
+              {selected.hasAllocation ? (
+                <>
+                  المخصص: <span className="tabular-nums">{money(selected.allocated)}</span> — المصروف:{" "}
+                  <span className="tabular-nums">{money(selected.expenses)}</span> — المتبقي:{" "}
+                  <span className={`tabular-nums ${(selected.remaining ?? 0) < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                    {money(selected.remaining)}
+                  </span>
+                </>
+              ) : (
+                <>لا يوجد مخصص لهذا البند — يمكن تعيينه من «بنود الصرف».</>
+              )}
+            </p>
+          )}
+
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-invoice">إرفاق الفاتورة</label>
-            <input
-              id="ex-invoice"
-              name="invoice"
-              type="file"
-              accept="image/*,application/pdf"
-              className="w-full rounded-lg border border-dashed border-gray-300 p-3 text-sm"
-            />
-            <p className="mt-1 text-xs text-gray-400">يمكن رفع صورة أو ملف PDF، والحقل اختياري.</p>
+            <input id="ex-invoice" name="invoice" type="file" accept="image/*,application/pdf" className="w-full rounded-lg border border-dashed border-gray-300 p-3 text-sm" />
+            <p className="mt-1 text-xs text-gray-400">صورة أو ملف PDF — اختياري.</p>
           </div>
           <TextArea label="ملاحظات" name="notes" rows={2} />
 
-          {wouldOverspend && (
-            <div className="rounded-lg border border-red-300 bg-red-50 p-3">
-              <p className="text-sm font-medium text-red-800">
-                تنبيه تجاوز: هذا المصروف ({money(Number(amount))}) يتجاوز المتبقي من مخصص البند «{itemName}»
-                ({money(remaining)}). يُسمح بالتسجيل مع إقرار صريح — ولن تُغيَّر أي قيمة مالية.
+          {warning.willOverrun && (
+            <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <p className="text-sm text-amber-900">
+                سيؤدي تسجيل هذه العملية إلى تجاوز المبلغ المخصص بمقدار{" "}
+                <span className="font-medium tabular-nums">{money(warning.overrunBy)}</span> ريال.
               </p>
-              <label className="mt-2 flex items-center gap-2 text-sm text-red-800">
-                <input type="checkbox" name="overspendAck" checked={ackChecked} onChange={(e) => setAckChecked(e.target.checked)} />
-                أقرّ بتسجيل هذا المصروف رغم تجاوزه المخصص
-              </label>
-              {ackChecked && (
-                <input name="overspendAckReason" placeholder="سبب الإقرار بالتجاوز" className="mt-2 w-full rounded border border-red-300 px-2 py-1 text-sm" />
-              )}
+              <p className="mt-1 text-xs text-amber-700">التسجيل مسموح — هذا تنبيه فقط ولا يتطلب أي إقرار.</p>
             </div>
           )}
 
-          <SubmitButton confirmText={wouldOverspend && !ackChecked ? "المصروف يتجاوز مخصص البند — أقرّ بالتجاوز أولاً" : undefined}>
-            حفظ المصروف
-          </SubmitButton>
-          {wouldOverspend && !ackChecked && (
-            <p className="text-xs text-red-600">علّم إقرار التجاوز لحفظ مصروف يتجاوز مخصص البند.</p>
-          )}
+          <SubmitButton>حفظ المصروف</SubmitButton>
         </form>
       )}
     </div>
   );
 }
 
-/** B4: تعيين/تحديث الميزانية المعتمدة لبند (المستلزمات/النشاط) — upsert بالاسم يمنع التكرار. */
-export function AddBudgetItemForm({ planYearId, options }: { planYearId: string; options: string[] }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(setBudgetItemAction, null);
+/** إنشاء/تعديل بند صرف مدرسي — الاسم والمخصص واللون كلها اختيارية */
+export function FinancialItemForm({ item }: { item?: ItemLine & { color?: string | null; notes?: string | null } }) {
+  const action = item ? updateFinancialItemAction.bind(null, item.id) : createFinancialItemAction;
+  const [state, formAction] = useActionState<ActionState, FormData>(action, null);
   const [open, setOpen] = useState(false);
   return (
     <div>
       <button onClick={() => setOpen(!open)} className="min-h-11 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100 lg:min-h-0">
-        {open ? "إغلاق" : "تعيين مخصص بند"}
+        {open ? "إغلاق" : item ? "تعديل" : "إضافة بند صرف"}
       </button>
       {open && (
         <form key={state?.success} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
-          <input type="hidden" name="planYearId" value={planYearId} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="اسم البند" name="nameAr" defaultValue={item?.name ?? ""} />
+            <Field label="المبلغ المخصص" name="allocatedAmount" type="number" defaultValue={item?.allocated?.toString() ?? ""} />
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="bi-item">البند</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor={`c-${item?.id ?? "new"}`}>اللون</label>
               <select
-                id="bi-item"
-                name="item"
-                defaultValue={options[0] ?? "المستلزمات"}
+                id={`c-${item?.id ?? "new"}`}
+                name="color"
+                defaultValue={item?.color ?? ""}
                 className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
               >
-                {options.map((n) => (
-                  <option key={n} value={n}>{n}</option>
+                <option value="">— بدون —</option>
+                {ITEM_COLORS.map((c) => (
+                  <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </div>
-            <Field label="الميزانية المعتمدة" name="amount" type="number" />
           </div>
-          <SubmitButton>حفظ المخصص</SubmitButton>
+          <Field label="ملاحظات" name="notes" defaultValue={item?.notes ?? ""} />
+          <SubmitButton>{item ? "حفظ التعديل" : "إنشاء البند"}</SubmitButton>
         </form>
       )}
     </div>
   );
 }
 
-export function DeleteBudgetItemButton({ id }: { id: string }) {
-  const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+/** تدفّق إداري صريح لإنشاء «المستلزمات» و«النشاط» — لا يعمل تلقائياً ولا يكرّر الموجود */
+export function CreateDefaultItemsButton() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-2">
       <button
+        disabled={pending}
         onClick={() =>
           startTransition(async () => {
-            if (!window.confirm("حذف مخصص هذا البند؟ (المصروفات المرتبطة به تبقى)")) return;
-            const res = await deleteBudgetItemAction(id);
-            if (res?.error) setError(res.error);
+            const res = await createDefaultFinancialItemsAction();
+            setMsg(res?.error ?? res?.success ?? null);
           })
         }
-        className="text-xs text-red-500 hover:underline"
+        className="min-h-11 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100 disabled:opacity-50 lg:min-h-0"
       >
-        حذف المخصص
+        إنشاء البندين الأساسيين
+      </button>
+      {msg && <span role="status" className="text-xs text-gray-600">{msg}</span>}
+    </span>
+  );
+}
+
+/** أرشفة/استعادة/ترتيب بند — كلها أفعال idempotent غير مدمّرة */
+export function ItemRowActions({ id, archived }: { id: string; archived: boolean }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const run = (fn: () => Promise<ActionState>) =>
+    startTransition(async () => {
+      const res = await fn();
+      setError(res?.error ?? null);
+    });
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      {!archived && (
+        <>
+          <button disabled={pending} onClick={() => run(() => reorderFinancialItemAction(id, "up"))} className="text-xs text-gray-500 hover:underline disabled:opacity-50" aria-label="تحريك لأعلى">▲</button>
+          <button disabled={pending} onClick={() => run(() => reorderFinancialItemAction(id, "down"))} className="text-xs text-gray-500 hover:underline disabled:opacity-50" aria-label="تحريك لأسفل">▼</button>
+        </>
+      )}
+      <button
+        disabled={pending}
+        onClick={() => run(() => (archived ? restoreFinancialItemAction(id) : archiveFinancialItemAction(id)))}
+        className="text-xs text-gray-600 hover:underline disabled:opacity-50"
+      >
+        {archived ? "استعادة" : "أرشفة"}
       </button>
       {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
     </span>
   );
 }
 
-export function DeleteButton({ kind, id }: { kind: "income" | "expense"; id: string }) {
+/** أرشفة/استعادة/حذف عملية مالية */
+export function RecordRowActions({ kind, id, archived }: { kind: "income" | "expense"; id: string; archived: boolean }) {
   const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
+  const run = (fn: () => Promise<ActionState>, confirmText?: string) =>
+    startTransition(async () => {
+      if (confirmText && !window.confirm(confirmText)) return;
+      const res = await fn();
+      setError(res?.error ?? null);
+    });
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-2">
       <button
+        disabled={pending}
         onClick={() =>
-          startTransition(async () => {
-            if (!window.confirm("حذف هذا السجل؟")) return;
-            const res = kind === "income" ? await deleteIncomeAction(id) : await deleteExpenseAction(id);
-            if (res?.error) setError(res.error);
-          })
+          run(() =>
+            archived
+              ? kind === "income" ? restoreIncomeAction(id) : restoreExpenseAction(id)
+              : kind === "income" ? archiveIncomeAction(id) : archiveExpenseAction(id),
+          )
         }
-        className="text-xs text-red-500 hover:underline"
+        className="text-xs text-gray-600 hover:underline disabled:opacity-50"
+      >
+        {archived ? "استعادة" : "أرشفة"}
+      </button>
+      <button
+        disabled={pending}
+        onClick={() =>
+          run(
+            () => (kind === "income" ? deleteIncomeAction(id) : deleteExpenseAction(id)),
+            "حذف هذا السجل نهائياً؟ الأرشفة بديل غير مدمّر يبقي السجل في التقارير التاريخية.",
+          )
+        }
+        className="text-xs text-red-500 hover:underline disabled:opacity-50"
       >
         حذف
       </button>
       {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
-    </span>
-  );
-}
-
-export function AcknowledgeOverspendForm({ expenseId }: { expenseId: string }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(acknowledgeOverspendAction.bind(null, expenseId), null);
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="inline-flex flex-wrap items-center gap-1">
-      <button onClick={() => setOpen(!open)} className="text-xs text-red-600 underline">إقرار التجاوز</button>
-      {open && (
-        <form action={formAction} className="flex items-center gap-1">
-          {state?.error && <span role="alert" className="text-xs text-red-600">{state.error}</span>}
-          <input name="reason" placeholder="السبب" required className="rounded border border-red-300 px-2 py-0.5 text-xs" />
-          <button className="rounded bg-red-600 px-2 py-0.5 text-xs text-white">تأكيد</button>
-        </form>
-      )}
     </span>
   );
 }
