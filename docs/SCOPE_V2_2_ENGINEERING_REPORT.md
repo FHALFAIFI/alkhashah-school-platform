@@ -1,5 +1,19 @@
 # Scope v2.2 — Engineering Report
 
+> **SUPERSEDED IN PART — read `docs/SCOPE_V2_2_FINAL_GAP_CLOSURE.md` first (2026-07-29).**
+>
+> That report closes the five disclosed gaps and corrects three statements below:
+> 1. **§B/E2/E4/E5 gap rows are out of date.** Template column/section editing UI, version
+>    comparison and actual-record preview are now **Implemented**.
+> 2. **§H and §D8/§D5 are out of date.** SWOT now has a real data model sourced from the official
+>    plan workbook's «التحليل الرباعي» sheet (D-030); meeting attendance is classified
+>    **Not Applicable** with evidence, and a test forbids fabricating one.
+> 3. **§11.4 / §K.8 were wrong or incomplete.** "No *direct* dependency advisory" is **not** a clean
+>    dependency result and is no longer used as a summary; and dev dependencies **are** present in the
+>    production image (both Dockerfiles run `npm ci` without `--omit=dev`), contrary to §K.8.
+>
+> Everything else below stands as written.
+
 **School:** مجمع الخشعة التعليمي للبنين
 **Branch:** `scope-v2.1-corrections` · **Base:** `501e7e2` · **Head:** `8aa9362`
 **Date:** 2026-07-28

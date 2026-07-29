@@ -2,7 +2,54 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — SCOPE v2.1 FINAL-DEMO CORRECTIONS (round 4) — DEPLOYED to production (2026-07-27)
+## Latest checkpoint — SCOPE v2.2 FINAL GAP CLOSURE — verdict CONDITIONALLY READY (2026-07-29)
+- **Commit `ba72f73`** on `scope-v2.1-corrections`. Full report
+  `docs/SCOPE_V2_2_FINAL_GAP_CLOSURE.md` (13 sections). **Production UNTOUCHED** — migration 18,
+  78 tables, 26/129/129/54/31, doc fingerprint `c9383e4b…`, 0 audit rows in 24 h, containers not
+  restarted. **NOT deployed, no release tag, no gold backup.**
+- **All five disclosed gaps closed.** (1) **§E2 column/section editing UI** — closed registry
+  `src/lib/templates/structure.ts` (9 sections, per-type columns); the renderer now honours
+  order/visibility/heading/label/width in HTML **and** PDF **and** Word; RTL editor panels with
+  ▲▼ reorder, show/hide, rename, width; new route `/api/templates/preview?format=pdf|docx`.
+  (2) **§E5 version comparison** — pure `diff.ts` covering all twelve required aspects plus section
+  headings and column widths; GET-driven, read-only (test asserts zero buttons in the diff table).
+  (3) **§E4 actual-record preview** — `records.ts` with 13/14 doc types, per-type read permission,
+  `load()` re-derives the eligible query so wrong-type / archived / non-existent ids are refused
+  (IDOR); no document issued, no version created, record byte-identical, audit row says so; amber
+  «معاينة فقط» banner; sample fallback for خطاب رسمي عام.
+- **(4) Report coverage (D-030).** **SWOT is real**: the workbook production actually imported has a
+  populated «التحليل الرباعي» sheet the importer never read — parsing the real file yields **24
+  items (6/7/5/6)** alongside the same 26 programs / 15 KPIs / 9 risks production holds. New
+  `plan_swot_items` (**migration 0021**, additive), importer support (unique `(year, code)`,
+  `onConflictDoNothing`, never re-attributes an existing row to a later batch), `/plan/swot`, two
+  reports, deep link, sidebar entry. **Meeting attendance = NOT APPLICABLE** — no attendance model
+  by product decision, verified against the production schema (no attend/present/absent/quorum
+  column exists); a guard test forbids an attendance-named report. Section↔report matrix rebuilt and
+  **enforced by test** over every route; +7 reports (KPIs, follow-up, tasks, calendar, feedback,
+  swot-register, swot-by-category) → **53 reports / 13 categories**.
+- **(5) Dependency evidence.** Full **21** (16 high/5 mod/0 crit) · runtime-only **10** (9 high/1 mod)
+  · dev-only **11 packages**. Those collapse to **3 root advisories**. Fixed via `overrides`:
+  postcss 8.4.31→**8.5.24**, sharp 0.34.5→**0.35.3** (verified inside a freshly built prod image with
+  linux-arm64 binaries) — runtime 13→10. Remaining: brace-expansion (high, transitive, **unreachable**
+  — no glob pattern anywhere), uuid (moderate, exceljs uses v4 only), esbuild (dev-only, `--serve`
+  never run) — each ACCEPTED with reason and refused-fix rationale. **Corrected two earlier claims:**
+  "no direct advisory" ≠ clean, and dev deps **are** in the production image (`npm ci` without
+  `--omit=dev`; `tsx` is genuinely needed by `init`).
+- **Clean undisturbed cycle — ALL GREEN:** `rm -rf node_modules && npm ci` · typecheck 0 · lint 0/0 ·
+  build ✓ · **vitest 606/606** (was 527) · **Playwright 72 pass / 1 skip** (skip = C5 D-018) ·
+  clone migration rehearsal 18→22 with every count identical, D-022 + doc fingerprints MATCH, all 5
+  new tables **empty** and all new columns 100% NULL (seed did not run), idempotent · restart
+  rehearsal PASS on the new image · backup rehearsal PASS · restore rehearsal PASS **twice** (fresh
+  backup + the held real 2026-07-27 predeploy artifact: checksums OK, 78 tables, ledger 17).
+  All rehearsal artifacts destroyed; no real data written to the repo.
+- **VERDICT: CONDITIONALLY READY.** No gap open, no gate failed, no code work left. Two conditions,
+  neither of which I may perform: **(a) Ollama is NOT loopback-only** — still `*:11434`, reachable
+  unauthenticated on the LAN, pre-existing (K.1), fix = `OLLAMA_HOST=127.0.0.1:11434` + restart
+  Ollama only; **(b) the principal's Arabic acceptance pass**. Operational note: SWOT ships with an
+  empty table in production until the principal re-imports the plan workbook (their manual action) —
+  the section says so in Arabic rather than showing an unexplained empty screen.
+
+## Earlier checkpoint — SCOPE v2.1 FINAL-DEMO CORRECTIONS (round 4) — DEPLOYED to production (2026-07-27)
 - **Principal's 4th feedback round** (final-demo corrections) implemented on top of deployed v2.1
   (`8fb59c1`, prod migration `0016`, image `a492d908…`). Corrective commit **`1bbf797`** on
   `scope-v2.1-corrections`. Full report `docs/DELIVERY_MAC_MINI_V2_1/CORRECTIONS_REPORT_20260727.md`.
