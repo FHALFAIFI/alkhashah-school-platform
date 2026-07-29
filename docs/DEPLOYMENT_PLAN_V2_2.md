@@ -2,7 +2,7 @@
 
 **School:** مجمع الخشعة التعليمي للبنين
 **Date:** 2026-07-29 · **Host:** Mac mini (`192.168.0.48`, Tailscale `100.99.204.63`)
-**Release candidate:** `80a1b9c9381628d1ba0e7c4f82d89d9df2a549c9`
+**Release candidate:** `e43516c2c899ce654d0a83f7d6d6cf166b0d9b1b` (last **code** commit `80a1b9c`; `e43516c` adds this document only)
 
 **Application NOT deployed.** Production remains at migration 18, 78 tables, all counts unchanged,
 containers never restarted. The only production-host change made in this round is the Ollama binding
@@ -202,8 +202,9 @@ page states, before any upload, that programs/KPIs/risks are not touched.
 | Item | Value |
 |---|---|
 | Branch | `scope-v2.1-corrections` |
-| **RC head** | **`80a1b9c9381628d1ba0e7c4f82d89d9df2a549c9`** |
-| Commits in this release | `ba72f73` (gap closure: template structure editor, version diff, record preview, SWOT model) · `673623b` (final gap-closure report) · `80a1b9c` (controlled SWOT-only import path) — on top of the accepted v2.2 base `b591be2` |
+| **RC head (deploy this)** | **`e43516c2c899ce654d0a83f7d6d6cf166b0d9b1b`** |
+| Last commit that changes code | `80a1b9c9381628d1ba0e7c4f82d89d9df2a549c9` — `e43516c` is documentation only, so the built image is byte-equivalent |
+| Commits in this release | `ba72f73` (gap closure: template structure editor, version diff, record preview, SWOT model) · `673623b` (final gap-closure report) · `80a1b9c` (controlled SWOT-only import path) · `e43516c` (this plan) — on top of the accepted v2.2 base `b591be2` |
 | Base already in production | `501e7e2` (v2.1 head) → running image `madrasa-app:0.1.0` (`fc8654e2`) |
 | **Target image** | `madrasa-app:0.1.0` rebuilt from the RC. Pre-verified build of the identical tree: `madrasa-app:0.1.0-v2_2-rc`, manifest `sha256:b13382d15423168a171e2a78087a25eb94537b0d37db5a4e0ccef1f27d43da7e` — builds clean on linux/arm64 with the `postcss 8.5.24` / `sharp 0.35.3` overrides and their native binaries |
 | Rollback image | `madrasa-app:0.1.0-prev-v2_2-<date>` (tagged in step 2 below) |
@@ -216,7 +217,7 @@ page states, before any upload, that programs/KPIs/risks are not touched.
 cd ~/Developer/School/"Father's File"
 
 # ─── 0) Confirm the starting point ────────────────────────────────────────────
-git rev-parse HEAD                                            # expect 80a1b9c9…
+git rev-parse HEAD                                            # expect e43516c2…
 docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
   "select count(*) from drizzle.__drizzle_migrations;"        # expect 18
 docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
