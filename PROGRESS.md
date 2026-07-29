@@ -2,7 +2,44 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — SCOPE v2.2 FINAL GAP CLOSURE — verdict CONDITIONALLY READY (2026-07-29)
+## Latest checkpoint — v2.2 OPERATIONAL PREPARATION (Stages 1-3) — READY FOR CONTROLLED DEPLOYMENT (2026-07-29)
+- **RC head `80a1b9c`**; plan `docs/DEPLOYMENT_PLAN_V2_2.md`. **App NOT deployed** — production still
+  migration 18, 78 tables, 26/15/9/31, containers Up 46h/2d, 0 audit rows.
+- **STAGE 1 — Ollama corrected (the only production-host change).** Root cause was
+  `launchctl setenv OLLAMA_HOST 0.0.0.0:11434` (session-global), inherited by a hand-started
+  `ollama serve` on ttys002. Fixed BOTH source and process: `launchctl setenv OLLAMA_HOST
+  127.0.0.1:11434` + kill 53007 + restart detached. Now `127.0.0.1:11434` only (PID 7095).
+  **Verified:** loopback serves models AND a real `/api/embed` call; LAN `.48:11434` refused from a
+  container (separate netns), from the host, from the app container, and Tailscale `.63` refused;
+  app health ok + auth gate ok; **containers NOT restarted** (StartedAt/RestartCount identical);
+  pg unpublished; 0 audit rows. **No functional loss:** AI_ENABLED=false, and the app container can
+  still reach Ollama via `host.docker.internal` (Docker Desktop proxies from the host stack →
+  loopback). Open WebUI (native host process) still 200. Rollback documented. NOTE: `launchctl
+  setenv` is session-scoped — after a reboot Ollama defaults to loopback anyway; a LaunchAgent would
+  make it a guarantee (recommended, not applied).
+- **STAGE 2 — full-workbook re-import PROVED UNUSABLE, controlled path built.** On a fresh clone at
+  migration 22 the full workbook commit **FAILS** on `programs_year_seq_unique`; transaction aborts,
+  batch stays «معاينة», clone bit-for-bit unchanged (safe, but SWOT can never arrive that way).
+  Built import type **`plan_swot`** (`parseSwotWorkbook` / `commitSwotRows` / `rollbackSwotBatch`,
+  commit `80a1b9c`): reads one sheet, writes one table, refuses when no plan year exists, never
+  overwrites official text, never re-attributes a pre-existing row to a later batch.
+  **Rehearsal PASS:** preview 24 (6/7/5/6) row-types=swot only → commit 24; programs 26, KPIs 15,
+  risks 9, deliverables 26, budget 2, roadmap 312, documents 31, doc fingerprint `c9383e4b…` all
+  unchanged; 2nd import idempotent (same ids); manual edit survived a 3rd import; wrong workbook
+  rejected at preview; rollback removed only its own 24. +4 integration +1 e2e tests.
+- **Gates after Stage 2:** typecheck 0 · lint 0/0 · build ✓ · **vitest 610** · **Playwright 73 pass /
+  1 skip**. Clone destroyed, dumps deleted.
+- **STAGE 3 — plan only, nothing executed.** Target image pre-built and verified:
+  `madrasa-app:0.1.0-v2_2-rc` (`sha256:b13382d15423…`), linux/arm64 with postcss 8.5.24 + sharp
+  0.35.3 native binaries. Migration 18 → 22. seed.ts unreachable (proved 4 ways). 23-item
+  authenticated smoke list. Baselines to compare: 26/129/129/54/31/15/9, D-022 fp
+  `4572c57060e20c4b0de4db52545a8e3f`, docs fp `c9383e4b0fea0f460560effedeaff7bd`.
+- **Live LAN IP is `192.168.0.48` again** (drifted .48→.171→.48). `TRUSTED_ORIGINS` still says .171 —
+  dead config, NOT a fault (Next checks allowedOrigins only when Origin≠Host).
+- **VERDICT: READY FOR CONTROLLED MAC MINI DEPLOYMENT.** No release tag, no gold backup, no
+  production migration, no container restart, no workbook re-import, no host-PC migration.
+
+## Earlier checkpoint — SCOPE v2.2 FINAL GAP CLOSURE — verdict CONDITIONALLY READY (2026-07-29)
 - **Commit `ba72f73`** on `scope-v2.1-corrections`. Full report
   `docs/SCOPE_V2_2_FINAL_GAP_CLOSURE.md` (13 sections). **Production UNTOUCHED** — migration 18,
   78 tables, 26/129/129/54/31, doc fingerprint `c9383e4b…`, 0 audit rows in 24 h, containers not

@@ -366,3 +366,37 @@ batch, so rolling that batch back never deletes an item an earlier batch created
 26 already-imported programs and every other row are untouched. The section shows an explicit
 Arabic empty state naming the import as the way to populate it — no broken button, no empty report
 presented as a finding.
+
+## D-031 — SWOT arrives through a controlled single-sheet import, not a full-workbook re-import (2026-07-29)
+
+Rehearsed on a fresh production clone at migration 22 with the real official workbook.
+
+**Finding.** Re-importing `الخطة_التشغيلية_المتكاملة_لمجمع_الخشعة_1448_1449.xlsx` in full against the
+existing plan year **fails** — `programs_year_seq_unique` rejects the 26 programs, the whole commit
+transaction aborts, and the batch stays in «معاينة». The clone was bit-for-bit unchanged afterwards
+(programs 26 · KPIs 15 · risks 9 · deliverables 26 · budget 2 · documents 31 · issued-snapshot
+fingerprint `c9383e4b…`). So the full-workbook path is **safe but unusable**: it can never deliver
+the SWOT sheet to a plan year that already holds programs.
+
+**Decision.** A dedicated import type **`plan_swot` — «استيراد التحليل الرباعي»** is the only
+supported way to populate `plan_swot_items` on an existing plan year. It is constrained by
+construction, not by a flag:
+
+- `parseSwotWorkbook()` reads only «التحليل الرباعي» / «SWOT» and emits rows of type `swot` only;
+  a workbook without that sheet, or with no valid rows, is rejected at preview with an Arabic message.
+- `commitSwotRows()` writes only `plan_swot_items`. It never creates a plan year — importing SWOT
+  before the operational plan is refused («استورد الخطة التشغيلية أولاً»).
+- `(planYearId, code)` is unique and conflicts are `onConflictDoNothing`, so official text is never
+  silently rewritten; a pre-existing row is not attributed to the later batch, so rolling that batch
+  back cannot delete rows an earlier batch created.
+- `rollbackSwotBatch()` deletes only what its own batch created.
+
+**Rehearsal evidence.** Preview 24 rows (6 قوة / 7 ضعف / 5 فرصة / 6 تهديد) → commit → 24 stored with
+every other count and the issued-snapshot fingerprint unchanged. Second import: idempotent (same row
+ids, no new rows, summary «عناصر موجودة مسبقاً (لم تتغيّر)»). Third import after a manual edit: the
+manual text survived. Wrong workbook (the Fares employee file): rejected at preview, nothing written.
+Rollback of the first batch: removed exactly its own 24 rows and nothing else.
+
+**Operational consequence.** The principal must use «استيراد التحليل الرباعي», **not** «استيراد الخطة
+التشغيلية», to populate SWOT after deployment. Rollback of a SWOT batch removes the rows that batch
+created, including any manual edits made to them afterwards — the platform-wide rollback semantic.
