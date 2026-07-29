@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs } from "@/db/schema";
 import { PageHeader, Card, EmptyState } from "@/components/ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { ClassificationsManager } from "./classifications-ui";
 
@@ -41,6 +42,7 @@ export default async function ClassificationsPage() {
       <PageHeader
         title="إدارة التصنيفات"
         subtitle={`«المجال» تصنيف حرّ للبرامج — أعد التسمية (دمج) أو أعد التوزيع دون حذف أي برنامج · ${classifications.length} تصنيفاً`}
+        actions={<SectionReportsLink category="plan" report="programs-by-domain" />}
       />
       {classifications.length === 0 ? (
         <EmptyState

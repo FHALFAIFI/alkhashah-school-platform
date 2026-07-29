@@ -64,9 +64,9 @@ export const REPORT_CATEGORIES: readonly ReportCategory[] = [
   { key: "meetings", label: "الاجتماعات والقرارات", description: "الاجتماعات والمحاضر والقرارات والتوصيات", permission: "committees.read" },
   { key: "building", label: "المبنى والمرافق", description: "الأدوار والغرف والمرافق والصيانة والأصول والفحوصات", permission: "building.read" },
   { key: "employees", label: "الموظفون", description: "سجل المنسوبين وحالاتهم وعضوياتهم ونواقص البيانات", permission: "people.read" },
-  // لا يوجد في المنصة نموذج بيانات لـSWOT بعد، فلا تقرير له هنا — التقارير تُبنى على بيانات
-  // موجودة فعلاً ولا تُختلق. الفئة تغطي سجل المخاطر حالياً.
-  { key: "risks", label: "المخاطر", description: "سجل المخاطر ودرجاتها وتصنيفها ومعالجتها", permission: "plan.read" },
+  // التحليل الرباعي صار له نموذج بيانات (`plan_swot_items`) يُستورد من ورقة «التحليل الرباعي»
+  // الرسمية في مصنف الخطة، فله تقاريره هنا. لا تقرير يُبنى على بيانات غير موجودة.
+  { key: "risks", label: "المخاطر والتحليل الرباعي", description: "سجل المخاطر ودرجاتها ومعالجتها، وعناصر التحليل الرباعي (القوة والضعف والفرص والتهديدات)", permission: "plan.read" },
   { key: "external", label: "التقييم الخارجي", description: "نتائج التقييم الخارجي ومجالات التحسين وخطط التحسين", permission: "plan.read" },
   { key: "documents", label: "الوثائق والمرفقات", description: "الوثائق الصادرة والمرفقات وأنواع الملفات والوثائق المجمّدة", permission: "documents.read" },
   { key: "imports", label: "الاستيراد وجودة البيانات", description: "دفعات الاستيراد وصفوفها وحالات التحقق ونواقص البيانات", permission: "imports.read" },
@@ -168,6 +168,42 @@ export const REPORTS: readonly ReportDefinition[] = [
     description: "برامج لم يُرفع لها أي شاهد — معلوماتي بلا حصة أو إلزام (D-025)",
     permission: "plan.read",
     columns: [col("seq", "م", "number"), col("name", "البرنامج"), col("domain", "المجال"), col("status", "الحالة")],
+    filters: ["search"],
+  },
+  {
+    key: "plan-kpis",
+    category: "plan",
+    label: "مؤشرات الأداء",
+    description: "مؤشرات الخطة بخط الأساس والمستهدف والدورية ومصدر البيانات ومسؤولها",
+    permission: "plan.read",
+    columns: [col("code", "الرمز"), col("nameAr", "المؤشر"), col("baseline", "خط الأساس"), col("target", "المستهدف"), col("periodicity", "الدورية"), col("owner", "المسؤول"), col("dataSource", "مصدر البيانات")],
+    filters: ["search"],
+  },
+  {
+    key: "plan-followups",
+    category: "plan",
+    label: "المتابعة الأسبوعية",
+    description: "ملاحظات المتابعة الأسبوعية للبرامج مع لقطة التقدم وحالة التنفيذ",
+    permission: "plan.read",
+    columns: [col("weekKey", "الأسبوع"), col("programName", "البرنامج"), col("executionStatus", "حالة التنفيذ"), col("progressSnapshot", "التقدم", "percent"), col("note", "الملاحظة"), col("createdAt", "التاريخ", "date")],
+    filters: ["search", "dateRange", "status"],
+  },
+  {
+    key: "action-tasks",
+    category: "plan",
+    label: "المهام والإجراءات",
+    description: "المهام المنبثقة عن القرارات والبرامج والفحوصات بحالتها ومسؤولها وموعدها",
+    permission: "tasks.read",
+    columns: [col("title", "المهمة"), col("owner", "المسؤول"), col("status", "الحالة"), col("priority", "الأولوية"), col("progress", "الإنجاز", "percent"), col("dueDate", "الاستحقاق", "date"), col("sourceType", "المصدر")],
+    filters: ["search", "status", "dateRange"],
+  },
+  {
+    key: "calendar-events",
+    category: "plan",
+    label: "التقويم الدراسي",
+    description: "أحداث التقويم المعتمد بتواريخها الهجرية والميلادية وأثرها وإجراء المدرسة",
+    permission: "calendar.read",
+    columns: [col("nameAr", "الحدث"), col("hijriFrom", "من (هجري)"), col("hijriTo", "إلى (هجري)"), col("gregorianText", "الميلادي"), col("impact", "الأثر"), col("schoolAction", "إجراء المدرسة")],
     filters: ["search"],
   },
 
@@ -449,7 +485,7 @@ export const REPORTS: readonly ReportDefinition[] = [
     filters: ["search"],
   },
 
-  /* ── المخاطر وSWOT ─────────────────────────────────────────── */
+  /* ── المخاطر والتحليل الرباعي ──────────────────────────────── */
   {
     key: "risk-register",
     category: "risks",
@@ -458,6 +494,23 @@ export const REPORTS: readonly ReportDefinition[] = [
     permission: "plan.read",
     columns: [col("code", "الرمز"), col("risk", "الخطر"), col("likelihood", "الاحتمال"), col("impact", "الأثر"), col("classification", "التصنيف"), col("treatment", "المعالجة"), col("owner", "المسؤول")],
     filters: ["search", "status"],
+  },
+  {
+    key: "swot-register",
+    category: "risks",
+    label: "سجل التحليل الرباعي",
+    description: "عناصر القوة والضعف والفرص والتهديدات ودلالتها الاستراتيجية — من ورقة «التحليل الرباعي» الرسمية",
+    permission: "plan.read",
+    columns: [col("category", "النوع"), col("code", "الرمز"), col("item", "العنصر"), col("implication", "الدلالة الاستراتيجية"), col("planYear", "السنة")],
+    filters: ["search", "status"],
+  },
+  {
+    key: "swot-by-category",
+    category: "risks",
+    label: "التحليل الرباعي حسب النوع",
+    description: "عدد عناصر كل نوع في التحليل الرباعي",
+    permission: "plan.read",
+    columns: [col("category", "النوع"), col("count", "العدد", "number")],
   },
 
   /* ── التقييم الخارجي ───────────────────────────────────────── */
@@ -528,6 +581,16 @@ export const REPORTS: readonly ReportDefinition[] = [
     permission: "admin.audit.read",
     columns: [col("summary", "التقرير"), col("actor", "المنفّذ"), col("createdAt", "التاريخ", "date")],
     filters: ["search", "dateRange"],
+  },
+  {
+    key: "feedback-register",
+    category: "usage",
+    label: "سجل الملاحظات والبلاغات",
+    description: "ملاحظات التشغيل المُبلَّغة من داخل المنصة بوحداتها وفئاتها وحالتها",
+    // لا يُعرض نص الملاحظة الحساس ولا المرفق — العنوان والتصنيف والحالة فقط
+    permission: "feedback.manage",
+    columns: [col("ref", "الرقم"), col("module", "الوحدة"), col("category", "الفئة"), col("severity", "الأهمية"), col("title", "العنوان"), col("status", "الحالة"), col("createdAt", "التاريخ", "date")],
+    filters: ["search", "status", "dateRange"],
   },
 ] as const;
 

@@ -5,6 +5,8 @@ import { dualDisplay } from "@/lib/dates";
 import { listTemplates, getTemplate, configOf } from "@/lib/templates/service";
 import { DOC_TYPE_LABELS, TEMPLATE_DOC_TYPES, type TemplateDocType } from "@/lib/templates/schema";
 import { placeholdersFor } from "@/lib/templates/placeholders";
+import { recordSourceFor, type EligibleRecord } from "@/lib/templates/records";
+import { diffTemplateConfigs, groupDiff } from "@/lib/templates/diff";
 import {
   CreateTemplateForm,
   TemplateActions,
@@ -46,6 +48,41 @@ export default async function TemplatesPage({
   // الأنواع التي ليس لها قالب بعد — تستعمل الإعداد الافتراضي عند الإصدار
   const typesWithTemplate = new Set(active.map((t) => t.docType));
   const typesWithout = TEMPLATE_DOC_TYPES.filter((t) => !typesWithTemplate.has(t));
+
+  /**
+   * السجلات المتاحة للمعاينة الحقيقية (§E4).
+   *
+   * تُحمَّل على الخادم بصلاحية نوع السجل نفسه — من لا يملكها لا تصله قائمة سجلات أصلاً،
+   * ولا يُغني عنها امتلاك صلاحية إدارة القوالب.
+   */
+  let recordOptions: EligibleRecord[] = [];
+  let recordPickerLabel: string | null = null;
+  let recordDenied = false;
+  if (selected) {
+    const source = recordSourceFor(selected.template.docType as TemplateDocType);
+    if (source) {
+      if (user.permissions.has(source.permission)) {
+        recordPickerLabel = source.pickerLabel;
+        recordOptions = await source.list();
+      } else {
+        recordDenied = true;
+      }
+    }
+  }
+
+  /** مقارنة نسختين (§E5) — مقودة بالرابط، للقراءة فقط، لا تُعدّل أي نسخة */
+  const cmpA = selected?.versions.find((v) => v.id === sp.cmpA) ?? null;
+  const cmpB = selected?.versions.find((v) => v.id === sp.cmpB) ?? null;
+  const diffGroups =
+    selected && cmpA && cmpB && cmpA.id !== cmpB.id
+      ? groupDiff(
+          diffTemplateConfigs(
+            selected.template.docType as TemplateDocType,
+            configOf(cmpA),
+            configOf(cmpB),
+          ),
+        )
+      : null;
 
   return (
     <div className="space-y-6">
@@ -142,6 +179,9 @@ export default async function TemplatesPage({
               docType={selected.template.docType as TemplateDocType}
               initialConfig={configOf(selected.current ?? selected.versions[0])}
               placeholders={placeholdersFor(selected.template.docType as TemplateDocType)}
+              recordOptions={recordOptions}
+              recordPickerLabel={recordPickerLabel}
+              recordDenied={recordDenied}
             />
           ) : (
             <Card>
@@ -176,6 +216,86 @@ export default async function TemplatesPage({
                 );
               })}
             </Table>
+          </section>
+
+          {/* مقارنة نسختين (§E5) — نموذج GET: الحالة في الرابط، والعرض للقراءة فقط.
+              لا إجراء هنا يعدّل نسخة: المقارنة لا تنشر ولا تستعيد ولا تحذف. */}
+          <section data-testid="version-compare">
+            <h3 className="mb-2 text-sm font-bold text-gray-600">مقارنة نسختين</h3>
+            {selected.versions.length < 2 ? (
+              <p className="text-xs text-gray-500">تحتاج نسختين على الأقل للمقارنة.</p>
+            ) : (
+              <>
+                <form method="get" className="flex flex-wrap items-end gap-2">
+                  <input type="hidden" name="template" value={selected.template.id} />
+                  <div>
+                    <label htmlFor="cmpA" className="mb-1 block text-xs text-gray-500">النسخة الأولى</label>
+                    <select
+                      id="cmpA"
+                      name="cmpA"
+                      defaultValue={cmpA?.id ?? ""}
+                      className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+                    >
+                      <option value="">اختر…</option>
+                      {selected.versions.map((v) => (
+                        <option key={v.id} value={v.id}>{`نسخة ${v.versionNumber} — ${v.status}`}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="cmpB" className="mb-1 block text-xs text-gray-500">النسخة الثانية</label>
+                    <select
+                      id="cmpB"
+                      name="cmpB"
+                      defaultValue={cmpB?.id ?? ""}
+                      className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+                    >
+                      <option value="">اختر…</option>
+                      {selected.versions.map((v) => (
+                        <option key={v.id} value={v.id}>{`نسخة ${v.versionNumber} — ${v.status}`}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    className="min-h-11 rounded-lg border border-sand-200 px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0"
+                  >
+                    قارن
+                  </button>
+                </form>
+
+                {cmpA && cmpB && cmpA.id === cmpB.id && (
+                  <p className="mt-3 text-xs text-gray-500">اخترت النسخة نفسها مرتين — اختر نسختين مختلفتين.</p>
+                )}
+
+                {diffGroups && (
+                  <div className="mt-3 space-y-3" data-testid="version-diff">
+                    <p className="text-xs text-gray-500">
+                      مقارنة نسخة {cmpA!.versionNumber} بنسخة {cmpB!.versionNumber} — عرض للقراءة فقط. النسخ المنشورة
+                      والوثائق الصادرة لا تتغيّر بالمقارنة.
+                    </p>
+                    {diffGroups.length === 0 ? (
+                      <EmptyState title="لا فروق بين النسختين" hint="الإعدادان متطابقان بعد الدمج مع الافتراضي" />
+                    ) : (
+                      diffGroups.map((g) => (
+                        <div key={g.key}>
+                          <h4 className="mb-1 text-xs font-bold text-gray-600">{g.label}</h4>
+                          <Table headers={["الخاصية", `نسخة ${cmpA!.versionNumber}`, `نسخة ${cmpB!.versionNumber}`]}>
+                            {g.rows.map((r) => (
+                              <tr key={`${g.key}-${r.label}`}>
+                                <td className="px-3 py-2 text-xs">{r.label}</td>
+                                <td className="px-3 py-2 text-xs text-gray-500">{r.before}</td>
+                                <td className="px-3 py-2 text-xs font-medium">{r.after}</td>
+                              </tr>
+                            ))}
+                          </Table>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </section>
         </section>
       )}

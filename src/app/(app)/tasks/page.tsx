@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { actionTasks, people } from "@/db/schema";
 import { PageHeader, Table, Badge, EmptyState, ProgressBar, Card } from "@/components/ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 import { dualDisplay, todayIso } from "@/lib/dates";
 import { NewTaskForm, TaskStatusControl } from "./task-ui";
 import { asc } from "drizzle-orm";
@@ -42,6 +43,7 @@ export default async function TasksPage() {
       <PageHeader
         title="المهام والإجراءات"
         subtitle={`${tasks.length} مهمة · متأخرة: ${overdue.length} — سجل موحد لجميع الوحدات`}
+        actions={<SectionReportsLink category="plan" report="action-tasks" />}
       />
       {user.permissions.has("tasks.write") && (
         <Card className="mb-4">

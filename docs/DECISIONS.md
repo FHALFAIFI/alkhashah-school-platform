@@ -317,3 +317,52 @@ with evidence to confirm or refine the root cause.
   representative buttons, dialogs, saves, uploads, cancellations, and repeated clicks (desktop + mobile
   RTL). Ruled out (with evidence): service worker/PwaManager, portals/toasts (none exist), and
   three.js/off-DOM manual mutations.
+
+## D-030 — Meeting attendance is NOT APPLICABLE; SWOT gains a real data model (2026-07-29)
+
+Two report-coverage questions raised in the v2.2 final gap-closure round, answered from the
+schema and the source files rather than from assumption.
+
+**Meeting attendance — NOT APPLICABLE (no report, and no button that opens one).**
+There is no attendance model anywhere in the platform, and its absence is a deliberate product
+decision recorded in the schema and the UI long before this round:
+- `committee_members` — «تسجيل عند التشكيل فقط، لا حضور ولا غياب»
+- `meeting_attachments` — «(ليست حضوراً — لا حضور ولا غياب ولا نصاب.)»
+- `/committees/[id]` — «تسجل العضوية عند التشكيل فقط — لا حضور ولا غياب ولا نصاب»
+- `/committees/[id]/report` — «لا حضور ولا غياب ولا نصاب»
+
+Verified empirically against **production**: no table and no column whose name matches
+`attend` / `present` / `absent` / `quorum` exists. Membership is time-scoped
+(`effectiveFrom`/`effectiveTo`) and is a formation record, not a per-meeting presence record.
+
+Therefore no attendance report is created. Fabricating one would mean either an always-empty
+screen or inventing presence data the school never recorded. The meetings category continues to
+report what genuinely exists: meetings, decisions and recommendations. A guard test asserts that
+no report in the registry is named or labelled after attendance, so the classification cannot
+drift back silently. Should the principal later ask to record attendance, that is a new data
+model (an additive `meeting_attendance` table plus its UI), not a reporting change.
+
+**SWOT — IMPLEMENTED on the authoritative source (supersedes «no SWOT data model»).**
+The earlier statement that «no SWOT data model exists» was accurate about the database but
+incomplete about the source of truth. The official operational-plan workbook that production
+actually imported — `الخطة_التشغيلية_المتكاملة_لمجمع_الخشعة_1448_1449.xlsx`, batch «منفذة» —
+contains a populated sheet «التحليل الرباعي» (named «SWOT» in the analysis-only variant of the
+workbook) holding the school's real four-quadrant analysis: نوع، رمز، عنصر، الدلالة الاستراتيجية.
+The platform's plan importer simply never read that sheet, so the data existed officially but not
+in the database.
+
+Resolution: the sheet is now imported into a dedicated `plan_swot_items` table (migration 0021,
+additive), exactly as the risk register and the KPI sheet already are; values are stored verbatim
+per the source-fidelity rule. `/plan/swot` displays them grouped by type and deep-links to the
+report centre. Two reports were added under the «المخاطر والتحليل الرباعي» category:
+«سجل التحليل الرباعي» and «التحليل الرباعي حسب النوع».
+
+Import semantics: `(planYearId, code)` is unique, so re-importing the same workbook cannot create
+duplicates; a conflicting row is left untouched (`onConflictDoNothing`) rather than silently
+rewritten, because the text is official. A pre-existing row is **not** attributed to the later
+batch, so rolling that batch back never deletes an item an earlier batch created.
+
+**Production impact of D-030: none until the principal re-imports.** The table ships empty; the
+26 already-imported programs and every other row are untouched. The section shows an explicit
+Arabic empty state naming the import as the way to populate it — no broken button, no empty report
+presented as a finding.

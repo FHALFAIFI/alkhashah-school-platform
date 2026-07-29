@@ -13,6 +13,7 @@ import {
   restoreTemplateAction,
   archiveDraftVersionAction,
   importTemplateConfigAction,
+  previewWithRecordAction,
   type ActionState,
 } from "./actions";
 import { SubmitButton, Field } from "@/components/ui";
@@ -28,7 +29,8 @@ import {
   type TemplateConfig,
   type TemplateDocType,
 } from "@/lib/templates/schema";
-import { renderTemplate, sampleValues } from "@/lib/templates/render";
+import { renderTemplate, sampleValues, sampleTable } from "@/lib/templates/render";
+import { DOC_SECTIONS, columnsFor, resolveColumns, resolveSections } from "@/lib/templates/structure";
 import type { PlaceholderDef } from "@/lib/templates/placeholders";
 
 /**
@@ -192,15 +194,27 @@ export function TemplateEditor({
   docType,
   initialConfig,
   placeholders,
+  recordOptions = [],
+  recordPickerLabel = null,
+  recordDenied = false,
 }: {
   templateId: string;
   docType: TemplateDocType;
   initialConfig: TemplateConfig;
   placeholders: PlaceholderDef[];
+  /** السجلات المتاحة للمعاينة الحقيقية — مُحمَّلة على الخادم بصلاحية نوعها */
+  recordOptions?: { id: string; label: string }[];
+  recordPickerLabel?: string | null;
+  /** المستخدم لا يملك صلاحية قراءة سجلات هذا النوع — يُقال صراحةً لا يُخفى الخيار */
+  recordDenied?: boolean;
 }) {
   const [config, setConfig] = useState<TemplateConfig>(() => mergeWithDefaults(initialConfig));
   const [state, formAction] = useActionState<ActionState, FormData>(saveTemplateConfigAction.bind(null, templateId), null);
   const [showPreview, setShowPreview] = useState(true);
+  const [recordId, setRecordId] = useState("");
+  const [recordPreview, setRecordPreview] = useState<{ html: string; recordLabel: string } | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [recordPending, startRecordPreview] = useTransition();
 
   const setText = (key: string, value: string) => setConfig((c) => ({ ...c, text: { ...(c.text ?? {}), [key]: value } }));
   const setStyle = (key: string, value: string | number | boolean) =>
@@ -210,14 +224,57 @@ export function TemplateEditor({
   const setSig = (key: string, value: string | boolean) =>
     setConfig((c) => ({ ...c, signature: { ...(c.signature ?? {}), [key]: value } }));
 
+  /**
+   * الأقسام والأعمدة (§E2) — الحالة تُشتق دائماً من السجل المغلق، فلا يظهر في الواجهة
+   * قسم أو عمود لا يعرفه المُصيِّر، ولا يُكتب في الإعداد مفتاح مخترع.
+   */
+  const sections = resolveSections(config.sections);
+  const columns = resolveColumns(docType, config.columns);
+  const availableColumns = columnsFor(docType);
+
+  const writeSections = (next: typeof sections) =>
+    setConfig((c) => ({
+      ...c,
+      sections: next.map((s, i) => ({
+        key: s.key,
+        ...(s.label ? { label: s.label } : {}),
+        visible: s.visible,
+        order: i,
+      })),
+    }));
+
+  const writeColumns = (next: typeof columns) =>
+    setConfig((c) => ({
+      ...c,
+      columns: next.map((col, i) => {
+        const def = availableColumns.find((d) => d.key === col.key);
+        return {
+          key: col.key,
+          // التسمية تُحفظ فقط إن غيّرها المدير — فيبقى الفرق بين النسخ مقروءاً
+          ...(col.label && col.label !== def?.label ? { label: col.label } : {}),
+          visible: col.visible,
+          ...(col.width !== null ? { width: col.width } : {}),
+          order: i,
+        };
+      }),
+    }));
+
+  const move = <T,>(list: T[], index: number, delta: number): T[] => {
+    const target = index + delta;
+    if (target < 0 || target >= list.length) return list;
+    const next = [...list];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  };
+
   // المعاينة تُصيَّر بمُصيِّر الإصدار نفسه ببيانات نموذجية (§E4)
   const previewHtml = useMemo(() => {
     try {
-      return renderTemplate(config, { values: sampleValues() });
+      return renderTemplate(config, { values: sampleValues(), docType, table: sampleTable(docType) });
     } catch {
       return "<p>تعذّرت المعاينة — راجع القيم</p>";
     }
-  }, [config]);
+  }, [config, docType]);
 
   const input = "min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0";
   const label = "mb-1 block text-xs text-gray-500";
@@ -317,6 +374,142 @@ export function TemplateEditor({
           </div>
         </fieldset>
 
+        <fieldset className="rounded-lg border border-sand-200 p-3" data-testid="sections-editor">
+          <legend className="px-1 text-sm font-bold text-brand-900">أقسام الوثيقة ({DOC_SECTIONS.length})</legend>
+          <p className="mb-2 text-xs text-gray-400">
+            رتّب الأقسام وأظهرها أو أخفها، واكتب عنواناً للأقسام التي تقبل عنواناً. المعاينة تتغيّر فوراً.
+          </p>
+          <ul className="space-y-2">
+            {sections.map((s, i) => (
+              <li
+                key={s.key}
+                data-testid={`section-row-${s.key}`}
+                className="flex flex-wrap items-center gap-2 rounded-lg bg-sand-50 p-2"
+              >
+                <span className="w-6 shrink-0 text-center text-xs tabular-nums text-gray-400">{i + 1}</span>
+                <label className="flex min-w-0 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    aria-label={`إظهار قسم ${s.def.label}`}
+                    checked={s.visible}
+                    onChange={(e) => writeSections(sections.map((x) => (x.key === s.key ? { ...x, visible: e.target.checked } : x)))}
+                  />
+                  <span className="font-medium">{s.def.label}</span>
+                </label>
+                {s.def.renamable ? (
+                  <input
+                    className="min-h-11 w-full min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+                    placeholder="عنوان القسم (اختياري)"
+                    aria-label={`عنوان قسم ${s.def.label}`}
+                    maxLength={120}
+                    value={s.label ?? ""}
+                    onChange={(e) => writeSections(sections.map((x) => (x.key === s.key ? { ...x, label: e.target.value } : x)))}
+                  />
+                ) : (
+                  <span className="min-w-0 flex-1 text-xs text-gray-400">{s.def.hint}</span>
+                )}
+                <span className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    title="تحريك لأعلى"
+                    aria-label={`تحريك قسم ${s.def.label} لأعلى`}
+                    disabled={i === 0}
+                    onClick={() => writeSections(move(sections, i, -1))}
+                    className="min-h-11 min-w-11 rounded border border-sand-200 bg-white px-2 text-sm disabled:opacity-30 lg:min-h-8 lg:min-w-8"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    title="تحريك لأسفل"
+                    aria-label={`تحريك قسم ${s.def.label} لأسفل`}
+                    disabled={i === sections.length - 1}
+                    onClick={() => writeSections(move(sections, i, 1))}
+                    className="min-h-11 min-w-11 rounded border border-sand-200 bg-white px-2 text-sm disabled:opacity-30 lg:min-h-8 lg:min-w-8"
+                  >
+                    ▼
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </fieldset>
+
+        <fieldset className="rounded-lg border border-sand-200 p-3" data-testid="columns-editor">
+          <legend className="px-1 text-sm font-bold text-brand-900">أعمدة الجدول ({availableColumns.length})</legend>
+          {availableColumns.length === 0 ? (
+            <p className="text-xs text-gray-500">
+              هذا النوع لا يحتوي جدولاً — لا أعمدة تُحرَّر فيه.
+            </p>
+          ) : (
+            <>
+              <p className="mb-2 text-xs text-gray-400">
+                رتّب الأعمدة وأظهرها أو أخفها وأعد تسميتها واضبط عرضها بالنسبة المئوية (5–100). اتركه فارغاً للعرض التلقائي.
+              </p>
+              <ul className="space-y-2">
+                {columns.map((c, i) => (
+                  <li
+                    key={c.key}
+                    data-testid={`column-row-${c.key}`}
+                    className="flex flex-wrap items-center gap-2 rounded-lg bg-sand-50 p-2"
+                  >
+                    <span className="w-6 shrink-0 text-center text-xs tabular-nums text-gray-400">{i + 1}</span>
+                    <input
+                      type="checkbox"
+                      aria-label={`إظهار عمود ${availableColumns.find((d) => d.key === c.key)?.label ?? c.key}`}
+                      checked={c.visible}
+                      onChange={(e) => writeColumns(columns.map((x) => (x.key === c.key ? { ...x, visible: e.target.checked } : x)))}
+                    />
+                    <input
+                      className="min-h-11 w-full min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+                      aria-label={`تسمية عمود ${availableColumns.find((d) => d.key === c.key)?.label ?? c.key}`}
+                      maxLength={120}
+                      value={c.label}
+                      onChange={(e) => writeColumns(columns.map((x) => (x.key === c.key ? { ...x, label: e.target.value } : x)))}
+                    />
+                    <input
+                      type="number"
+                      min={5}
+                      max={100}
+                      placeholder="تلقائي"
+                      aria-label={`عرض عمود ${availableColumns.find((d) => d.key === c.key)?.label ?? c.key} بالنسبة المئوية`}
+                      className="min-h-11 w-20 min-w-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:w-24 lg:min-h-0"
+                      value={c.width ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        const width = raw === "" ? null : Math.min(100, Math.max(5, Number(raw)));
+                        writeColumns(columns.map((x) => (x.key === c.key ? { ...x, width: Number.isFinite(width as number) ? width : null } : x)));
+                      }}
+                    />
+                    <span className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        title="تحريك لأعلى"
+                        aria-label={`تحريك عمود ${availableColumns.find((d) => d.key === c.key)?.label ?? c.key} لأعلى`}
+                        disabled={i === 0}
+                        onClick={() => writeColumns(move(columns, i, -1))}
+                        className="min-h-11 min-w-11 rounded border border-sand-200 bg-white px-2 text-sm disabled:opacity-30 lg:min-h-8 lg:min-w-8"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        title="تحريك لأسفل"
+                        aria-label={`تحريك عمود ${availableColumns.find((d) => d.key === c.key)?.label ?? c.key} لأسفل`}
+                        disabled={i === columns.length - 1}
+                        onClick={() => writeColumns(move(columns, i, 1))}
+                        className="min-h-11 min-w-11 rounded border border-sand-200 bg-white px-2 text-sm disabled:opacity-30 lg:min-h-8 lg:min-w-8"
+                      >
+                        ▼
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </fieldset>
+
         <details className="rounded-lg border border-sand-200 p-3">
           <summary className="cursor-pointer text-sm font-bold text-brand-900">
             العناصر النائبة المتاحة ({placeholders.length})
@@ -342,14 +535,110 @@ export function TemplateEditor({
       </form>
 
       {showPreview && (
-        <div>
-          <h3 className="mb-2 text-sm font-bold text-gray-600">المعاينة (بيانات نموذجية)</h3>
+        <div data-testid="template-preview">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-gray-600">
+              {recordPreview ? "المعاينة (سجل حقيقي)" : "المعاينة (بيانات نموذجية)"}
+            </h3>
+            <span className="flex flex-wrap items-center gap-3">
+              {/* مخرجات المعاينة تُبنى من **النسخة المحفوظة** لا من تعديل غير محفوظ —
+                  احفظ أولاً ثم صدّر، فلا يُصدَّر شيء لا يوجد له سجل. */}
+              <a
+                href={`/api/templates/preview?template=${templateId}&format=pdf${recordPreview && recordId ? `&record=${recordId}` : ""}`}
+                target="_blank"
+                rel="noopener"
+                className="text-xs text-gray-600 hover:underline"
+              >
+                معاينة PDF
+              </a>
+              <a
+                href={`/api/templates/preview?template=${templateId}&format=docx${recordPreview && recordId ? `&record=${recordId}` : ""}`}
+                className="text-xs text-gray-600 hover:underline"
+              >
+                معاينة Word
+              </a>
+              {recordPreview && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecordPreview(null);
+                    setRecordId("");
+                  }}
+                  className="text-xs text-gray-600 hover:underline"
+                >
+                  العودة إلى البيانات النموذجية
+                </button>
+              )}
+            </span>
+          </div>
+
+          {/* اختيار سجل حقيقي (§E4) — لا يُصدر وثيقة ولا يُعدّل السجل */}
+          <div className="mb-2 rounded-lg border border-sand-200 bg-sand-50 p-2" data-testid="record-preview-picker">
+            {recordDenied ? (
+              <p className="text-xs text-gray-600">
+                المعاينة بسجل حقيقي تتطلب صلاحية قراءة سجلات هذا النوع — المعاينة الحالية ببيانات نموذجية.
+              </p>
+            ) : recordPickerLabel === null ? (
+              <p className="text-xs text-gray-600">
+                لا سجلات لهذا النوع في المنصة — المعاينة ببيانات نموذجية آمنة.
+              </p>
+            ) : recordOptions.length === 0 ? (
+              <p className="text-xs text-gray-600">
+                لا يوجد سجل مناسب بعد — المعاينة ببيانات نموذجية آمنة حتى يُسجَّل أول سجل.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-48 flex-1">
+                  <label htmlFor="rec-pick" className="mb-1 block text-xs text-gray-500">{recordPickerLabel}</label>
+                  <select
+                    id="rec-pick"
+                    value={recordId}
+                    onChange={(e) => setRecordId(e.target.value)}
+                    className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+                  >
+                    <option value="">— بيانات نموذجية —</option>
+                    {recordOptions.map((o) => (
+                      <option key={o.id} value={o.id}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  disabled={!recordId || recordPending}
+                  onClick={() =>
+                    startRecordPreview(async () => {
+                      setRecordError(null);
+                      const res = await previewWithRecordAction(templateId, recordId, JSON.stringify(config));
+                      if ("error" in res) {
+                        setRecordPreview(null);
+                        setRecordError(res.error);
+                      } else {
+                        setRecordPreview(res);
+                      }
+                    })
+                  }
+                  className="min-h-11 rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 disabled:opacity-50 lg:min-h-0"
+                >
+                  {recordPending ? "جارٍ…" : "معاينة بسجل حقيقي"}
+                </button>
+              </div>
+            )}
+            {recordError && <p role="alert" className="mt-2 text-xs text-red-700">{recordError}</p>}
+          </div>
+
+          {recordPreview && (
+            <div role="status" className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+              <span className="font-bold">معاينة فقط —</span> لم تصدر وثيقة، ولم تُنشأ لقطة مجمّدة، ولم يتغيّر السجل:{" "}
+              <span className="font-medium">{recordPreview.recordLabel}</span>
+            </div>
+          )}
+
           {/* المعاينة معزولة في إطار بلا نصوص برمجية: `sandbox` فارغ يمنع تنفيذ أي شيء
               حتى لو تسرّب محتوى غير متوقع — دفاع بالعمق فوق التهريب. */}
           <iframe
             title="معاينة القالب"
             sandbox=""
-            srcDoc={previewHtml}
+            srcDoc={recordPreview ? recordPreview.html : previewHtml}
             className="h-[70vh] w-full rounded-xl border border-sand-200 bg-white"
           />
         </div>

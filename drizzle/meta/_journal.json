@@ -148,6 +148,13 @@
       "when": 1785267303549,
       "tag": "0020_wonderful_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785304966930,
+      "tag": "0021_futuristic_mandrill",
+      "breakpoints": true
     }
   ]
 }

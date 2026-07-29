@@ -5,6 +5,13 @@ import {
   programs,
   programClosureHistory,
   programRisks,
+  programKpis,
+  programFollowups,
+  planSwotItems,
+  planYears,
+  actionTasks,
+  calendarEvents,
+  feedback,
   evidenceItems,
   evidenceLinks,
   storedFiles,
@@ -757,6 +764,155 @@ async function loadRisks(filters: ReportFilters): Promise<ReportRow[]> {
     }));
 }
 
+/**
+ * سجل التحليل الرباعي — البيانات الرسمية من ورقة «التحليل الرباعي» في مصنف الخطة.
+ *
+ * الاستبعاد الاصطناعي عبر السنة التخطيطية: عناصر SWOT مرتبطة بالسنة كالمؤشرات والمخاطر،
+ * فسنة العرض التجريبية تُخفي عناصرها معها بلا حاجة إلى تصنيف مستقل.
+ */
+async function loadSwot(filters: ReportFilters): Promise<ReportRow[]> {
+  const excluded = await getExcludedIdSets();
+  const where: (SQL | undefined)[] = [notSynthetic(planSwotItems.planYearId, excluded.planYears)];
+  // «الحالة» في هذا التقرير هي نوع العنصر (قوة/ضعف/فرصة/تهديد)
+  if (filters.status) where.push(eq(planSwotItems.category, filters.status));
+  if (filters.search) {
+    where.push(or(ilike(planSwotItems.item, likeTerm(filters.search)), ilike(planSwotItems.code, likeTerm(filters.search))));
+  }
+  const rows = await db
+    .select({ swot: planSwotItems, yearName: planYears.nameAr })
+    .from(planSwotItems)
+    .innerJoin(planYears, eq(planYears.id, planSwotItems.planYearId))
+    .where(where.filter(Boolean).length ? and(...where) : undefined)
+    .orderBy(asc(planSwotItems.sortOrder), asc(planSwotItems.code));
+  return rows.map(({ swot, yearName }) => ({
+    category: swot.category,
+    code: swot.code,
+    item: swot.item,
+    implication: swot.implication,
+    planYear: yearName,
+  }));
+}
+
+async function loadSwotByCategory(filters: ReportFilters): Promise<ReportRow[]> {
+  const excluded = await getExcludedIdSets();
+  const rows = await db
+    .select({ category: planSwotItems.category, count: sql<number>`count(*)::int` })
+    .from(planSwotItems)
+    .where(notSynthetic(planSwotItems.planYearId, excluded.planYears))
+    .groupBy(planSwotItems.category);
+  return rows
+    .filter((r) => !filters.search || r.category.includes(filters.search))
+    .map((r) => ({ category: r.category, count: r.count }));
+}
+
+async function loadPlanKpis(filters: ReportFilters): Promise<ReportRow[]> {
+  const excluded = await getExcludedIdSets();
+  const where: (SQL | undefined)[] = [notSynthetic(programKpis.id, excluded.kpis)];
+  if (filters.search) {
+    where.push(or(ilike(programKpis.nameAr, likeTerm(filters.search)), ilike(programKpis.code, likeTerm(filters.search))));
+  }
+  const rows = await db
+    .select()
+    .from(programKpis)
+    .where(where.filter(Boolean).length ? and(...where) : undefined)
+    .orderBy(asc(programKpis.code));
+  return rows.map((k) => ({
+    code: k.code,
+    nameAr: k.nameAr,
+    baseline: k.baseline,
+    target: k.target,
+    periodicity: k.periodicity,
+    owner: k.owner,
+    dataSource: k.dataSource,
+  }));
+}
+
+async function loadPlanFollowups(filters: ReportFilters): Promise<ReportRow[]> {
+  const excluded = await getExcludedIdSets();
+  const where: (SQL | undefined)[] = [
+    notSynthetic(programFollowups.id, excluded.followups),
+    notSynthetic(programs.id, excluded.programs),
+    ...dateRangeTs(programFollowups.createdAt, filters),
+  ];
+  if (filters.status) where.push(eq(programFollowups.executionStatus, filters.status));
+  if (filters.search) where.push(or(ilike(programs.name, likeTerm(filters.search)), ilike(programFollowups.note, likeTerm(filters.search))));
+  const rows = await db
+    .select({ f: programFollowups, programName: programs.name })
+    .from(programFollowups)
+    .innerJoin(programs, eq(programs.id, programFollowups.programId))
+    .where(where.filter(Boolean).length ? and(...where) : undefined)
+    .orderBy(desc(programFollowups.createdAt));
+  return rows.map(({ f, programName }) => ({
+    weekKey: f.weekKey,
+    programName,
+    executionStatus: f.executionStatus,
+    progressSnapshot: f.progressSnapshot,
+    note: f.note,
+    createdAt: isoDate(f.createdAt),
+  }));
+}
+
+async function loadActionTasks(filters: ReportFilters): Promise<ReportRow[]> {
+  const excluded = await getExcludedIdSets();
+  const where: (SQL | undefined)[] = [notSynthetic(actionTasks.id, excluded.tasks), ...dateRangeTs(actionTasks.dueDate, filters)];
+  if (filters.status) where.push(eq(actionTasks.status, filters.status));
+  if (filters.search) where.push(ilike(actionTasks.title, likeTerm(filters.search)));
+  const rows = await db
+    .select({ t: actionTasks, ownerName: people.fullName })
+    .from(actionTasks)
+    .leftJoin(people, eq(people.id, actionTasks.ownerPersonId))
+    .where(where.filter(Boolean).length ? and(...where) : undefined)
+    .orderBy(desc(actionTasks.createdAt));
+  return rows.map(({ t, ownerName }) => ({
+    title: t.title,
+    owner: ownerName ?? t.ownerText,
+    status: t.status,
+    priority: t.priority,
+    progress: t.progress,
+    dueDate: isoDate(t.dueDate),
+    sourceType: t.sourceType,
+  }));
+}
+
+async function loadCalendarEvents(filters: ReportFilters): Promise<ReportRow[]> {
+  const where: (SQL | undefined)[] = [];
+  if (filters.search) where.push(ilike(calendarEvents.nameAr, likeTerm(filters.search)));
+  const rows = await db
+    .select()
+    .from(calendarEvents)
+    .where(where.filter(Boolean).length ? and(...where) : undefined)
+    .orderBy(asc(calendarEvents.sortOrder));
+  return rows.map((e) => ({
+    nameAr: e.nameAr,
+    hijriFrom: e.hijriFrom,
+    hijriTo: e.hijriTo,
+    gregorianText: e.gregorianText,
+    impact: e.impact,
+    schoolAction: e.schoolAction,
+  }));
+}
+
+/** سجل الملاحظات — العنوان والتصنيف فقط؛ لا يُصدَّر نص البلاغ ولا مرفقه الخاص */
+async function loadFeedbackRegister(filters: ReportFilters): Promise<ReportRow[]> {
+  const where: (SQL | undefined)[] = [...dateRangeTs(feedback.createdAt, filters)];
+  if (filters.status) where.push(eq(feedback.status, filters.status));
+  if (filters.search) where.push(or(ilike(feedback.title, likeTerm(filters.search)), ilike(feedback.ref, likeTerm(filters.search))));
+  const rows = await db
+    .select({
+      ref: feedback.ref,
+      module: feedback.module,
+      category: feedback.category,
+      severity: feedback.severity,
+      title: feedback.title,
+      status: feedback.status,
+      createdAt: feedback.createdAt,
+    })
+    .from(feedback)
+    .where(where.filter(Boolean).length ? and(...where) : undefined)
+    .orderBy(desc(feedback.createdAt));
+  return rows.map((r) => ({ ...r, createdAt: isoDate(r.createdAt) }));
+}
+
 async function loadImprovementPlans(filters: ReportFilters): Promise<ReportRow[]> {
   const where: (SQL | undefined)[] = [];
   if (filters.status) where.push(eq(improvementPlans.status, filters.status));
@@ -904,8 +1060,17 @@ const LOADERS: Record<string, (f: ReportFilters) => Promise<ReportRow[]>> = {
   "employee-missing-data": loadEmployeeMissingData,
   "employee-committees": loadEmployeeCommittees,
 
+  "plan-kpis": loadPlanKpis,
+  "plan-followups": loadPlanFollowups,
+  "action-tasks": loadActionTasks,
+  "calendar-events": loadCalendarEvents,
+
   "risk-register": loadRisks,
+  "swot-register": loadSwot,
+  "swot-by-category": loadSwotByCategory,
   "improvement-plans": loadImprovementPlans,
+
+  "feedback-register": loadFeedbackRegister,
 
   "documents-register": loadDocuments,
   "files-register": loadFiles,

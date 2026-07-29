@@ -141,6 +141,40 @@ describe("التقارير مع بيانات حقيقية", () => {
     if (typeof latest === "string") expect(latest).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("تقرير التحليل الرباعي يعكس العناصر الرسمية المخزَّنة", async () => {
+    const { db } = await import("@/db");
+    const { planYears, planSwotItems } = await import("@/db/schema");
+    const suffix = Math.floor(Math.random() * 1e9);
+    const [year] = await db.insert(planYears).values({ key: `swot-${suffix}`, nameAr: `سنة ${suffix}` }).returning();
+    await db.insert(planSwotItems).values([
+      { planYearId: year.id, category: "قوة", code: `ق-${suffix}`, item: "إدارة موحدة", implication: "حوكمة أوضح", sortOrder: 0 },
+      { planYearId: year.id, category: "ضعف", code: `ض-${suffix}`, item: "فجوة معايرة", implication: null, sortOrder: 1 },
+      { planYearId: year.id, category: "تهديد", code: `ت-${suffix}`, item: "عدم استقرار الإنترنت", implication: "تعطّل الاختبارات", sortOrder: 2 },
+    ]);
+
+    const { runReport } = await import("@/lib/reports/loaders");
+    const register = await runReport("swot-register", {});
+    const items = register.rows.map((r) => r.item);
+    expect(items).toContain("إدارة موحدة");
+    expect(items).toContain("عدم استقرار الإنترنت");
+    // السنة تظهر مع كل عنصر — التقرير يعمل عبر أكثر من سنة تخطيطية
+    expect(register.rows.every((r) => typeof r.planYear === "string")).toBe(true);
+
+    // الترشيح بالنوع يعمل («الحالة» في هذا التقرير هي النوع)
+    const strengths = await runReport("swot-register", { status: "قوة" });
+    expect(strengths.rows.every((r) => r.category === "قوة")).toBe(true);
+    expect(strengths.rows.map((r) => r.item)).toContain("إدارة موحدة");
+
+    // البحث الجزئي على نص العنصر
+    const search = await runReport("swot-register", { search: "الإنترنت" });
+    expect(search.rows.map((r) => r.item)).toContain("عدم استقرار الإنترنت");
+
+    const byCategory = await runReport("swot-by-category", {});
+    const strengthRow = byCategory.rows.find((r) => r.category === "قوة");
+    expect(strengthRow).toBeDefined();
+    expect(Number(strengthRow!.count)).toBeGreaterThan(0);
+  });
+
   it("يعرض «—» بدل قيمة فارغة عبر تنسيق العرض null-safe", async () => {
     const { runReport } = await import("@/lib/reports/loaders");
     const result = await runReport("programs-active", {});

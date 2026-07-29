@@ -3,7 +3,7 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   planYears, programs, programDeliverables, programKpis,
-  programRisks, planBudgetItems, programRoadmapCells, importRows,
+  programRisks, planBudgetItems, programRoadmapCells, importRows, planSwotItems,
   calendars, calendarEvents, evidenceLinks,
 } from "@/db/schema";
 import { readWorkbook, cellText, cellNumber, findHeaderRow } from "./xlsx";
@@ -33,7 +33,10 @@ function sheetByName(sheets: Map<string, unknown[][]>, ...names: string[]): unkn
   return null;
 }
 
-export type PlanRowType = "program" | "deliverable" | "kpi" | "risk" | "budget" | "roadmap";
+export type PlanRowType = "program" | "deliverable" | "kpi" | "risk" | "budget" | "roadmap" | "swot";
+
+/** أنواع عناصر التحليل الرباعي كما ترد في المصدر الرسمي */
+const SWOT_CATEGORIES = ["قوة", "ضعف", "فرصة", "تهديد"] as const;
 
 export async function parsePlanWorkbook(data: Buffer): Promise<{ rows: ParsedRow[]; summary: Record<string, number> }> {
   const sheets = await readWorkbook(data);
@@ -281,6 +284,51 @@ export async function parsePlanWorkbook(data: Buffer): Promise<{ rows: ParsedRow
     summary["مخاطر"] = count;
   }
 
+  // ————— التحليل الرباعي (SWOT) —————
+  // الورقة تحمل اسم «التحليل الرباعي» في المصنف المتكامل و«SWOT» في نسخة التحليل — كلاهما
+  // مقبول. النص يُحفظ حرفياً كبقية القيم الرسمية.
+  const swotSheet = sheetByName(sheets, "التحليل الرباعي", "SWOT");
+  if (swotSheet) {
+    const idx = findHeaderRow(swotSheet);
+    const h = swotSheet[idx].map((c) => cellText(c));
+    const c = {
+      category: colIndex(h, "النوع"),
+      code: colIndex(h, "الرمز"),
+      item: colIndex(h, "العنصر"),
+      implication: colIndex(h, "الدلالة"),
+    };
+    let count = 0;
+    let order = 0;
+    const seen = new Set<string>();
+    for (let i = idx + 1; i < swotSheet.length; i++) {
+      const r = swotSheet[i];
+      const category = cellText(r?.[c.category]).trim();
+      const code = cellText(r?.[c.code]).trim();
+      const item = cellText(r?.[c.item]).trim();
+      // الصف الصالح: نوع معروف ورمز ونص عنصر — الصفوف العنوانية والفارغة تُتجاهل
+      if (!(SWOT_CATEGORIES as readonly string[]).includes(category) || !code || !item) continue;
+      // تكرار الرمز داخل الملف نفسه يُتجاهل — الرمز مفتاح فريد داخل السنة
+      if (seen.has(code)) continue;
+      seen.add(code);
+      rows.push({
+        rowIndex: rowCounter++,
+        raw: { النوع: category, الرمز: code, العنصر: item },
+        mapped: {
+          rowType: "swot" satisfies PlanRowType,
+          category,
+          code,
+          item,
+          implication: cellText(r[c.implication]).trim(),
+          sortOrder: order++,
+        },
+        validation: { errors: [], warnings: [] },
+        status: "جاهز",
+      });
+      count++;
+    }
+    summary["عناصر التحليل الرباعي"] = count;
+  }
+
   // ————— الميزانية —————
   const budgetSheet = sheetByName(sheets, "الميزانية");
   if (budgetSheet) {
@@ -498,6 +546,39 @@ export async function commitPlanRows(
         bump("مؤشرات");
         break;
       }
+      case "swot": {
+        /**
+         * الرمز فريد داخل السنة، فإعادة استيراد المصنف نفسه لا تُنشئ نسخاً مكررة.
+         *
+         * `onConflictDoNothing` مقصود بدل التحديث: النص رسمي ولا يُعاد كتابته صامتاً من
+         * دفعة لاحقة. والأهم أن الصف الموجود مسبقاً **لا يُنسب** لهذه الدفعة، فالتراجع
+         * عنها لا يحذف عنصراً أنشأته دفعة سابقة.
+         */
+        const inserted = await tx
+          .insert(planSwotItems)
+          .values({
+            planYearId: year.id,
+            category: String(m.category),
+            code: String(m.code),
+            item: String(m.item),
+            implication: (m.implication as string) || null,
+            sortOrder: Number(m.sortOrder ?? 0),
+            importBatchId: batchId,
+          })
+          .onConflictDoNothing({ target: [planSwotItems.planYearId, planSwotItems.code] })
+          .returning();
+        const created = inserted[0];
+        await tx
+          .update(importRows)
+          .set(
+            created
+              ? { status: "منفذ", createdEntityType: "plan_swot_item", createdEntityId: created.id }
+              : { status: "منفذ", createdEntityType: null, createdEntityId: null },
+          )
+          .where(eq(importRows.id, row.id));
+        if (created) bump("عناصر التحليل الرباعي");
+        break;
+      }
       case "risk": {
         const [k] = await tx
           .insert(programRisks)
@@ -589,6 +670,9 @@ export async function rollbackPlanBatch(tx: Tx, batchId: string): Promise<void> 
   if (riskIds.length > 0) await tx.delete(programRisks).where(inArray(programRisks.id, riskIds));
   const budgetIds = byType("plan_budget_item");
   if (budgetIds.length > 0) await tx.delete(planBudgetItems).where(inArray(planBudgetItems.id, budgetIds));
+  // عناصر التحليل الرباعي تُحذف بمعرّفاتها فقط — التراجع لا يمسّ عنصراً أنشأته دفعة أخرى
+  const swotIds = byType("plan_swot_item");
+  if (swotIds.length > 0) await tx.delete(planSwotItems).where(inArray(planSwotItems.id, swotIds));
   // الاستيراد لم يعد يُنشئ أنشطة (D-024)، فلا حذف لها هنا؛ وأي أنشطة قديمة محفوظة للتدقيق
   // والتراجع لا تُحذف مع الدفعة. المصروفات/الإيرادات المرتبطة تُفكّ إلى null بقيد set null.
   if (programIds.length > 0) {

@@ -3,7 +3,8 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { planYears, programs, programFollowups } from "@/db/schema";
-import { PageHeader, Card, Badge, ProgressBar, LinkButton, EmptyState } from "@/components/ui";
+import { PageHeader, Card, Badge, ProgressBar, EmptyState } from "@/components/ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 import { daysSince, isFollowupDue } from "@/lib/plan/followup";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
 import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
@@ -58,7 +59,7 @@ export default async function FollowupPage() {
       <PageHeader
         title="المتابعة الأسبوعية"
         subtitle={`متابعة تنفيذ البرامج المعتمدة أسبوعياً — ${approved.length} برنامجاً معتمداً · مستحق المتابعة: ${dueCount}`}
-        actions={<LinkButton href="/plan" variant="secondary">عودة إلى الخطة</LinkButton>}
+        actions={<SectionReportsLink category="plan" report="plan-followups" />}
       />
       {approved.length === 0 ? (
         <EmptyState

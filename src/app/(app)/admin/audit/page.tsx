@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { auditLog, users } from "@/db/schema";
 import { PageHeader, Table, EmptyState } from "@/components/ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 import { peopleFieldLabel } from "@/lib/imports/people-fields";
 
 export const metadata = { title: "سجل التدقيق" };
@@ -59,7 +60,11 @@ export default async function AuditPage() {
 
   return (
     <div>
-      <PageHeader title="سجل التدقيق" subtitle="سجل إلحاقي للقراءة فقط — آخر 300 حدث" />
+      <PageHeader
+        title="سجل التدقيق"
+        subtitle="سجل إلحاقي للقراءة فقط — آخر 300 حدث"
+        actions={<SectionReportsLink category="usage" report="audit-log" />}
+      />
       {rows.length === 0 ? (
         <EmptyState title="لا أحداث" />
       ) : (

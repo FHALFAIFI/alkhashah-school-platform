@@ -26,6 +26,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: "/plan", label: "البرامج والمبادرات", permission: "plan.read", icon: "▤" },
       { href: "/plan/kpis", label: "مؤشرات الأداء", permission: "plan.read", icon: "◔" },
       { href: "/plan/risks", label: "سجل المخاطر", permission: "plan.read", icon: "⚠" },
+      { href: "/plan/swot", label: "التحليل الرباعي", permission: "plan.read", icon: "◫" },
       { href: "/budget", label: "الميزانية والمصروفات", permission: "budget.read", icon: "₪" },
       { href: "/evidence", label: "الشواهد", permission: "evidence.read", icon: "▣" },
     ],

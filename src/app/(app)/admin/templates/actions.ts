@@ -16,6 +16,9 @@ import {
   type TemplateDocType,
 } from "@/lib/templates/schema";
 import { isTemplateDocType, validatePlaceholders } from "@/lib/templates/placeholders";
+import { validateStructureKeys } from "@/lib/templates/structure";
+import { recordSourceFor } from "@/lib/templates/records";
+import { renderTemplate, sampleValues } from "@/lib/templates/render";
 import { configOf, nextVersionNumber, versionIsReferenced } from "@/lib/templates/service";
 
 /**
@@ -106,6 +109,10 @@ export async function saveTemplateConfigAction(templateId: string, _prev: Action
 
   const parsed = parseTemplateConfig(candidate);
   if (!parsed.ok) return { error: parsed.error };
+
+  // مفاتيح الأقسام والأعمدة تُطابَق بسجل النوع المغلق — لا مفتاح مخترع ولا مكرَّر
+  const structure = validateStructureKeys(parsed.config, template.docType as TemplateDocType);
+  if (!structure.ok) return { error: structure.error };
 
   // كل نص حر قد يحوي عناصر نائبة — تُتحقَّق مقابل السجل المغلق لهذا النوع
   const placeholderError = validateAllPlaceholders(parsed.config, template.docType as TemplateDocType);
@@ -403,6 +410,8 @@ export async function importTemplateConfigAction(templateId: string, _prev: Acti
   }
   const parsed = parseTemplateConfig(candidate);
   if (!parsed.ok) return { error: `استيراد مرفوض — ${parsed.error}` };
+  const structure = validateStructureKeys(parsed.config, template.docType as TemplateDocType);
+  if (!structure.ok) return { error: `استيراد مرفوض — ${structure.error}` };
   const placeholderError = validateAllPlaceholders(parsed.config, template.docType as TemplateDocType);
   if (placeholderError) return { error: `استيراد مرفوض — ${placeholderError}` };
 
@@ -424,6 +433,68 @@ export async function importTemplateConfigAction(templateId: string, _prev: Acti
   });
   revalidatePath("/admin/templates");
   return { success: `استُورد الإعداد كنسخة ${versionNumber} — راجعها ثم انشرها` };
+}
+
+/**
+ * معاينة القالب بسجل حقيقي (§E4).
+ *
+ * **التفويض** يُفحص هنا مرتين: صلاحية إدارة القوالب، **و** صلاحية قراءة نوع السجل نفسه.
+ * ثم يُعاد اشتقاق السجل من مصدره المحدود، فمعرّف سجل خارج القائمة المتاحة — أو من نوع
+ * آخر — لا يُقرأ إطلاقاً (حارس IDOR).
+ *
+ * **لا أثر جانبي**: قراءة فقط. لا تُصدر وثيقة ولا تُنشئ لقطة مجمّدة ولا تُعدّل السجل ولا
+ * تُنشئ نسخة قالب. الناتج HTML مهرَّب يُعرض في إطار `sandbox=""`.
+ */
+export async function previewWithRecordAction(
+  templateId: string,
+  recordId: string,
+  configJson: string,
+): Promise<{ html: string; recordLabel: string } | { error: string }> {
+  const user = await requirePermission(MANAGE);
+  const [template] = await db.select().from(templateDefinitions).where(eq(templateDefinitions.id, templateId));
+  if (!template) return { error: "القالب غير موجود" };
+  const docType = template.docType as TemplateDocType;
+
+  if (!z.string().uuid().safeParse(recordId).success) return { error: "معرّف السجل غير صالح" };
+
+  const source = recordSourceFor(docType);
+  if (!source) return { error: "لا سجلات لهذا النوع — المعاينة ببيانات نموذجية فقط" };
+  // صلاحية قراءة السجل لا تُستنتج من صلاحية إدارة القوالب
+  if (!user.permissions.has(source.permission)) return { error: "لا تملك صلاحية قراءة هذا النوع من السجلات" };
+
+  let candidate: unknown;
+  try {
+    candidate = JSON.parse(configJson);
+  } catch {
+    return { error: "إعداد القالب ليس JSON صالحاً" };
+  }
+  const parsed = parseTemplateConfig(candidate);
+  if (!parsed.ok) return { error: parsed.error };
+  const structure = validateStructureKeys(parsed.config, docType);
+  if (!structure.ok) return { error: structure.error };
+  const placeholderError = validateAllPlaceholders(parsed.config, docType);
+  if (placeholderError) return { error: placeholderError };
+
+  const record = await source.load(recordId);
+  if (!record) return { error: "السجل غير متاح — اختر من القائمة" };
+
+  const html = renderTemplate(parsed.config, {
+    // القيم النموذجية أساس، والسجل الحقيقي يعلوها — فلا يظهر عنصر نائب بلا قيمة
+    values: { ...sampleValues(), ...record.values },
+    docType,
+    table: record.table,
+  });
+
+  await audit({
+    actorId: user.id,
+    action: "template.record_preview",
+    entityType: "template",
+    entityId: templateId,
+    summary: `معاينة قالب ${DOC_TYPE_LABELS[docType]} بسجل حقيقي — لم تصدر وثيقة`,
+    detail: { recordId },
+  });
+
+  return { html, recordLabel: record.recordLabel };
 }
 
 /** التحقق من العناصر النائبة في كل نص حر داخل الإعداد */

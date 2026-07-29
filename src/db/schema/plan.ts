@@ -309,6 +309,39 @@ export const programKpis = pgTable("program_kpis", {
   reviewDecision: text("review_decision"),
 });
 
+/**
+ * التحليل الرباعي (SWOT) — ورقة «التحليل الرباعي» في مصنف الخطة التشغيلية الرسمي.
+ *
+ * البيانات رسمية وتُحفظ حرفياً كبقية أوراق المصنف (المخاطر والمؤشرات والميزانية): النوع
+ * والرمز ونص العنصر والدلالة الاستراتيجية كما وردت، بلا إعادة صياغة ولا اشتقاق.
+ *
+ * لماذا جدول مستقل لا حقل JSON: العناصر تُستعلم وتُرشَّح وتُصدَّر كصفوف في مركز التقارير
+ * تماماً كسجل المخاطر، ويجب أن تُستبعد الصفوف الاصطناعية بمعرّفها كبقية الكيانات.
+ */
+export const planSwotItems = pgTable(
+  "plan_swot_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planYearId: uuid("plan_year_id").notNull().references(() => planYears.id),
+    /** قوة | ضعف | فرصة | تهديد — القيمة الرسمية كما وردت في المصدر */
+    category: text("category").notNull(),
+    /** الرمز الرسمي مثل «قوة-01» */
+    code: text("code").notNull(),
+    /** نص العنصر */
+    item: text("item").notNull(),
+    /** الدلالة الاستراتيجية */
+    implication: text("implication"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    importBatchId: uuid("import_batch_id").references(() => importBatches.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("plan_swot_year_idx").on(t.planYearId),
+    // الرمز فريد داخل السنة — إعادة الاستيراد لا تُنشئ نسخاً مكررة
+    uniqueIndex("plan_swot_year_code_unique").on(t.planYearId, t.code),
+  ],
+);
+
 /** سجل المخاطر */
 export const programRisks = pgTable("program_risks", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -88,6 +88,84 @@ describe("استيراد الخطة التشغيلية (A9, A10)", () => {
   });
 });
 
+/**
+ * التحليل الرباعي (SWOT) — ورقة رسمية موجودة في مصنف الخطة ولم تكن تُستورد.
+ * البيانات تُحفظ حرفياً، والرمز مفتاح فريد داخل السنة يمنع التكرار عند إعادة الاستيراد.
+ */
+describe("استيراد التحليل الرباعي", () => {
+  it("يقرأ الأنواع الأربعة ويتجاهل التكرار والنوع غير المعروف", async () => {
+    const { parsePlanWorkbook } = await import("@/lib/imports/plan");
+    const { summary, rows } = await parsePlanWorkbook(await syntheticPlanWorkbook());
+    expect(summary["عناصر التحليل الرباعي"]).toBe(4);
+    const swot = rows.filter((r) => r.mapped.rowType === "swot");
+    expect(swot.map((r) => r.mapped.category)).toEqual(["قوة", "ضعف", "فرصة", "تهديد"]);
+    // الصف المكرر والنوع غير المعروف لم يمرّا
+    expect(swot.filter((r) => r.mapped.code === "قوة-01")).toHaveLength(1);
+    expect(swot.some((r) => r.mapped.code === "س-01")).toBe(false);
+  });
+
+  it("يحفظ النص الرسمي حرفياً ويُرجعه التراجع", async () => {
+    const { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch } = await import("@/lib/imports/plan");
+    const { createBatch, commitBatch, rollbackBatch } = await import("@/lib/imports/framework");
+    const { db } = await import("@/db");
+    const { users, planSwotItems } = await import("@/db/schema");
+    await truncateAll(pool);
+
+    const [u] = await db.insert(users).values({ username: "t-swot", displayName: "اختبار", passwordHash: "x" }).returning();
+    const { rows } = await parsePlanWorkbook(await syntheticPlanWorkbook());
+    const batch = await createBatch({ importType: "operational_plan", sourceFileName: "swot.xlsx", rows, createdBy: u.id });
+    await commitBatch(batch.id, u.id, (tx, ready) =>
+      commitPlanRows(tx, ready, batch.id, { planYearKey: "swot-1448", planYearName: "سنة اختبار", createdBy: u.id }),
+    );
+
+    const items = await db.select().from(planSwotItems);
+    expect(items).toHaveLength(4);
+    const strength = items.find((i) => i.code === "قوة-01")!;
+    expect(strength.item).toBe("عنصر قوة تجريبي");
+    expect(strength.implication).toBe("دلالة تجريبية للقوة");
+    // الحقل الاختياري الفارغ يبقى null لا نصاً فارغاً
+    expect(items.find((i) => i.code === "فرصة-01")!.implication).toBeNull();
+
+    await rollbackBatch(batch.id, u.id, (tx) => rollbackPlanBatch(tx, batch.id));
+    expect(await db.select().from(planSwotItems)).toHaveLength(0);
+  });
+
+  it("إعادة الاستيراد لا تُنشئ نسخاً مكررة ولا تُنسب الصف القائم للدفعة الجديدة", async () => {
+    const { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch } = await import("@/lib/imports/plan");
+    const { createBatch, commitBatch, rollbackBatch } = await import("@/lib/imports/framework");
+    const { db } = await import("@/db");
+    const { users, planSwotItems } = await import("@/db/schema");
+    await truncateAll(pool);
+
+    const [u] = await db.insert(users).values({ username: "t-swot2", displayName: "اختبار", passwordHash: "x" }).returning();
+    const opts = { planYearKey: "swot-dup", planYearName: "سنة اختبار", createdBy: u.id };
+
+    const first = await createBatch({
+      importType: "operational_plan",
+      sourceFileName: "a.xlsx",
+      rows: (await parsePlanWorkbook(await syntheticPlanWorkbook())).rows,
+      createdBy: u.id,
+    });
+    await commitBatch(first.id, u.id, (tx, ready) => commitPlanRows(tx, ready, first.id, opts));
+    expect(await db.select().from(planSwotItems)).toHaveLength(4);
+
+    // الدفعة الثانية تحمل صفوف التحليل الرباعي وحدها — إعادة استيراد البرامج نفسها في
+    // السنة نفسها ممنوعة أصلاً بقيد (السنة، م) وليست موضوع هذا الاختبار
+    const second = await createBatch({
+      importType: "operational_plan",
+      sourceFileName: "b.xlsx",
+      rows: (await parsePlanWorkbook(await syntheticPlanWorkbook())).rows.filter((r) => r.mapped.rowType === "swot"),
+      createdBy: u.id,
+    });
+    await commitBatch(second.id, u.id, (tx, ready) => commitPlanRows(tx, ready, second.id, opts));
+    expect(await db.select().from(planSwotItems)).toHaveLength(4);
+
+    // التراجع عن الدفعة الثانية لا يحذف عناصر أنشأتها الأولى
+    await rollbackBatch(second.id, u.id, (tx) => rollbackPlanBatch(tx, second.id));
+    expect(await db.select().from(planSwotItems)).toHaveLength(4);
+  });
+});
+
 describe("قراءة مصنفات المولد الرسمي مبدوءة البادئة (البند الراسب 4)", () => {
   it("مصنف بنمط <x:workbook> ونطاقات دمج مكررة يُقرأ ويعطي نفس نتيجة المصنف العادي", async () => {
     const { parsePlanWorkbook } = await import("@/lib/imports/plan");

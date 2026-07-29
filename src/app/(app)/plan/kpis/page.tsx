@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programKpis } from "@/db/schema";
 import { PageHeader, Table, EmptyState } from "@/components/ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 export const metadata = { title: "مؤشرات الأداء" };
@@ -17,6 +18,7 @@ export default async function KpisPage() {
       <PageHeader
         title="مؤشرات الأداء"
         subtitle="القيم الرسمية من مصنف الخطة — خط الأساس والمستهدف كما وردا"
+        actions={<SectionReportsLink category="plan" report="plan-kpis" />}
       />
       {kpis.length === 0 ? (
         <EmptyState title="لا مؤشرات بعد" hint="تستورد المؤشرات ضمن دفعة استيراد الخطة التشغيلية" />

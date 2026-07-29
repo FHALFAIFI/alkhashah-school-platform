@@ -155,8 +155,25 @@ describe("تكامل فهرس التقارير", () => {
     expect(href).not.toContain("empty");
   });
 
-  it("لا يعرّف تقريراً لبيانات غير موجودة (SWOT)", () => {
-    // SWOT ليس له نموذج بيانات في المنصة — لا يُختلق له تقرير
-    expect(reportByKey("swot-register")).toBeUndefined();
+  /**
+   * تحديث مقصود: صار للتحليل الرباعي نموذج بيانات حقيقي (`plan_swot_items`) يُستورد من
+   * ورقة «التحليل الرباعي» الرسمية، فله تقاريره. القاعدة لم تتغيّر — التقرير يُبنى على
+   * بيانات موجودة فعلاً — بل تغيّرت الحقيقة التي تُقاس عليها.
+   */
+  it("تقارير التحليل الرباعي معرَّفة على بيانات موجودة فعلاً", () => {
+    const register = reportByKey("swot-register");
+    expect(register).toBeDefined();
+    expect(register!.category).toBe("risks");
+    expect(register!.columns.map((c) => c.key)).toContain("implication");
+    expect(reportByKey("swot-by-category")).toBeDefined();
+  });
+
+  it("لا يُعرَّف تقرير حضور اجتماعات — لا نموذج حضور في المنصة", () => {
+    // قرار منتَج موثّق: العضوية تُسجَّل عند التشكيل فقط، بلا حضور ولا غياب ولا نصاب.
+    // لا يُختلق تقرير لبيانات غير موجودة، ولا يُعرض زر يفتح تقريراً فارغاً.
+    const attendanceLike = REPORTS.filter(
+      (r) => r.key.includes("attendance") || r.label.includes("حضور") || r.label.includes("غياب"),
+    );
+    expect(attendanceLike).toHaveLength(0);
   });
 });

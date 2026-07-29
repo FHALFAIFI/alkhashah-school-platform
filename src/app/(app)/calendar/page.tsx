@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { calendars, calendarEvents } from "@/db/schema";
 import { PageHeader, Table, Badge, EmptyState, Card } from "@/components/ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "التقويم" };
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export default async function CalendarPage() {
       <PageHeader
         title="التقويم الدراسي والميلادي"
         subtitle="النص الهجري الرسمي من التقويم المعتمد يعرض حرفياً — استيراد تقويم جديد لا يعيد حساب الدورات القديمة"
+        actions={<SectionReportsLink category="plan" report="calendar-events" />}
       />
       {cals.length === 0 ? (
         <EmptyState title="لا تقويم بعد" />

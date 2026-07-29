@@ -40,6 +40,7 @@ const PARENT_MAP: Readonly<Record<string, string>> = {
   "/plan/classifications": "/plan",
   "/plan/kpis": "/plan",
   "/plan/risks": "/plan",
+  "/plan/swot": "/plan",
 
   // اللجان والمجالس
   "/committees/[id]": "/committees",

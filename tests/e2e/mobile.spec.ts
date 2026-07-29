@@ -24,7 +24,7 @@ function principalCredentials(): { username: string; password: string } {
 
 const ROUTES = [
   "/dashboard", "/tasks", "/notifications",
-  "/plan", "/plan/followup", "/plan/kpis", "/plan/risks", "/budget", "/evidence",
+  "/plan", "/plan/followup", "/plan/kpis", "/plan/risks", "/plan/swot", "/budget", "/evidence",
   "/performance", "/performance/models",
   "/committees", "/committees/templates",
   "/building", "/building/facilities", "/building/assets", "/building/inspections", "/building/maintenance", "/building/offline",

@@ -8,6 +8,7 @@ import {
   FEEDBACK_MODULES,
 } from "@/lib/feedback/constants";
 import { PageHeader, Card, Badge, Table, EmptyState } from "@/components/ui";
+import { SectionReportsLink } from "@/components/section-reports-link";
 import { orFallback } from "@/lib/format";
 import { FeedbackListActions } from "./list-actions";
 
@@ -62,7 +63,12 @@ export default async function FeedbackAdminPage({ searchParams }: { searchParams
       <PageHeader
         title="مركز ملاحظات التشغيل التجريبي"
         subtitle={`${rows.length} ملاحظة${archived === "archived" ? " مؤرشفة" : archived === "all" ? " (شاملة المؤرشفة)" : ""} — لا حذف نهائي؛ الأرشفة فقط بسبب موثق`}
-        actions={<FeedbackListActions exportHref={exportHref} />}
+        actions={
+          <span className="flex flex-wrap items-center gap-2">
+            <SectionReportsLink category="usage" report="feedback-register" />
+            <FeedbackListActions exportHref={exportHref} />
+          </span>
+        }
       />
 
       {/* المرشّحات — نموذج GET بسيط لا يظهر في الطباعة */}

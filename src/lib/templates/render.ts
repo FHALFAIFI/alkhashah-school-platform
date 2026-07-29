@@ -7,7 +7,9 @@ import {
   TEXT_ALIGNMENTS,
   BORDER_STYLES,
   type TemplateConfig,
+  type TemplateDocType,
 } from "./schema";
+import { columnsFor, resolveColumns, resolveSections } from "./structure";
 
 /**
  * تصيير القالب (v2.2 §E2/§E4) — يبني CSS وHTML من الإعداد المُتحقَّق منه.
@@ -32,10 +34,20 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
   return Math.min(max, Math.max(min, n));
 }
 
+/**
+ * صفوف جدول الوثيقة. المفاتيح من سجل أعمدة النوع المغلق، والقيم نصوص عادية تُهرَّب
+ * عند التصيير — لا HTML من مصدر البيانات.
+ */
+export type RenderTable = Record<string, string | number | null | undefined>[];
+
 export type RenderContext = {
   /** قيم العناصر النائبة — تُهرَّب عند الاستبدال */
   values: Record<string, string | number | null | undefined>;
-  /** محتوى الجسم المُولَّد من التقرير نفسه (HTML موثوق من الخادم، مهرَّب أصلاً) */
+  /** نوع الوثيقة — يحدّد أعمدة الجدول المتاحة */
+  docType?: TemplateDocType;
+  /** صفوف جدول المحتوى — تُصفّى وتُرتَّب بحسب إعداد الأعمدة */
+  table?: RenderTable;
+  /** محتوى إضافي للجسم مُولَّد من الخادم (HTML مهرَّب أصلاً) — يظهر داخل قسم «المحتوى» */
   bodyHtml?: string;
   /** data URI للشعار — يُبنى من ملف مخزَّن داخلياً لا من عنوان خارجي */
   logoDataUri?: string | null;
@@ -100,6 +112,60 @@ export function renderTemplate(config: TemplateConfig, ctx: RenderContext): stri
     .map((l) => renderPlaceholders(l, ctx.values))
     .join("<br>");
 
+  /** عنوان القسم — يظهر فقط للأقسام التي تقبل التسمية وللمُسمّاة فعلاً */
+  const heading = (label: string | null, renamable: boolean) =>
+    renamable && label ? `<h2 class="tpl-section-title">${renderPlaceholders(label, ctx.values)}</h2>` : "";
+
+  const bodyTable = renderTable(config, ctx);
+
+  /** محتوى كل قسم — الأقسام الفارغة لا تُصيَّر حتى لو كانت ظاهرة */
+  const sectionHtml: Record<string, string> = {
+    header: [
+      ctx.logoDataUri ? `<img class="tpl-logo" src="${escapeHtml(ctx.logoDataUri)}" alt="">` : "",
+      orgLines ? `<div class="tpl-org">${orgLines}</div>` : "",
+      t.headerText ? `<div class="tpl-header-text">${r(t.headerText)}</div>` : "",
+      inHeader ? docNumberBlock : "",
+    ].join("\n"),
+    title: [
+      t.titleAr ? `<h1>${r(t.titleAr)}</h1>` : "",
+      t.subtitleAr ? `<div class="tpl-subtitle">${r(t.subtitleAr)}</div>` : "",
+    ].join("\n"),
+    intro: t.introText ? `<p class="tpl-intro">${r(t.introText)}</p>` : "",
+    fixed: t.fixedText ? `<p class="tpl-fixed">${r(t.fixedText)}</p>` : "",
+    body: [bodyTable, ctx.bodyHtml ?? ""].filter(Boolean).join("\n"),
+    closing: t.closingText ? `<p class="tpl-closing">${r(t.closingText)}</p>` : "",
+    notes: t.notes ? `<p class="tpl-notes">${r(t.notes)}</p>` : "",
+    signature:
+      sig.showSignature || sig.showStamp
+        ? `<div class="tpl-signatures">
+  ${sig.showSignature ? `<div class="tpl-sig">${r(sig.signatureLabel)}</div>` : ""}
+  ${sig.showStamp ? `<div class="tpl-approval">${r(sig.approvalLabel)}</div>` : ""}
+</div>`
+        : "",
+    footer: `<span>${t.footerText ? r(t.footerText) : ""}</span>
+  ${!inHeader ? docNumberBlock : ""}
+  ${style.showPrintDate ? `<span>تاريخ الطباعة: ${escapeHtml(ctx.values.print_date ?? "")}</span>` : ""}
+  ${style.showPageNumbers ? `<span class="tpl-page-number"></span>` : ""}`,
+  };
+
+  /** غلاف كل قسم — الترويسة والتذييل لهما إطارهما الخاص */
+  const wrap = (key: string, inner: string) => {
+    if (key === "header") return `<div class="tpl-header">\n${inner}\n</div>`;
+    if (key === "footer") return `<div class="tpl-footer">\n${inner}\n</div>`;
+    return `<section class="tpl-section tpl-section-${escapeHtml(key)}">\n${inner}\n</section>`;
+  };
+
+  const body = resolveSections(merged.sections)
+    .filter((s) => s.visible)
+    .map((s) => {
+      const inner = [heading(s.label, s.def.renamable), sectionHtml[s.key] ?? ""].filter((x) => x.trim() !== "").join("\n");
+      // القسم الفارغ لا يترك غلافاً فارغاً في الوثيقة
+      if (inner.trim() === "") return "";
+      return wrap(s.key, inner);
+    })
+    .filter((x) => x !== "")
+    .join("\n");
+
   return `<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
@@ -108,35 +174,59 @@ export function renderTemplate(config: TemplateConfig, ctx: RenderContext): stri
 </head>
 <body>
 ${t.watermarkText ? `<div class="tpl-watermark">${r(t.watermarkText)}</div>` : ""}
-<div class="tpl-header">
-  ${ctx.logoDataUri ? `<img class="tpl-logo" src="${escapeHtml(ctx.logoDataUri)}" alt="">` : ""}
-  ${orgLines ? `<div class="tpl-org">${orgLines}</div>` : ""}
-  ${t.titleAr ? `<h1>${r(t.titleAr)}</h1>` : ""}
-  ${t.subtitleAr ? `<div class="tpl-subtitle">${r(t.subtitleAr)}</div>` : ""}
-  ${t.headerText ? `<div class="tpl-header-text">${r(t.headerText)}</div>` : ""}
-  ${inHeader ? docNumberBlock : ""}
-</div>
-${t.introText ? `<p class="tpl-intro">${r(t.introText)}</p>` : ""}
-${t.fixedText ? `<p class="tpl-fixed">${r(t.fixedText)}</p>` : ""}
-${ctx.bodyHtml ?? ""}
-${t.closingText ? `<p class="tpl-closing">${r(t.closingText)}</p>` : ""}
-${t.notes ? `<p class="tpl-notes">${r(t.notes)}</p>` : ""}
-${
-  sig.showSignature || sig.showStamp
-    ? `<div class="tpl-signatures">
-  ${sig.showSignature ? `<div class="tpl-sig">${r(sig.signatureLabel)}</div>` : ""}
-  ${sig.showStamp ? `<div class="tpl-approval">${r(sig.approvalLabel)}</div>` : ""}
-</div>`
-    : ""
-}
-<div class="tpl-footer">
-  <span>${t.footerText ? r(t.footerText) : ""}</span>
-  ${!inHeader ? docNumberBlock : ""}
-  ${style.showPrintDate ? `<span>تاريخ الطباعة: ${escapeHtml(ctx.values.print_date ?? "")}</span>` : ""}
-  ${style.showPageNumbers ? `<span class="tpl-page-number"></span>` : ""}
-</div>
+${body}
 </body>
 </html>`;
+}
+
+/**
+ * جدول المحتوى — الأعمدة تُرتَّب وتُصفّى وتُسمّى وتُعرَّض بحسب الإعداد (§E2).
+ *
+ * الأمان: مفاتيح الأعمدة تأتي من سجل النوع المغلق لا من البيانات، والتسميات والقيم
+ * تُهرَّب. العرض عدد محصور 5–100 يخرج كنسبة مئوية — لا نص CSS من المستخدم.
+ */
+function renderTable(config: TemplateConfig, ctx: RenderContext): string {
+  if (!ctx.docType || ctx.table === undefined) return "";
+  if (columnsFor(ctx.docType).length === 0) return "";
+
+  const columns = resolveColumns(ctx.docType, mergeWithDefaults(config).columns).filter((c) => c.visible);
+  if (columns.length === 0) return "";
+
+  const head = columns
+    .map((c) => {
+      const width = c.width !== null ? ` style="width:${clamp(c.width, 5, 100, 10)}%"` : "";
+      return `<th${width}>${renderPlaceholders(c.label, ctx.values)}</th>`;
+    })
+    .join("");
+
+  const rows = (ctx.table ?? [])
+    .map((row) => `<tr>${columns.map((c) => `<td>${cellText(row[c.key])}</td>`).join("")}</tr>`)
+    .join("\n");
+
+  return `<table class="tpl-table">
+<thead><tr>${head}</tr></thead>
+<tbody>
+${rows}
+</tbody>
+</table>`;
+}
+
+/** خلية جدول — القيمة الفارغة «—» لا نص فارغ ولا «null» */
+function cellText(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || String(value).trim() === "") return "—";
+  return escapeHtml(value);
+}
+
+/**
+ * صفوف جدول نموذجية للمعاينة (§E4) — قيم واضحة أنها نموذجية، من سجل الأعمدة نفسه.
+ * النوع بلا أعمدة يعيد جدولاً فارغاً فلا يظهر جدول بلا معنى.
+ */
+export function sampleTable(docType: TemplateDocType): RenderTable {
+  const cols = columnsFor(docType);
+  if (cols.length === 0) return [];
+  return [1, 2, 3].map((n) =>
+    Object.fromEntries(cols.map((c) => [c.key, `${c.label} — نموذج ${n}`])),
+  );
 }
 
 /** بيانات نموذجية للمعاينة (§E4) — لا تلمس سجلات حقيقية ولا تتطلب صلاحية */
