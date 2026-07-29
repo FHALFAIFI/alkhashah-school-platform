@@ -105,3 +105,23 @@ test.describe("قبول استيراد الخطة التشغيلية — 390×84
     expect(await pageOverflow(page), "تمرير أفقي في مركز العمل باسم ملف طويل").toBeLessThanOrEqual(0);
   });
 });
+
+/**
+ * D-030 — the controlled SWOT-only import path must be reachable from the UI and must state,
+ * before any upload, that it cannot touch programs / KPIs / risks.
+ */
+test.describe("المسار المضبوط لاستيراد التحليل الرباعي", () => {
+  test("الزر موجود في قائمة الدفعات وصفحته تُصرّح بأنها لا تمسّ البرامج", async ({ page }) => {
+    await login(page);
+    await page.goto("/imports");
+    const link = page.getByRole("link", { name: "استيراد التحليل الرباعي" });
+    await expect(link).toBeVisible({ timeout: 15_000 });
+    await link.click();
+    await page.waitForURL(/type=plan_swot/, { timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "استيراد التحليل الرباعي" })).toBeVisible();
+    await expect(page.getByText("مسار مضبوط — التحليل الرباعي فقط")).toBeVisible();
+    await expect(page.getByText(/ولا يُنشأ ولا/)).toBeVisible();
+    // نموذج الرفع حاضر — المسار قابل للاستعمال فعلاً لا مجرد صفحة نصية
+    await expect(page.locator('input[type="file"]')).toBeAttached();
+  });
+});

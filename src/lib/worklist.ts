@@ -137,7 +137,14 @@ async function importItems(user: CurrentUser): Promise<{ review: WorkItem[]; app
     const needsReview = c("يحتاج مراجعة");
     const deferred = c("مؤجل");
     const ready = c("جاهز");
-    const label = b.importType === "people" ? "استيراد أشخاص" : b.importType === "operational_plan" ? "استيراد الخطة التشغيلية" : "استيراد";
+    const label =
+      b.importType === "people"
+        ? "استيراد أشخاص"
+        : b.importType === "operational_plan"
+          ? "استيراد الخطة التشغيلية"
+          : b.importType === "plan_swot"
+            ? "استيراد التحليل الرباعي"
+            : "استيراد";
     if (needsReview + deferred > 0) {
       review.push({
         title: `${label}: ${b.sourceFileName}`,

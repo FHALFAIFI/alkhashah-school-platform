@@ -130,6 +130,95 @@ describe("استيراد التحليل الرباعي", () => {
     expect(await db.select().from(planSwotItems)).toHaveLength(0);
   });
 
+  it("المسار المضبوط يقرأ ورقة التحليل الرباعي وحدها ولا يُنتج أي صف آخر", async () => {
+    const { parseSwotWorkbook } = await import("@/lib/imports/plan");
+    const { rows, summary } = await parseSwotWorkbook(await syntheticPlanWorkbook());
+    expect(summary).toEqual({ "عناصر التحليل الرباعي": 4 });
+    expect([...new Set(rows.map((r) => r.mapped.rowType))]).toEqual(["swot"]);
+  });
+
+  it("المسار المضبوط يرفض مصنفاً بلا ورقة تحليل رباعي برسالة عربية", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const { parseSwotWorkbook } = await import("@/lib/imports/plan");
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("ورقة أخرى");
+    ws.addRow(["لا علاقة"]);
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    await expect(parseSwotWorkbook(buf)).rejects.toThrow(/التحليل الرباعي/);
+  });
+
+  it("تنفيذ دفعة التحليل الرباعي لا يمسّ البرامج ولا المؤشرات ولا المخاطر، وهو idempotent", async () => {
+    const { parsePlanWorkbook, commitPlanRows, parseSwotWorkbook, commitSwotRows, rollbackSwotBatch } =
+      await import("@/lib/imports/plan");
+    const { createBatch, commitBatch, rollbackBatch } = await import("@/lib/imports/framework");
+    const { db } = await import("@/db");
+    const { users, programs, programKpis, programRisks, planSwotItems } = await import("@/db/schema");
+    await truncateAll(pool);
+
+    const [u] = await db.insert(users).values({ username: "t-swot-only", displayName: "اختبار", passwordHash: "x" }).returning();
+
+    // خط الأساس: خطة مستوردة بلا عناصر تحليل رباعي (تُستبعد صفوفها عمداً)
+    const full = await parsePlanWorkbook(await syntheticPlanWorkbook());
+    const planBatch = await createBatch({
+      importType: "operational_plan",
+      sourceFileName: "plan.xlsx",
+      rows: full.rows.filter((r) => r.mapped.rowType !== "swot"),
+      createdBy: u.id,
+    });
+    await commitBatch(planBatch.id, u.id, (tx, ready) =>
+      commitPlanRows(tx, ready, planBatch.id, { planYearKey: "swot-only", planYearName: "سنة اختبار", createdBy: u.id }),
+    );
+    const before = {
+      programs: (await db.select().from(programs)).length,
+      kpis: (await db.select().from(programKpis)).length,
+      risks: (await db.select().from(programRisks)).length,
+    };
+    expect(before.programs).toBe(2);
+    expect(await db.select().from(planSwotItems)).toHaveLength(0);
+
+    // المسار المضبوط
+    const swot = await parseSwotWorkbook(await syntheticPlanWorkbook());
+    const b1 = await createBatch({ importType: "plan_swot", sourceFileName: "swot.xlsx", rows: swot.rows, createdBy: u.id });
+    await commitBatch(b1.id, u.id, (tx, ready) => commitSwotRows(tx, ready, b1.id));
+
+    expect(await db.select().from(planSwotItems)).toHaveLength(4);
+    // لا كيان آخر تغيّر
+    expect((await db.select().from(programs)).length).toBe(before.programs);
+    expect((await db.select().from(programKpis)).length).toBe(before.kpis);
+    expect((await db.select().from(programRisks)).length).toBe(before.risks);
+
+    // idempotent: تنفيذ ثانٍ لا يضيف ولا يعدّل
+    const stored = await db.select().from(planSwotItems);
+    const b2 = await createBatch({ importType: "plan_swot", sourceFileName: "swot2.xlsx", rows: (await parseSwotWorkbook(await syntheticPlanWorkbook())).rows, createdBy: u.id });
+    await commitBatch(b2.id, u.id, (tx, ready) => commitSwotRows(tx, ready, b2.id));
+    const after = await db.select().from(planSwotItems);
+    expect(after).toHaveLength(4);
+    expect(after.map((x) => x.id).sort()).toEqual(stored.map((x) => x.id).sort());
+
+    // التراجع عن الدفعة الثانية لا يحذف ما أنشأته الأولى
+    await rollbackBatch(b2.id, u.id, (tx) => rollbackSwotBatch(tx, b2.id));
+    expect(await db.select().from(planSwotItems)).toHaveLength(4);
+
+    // التراجع عن الأولى يحذف ما أنشأته هي فقط ولا يمسّ البرامج
+    await rollbackBatch(b1.id, u.id, (tx) => rollbackSwotBatch(tx, b1.id));
+    expect(await db.select().from(planSwotItems)).toHaveLength(0);
+    expect((await db.select().from(programs)).length).toBe(before.programs);
+  });
+
+  it("دفعة التحليل الرباعي ترفض التنفيذ قبل وجود سنة تخطيطية", async () => {
+    const { parseSwotWorkbook, commitSwotRows } = await import("@/lib/imports/plan");
+    const { createBatch, commitBatch } = await import("@/lib/imports/framework");
+    const { db } = await import("@/db");
+    const { users } = await import("@/db/schema");
+    await truncateAll(pool);
+    const [u] = await db.insert(users).values({ username: "t-swot-noyear", displayName: "اختبار", passwordHash: "x" }).returning();
+    const swot = await parseSwotWorkbook(await syntheticPlanWorkbook());
+    const b = await createBatch({ importType: "plan_swot", sourceFileName: "swot.xlsx", rows: swot.rows, createdBy: u.id });
+    await expect(
+      commitBatch(b.id, u.id, (tx, ready) => commitSwotRows(tx, ready, b.id)),
+    ).rejects.toThrow(/سنة تخطيطية/);
+  });
+
   it("إعادة الاستيراد لا تُنشئ نسخاً مكررة ولا تُنسب الصف القائم للدفعة الجديدة", async () => {
     const { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch } = await import("@/lib/imports/plan");
     const { createBatch, commitBatch, rollbackBatch } = await import("@/lib/imports/framework");

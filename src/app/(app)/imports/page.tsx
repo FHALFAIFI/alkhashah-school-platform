@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 const TYPE_LABELS: Record<string, string> = {
   people: "بيانات الموظفين (فارس)",
   operational_plan: "الخطة التشغيلية",
+  plan_swot: "التحليل الرباعي",
   calendar: "التقويم الدراسي",
   assets: "العهدة والأصول",
 };
@@ -29,6 +30,7 @@ export default async function ImportsPage() {
           <>
             <SectionReportsLink category="imports" />
             <LinkButton href="/imports/new?type=people" variant="secondary">استيراد أشخاص</LinkButton>
+            <LinkButton href="/imports/new?type=plan_swot" variant="secondary">استيراد التحليل الرباعي</LinkButton>
             <LinkButton href="/imports/new?type=operational_plan">استيراد الخطة التشغيلية</LinkButton>
           </>
         }

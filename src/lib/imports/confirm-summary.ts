@@ -16,8 +16,9 @@ const PLAN_GROUP_LABELS: Record<string, string> = {
   risk: "سجل المخاطر",
   budget: "بنود الميزانية",
   roadmap: "خارطة التنفيذ",
+  swot: "عناصر التحليل الرباعي",
 };
-const PLAN_GROUP_ORDER = ["program", "deliverable", "kpi", "risk", "budget", "roadmap"];
+const PLAN_GROUP_ORDER = ["program", "deliverable", "kpi", "risk", "budget", "roadmap", "swot"];
 
 /**
  * يبني ملخص التأكيد من الصفوف الجاهزة فقط + عدد المستبعدين.
@@ -28,6 +29,27 @@ export function buildConfirmSummary(
   readyRows: { mapped: unknown; validation?: unknown }[],
   excludedCount: number,
 ): ConfirmSummary {
+  // دفعة «التحليل الرباعي فقط» — ملخّص مستقل يوضّح صراحةً أنها لا تمسّ أي كيان آخر
+  if (importType === "plan_swot") {
+    const byCategory = new Map<string, number>();
+    for (const r of readyRows) {
+      const c = String((r.mapped as { category?: string })?.category ?? "غير معروف");
+      byCategory.set(c, (byCategory.get(c) ?? 0) + 1);
+    }
+    const items: ConfirmItem[] = [{ label: "عناصر التحليل الرباعي الجاهزة", value: readyRows.length }];
+    for (const c of ["قوة", "ضعف", "فرصة", "تهديد"]) {
+      if (byCategory.has(c)) items.push({ label: c, value: byCategory.get(c)! });
+    }
+    for (const [c, n] of byCategory) {
+      if (!["قوة", "ضعف", "فرصة", "تهديد"].includes(c)) items.push({ label: c, value: n });
+    }
+    if (excludedCount > 0) items.push({ label: "الصفوف المستبعدة", value: excludedCount });
+    return {
+      title: "تأكيد استيراد التحليل الرباعي — لا يُنشأ ولا يُعدَّل أي برنامج أو مؤشر أو خطر",
+      items,
+    };
+  }
+
   if (importType === "operational_plan") {
     const byType = new Map<string, number>();
     for (const r of readyRows) {

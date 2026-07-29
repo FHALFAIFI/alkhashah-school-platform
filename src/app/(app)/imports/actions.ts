@@ -6,7 +6,7 @@ import { requirePermission, getCurrentUser } from "@/lib/auth/session";
 import { saveUploadedFile } from "@/lib/storage";
 import { createBatch, commitBatch, rollbackBatch, applyRowDecision, undoLastRowDecision, getBatchWithRows, findLiveBatchesForFile, cancelBatch } from "@/lib/imports/framework";
 import { parsePeopleWorkbook, commitPeopleRows, rollbackPeopleBatch } from "@/lib/imports/people";
-import { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch } from "@/lib/imports/plan";
+import { parsePlanWorkbook, commitPlanRows, rollbackPlanBatch, parseSwotWorkbook, commitSwotRows, rollbackSwotBatch } from "@/lib/imports/plan";
 import { notifyAll } from "@/lib/notify";
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
@@ -30,7 +30,7 @@ export async function uploadImportAction(_prev: ImportActionState, formData: For
   const importType = String(formData.get("importType") ?? "");
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { error: "اختر ملف Excel أولاً" };
-  if (!["people", "operational_plan"].includes(importType)) return { error: "نوع استيراد غير معروف" };
+  if (!["people", "operational_plan", "plan_swot"].includes(importType)) return { error: "نوع استيراد غير معروف" };
 
   // منع التكرار: دفعة حية (معاينة/منفذة) لنفس الملف والنوع توقف الرفع مع توجيه صريح
   const existing = await findLiveBatchesForFile(importType, file.name);
@@ -66,7 +66,9 @@ export async function uploadImportAction(_prev: ImportActionState, formData: For
       });
       batchId = batch.id;
     } else {
-      const { rows, summary } = await parsePlanWorkbook(data);
+      // مسار «التحليل الرباعي فقط» يقرأ ورقة واحدة ولا يُنشئ صفوفاً لأي كيان آخر (D-030)
+      const { rows, summary } =
+        importType === "plan_swot" ? await parseSwotWorkbook(data) : await parsePlanWorkbook(data);
       const batch = await createBatch({
         importType,
         sourceFileName: file.name,
@@ -184,6 +186,8 @@ export async function commitBatchAction(batchId: string): Promise<ImportActionSt
           }),
         { correlationId },
       );
+    } else if (data.batch.importType === "plan_swot") {
+      await commitBatch(batchId, user.id, (tx, rows) => commitSwotRows(tx, rows, batchId), { correlationId });
     } else {
       return { error: "نوع استيراد غير مدعوم" };
     }
@@ -230,6 +234,8 @@ export async function rollbackBatchAction(batchId: string): Promise<ImportAction
       await rollbackBatch(batchId, user.id, (tx) => rollbackPeopleBatch(tx, batchId));
     } else if (data.batch.importType === "operational_plan") {
       await rollbackBatch(batchId, user.id, (tx) => rollbackPlanBatch(tx, batchId));
+    } else if (data.batch.importType === "plan_swot") {
+      await rollbackBatch(batchId, user.id, (tx) => rollbackSwotBatch(tx, batchId));
     }
   } catch (e) {
     return { error: userFacingError(e, "فشل التراجع") };

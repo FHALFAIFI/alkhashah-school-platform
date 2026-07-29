@@ -33,6 +33,60 @@ function sheetByName(sheets: Map<string, unknown[][]>, ...names: string[]): unkn
   return null;
 }
 
+/**
+ * قراءة ورقة «التحليل الرباعي» وحدها.
+ *
+ * تُستعمل من مسارين: تحليل المصنف الكامل، ومسار استيراد **التحليل الرباعي فقط**
+ * (`parseSwotWorkbook`) الذي لا يلمس البرامج ولا المؤشرات ولا المخاطر إطلاقاً.
+ * الورقة تحمل اسم «التحليل الرباعي» في المصنف المتكامل و«SWOT» في نسخة التحليل — كلاهما مقبول.
+ * النص يُحفظ حرفياً كبقية القيم الرسمية.
+ *
+ * يعيد `null` إن لم توجد الورقة أصلاً (ليُميَّز عن ورقة موجودة بلا صفوف صالحة).
+ */
+function collectSwotRows(sheets: Map<string, unknown[][]>, rowCounterStart: number): { rows: ParsedRow[] } | null {
+  const swotSheet = sheetByName(sheets, "التحليل الرباعي", "SWOT");
+  if (!swotSheet) return null;
+
+  const idx = findHeaderRow(swotSheet);
+  const h = swotSheet[idx].map((c) => cellText(c));
+  const c = {
+    category: colIndex(h, "النوع"),
+    code: colIndex(h, "الرمز"),
+    item: colIndex(h, "العنصر"),
+    implication: colIndex(h, "الدلالة"),
+  };
+  const rows: ParsedRow[] = [];
+  let rowCounter = rowCounterStart;
+  let order = 0;
+  const seen = new Set<string>();
+  for (let i = idx + 1; i < swotSheet.length; i++) {
+    const r = swotSheet[i];
+    const category = cellText(r?.[c.category]).trim();
+    const code = cellText(r?.[c.code]).trim();
+    const item = cellText(r?.[c.item]).trim();
+    // الصف الصالح: نوع معروف ورمز ونص عنصر — الصفوف العنوانية والفارغة تُتجاهل
+    if (!(SWOT_CATEGORIES as readonly string[]).includes(category) || !code || !item) continue;
+    // تكرار الرمز داخل الملف نفسه يُتجاهل — الرمز مفتاح فريد داخل السنة
+    if (seen.has(code)) continue;
+    seen.add(code);
+    rows.push({
+      rowIndex: rowCounter++,
+      raw: { النوع: category, الرمز: code, العنصر: item },
+      mapped: {
+        rowType: "swot" satisfies PlanRowType,
+        category,
+        code,
+        item,
+        implication: cellText(r[c.implication]).trim(),
+        sortOrder: order++,
+      },
+      validation: { errors: [], warnings: [] },
+      status: "جاهز",
+    });
+  }
+  return { rows };
+}
+
 export type PlanRowType = "program" | "deliverable" | "kpi" | "risk" | "budget" | "roadmap" | "swot";
 
 /** أنواع عناصر التحليل الرباعي كما ترد في المصدر الرسمي */
@@ -285,48 +339,11 @@ export async function parsePlanWorkbook(data: Buffer): Promise<{ rows: ParsedRow
   }
 
   // ————— التحليل الرباعي (SWOT) —————
-  // الورقة تحمل اسم «التحليل الرباعي» في المصنف المتكامل و«SWOT» في نسخة التحليل — كلاهما
-  // مقبول. النص يُحفظ حرفياً كبقية القيم الرسمية.
-  const swotSheet = sheetByName(sheets, "التحليل الرباعي", "SWOT");
-  if (swotSheet) {
-    const idx = findHeaderRow(swotSheet);
-    const h = swotSheet[idx].map((c) => cellText(c));
-    const c = {
-      category: colIndex(h, "النوع"),
-      code: colIndex(h, "الرمز"),
-      item: colIndex(h, "العنصر"),
-      implication: colIndex(h, "الدلالة"),
-    };
-    let count = 0;
-    let order = 0;
-    const seen = new Set<string>();
-    for (let i = idx + 1; i < swotSheet.length; i++) {
-      const r = swotSheet[i];
-      const category = cellText(r?.[c.category]).trim();
-      const code = cellText(r?.[c.code]).trim();
-      const item = cellText(r?.[c.item]).trim();
-      // الصف الصالح: نوع معروف ورمز ونص عنصر — الصفوف العنوانية والفارغة تُتجاهل
-      if (!(SWOT_CATEGORIES as readonly string[]).includes(category) || !code || !item) continue;
-      // تكرار الرمز داخل الملف نفسه يُتجاهل — الرمز مفتاح فريد داخل السنة
-      if (seen.has(code)) continue;
-      seen.add(code);
-      rows.push({
-        rowIndex: rowCounter++,
-        raw: { النوع: category, الرمز: code, العنصر: item },
-        mapped: {
-          rowType: "swot" satisfies PlanRowType,
-          category,
-          code,
-          item,
-          implication: cellText(r[c.implication]).trim(),
-          sortOrder: order++,
-        },
-        validation: { errors: [], warnings: [] },
-        status: "جاهز",
-      });
-      count++;
-    }
-    summary["عناصر التحليل الرباعي"] = count;
+  const swotRows = collectSwotRows(sheets, rowCounter);
+  if (swotRows) {
+    rows.push(...swotRows.rows);
+    rowCounter += swotRows.rows.length;
+    summary["عناصر التحليل الرباعي"] = swotRows.rows.length;
   }
 
   // ————— الميزانية —————
@@ -396,6 +413,95 @@ export async function parsePlanWorkbook(data: Buffer): Promise<{ rows: ParsedRow
   }
 
   return { rows, summary };
+}
+
+/**
+ * مسار مضبوط: استيراد **التحليل الرباعي وحده** من مصنف الخطة (v2.2 §D / D-030).
+ *
+ * لماذا مسار مستقل بدل إعادة استيراد المصنف كاملاً: البرامج مقيَّدة بـ(السنة، م) فريدة،
+ * فإعادة استيراد المصنف نفسه على سنة قائمة **تفشل بالكامل** (المعاملة تُلغى ولا يُكتب شيء —
+ * سلوك آمن لكنه يعني أن التحليل الرباعي لا يمكن أن يصل بهذا الطريق). هذا المسار يقرأ ورقة
+ * «التحليل الرباعي» فقط ويكتب في `plan_swot_items` فقط، فلا يستطيع — بالبناء لا بالإعداد —
+ * أن يلمس برنامجاً أو مؤشراً أو خطراً أو مخرجاً أو بند ميزانية أو خلية خارطة.
+ */
+export async function parseSwotWorkbook(data: Buffer): Promise<{ rows: ParsedRow[]; summary: Record<string, number> }> {
+  const sheets = await readWorkbook(data);
+  const collected = collectSwotRows(sheets, 0);
+  if (!collected) {
+    throw new Error("لم يعثر على ورقة «التحليل الرباعي» في المصنف — اختر مصنف الخطة التشغيلية المتكامل");
+  }
+  if (collected.rows.length === 0) {
+    throw new Error("ورقة «التحليل الرباعي» موجودة لكنها بلا عناصر صالحة — تحقق من أعمدة النوع والرمز والعنصر");
+  }
+  return { rows: collected.rows, summary: { "عناصر التحليل الرباعي": collected.rows.length } };
+}
+
+/**
+ * تنفيذ دفعة التحليل الرباعي — **لا ينشئ سنة تخطيطية ولا يكتب في أي جدول آخر**.
+ *
+ * تُشترط سنة تخطيطية قائمة: التحليل الرباعي تابع للخطة، واستيراده قبل الخطة يعني إنشاء سنة
+ * فارغة لا معنى لها. الرسالة عربية صريحة بدل إنشاء صامت.
+ */
+export async function commitSwotRows(
+  tx: Tx,
+  rows: { id: string; mapped: Record<string, unknown> }[],
+  batchId: string,
+): Promise<CommitResult> {
+  const years = await tx.select().from(planYears);
+  const year = years.find((y) => y.status === "نشطة") ?? years[0];
+  if (!year) {
+    throw new Error("لا توجد سنة تخطيطية — استورد الخطة التشغيلية أولاً ثم استورد التحليل الرباعي");
+  }
+
+  const summary: Record<string, number> = {};
+  const bump = (k: string) => (summary[k] = (summary[k] ?? 0) + 1);
+
+  for (const row of rows) {
+    const m = row.mapped;
+    if (m.rowType !== "swot") continue;
+    // الرمز فريد داخل السنة؛ الصف القائم لا يُعاد كتابته ولا يُنسب لهذه الدفعة،
+    // فالتراجع عنها لا يحذف عنصراً أنشأته دفعة سابقة.
+    const inserted = await tx
+      .insert(planSwotItems)
+      .values({
+        planYearId: year.id,
+        category: String(m.category),
+        code: String(m.code),
+        item: String(m.item),
+        implication: (m.implication as string) || null,
+        sortOrder: Number(m.sortOrder ?? 0),
+        importBatchId: batchId,
+      })
+      .onConflictDoNothing({ target: [planSwotItems.planYearId, planSwotItems.code] })
+      .returning();
+    const created = inserted[0];
+    await tx
+      .update(importRows)
+      .set(
+        created
+          ? { status: "منفذ", createdEntityType: "plan_swot_item", createdEntityId: created.id }
+          : { status: "منفذ", createdEntityType: null, createdEntityId: null },
+      )
+      .where(eq(importRows.id, row.id));
+    if (created) bump("عناصر التحليل الرباعي");
+    else bump("عناصر موجودة مسبقاً (لم تتغيّر)");
+  }
+
+  return { createdSummary: summary };
+}
+
+/** التراجع عن دفعة التحليل الرباعي — يحذف ما أنشأته هذه الدفعة فقط */
+export async function rollbackSwotBatch(tx: Tx, batchId: string): Promise<void> {
+  const rows = await tx
+    .select({ type: importRows.createdEntityType, id: importRows.createdEntityId })
+    .from(importRows)
+    .where(and(eq(importRows.batchId, batchId), isNotNull(importRows.createdEntityId)));
+  const ids = rows.filter((r) => r.type === "plan_swot_item").map((r) => r.id!) as string[];
+  if (ids.length > 0) await tx.delete(planSwotItems).where(inArray(planSwotItems.id, ids));
+  await tx
+    .update(importRows)
+    .set({ status: "جاهز", createdEntityType: null, createdEntityId: null })
+    .where(and(eq(importRows.batchId, batchId), isNotNull(importRows.createdEntityType)));
 }
 
 /** اشتقاق معالم افتراضية من نص المصدر — أوزان متساوية مجموعها 100 (قابلة للتعديل) */
