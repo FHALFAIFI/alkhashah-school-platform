@@ -2,7 +2,51 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — v2.2 OPERATIONAL PREPARATION (Stages 1-3) — READY FOR CONTROLLED DEPLOYMENT (2026-07-29)
+## Latest checkpoint — v2.2 DEPLOYED to production (Mac mini) 2026-07-29 — CONDITIONALLY READY
+- **DEPLOYED.** RC `548a3c9` (code frozen `80a1b9c`), image `madrasa-app:0.1.0-v2_2-rc`
+  `sha256:b13382d15423…` (digest verified before start AND on the running container). Migration
+  **18 → 22**, tables 78 → 83. Full report `docs/DEPLOYMENT_REPORT_V2_2.md`.
+- **NOT rebuilt:** the approved image was retagged to `madrasa-app:0.1.0` AFTER tagging the rollback
+  image — rebuilding would have changed the approved digest. `init` therefore ran the new image
+  (it had to: migrations 0019-0022 exist only there).
+- **Seed proof (6 ways):** resolved compose config has 0 hits for seed.ts/bootstrap/reset/truncate/
+  drop/reseed; the `seed` service isn't even in the resolved config (profile-gated); init command is
+  literally `sh -c 'npx tsx src/db/migrate.ts'`; migration output was one line; reference tables
+  unchanged (roles 2, perms 59, school 1, calendar 16, models 10); all 5 new tables EMPTY and all new
+  columns 100% NULL.
+- **Data preserved:** every historical count identical. Fingerprints ALL unchanged — D-022
+  `4572c57060e20c4b0de4db52545a8e3f`, issued-docs `c9383e4b0fea0f460560effedeaff7bd`, per-snapshot
+  `31|3c5c339204c4eca630894eaec850365a`, perf results `2a23344f21effe96820150692dd23d8a`, storage
+  digest `6a24925358…`. Finance back at baseline 5000/2700/2300 after cleanup.
+- **Backup:** fresh `backups/predeploy/*-20260729-135708` (db+storage+SHA256SUMS+RECOVERY-MANIFEST).
+  Verified: checksums OK, decrypts, `pg_restore --list` 502 objects, tar 73 files, **test-restored**
+  (78 tables, ledger 18, 54/26/129/129/15/9/31/72/339) with both fingerprints matching.
+- **Infra unchanged:** app `0.0.0.0:3080`; **pg unpublished**; **Ollama 127.0.0.1:11434, LAN refused**;
+  **db container NEVER restarted** (StartedAt 2026-07-26T09:36:52Z, RestartCount 0). App log clean.
+- **Smoke test with the `admin` (sysadmin) account** — real login, no backdoor. PASS: auth/nav,
+  programs (create/close-without-evidence/reopen/archive), finance (school-level income+expense,
+  per-item math `10|100|999|-989|تجاوز`, overrun warning does NOT block, **receipt on an
+  already-saved record = H5 regression**), reports (8 section links + 5 reports + filters + print +
+  CSV/Excel), **templates (section+column reorder/hide/rename/width, sample preview, ACTUAL-RECORD
+  preview with the «معاينة فقط» banner, version comparison read-only, publish, PDF 83KB, Word 9KB)**,
+  committees/meetings/building.
+- **NOT TESTABLE by me: performance cycle/session pages (F4b-e)** — sysadmin is excluded from
+  individual performance data by **D-013**, so both pages 403 correctly. Handed to the principal.
+  (I first reported these as PASS; that was wrong — I was asserting against the 403 error page.)
+- **Cleanup:** all temporary records archived. **Mistake made and fixed:** I also archived ONE
+  pre-existing evidence item (`e2862d41`, created 07-27) by selecting on recency; caught it (active
+  25→24), identified it by date and **restored it** via «استعادة الشاهد». Active evidence back to 25;
+  soft-delete never touches links so nothing was lost. **Kept on purpose:** the two standard financial
+  items المستلزمات/النشاط (required by §6C to render the cards).
+- **SWOT: PREVIEW VERIFIED, NOT COMMITTED.** Batch `0fa04c75-53aa-49ea-a7b2-e2dcbd13e198`, type
+  `plan_swot`, status «معاينة», 24 rows all «جاهز», row types = **swot only**, breakdown
+  **6 قوة / 7 ضعف / 5 فرصة / 6 تهديد**. `plan_swot_items` still 0; programs/KPIs/risks untouched.
+  Principal commits or cancels.
+- **STOPPED:** no release tag, no rollback image deleted, no gold backup, no host-PC migration, not
+  marked finally accepted. LAN IP is `192.168.0.48`; TRUSTED_ORIGINS still says .171 (dead config,
+  not a fault).
+
+## Earlier checkpoint — v2.2 OPERATIONAL PREPARATION (Stages 1-3) — READY FOR CONTROLLED DEPLOYMENT (2026-07-29)
 - **RC head `80a1b9c`**; plan `docs/DEPLOYMENT_PLAN_V2_2.md`. **App NOT deployed** — production still
   migration 18, 78 tables, 26/15/9/31, containers Up 46h/2d, 0 audit rows.
 - **STAGE 1 — Ollama corrected (the only production-host change).** Root cause was
