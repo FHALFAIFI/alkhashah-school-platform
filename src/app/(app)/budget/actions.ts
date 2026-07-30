@@ -11,6 +11,7 @@ import { saveUploadedFile, validateUpload } from "@/lib/storage";
 import { linkEvidence } from "@/lib/evidence";
 import { userFacingError } from "@/lib/user-error";
 import { optionalIsoDate } from "@/lib/dates-zod";
+import { snapshotRecord } from "@/lib/versioning";
 
 /**
  * مبلغ اختياري (قاعدة v2.1 §H): الحقل الفارغ يُخزَّن null، وإن أُدخلت قيمة وجب أن تكون عدداً
@@ -84,6 +85,7 @@ const incomeSchema = z.object({
   programId: z.string().uuid().optional().or(z.literal("")),
   financialItemId: z.string().uuid("البند المالي المختار غير صالح").optional().or(z.literal("")),
   status: z.enum(["متوقع", "مستلم", "ملغى"]).optional(),
+  paymentReference: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -122,6 +124,7 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
       programId: d.programId || null,
       financialItemId: d.financialItemId || null,
       status: d.status ?? "مستلم",
+      paymentReference: d.paymentReference || null,
       notes: d.notes || null,
       createdBy: user.id,
     })
@@ -250,6 +253,165 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
   revalidatePath("/budget");
   // القيم المالية لا تُغيَّر صامتاً. تجاوز المخصص لا يمنع الحفظ ولا يتطلب إقراراً (§B7).
   return { success: "أُضيف المصروف" };
+}
+
+/** قيم العرض للمقارنة قبل/بعد — مفاتيح عربية تُعرض في سجل التدقيق كما هي */
+function incomeAuditView(r: typeof budgetIncome.$inferSelect): Record<string, string> {
+  return {
+    "المصدر": r.source || "—",
+    "المبلغ": r.amount ?? "—",
+    "التاريخ": r.incomeDate ?? "—",
+    "الغرض": r.purpose ?? "—",
+    "رقم الفاتورة": r.paymentReference ?? "—",
+    "الملاحظات": r.notes ?? "—",
+  };
+}
+
+function expenseAuditView(r: typeof budgetExpenses.$inferSelect): Record<string, string> {
+  return {
+    "المبلغ": r.amount ?? "—",
+    "التاريخ": r.expenseDate ?? "—",
+    "المورّد": r.supplier ?? "—",
+    "رقم الفاتورة": r.paymentReference ?? "—",
+    "الوصف": r.category ?? "—",
+    "الملاحظات": r.notes ?? "—",
+  };
+}
+
+const incomeUpdateSchema = z.object({
+  incomeId: z.string().uuid(),
+  source: z.string().optional(),
+  amount: optionalPositiveAmount,
+  incomeDate: optionalIsoDate,
+  purpose: z.string().optional(),
+  financialItemId: z.string().uuid("البند المالي المختار غير صالح").optional().or(z.literal("")),
+  status: z.enum(["متوقع", "مستلم", "ملغى"]).optional(),
+  paymentReference: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+/**
+ * تعديل إيراد (v2.3 §6): قبل التعديل تُحفظ نسخة كاملة في `record_versions`،
+ * ويسجَّل «قبل/بعد» في التدقيق، ويُثبَّت `updatedBy`. «المنفَق/الإيراد» لكل بند
+ * مجموع حيّ فتعديل العملية يعيد حساب البند المتأثر وحده تلقائياً.
+ */
+export async function updateIncomeAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("budget.write");
+  const parsed = incomeUpdateSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const d = parsed.data;
+
+  const [before] = await db.select().from(budgetIncome).where(eq(budgetIncome.id, d.incomeId));
+  if (!before) return { error: "الإيراد غير موجود" };
+  if (before.archivedAt) return { error: "الإيراد مؤرشف — استعده أولاً ثم عدّله" };
+  if (d.financialItemId) {
+    const [fi] = await db.select({ id: financialItems.id }).from(financialItems).where(eq(financialItems.id, d.financialItemId));
+    if (!fi) return { error: "البند المالي المختار غير موجود" };
+  }
+
+  await snapshotRecord({
+    entityType: "budget_income",
+    entityId: before.id,
+    action: "updated",
+    snapshot: before,
+    actorId: user.id,
+  });
+
+  const [after] = await db
+    .update(budgetIncome)
+    .set({
+      source: d.source ?? "",
+      amount: d.amount === undefined ? null : String(d.amount),
+      incomeDate: d.incomeDate || null,
+      purpose: d.purpose || null,
+      financialItemId: d.financialItemId || null,
+      status: d.status ?? before.status,
+      paymentReference: d.paymentReference || null,
+      notes: d.notes || null,
+      updatedBy: user.id,
+      updatedAt: new Date(),
+    })
+    .where(eq(budgetIncome.id, d.incomeId))
+    .returning();
+
+  await audit({
+    actorId: user.id,
+    action: "budget.income_updated",
+    entityType: "budget_income",
+    entityId: before.id,
+    summary: `تعديل إيراد «${after.source || "بدون مصدر"}»`,
+    detail: {
+      before: { status: before.status, mapped: incomeAuditView(before) },
+      after: { status: after.status, mapped: incomeAuditView(after) },
+    },
+  });
+  revalidatePath("/budget");
+  return { success: "عُدّل الإيراد" };
+}
+
+const expenseUpdateSchema = z.object({
+  expenseId: z.string().uuid(),
+  amount: optionalPositiveAmount,
+  expenseDate: optionalIsoDate,
+  financialItemId: z.string().uuid("البند المالي المختار غير صالح").optional().or(z.literal("")),
+  category: z.string().optional(),
+  supplier: z.string().optional(),
+  paymentReference: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+/** تعديل مصروف (v2.3 §6) — نفس ضمانات تعديل الإيراد: نسخة كاملة + قبل/بعد + updatedBy */
+export async function updateExpenseAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("budget.write");
+  const parsed = expenseUpdateSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const d = parsed.data;
+
+  const [before] = await db.select().from(budgetExpenses).where(eq(budgetExpenses.id, d.expenseId));
+  if (!before) return { error: "المصروف غير موجود" };
+  if (before.archivedAt) return { error: "المصروف مؤرشف — استعده أولاً ثم عدّله" };
+  if (d.financialItemId) {
+    const [fi] = await db.select({ id: financialItems.id }).from(financialItems).where(eq(financialItems.id, d.financialItemId));
+    if (!fi) return { error: "البند المالي المختار غير موجود" };
+  }
+
+  await snapshotRecord({
+    entityType: "budget_expense",
+    entityId: before.id,
+    action: "updated",
+    snapshot: before,
+    actorId: user.id,
+  });
+
+  const [after] = await db
+    .update(budgetExpenses)
+    .set({
+      amount: d.amount === undefined ? null : String(d.amount),
+      expenseDate: d.expenseDate || null,
+      financialItemId: d.financialItemId || null,
+      category: d.category || null,
+      supplier: d.supplier || null,
+      paymentReference: d.paymentReference || null,
+      notes: d.notes || null,
+      updatedBy: user.id,
+      updatedAt: new Date(),
+    })
+    .where(eq(budgetExpenses.id, d.expenseId))
+    .returning();
+
+  await audit({
+    actorId: user.id,
+    action: "budget.expense_updated",
+    entityType: "budget_expense",
+    entityId: before.id,
+    summary: `تعديل مصروف ${after.amount ?? ""}`.trim(),
+    detail: {
+      before: { status: "مصروف", mapped: expenseAuditView(before) },
+      after: { status: "مصروف", mapped: expenseAuditView(after) },
+    },
+  });
+  revalidatePath("/budget");
+  return { success: "عُدّل المصروف" };
 }
 
 export async function deleteIncomeAction(incomeId: string): Promise<ActionState> {

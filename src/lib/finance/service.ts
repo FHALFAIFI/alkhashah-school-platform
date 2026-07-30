@@ -15,11 +15,14 @@ import {
   financialItemLines,
   summarizeSchoolFinance,
   monthlyTotals,
+  ledgerWithRunningBalance,
   type FinanceRecord,
   type FinancialItemLine,
   type FinancialItemInput,
   type SchoolFinanceSummary,
+  type LedgerLine,
 } from "./calc";
+import { users } from "@/db/schema";
 
 /**
  * طبقة قراءة المالية المدرسية (v2.2 §B) — تجمع السجلات وتمرّرها إلى خدمة الحساب الوحيدة
@@ -78,6 +81,7 @@ function toIncomeRecord(r: typeof budgetIncome.$inferSelect, hasInvoice: boolean
     date: r.incomeDate,
     hasInvoice,
     status: r.status,
+    createdAt: r.createdAt,
   };
 }
 
@@ -89,6 +93,7 @@ function toExpenseRecord(r: typeof budgetExpenses.$inferSelect, hasInvoice: bool
     archivedAt: r.archivedAt,
     date: r.expenseDate,
     hasInvoice,
+    createdAt: r.createdAt,
   };
 }
 
@@ -171,6 +176,50 @@ export async function getSchoolFinance(opts?: { planYearId?: string }): Promise<
     monthlyIncome: monthlyTotals(incomeRecords.filter((r) => r.status === "مستلم")),
     monthlyExpenses: monthlyTotals(expenseRecords),
   };
+}
+
+export type ItemFinanceDetail = {
+  line: FinancialItemLine;
+  income: IncomeRow[];
+  expenses: ExpenseRow[];
+  /** دفتر مُدمج بترتيب زمني تصاعدي مع رصيد جارٍ للبند */
+  ledger: LedgerLine[];
+  /** أسماء المستخدمين (مُدخِل/مُعدِّل) — المفتاح معرّف المستخدم */
+  userNames: Map<string, string>;
+};
+
+/**
+ * تفصيل بند مالي واحد (v2.3 §6) — يعيد استعمال حمولة `getSchoolFinance` نفسها
+ * فيبقى الحساب من مصدر واحد (`calc`)، ثم يقيّد العرض على عمليات البند.
+ */
+export async function getItemFinanceDetail(
+  itemId: string,
+  opts?: { planYearId?: string },
+): Promise<ItemFinanceDetail | null> {
+  const overview = await getSchoolFinance(opts);
+  const line = overview.lines.find((l) => l.id === itemId);
+  if (!line) return null;
+
+  const income = overview.income.filter((r) => r.financialItemId === itemId);
+  const expenses = overview.expenses.filter((r) => r.financialItemId === itemId);
+
+  const ledger = ledgerWithRunningBalance(
+    income.map((r) => toIncomeRecord(r, r.hasInvoice)),
+    expenses.map((r) => toExpenseRecord(r, r.hasInvoice)),
+  );
+
+  const userIds = [
+    ...new Set(
+      [...income, ...expenses]
+        .flatMap((r) => [r.createdBy, r.updatedBy])
+        .filter((x): x is string => !!x),
+    ),
+  ];
+  const userRows = userIds.length
+    ? await db.select({ id: users.id, name: users.displayName }).from(users).where(inArray(users.id, userIds))
+    : [];
+
+  return { line, income, expenses, ledger, userNames: new Map(userRows.map((u) => [u.id, u.name])) };
 }
 
 /**

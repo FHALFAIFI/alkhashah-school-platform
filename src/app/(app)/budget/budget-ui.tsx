@@ -82,6 +82,7 @@ export function AddIncomeForm({ planYearId, items }: { planYearId: string; items
               </select>
             </div>
             <Field label="الغرض" name="purpose" />
+            <Field label="رقم الفاتورة/السند" name="paymentReference" />
           </div>
           {/* الإيصال/المستند اختياري — يُحفظ عبر خط الشواهد الآمن نفسه */}
           <div>

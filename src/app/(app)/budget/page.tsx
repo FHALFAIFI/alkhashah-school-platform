@@ -17,6 +17,7 @@ import {
   RecordRowActions,
   type ItemLine,
 } from "./budget-ui";
+import { Stat } from "./stat";
 
 export const metadata = { title: "المالية المدرسية" };
 export const dynamic = "force-dynamic";
@@ -29,36 +30,6 @@ export const dynamic = "force-dynamic";
  *
  * لا ارتباط تشغيلي ببرنامج أو تصنيف أو مجال (§B1): التبويب الوحيد هو «بند الصرف».
  */
-
-/** بطاقة مؤشر — تدعم الربط العميق إلى التقرير المُرشَّح المقابل */
-function Stat({
-  label,
-  value,
-  tone = "plain",
-  href,
-  hint,
-}: {
-  label: string;
-  value: string;
-  tone?: "plain" | "good" | "bad" | "warn";
-  href?: string;
-  hint?: string;
-}) {
-  const toneCls =
-    tone === "good" ? "text-emerald-700" : tone === "bad" ? "text-red-700" : tone === "warn" ? "text-amber-700" : "text-brand-900";
-  const body = (
-    <>
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className={`mt-1 text-lg font-bold tabular-nums ${toneCls}`}>{value}</div>
-      {hint && <div className="mt-0.5 text-[11px] text-gray-400">{hint}</div>}
-    </>
-  );
-  return (
-    <Card className={href ? "transition hover:border-brand-300" : undefined}>
-      {href ? <Link href={href} className="block">{body}</Link> : body}
-    </Card>
-  );
-}
 
 export default async function BudgetPage({
   searchParams,
@@ -86,10 +57,6 @@ export default async function BudgetPage({
 
   const liveLines = lines.filter((l) => !l.archived);
   const archivedLines = lines.filter((l) => l.archived);
-  // بطاقات مخصّصة للبندين اللذين أكّدهما المدير، حين يكونا موجودين
-  const named = (name: string) => liveLines.find((l) => (l.name ?? "").trim() === name);
-  const supplies = named("المستلزمات");
-  const activity = named("النشاط");
 
   // نموذج البنود لواجهة الإدخال — الأرقام محسوبة على الخادم ومُمرَّرة كما هي
   const itemOptions: ItemLine[] = liveLines.map((l) => ({
@@ -195,33 +162,44 @@ export default async function BudgetPage({
         </div>
       </section>
 
-      {/* ── بطاقات البندين المؤكَّدين ─────────────────────────────────── */}
-      {(supplies || activity) && (
+      {/* ── بطاقات البنود (v2.3 §6): بطاقة تشغيلية لكل بند تنقر فتفتح تفصيله ── */}
+      {liveLines.length > 0 && (
         <section>
-          <h2 className="mb-3 text-sm font-bold text-gray-600">المستلزمات والنشاط</h2>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {supplies && (
-              <>
-                <Stat label="مصروف المستلزمات" value={formatMoney(supplies.expenses)} />
-                <Stat
-                  label="متبقي المستلزمات"
-                  value={formatMoney(supplies.remaining)}
-                  tone={supplies.overspent ? "bad" : supplies.nearExhaustion ? "warn" : "good"}
-                  hint={supplies.hasAllocation ? undefined : "لا مخصص مُدخل"}
-                />
-              </>
-            )}
-            {activity && (
-              <>
-                <Stat label="مصروف النشاط" value={formatMoney(activity.expenses)} />
-                <Stat
-                  label="متبقي النشاط"
-                  value={formatMoney(activity.remaining)}
-                  tone={activity.overspent ? "bad" : activity.nearExhaustion ? "warn" : "good"}
-                  hint={activity.hasAllocation ? undefined : "لا مخصص مُدخل"}
-                />
-              </>
-            )}
+          <h2 className="mb-3 text-sm font-bold text-gray-600">بطاقات البنود — انقر البطاقة لكامل التفاصيل</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {liveLines.map((l) => (
+              <Link
+                key={l.id}
+                href={`/budget/items/${l.id}`}
+                className="block rounded-xl border border-sand-200 bg-white p-4 transition hover:border-brand-300 hover:shadow-sm"
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="font-bold text-brand-900">{orFallback(l.name, "بند بدون اسم")}</span>
+                  {l.overspent ? <Badge value="تجاوز" /> : l.nearExhaustion ? <Badge value="قارب الاستنفاد" /> : null}
+                </div>
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-gray-500">المبلغ المعتمد</dt>
+                  <dd className="tabular-nums">{l.hasAllocation ? formatMoney(l.allocated) : "—"}</dd>
+                  <dt className="text-gray-500">المصروف</dt>
+                  <dd className="tabular-nums">{formatMoney(l.expenses)}</dd>
+                  <dt className="text-gray-500">المتبقي</dt>
+                  <dd className={`tabular-nums ${l.overspent ? "text-red-700" : ""}`}>
+                    {l.remaining === null ? "—" : formatMoney(l.remaining)}
+                  </dd>
+                  <dt className="text-gray-500">نسبة الاستخدام</dt>
+                  <dd className="tabular-nums">{l.spentPercent === null ? "—" : `${l.spentPercent}٪`}</dd>
+                  <dt className="text-gray-500">عدد العمليات</dt>
+                  <dd className="tabular-nums">{l.operationCount}</dd>
+                  <dt className="text-gray-500">آخر عملية</dt>
+                  <dd className="tabular-nums">
+                    {l.lastOperation?.date ?? "—"}
+                    {l.lastOperation && l.lastOperation.amount !== null
+                      ? ` (${formatMoney(l.lastOperation.amount)})`
+                      : ""}
+                  </dd>
+                </dl>
+              </Link>
+            ))}
           </div>
         </section>
       )}
@@ -246,7 +224,11 @@ export default async function BudgetPage({
           <Table headers={["البند", "المخصص", "الإيراد", "المصروف", "المتبقي", "٪ الإنفاق", "العمليات", "الحالة", ""]}>
             {liveLines.map((l) => (
               <tr key={l.id}>
-                <td className="px-3 py-2 font-medium">{orFallback(l.name, "بند بدون اسم")}</td>
+                <td className="px-3 py-2 font-medium">
+                  <Link href={`/budget/items/${l.id}`} className="text-brand-800 hover:underline">
+                    {orFallback(l.name, "بند بدون اسم")}
+                  </Link>
+                </td>
                 <td className="px-3 py-2 tabular-nums">{formatMoney(l.allocated)}</td>
                 <td className="px-3 py-2 tabular-nums">{formatMoney(l.income)}</td>
                 <td className="px-3 py-2 tabular-nums">{formatMoney(l.expenses)}</td>

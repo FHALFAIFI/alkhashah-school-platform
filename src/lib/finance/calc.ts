@@ -57,7 +57,19 @@ export type FinanceRecord = {
   hasInvoice: boolean;
   /** للإيراد فقط: متوقع | مستلم | ملغى */
   status?: string;
+  /** وقت الإدخال — مرجع ترتيب احتياطي للعمليات بلا تاريخ مُدخل */
+  createdAt?: Date | null;
 };
+
+/** مفتاح ترتيب زمني للعملية: تاريخها المُدخل أولاً، ثم وقت إدخالها، ثم لا شيء */
+function operationSortKey(r: FinanceRecord): string {
+  if (r.date) return r.date;
+  if (r.createdAt) {
+    const d = r.createdAt;
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
+  return "";
+}
 
 export type FinancialItemInput = {
   id: string;
@@ -66,6 +78,14 @@ export type FinancialItemInput = {
   archivedAt: Date | null;
   sortOrder: number;
   color: string | null;
+};
+
+/** آخر عملية مالية على البند — للبطاقات («آخر عملية مالية» و«قيمة آخر عملية») */
+export type LastOperation = {
+  kind: "إيراد" | "مصروف";
+  /** تاريخ العملية المُدخل أو تاريخ الإدخال إن غاب */
+  date: string | null;
+  amount: number | null;
 };
 
 export type FinancialItemLine = {
@@ -87,6 +107,8 @@ export type FinancialItemLine = {
   /** بلغ أو تجاوز عتبة الاقتراب من استنفاد المخصص */
   nearExhaustion: boolean;
   operationCount: number;
+  /** آخر عملية على البند (إيراد مستلم أو مصروف) — `null` حين لا عمليات */
+  lastOperation: LastOperation | null;
 };
 
 /** السجلات الجارية فقط — المؤرشف يخرج من كل مجموع جارٍ */
@@ -112,16 +134,23 @@ export function financialItemLines(
   const incomeByItem = new Map<string, number[]>();
   const expensesByItem = new Map<string, number[]>();
   const countByItem = new Map<string, number>();
+  const lastByItem = new Map<string, { key: string; op: LastOperation }>();
 
-  const push = (map: Map<string, number[]>, r: FinanceRecord) => {
+  const push = (map: Map<string, number[]>, r: FinanceRecord, kind: LastOperation["kind"]) => {
     if (!r.financialItemId) return; // عملية بلا بند لا تُنسب لأي بند
     const list = map.get(r.financialItemId) ?? [];
     if (r.amount !== null) list.push(r.amount);
     map.set(r.financialItemId, list);
     countByItem.set(r.financialItemId, (countByItem.get(r.financialItemId) ?? 0) + 1);
+    // آخر عملية على البند — بالتاريخ المُدخل ثم وقت الإدخال احتياطاً
+    const key = operationSortKey(r);
+    const prev = lastByItem.get(r.financialItemId);
+    if (!prev || key >= prev.key) {
+      lastByItem.set(r.financialItemId, { key, op: { kind, date: key || null, amount: r.amount } });
+    }
   };
-  for (const r of activeIncome) push(incomeByItem, r);
-  for (const r of activeExpenses) push(expensesByItem, r);
+  for (const r of activeIncome) push(incomeByItem, r, "إيراد");
+  for (const r of activeExpenses) push(expensesByItem, r, "مصروف");
 
   return items
     .map((item) => {
@@ -148,6 +177,7 @@ export function financialItemLines(
         overspent: remaining !== null && remaining < 0,
         nearExhaustion: spentPercent !== null && spentPercent >= NEAR_EXHAUSTION_PERCENT,
         operationCount: countByItem.get(item.id) ?? 0,
+        lastOperation: lastByItem.get(item.id)?.op ?? null,
       };
     })
     .sort((a, b) => a.sortOrder - b.sortOrder || (a.name ?? "").localeCompare(b.name ?? "", "ar"));
@@ -244,6 +274,84 @@ export function overrunWarning(opts: {
     overrunBy: remainingAfter < 0 ? Math.abs(remainingAfter) : 0,
     remainingAfter,
   };
+}
+
+/* ── تفصيل البند والنشاط الحديث (v2.3 §6) ────────────────────────────────── */
+
+/** سطر في دفتر عمليات مُدمج (إيراد + مصروف) مع رصيد جارٍ */
+export type LedgerLine = {
+  id: string;
+  kind: "إيراد" | "مصروف";
+  /** مفتاح الترتيب الزمني المعروض (تاريخ العملية أو تاريخ الإدخال) */
+  date: string | null;
+  amount: number | null;
+  /** الرصيد الجاري بعد هذه العملية: الإيراد المستلم يضيف والمصروف يخصم */
+  runningBalance: number;
+};
+
+/**
+ * دفتر عمليات مُدمج بترتيب زمني تصاعدي مع رصيد جارٍ.
+ * الإيراد المحتسب في الرصيد هو «مستلم» فقط — «متوقع» يظهر في الدفتر دون أثر على
+ * الرصيد (تمييزاً لا إخفاءً)، و«ملغى» لا يظهر. المؤرشف خارج الدفتر.
+ */
+export function ledgerWithRunningBalance(income: FinanceRecord[], expenses: FinanceRecord[]): LedgerLine[] {
+  const rows: { r: FinanceRecord; kind: "إيراد" | "مصروف" }[] = [
+    ...income.filter((r) => isActive(r) && r.status !== INCOME_CANCELLED).map((r) => ({ r, kind: "إيراد" as const })),
+    ...expenses.filter(isActive).map((r) => ({ r, kind: "مصروف" as const })),
+  ];
+  rows.sort((a, b) => operationSortKey(a.r).localeCompare(operationSortKey(b.r)));
+  let balance = 0;
+  return rows.map(({ r, kind }) => {
+    if (r.amount !== null) {
+      if (kind === "إيراد" && isReceived(r)) balance += r.amount;
+      if (kind === "مصروف") balance -= r.amount;
+    }
+    return {
+      id: r.id,
+      kind,
+      date: operationSortKey(r) || null,
+      amount: r.amount,
+      runningBalance: balance,
+    };
+  });
+}
+
+/** البنود الأعلى صرفاً — غير المؤرشفة، تنازلياً بالمصروف، مع استبعاد بند بلا أي صرف */
+export function topSpendingItems(lines: FinancialItemLine[], limit = 5): FinancialItemLine[] {
+  return lines
+    .filter((l) => !l.archived && l.expenses > 0)
+    .sort((a, b) => b.expenses - a.expenses)
+    .slice(0, limit);
+}
+
+/** البنود القريبة من النفاد (بلغت العتبة دون تجاوز) — قائمة لا مجرد عدد */
+export function nearExhaustionItems(lines: FinancialItemLine[]): FinancialItemLine[] {
+  return lines.filter((l) => !l.archived && l.nearExhaustion && !l.overspent);
+}
+
+/** البنود المتجاوزة لمخصصها — قائمة */
+export function overspentItems(lines: FinancialItemLine[]): FinancialItemLine[] {
+  return lines.filter((l) => !l.archived && l.overspent);
+}
+
+/** أحدث العمليات المالية (إيراد + مصروف) تنازلياً — للوحات «النشاط المالي الأخير» */
+export function recentOperations(
+  income: FinanceRecord[],
+  expenses: FinanceRecord[],
+  limit = 8,
+): { id: string; kind: "إيراد" | "مصروف"; date: string | null; amount: number | null; financialItemId: string | null }[] {
+  const rows = [
+    ...income.filter((r) => isActive(r) && r.status !== INCOME_CANCELLED).map((r) => ({ r, kind: "إيراد" as const })),
+    ...expenses.filter(isActive).map((r) => ({ r, kind: "مصروف" as const })),
+  ];
+  rows.sort((a, b) => operationSortKey(b.r).localeCompare(operationSortKey(a.r)));
+  return rows.slice(0, limit).map(({ r, kind }) => ({
+    id: r.id,
+    kind,
+    date: operationSortKey(r) || null,
+    amount: r.amount,
+    financialItemId: r.financialItemId,
+  }));
 }
 
 /** مجموع شهري لرسم الاتجاه — المفتاح «YYYY-MM»، والعمليات بلا تاريخ تُستثنى بوضوح */

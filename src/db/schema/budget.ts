@@ -77,10 +77,14 @@ export const budgetIncome = pgTable(
     notes: text("notes"),
     /** متوقع | مستلم | ملغى */
     status: text("status").notNull().default("مستلم"),
+    /** رقم الفاتورة/السند الاختياري للإيراد (v2.3 §6 — تناظراً مع المصروف) */
+    paymentReference: text("payment_reference"),
     /** الأرشفة — إخفاء غير مدمّر: السجل يبقى ويُستثنى من المجاميع الجارية */
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     archivedBy: uuid("archived_by").references(() => users.id),
     createdBy: uuid("created_by").references(() => users.id),
+    /** آخر من عدّل السجل (v2.3 §6 — سجل التعديل) */
+    updatedBy: uuid("updated_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -134,6 +138,8 @@ export const budgetExpenses = pgTable(
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     archivedBy: uuid("archived_by").references(() => users.id),
     createdBy: uuid("created_by").references(() => users.id),
+    /** آخر من عدّل السجل (v2.3 §6 — سجل التعديل) */
+    updatedBy: uuid("updated_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

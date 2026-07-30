@@ -87,6 +87,9 @@ const PARENT_MAP: Readonly<Record<string, string>> = {
   // التقارير
   "/reports/executive": "/reports",
 
+  // المالية — لا صفحة فهرس على `/budget/items`، فتفصيل البند يعود إلى لوحة المالية
+  "/budget/items/[id]": "/budget",
+
   // المساعد الذكي
   "/assistant/drafts": "/assistant",
 
