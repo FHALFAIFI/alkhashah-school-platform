@@ -400,3 +400,124 @@ Rollback of the first batch: removed exactly its own 24 rows and nothing else.
 **Operational consequence.** The principal must use «استيراد التحليل الرباعي», **not** «استيراد الخطة
 التشغيلية», to populate SWOT after deployment. Rollback of a SWOT batch removes the rows that batch
 created, including any manual edits made to them afterwards — the platform-wide rollback semantic.
+
+## D-032 — v2.3.0 upload acceptance lives on `stored_files`, decided server-side from role keys (2026-07-31)
+
+Brief §5 (docs/BRIEF_V2_3_0.md). Phase A found **no approval state anywhere**: `evidence_items.reviewStatus`
+is a non-blocking review flag (and is reset on replacement), `stored_files` has no approval column, and
+13 of the 19 upload paths never create an evidence row at all. All 19 paths funnel through
+`saveUploadedFile` (`src/lib/storage.ts:128`), so:
+
+- Acceptance state (`acceptance_status`, `accepted_by`, `accepted_at`, `acceptance_mode`) is added to
+  **`stored_files`** — the only true chokepoint — via an additive nullable migration.
+  `NULL` = legacy file, treated as accepted (production files were all uploaded in the
+  principal-operated era; nothing is rewritten).
+- The decision is made **inside `saveUploadedFile`** from an actor context threaded in by callers
+  (`storage.ts` is server-only with no session access). It never trusts a browser value.
+- "Is principal" comes from **role keys, not permission probes**: `CurrentUser` gains
+  `roleKeys: Set<string>` (`getCurrentUser` already reads `user_roles` and discards them,
+  `session.ts:115-117`). Role key `principal` ⇒ auto-accept.
+- Audit: `saveUploadedFile` emits the acceptance audit centrally — «قبول تلقائي بواسطة المدير» on
+  principal auto-accept; the manual approval action writes «اعتماد يدوي بواسطة المدير». File-security
+  validation (size/MIME/extension/magic-bytes) runs unchanged before acceptance.
+- Non-principal uploads become «قيد الاعتماد» and surface in a principal approval queue. Today both
+  live accounts are principal/sysadmin, so the pending path ships tested but empty.
+
+## D-033 — Dual-calendar dates: one canonical Gregorian ISO value, conversion at the edges (2026-07-31)
+
+Brief §2. Storage stays **canonical Gregorian ISO text** (the existing 27 business-date text columns);
+no second editable date is ever stored, and the entry calendar mode is not persisted (nothing
+operational reads it — revisit only if the principal asks). Implementation:
+
+- `src/lib/dates.ts` gains the inverse direction (Hijri→ISO via Umm al-Qura `Intl` probing), Hijri
+  month-grid/boundary helpers, and validation; the existing verbatim-official-Hijri rule
+  (`dualDisplay(officialHijri)` never recomputes source text) is preserved and stays test-enforced.
+- A new client `DateField` (هجري/ميلادي selector, month names, dual display of the chosen value)
+  replaces `Field type="date"` at its single definition point, covering the 11 existing picker sites;
+  the 2 budget free-text date fields are upgraded to it; the 4 raw filter inputs follow.
+- `meetings.meetingDate` and `actionTasks.dueDate` (the only `timestamptz` user-picked dates) keep
+  their columns — the form boundary normalizes to/from ISO date strings; no schema change.
+- Report tables get the missing `case "date"` in `renderCell` (+ export parity) → all ~28
+  date-tagged report columns render dual-calendar at one stroke.
+
+## D-034 — «اعتماد وإقفال» → «اعتماد» including derived labels; history is never rewritten (2026-07-31)
+
+Brief §3. The rename is collision-free because the three-state lifecycle (D-024/v2.2.1) owns a
+distinct vocabulary (قيد التنفيذ/مكتمل/مغلق، «إقفال البرنامج نهائياً») and the year/committee/
+performance «إقفال» axes are untouched. Scope of the rename:
+
+- Button labels, success messages, tutorials, and **derived status labels**: «معتمد ومقفل» →
+  «معتمد», «معتمدة ومقفلة» → «معتمدة» (changing the verb without the status label would be
+  internally inconsistent). Badge keys and tests updated together.
+- Seeded permission display names (`plan.approve`, `performance.approve` nameAr) are updated in
+  seed data **and** by a tiny data migration UPDATEing the two `permissions.name_ar` rows —
+  reference labels, not user data; recorded here as the approved reason.
+- **Historical audit rows and issued documents are NOT rewritten** — old summaries keep the old
+  wording; only newly written summaries use «اعتماد».
+- The underlying workflow (approve freezes the program package) is unchanged — verified per
+  call site, per the brief's "do not change the workflow silently" rule.
+
+## D-035 — AI removal is code-level; `ai_*` tables stay in place, dormant (2026-07-31)
+
+Brief §12. Phase A verified: zero AI packages in package.json, and the SWOT import
+(`src/lib/imports/plan.ts`) is 100% AI-free — it is preserved intact. Removal deletes ~3,100 lines
+(src/lib/ai, src/app/api/ai, assistant pages/components, AI settings page) and edits 19 files.
+The four `ai_*` tables and `src/db/schema/ai.ts` **remain in the schema** so drizzle never
+generates a DROP (no destructive migration; existing conversation rows are preserved as inert
+data). The schema file gets a dormancy comment. Env vars, compose extra_hosts, and the
+`AI_ENABLED=true` in playwright.config are removed; `/api/health` (DB-only) stays.
+
+## D-036 — Maintenance «بلاغات الصيانة» 7-status lifecycle with a mapped, rehearsed data migration (2026-07-31)
+
+Brief §18. New vocabulary: مسودة/معتمد/تم الإرسال/تحت المعالجة/تم الإصلاح/لم يتم الإصلاح/مغلق with a
+server-enforced transition map and an append-only `maintenance_status_history` (from/to/actor/at —
+same pattern as `program_closure_history`). Existing rows are migrated by a fixed documented mapping:
+مفتوح → معتمد، قيد الإصلاح → تحت المعالجة، تم الإصلاح → تم الإصلاح، مغلق ومتحقق → مغلق.
+The mapping is recorded in the migration itself, rehearsed on a production clone with before/after
+counts per status, and is reversible (the old value is derivable from the mapping + `closedAt`/
+`verifiedAt` stamps, and the migration writes one history row per converted record). Closure as
+«لم يتم الإصلاح» requires closure reason + follow-up recommendation + escalation flag. New fields
+(approved/sent/recipient/visit/resolution) are additive nullable columns.
+
+## D-037 — Canonical `room_types` registry; templates match rooms through it (2026-07-31)
+
+Brief §16–17. Today there is NO room-type concept — 4–5 divergent hardcoded lists, and the
+template↔room match is exact string equality, which leaves the «مختبر»/«مختبر حاسب» system templates
+permanently unmatchable (rooms use «معلم»/«معمل» vocabulary). A new `room_types` table (key, Arabic
+label, sort, active) is seeded from the union of the existing lists + the brief's room-type
+examples; existing `rooms.room_type` free-text values are preserved verbatim and mapped to registry
+keys additively (no room row rewritten). Inspection templates reference room types through the
+registry; the mismatch is fixed by mapping, not by renaming production data.
+
+## D-038 — «قائمة المرافق المطلوبة» is renamed and scoped, not removed (2026-07-31)
+
+Brief §15 allows either. The feature is fully self-contained (zero cross-module consumers) so
+removal would be clean — but it holds principal-entered data, and the brief's primary
+recommendation is the rename. Adopted: title becomes «المرافق المطلوب توفيرها أو تحسينها», the page
+explains the two allowed cases (غير موجود ويلزم توفيره / موجود ويحتاج تطويراً جوهرياً), and repair
+issues are redirected to «بلاغات الصيانة» with an in-page link. Removal remains available to the
+principal as a one-page deletion if he still finds it duplicative after retest.
+
+## D-039 — One report engine: template-driven issuance + PDF/Word for all registry reports (2026-07-31)
+
+Brief §7–9, §22. Phase A found the template system governs only the preview route
+(`resolveTemplateForIssue` has zero production callers), 6 of 7 PDF generators bypass the central
+document identity (hard-coded fallback header, principal name nowhere), and all 54 registry reports
+are CSV/XLSX-only. The engine work therefore is: (1) one shared official header
+(identity-driven) used by both `officialPageHtml` and the template renderer; (2) the 7 generators
+resolve their template through `resolveTemplateForIssue` after reconciling the docType vocabulary;
+(3) `/api/reports/export` gains `pdf|docx` formats — every registry report becomes downloadable at
+one choke point; (4) the template registries are extended in lockstep to the brief's ~23 document
+types (guard tests already enforce lockstep).
+
+## D-040 — Ministry identity assets are owner-supplied through settings, never fabricated (2026-07-31)
+
+Brief §8. The official Ministry of Education logo and the principal's name
+(«حسين بن جابر أحمد الفيفي», «مدير مجمع الخشعة للبنين») are NOT hard-coded and NOT drawn by the
+agent: the document-identity store (`settings` key `document.identity`) gains `principalTitle`, an
+admin UI (missing today — `saveDocumentIdentity` has no caller) lets the principal enter the name/
+title and upload the official logo files; generated documents read them centrally. The header
+system ships with a neutral placeholder slot; the approved emblem is loaded by the owner so no
+unofficial reproduction of government branding is bundled in git. Fonts: PDF keeps the embedded
+IBM Plex Sans Arabic; the two advertised-but-uninstalled template fonts are either installed
+locally or removed from the allowlist; Word switches from "Arial" to the same Arabic-capable font.
