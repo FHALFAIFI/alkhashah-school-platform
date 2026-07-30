@@ -13,6 +13,7 @@ import { audit } from "@/lib/audit";
 import { orFallback } from "@/lib/format";
 import { snapshotRecord } from "@/lib/versioning";
 import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
+import { PROGRAM_LIFECYCLE, LIFECYCLE_ACTIONS } from "@/lib/plan/lifecycle";
 import { notifyAll, notifyUser } from "@/lib/notify";
 
 export type ActionState = { error?: string; success?: string } | null;
@@ -37,6 +38,8 @@ export async function updateProgramExecutionAction(programId: string, _prev: Act
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.status === "مقفل") return { error: "السنة مقفلة — لا تعديل على التقدم" };
+  // البرنامج المغلق نهائياً للقراءة فقط — حارس خادم لا واجهة فحسب
+  if (program.closedAt) return { error: "البرنامج مغلق نهائياً — أعد فتحه أولاً قبل تعديل التنفيذ" };
 
   await db
     .update(programs)
@@ -276,11 +279,110 @@ export async function createProgramAction(_prev: ActionState, formData: FormData
 }
 
 /**
- * الإقفال النهائي للبرنامج (v2.2 §A2).
+ * «تعليم البرنامج كمكتمل» (التصحيح التشغيلي — سير العمل ثلاثي الحالات §A).
+ *
+ * قرار بشري مباشر: لا يشترط شاهداً ولا مالية ولا نشاطاً ولا معلماً ولا أي حقل —
+ * ملاحظة الاكتمال اختيارية. البرنامج المكتمل يبقى قابلاً للتحرير وإضافة الشواهد
+ * والوثائق، ومراجعه المالية متاحة، ويظهر في عروض وتقارير البرامج المكتملة.
+ *
+ * فعل idempotent: شرط `isNull(completedAt)` داخل التحديث نفسه يجعل الاكتمال ذرّياً —
+ * النقر المتكرر أو طلبان متزامنان لا يضيفان صفَّي تاريخ.
+ */
+export async function completeProgramAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.write");
+  const note = String(formData.get("note") ?? "").trim();
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (program.closedAt) return { error: "البرنامج مغلق نهائياً — أعد فتحه أولاً" };
+  if (program.completedAt) return { success: "البرنامج مكتمل مسبقاً" };
+
+  const completed = await db
+    .update(programs)
+    .set({
+      completedAt: new Date(),
+      completedBy: user.id,
+      completionNote: note || null,
+      // مواءمة حالة التنفيذ المعروضة مع الاكتمال (مفردة المتابعة الموجودة «مكتمل»)
+      executionStatus: "مكتمل",
+      updatedAt: new Date(),
+    })
+    .where(and(eq(programs.id, programId), isNull(programs.completedAt), isNull(programs.closedAt)))
+    .returning({ id: programs.id });
+  if (completed.length === 0) return { success: "البرنامج مكتمل مسبقاً" };
+
+  await db.insert(programClosureHistory).values({
+    programId,
+    action: LIFECYCLE_ACTIONS.complete,
+    fromStatus: PROGRAM_LIFECYCLE.active,
+    toStatus: PROGRAM_LIFECYCLE.completed,
+    note: note || null,
+    actorId: user.id,
+  });
+  await audit({
+    actorId: user.id,
+    action: "program.completed",
+    entityType: "program",
+    entityId: programId,
+    summary: `تعليم برنامج «${orFallback(program.name)}» كمكتمل${note ? ` — ${note}` : ""}`,
+  });
+  revalidateProgramLists(programId);
+  return { success: "عُلّم البرنامج كمكتمل — يبقى قابلاً للتحرير وإضافة الشواهد حتى إقفاله نهائياً" };
+}
+
+/**
+ * «إعادة البرنامج للتنفيذ» — من «مكتمل» إلى «قيد التنفيذ» (§C).
+ * تاريخ الاكتمال السابق يبقى في سجل التحولات؛ تُمسح الحالة الراهنة فقط.
+ */
+export async function resumeProgramAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.write");
+  const note = String(formData.get("note") ?? "").trim();
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if (program.closedAt) return { error: "البرنامج مغلق نهائياً — أعد فتحه أولاً (يعود «مكتملاً» ثم أعده للتنفيذ)" };
+  if (!program.completedAt) return { success: "البرنامج قيد التنفيذ أصلاً" };
+
+  const resumed = await db
+    .update(programs)
+    .set({
+      completedAt: null,
+      completedBy: null,
+      completionNote: null,
+      // «مكتمل» المعروضة أثر الاكتمال — تعود «في المسار»؛ أي حالة أخرى أدخلها المستخدم تبقى
+      executionStatus: program.executionStatus === "مكتمل" ? "في المسار" : program.executionStatus,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(programs.id, programId), isNotNull(programs.completedAt), isNull(programs.closedAt)))
+    .returning({ id: programs.id });
+  if (resumed.length === 0) return { success: "البرنامج قيد التنفيذ أصلاً" };
+
+  await db.insert(programClosureHistory).values({
+    programId,
+    action: LIFECYCLE_ACTIONS.resume,
+    fromStatus: PROGRAM_LIFECYCLE.completed,
+    toStatus: PROGRAM_LIFECYCLE.active,
+    note: note || null,
+    actorId: user.id,
+  });
+  await audit({
+    actorId: user.id,
+    action: "program.resumed",
+    entityType: "program",
+    entityId: programId,
+    summary: `إعادة برنامج «${orFallback(program.name)}» للتنفيذ${note ? ` — ${note}` : ""}`,
+  });
+  revalidateProgramLists(programId);
+  return { success: "أُعيد البرنامج للتنفيذ" };
+}
+
+/**
+ * «إقفال البرنامج نهائياً» (v2.2 §A2 + التصحيح التشغيلي §B).
  *
  * لا يشترط شاهداً ولا نشاطاً ولا معلماً ولا نسبة جاهزية ولا اكتمال ميزانية ولا نتائج ولا أثراً
  * ولا أي حقل من إدخال المستخدم — ملاحظة الإقفال اختيارية. السجل كامل وتاريخه يبقيان سليمين:
  * لا يُحذف شيء ولا تُعدَّل شواهد أو وثائق أو مراجع مالية، ويبقى البرنامج في التقارير التاريخية.
+ *
+ * المسار الطبيعي يمر بالاكتمال أولاً: برنامج «قيد التنفيذ» لا يُقفل مباشرة — يوجَّه المستخدم
+ * إلى «تعليم البرنامج كمكتمل» أولاً (§B: لا تحويل صامت من قيد التنفيذ إلى مغلق).
  *
  * فعل idempotent: إقفال برنامج مقفل مسبقاً لا يضيف صفاً جديداً للتاريخ ولا يكتب فوق `closedAt`
  * الأصلي — فالنقر المتكرر (أو طلبان متزامنان) لا ينتج إقفالاً مزدوجاً.
@@ -291,19 +393,24 @@ export async function closeProgramAction(programId: string, _prev: ActionState, 
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.closedAt) return { success: "البرنامج مغلق مسبقاً" };
+  if (!program.completedAt) {
+    return { error: "الإقفال النهائي متاح للبرامج المكتملة فقط — علّم البرنامج كمكتمل أولاً ثم أقفله" };
+  }
 
-  // شرط `isNull(closedAt)` داخل التحديث نفسه يجعل الإقفال ذرّياً: طلبان متزامنان ينجح
-  // أحدهما فقط في تغيير الصف، فلا يُسجَّل إقفالان في التاريخ.
+  // شرط `isNull(closedAt)` (مع اشتراط الاكتمال) داخل التحديث نفسه يجعل الإقفال ذرّياً:
+  // طلبان متزامنان ينجح أحدهما فقط في تغيير الصف، فلا يُسجَّل إقفالان في التاريخ.
   const closed = await db
     .update(programs)
     .set({ closedAt: new Date(), closedBy: user.id, closureNote: note || null, updatedAt: new Date() })
-    .where(and(eq(programs.id, programId), isNull(programs.closedAt)))
+    .where(and(eq(programs.id, programId), isNull(programs.closedAt), isNotNull(programs.completedAt)))
     .returning({ id: programs.id });
   if (closed.length === 0) return { success: "البرنامج مغلق مسبقاً" };
 
   await db.insert(programClosureHistory).values({
     programId,
-    action: "إقفال",
+    action: LIFECYCLE_ACTIONS.close,
+    fromStatus: PROGRAM_LIFECYCLE.completed,
+    toStatus: PROGRAM_LIFECYCLE.closed,
     note: note || null,
     actorId: user.id,
   });
@@ -312,17 +419,19 @@ export async function closeProgramAction(programId: string, _prev: ActionState, 
     action: "program.closed",
     entityType: "program",
     entityId: programId,
-    summary: `إقفال برنامج «${orFallback(program.name)}»${note ? ` — ${note}` : ""}`,
+    summary: `إقفال برنامج «${orFallback(program.name)}» نهائياً${note ? ` — ${note}` : ""}`,
   });
   revalidateProgramLists(programId);
-  return { success: "أُقفل البرنامج — يبقى في التقارير والعروض التاريخية" };
+  return { success: "أُقفل البرنامج نهائياً — أصبح للقراءة فقط ويبقى في التقارير والعروض التاريخية" };
 }
 
 /**
- * إعادة فتح برنامج مغلق (v2.2 §A2) — يعود إلى القوائم التشغيلية النشطة.
+ * «إعادة فتح البرنامج» — من «مغلق» إلى «مكتمل» (§C): لا يعود تلقائياً إلى «قيد التنفيذ».
  *
  * التاريخ السابق لا يُمسح: صفوف `program_closure_history` تبقى كما هي ويُضاف صف «إعادة فتح»،
- * فتُقرأ دورات الإقفال والفتح كاملة. idempotent كذلك: إعادة فتح برنامج مفتوح لا تفعل شيئاً.
+ * فتُقرأ دورات الإقفال والفتح كاملة. البرامج المغلقة قبل هذا التصحيح (بلا `completedAt`)
+ * تُستكمل حالتها الراهنة من لحظة إقفالها الأصلية — دون كتابة فوق أي قيمة موجودة.
+ * idempotent كذلك: إعادة فتح برنامج مفتوح لا تفعل شيئاً.
  */
 export async function reopenClosedProgramAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("plan.approve");
@@ -338,6 +447,10 @@ export async function reopenClosedProgramAction(programId: string, _prev: Action
       closedBy: null,
       // ملاحظة الإقفال الأخيرة تبقى محفوظة في سجل التاريخ، وتُمسح من الحالة الراهنة فقط.
       closureNote: null,
+      // العودة إلى «مكتمل»: برنامج أُقفل قبل وجود الاكتمال يأخذ لحظة إقفاله الأصلية
+      // تاريخاً للاكتمال (COALESCE لا يكتب فوق قيمة موجودة).
+      completedAt: sql`COALESCE(${programs.completedAt}, ${programs.closedAt})`,
+      completedBy: sql`COALESCE(${programs.completedBy}, ${programs.closedBy})`,
       reopenedAt: new Date(),
       reopenedBy: user.id,
       updatedAt: new Date(),
@@ -348,7 +461,9 @@ export async function reopenClosedProgramAction(programId: string, _prev: Action
 
   await db.insert(programClosureHistory).values({
     programId,
-    action: "إعادة فتح",
+    action: LIFECYCLE_ACTIONS.reopen,
+    fromStatus: PROGRAM_LIFECYCLE.closed,
+    toStatus: PROGRAM_LIFECYCLE.completed,
     note: note || null,
     actorId: user.id,
   });
@@ -357,10 +472,10 @@ export async function reopenClosedProgramAction(programId: string, _prev: Action
     action: "program.closure_reopened",
     entityType: "program",
     entityId: programId,
-    summary: `إعادة فتح برنامج «${orFallback(program.name)}»${note ? ` — ${note}` : ""}`,
+    summary: `إعادة فتح برنامج «${orFallback(program.name)}» — عاد بحالة «مكتمل»${note ? ` — ${note}` : ""}`,
   });
   revalidateProgramLists(programId);
-  return { success: "أُعيد فتح البرنامج" };
+  return { success: "أُعيد فتح البرنامج بحالة «مكتمل» — أعده للتنفيذ إن أردت استئناف العمل عليه" };
 }
 
 /** طلب تغيير على برنامج معتمد: قيمة قديمة/جديدة وسبب واعتماد */
@@ -387,6 +502,7 @@ export async function createChangeRequestAction(programId: string, _prev: Action
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.status === "مقفل") return { error: "السنة مقفلة — لا تغييرات" };
+  if (program.closedAt) return { error: "البرنامج مغلق نهائياً — أعد فتحه أولاً قبل طلب تغيير" };
   const [pending] = await db
     .select({ id: programChangeRequests.id })
     .from(programChangeRequests)
@@ -470,6 +586,7 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.status !== "معتمد") return { error: "المتابعة الأسبوعية للبرامج المعتمدة فقط" };
+  if (program.closedAt) return { error: "البرنامج مغلق نهائياً — أعد فتحه أولاً قبل تسجيل متابعة" };
 
   // التقدم المُدخل مباشرةً إن وُجد، وإلا يبقى تقدم البرنامج كما هو
   const progress = parsed.data.progress ?? program.progress;

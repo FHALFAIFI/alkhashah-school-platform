@@ -110,6 +110,15 @@ export const REPORTS: readonly ReportDefinition[] = [
     filters: ["search", "status"],
   },
   {
+    key: "programs-completed",
+    category: "plan",
+    label: "البرامج المكتملة",
+    description: "البرامج المعلَّمة كمكتملة (غير المغلقة) مع تاريخ الاكتمال وملاحظته",
+    permission: "plan.read",
+    columns: [col("seq", "م", "number"), col("name", "البرنامج"), col("domain", "المجال"), col("completedAt", "تاريخ الاكتمال", "date"), col("completionNote", "ملاحظة الاكتمال"), col("progress", "الإنجاز", "percent")],
+    filters: ["search", "dateRange"],
+  },
+  {
     key: "programs-closed",
     category: "plan",
     label: "البرامج المغلقة",
@@ -139,10 +148,10 @@ export const REPORTS: readonly ReportDefinition[] = [
   {
     key: "program-closure-history",
     category: "plan",
-    label: "سجل الإقفال وإعادة الفتح",
-    description: "التسلسل التاريخي الكامل لكل إقفال وإعادة فتح",
+    label: "سجل تحولات حالة البرامج",
+    description: "التسلسل التاريخي الكامل لكل اكتمال وإقفال وإعادة فتح وإعادة للتنفيذ",
     permission: "plan.read",
-    columns: [col("programName", "البرنامج"), col("action", "الإجراء"), col("at", "التاريخ", "date"), col("note", "الملاحظة"), col("actor", "المنفّذ")],
+    columns: [col("programName", "البرنامج"), col("action", "الإجراء"), col("fromStatus", "من حالة"), col("toStatus", "إلى حالة"), col("at", "التاريخ", "date"), col("note", "الملاحظة"), col("actor", "المنفّذ")],
     filters: ["search", "dateRange"],
   },
   {

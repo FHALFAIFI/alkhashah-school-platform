@@ -101,18 +101,25 @@ describe("التقارير مع بيانات حقيقية", () => {
     const [year] = await db.insert(planYears).values({ key: `rep-${suffix}`, nameAr: `سنة ${suffix}`, status: "نشطة" }).returning();
     await db.insert(programs).values([
       { planYearId: year.id, seq: 1, domain: "مجال أ", name: "برنامج نشط" },
-      { planYearId: year.id, seq: 2, domain: "مجال ب", name: "برنامج مغلق", closedAt: new Date(), closureNote: "انتهى" },
+      { planYearId: year.id, seq: 2, domain: "مجال ب", name: "برنامج مغلق", completedAt: new Date(), closedAt: new Date(), closureNote: "انتهى" },
+      { planYearId: year.id, seq: 3, domain: "مجال ج", name: "برنامج مكتمل", completedAt: new Date(), completionNote: "أُنجز مبكراً" },
     ]);
 
     const { runReport } = await import("@/lib/reports/loaders");
     const active = await runReport("programs-active", {});
     const closed = await runReport("programs-closed", {});
+    const completed = await runReport("programs-completed", {});
 
     expect(active.rows.map((r) => r.name)).toContain("برنامج نشط");
     // البرنامج المغلق يختفي من النشط ويظهر في التاريخي — لا يُحذف من التقارير
     expect(active.rows.map((r) => r.name)).not.toContain("برنامج مغلق");
     expect(closed.rows.map((r) => r.name)).toContain("برنامج مغلق");
     expect(closed.rows[0].closureNote).toBe("انتهى");
+    // المكتمل (غير المغلق) يظهر في تقريره الخاص ويبقى ضمن النشط (ما زال قابلاً للتحرير)
+    expect(completed.rows.map((r) => r.name)).toContain("برنامج مكتمل");
+    expect(completed.rows.map((r) => r.name)).not.toContain("برنامج مغلق");
+    expect(completed.rows[0].completionNote).toBe("أُنجز مبكراً");
+    expect(active.rows.map((r) => r.name)).toContain("برنامج مكتمل");
   });
 
   it("التقارير المجمَّعة تعمل مع بيانات فعلية لا مع جدول فارغ فقط", async () => {

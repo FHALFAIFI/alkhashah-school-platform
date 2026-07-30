@@ -77,9 +77,20 @@ export const programs = pgTable(
     stageTargets: jsonb("stage_targets").$type<string[]>(),
     /** وضع الوزن: «متساوٍ» (افتراضي) أو «مخصص» (مجموع الأوزان يجب أن يساوي 100 بالضبط) */
     weightingMode: text("weighting_mode").notNull().default("متساوٍ"),
-    /** الاكتمال — مسموح فقط عند جاهزية 100٪ أو بتجاوز موثّق من المدير */
+    /**
+     * الاكتمال (التصحيح التشغيلي — سير عمل البرنامج ثلاثي الحالات):
+     * «قيد التنفيذ» ← «مكتمل» ← «مغلق». الحالة مشتقة من العمودين الزمنيين:
+     * `completedAt` غير فارغ = «مكتمل»، و`closedAt` غير فارغ = «مغلق».
+     *
+     * «تعليم البرنامج كمكتمل» قرار بشري مباشر لا يشترط شاهداً ولا نسبة ولا ميزانية
+     * ولا أي حقل (D-024/D-025 — لا جاهزية ولا حصص). البرنامج المكتمل يبقى قابلاً
+     * للتحرير وإضافة الشواهد. أعمدة override أدناه أثر تاريخي من نموذج الجاهزية
+     * الملغى (D-024) — تبقى خاملة بلا مسار كتابة.
+     */
     completedAt: timestamp("completed_at", { withTimezone: true }),
     completedBy: uuid("completed_by").references(() => users.id),
+    /** ملاحظة اكتمال اختيارية (القاعدة العامة: كل حقل يُدخله المستخدم اختياري) */
+    completionNote: text("completion_note"),
     /** اكتمل بتجاوز: يبقى ظاهراً في التقارير التاريخية ولا تختفي النواقص */
     completionOverride: boolean("completion_override").notNull().default(false),
     overrideReason: text("override_reason"),
@@ -402,19 +413,26 @@ export const programFollowups = pgTable(
 );
 
 /**
- * سجل إقفال/إعادة فتح البرامج (v2.2 §A2) — سجل تاريخي **يُضاف إليه فقط**.
+ * سجل تحولات حالة البرنامج (v2.2 §A2 + التصحيح التشغيلي) — سجل تاريخي **يُضاف إليه فقط**.
  *
- * لا يُحدَّث صف سابق ولا يُحذف أبداً: كل إقفال وكل إعادة فتح يُضيف صفاً جديداً، فيبقى
- * التسلسل التاريخي كاملاً حتى بعد إقفال/فتح متكرر. أعمدة `programs.closed_at` وأخواتها
- * تمثّل الحالة الراهنة فقط، وهذا الجدول هو المرجع التاريخي.
+ * لا يُحدَّث صف سابق ولا يُحذف أبداً: كل اكتمال وكل إقفال وكل إعادة فتح وكل إعادة للتنفيذ
+ * يُضيف صفاً جديداً، فيبقى التسلسل التاريخي كاملاً حتى بعد دورات متكررة. أعمدة
+ * `programs.completed_at` و`closed_at` وأخواتها تمثّل الحالة الراهنة فقط، وهذا الجدول
+ * هو المرجع التاريخي.
  */
 export const programClosureHistory = pgTable(
   "program_closure_history",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     programId: uuid("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
-    /** «إقفال» | «إعادة فتح» */
+    /** «اكتمال» | «إقفال» | «إعادة فتح» | «إعادة للتنفيذ» */
     action: text("action").notNull(),
+    /**
+     * الحالة قبل التحول وبعده («قيد التنفيذ» | «مكتمل» | «مغلق») — فارغتان في الصفوف
+     * التاريخية المسجلة قبل إضافة العمودين؛ لا تُملآن بأثر رجعي (السجل لا يُعدَّل).
+     */
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
     /** ملاحظة اختيارية يُدخلها المستخدم */
     note: text("note"),
     actorId: uuid("actor_id").references(() => users.id),

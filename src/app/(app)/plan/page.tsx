@@ -6,6 +6,7 @@ import { planYears, programs } from "@/db/schema";
 import { PageHeader, Table, Badge, LinkButton, EmptyState, ProgressBar, Card, DualDate } from "@/components/ui";
 import { isFollowupDue } from "@/lib/plan/followup";
 import { programStatusLabel } from "@/lib/plan/status-labels";
+import { programLifecycle, PROGRAM_LIFECYCLE } from "@/lib/plan/lifecycle";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { orFallback, orDash } from "@/lib/format";
 import { dualDisplay } from "@/lib/dates";
@@ -16,9 +17,11 @@ import { SectionReportsLink } from "@/components/section-reports-link";
 export const metadata = { title: "الخطة التشغيلية" };
 export const dynamic = "force-dynamic";
 
-export default async function PlanPage() {
+export default async function PlanPage({ searchParams }: { searchParams: Promise<{ حالة?: string }> }) {
   const user = await requirePermission("plan.read");
   const canWrite = user.permissions.has("plan.write");
+  // مرشّح سير العمل ثلاثي الحالات: «قيد التنفيذ» | «مكتمل» | «مغلق» — بلا قيمة = الكل
+  const stateFilter = (await searchParams)["حالة"];
   const years = await db.select().from(planYears).orderBy(asc(planYears.key));
   const activeYear = years.find((y) => y.status === "نشطة") ?? years[0];
 
@@ -49,6 +52,18 @@ export default async function PlanPage() {
   // منفصل أسفل الصفحة — لا تُحذف ولا تختفي من التقارير.
   const progs = all.filter((p) => !p.closedAt);
   const closed = all.filter((p) => p.closedAt);
+  const completedCount = progs.filter((p) => p.completedAt).length;
+
+  // تطبيق مرشّح الحالة على الجدول التشغيلي («مغلق» يعرض القسم التاريخي وحده)
+  const visibleProgs =
+    stateFilter === PROGRAM_LIFECYCLE.active
+      ? progs.filter((p) => !p.completedAt)
+      : stateFilter === PROGRAM_LIFECYCLE.completed
+        ? progs.filter((p) => p.completedAt)
+        : stateFilter === PROGRAM_LIFECYCLE.closed
+          ? []
+          : progs;
+  const showClosedSection = !stateFilter || stateFilter === PROGRAM_LIFECYCLE.closed;
 
   const domains = [...new Set(progs.map((p) => p.domain))];
   const approved = progs.filter((p) => p.status !== "مسودة").length;
@@ -58,7 +73,7 @@ export default async function PlanPage() {
     <div>
       <PageHeader
         title={`الخطة التشغيلية — ${activeYear.nameAr}`}
-        subtitle={`${progs.length} برنامجاً · معتمد: ${approved} · متوسط الإنجاز: ${avgProgress}٪${closed.length ? ` · مغلق: ${closed.length}` : ""} · تنتهي جميع البرامج في 5/1/1449هـ`}
+        subtitle={`${progs.length} برنامجاً · معتمد: ${approved} · متوسط الإنجاز: ${avgProgress}٪${completedCount ? ` · مكتمل: ${completedCount}` : ""}${closed.length ? ` · مغلق: ${closed.length}` : ""} · تنتهي جميع البرامج في 5/1/1449هـ`}
         actions={
           <>
             <SectionReportsLink category="plan" />
@@ -86,31 +101,53 @@ export default async function PlanPage() {
           );
         })}
       </div>
-      <Table headers={["م", "البرنامج", "المجال", "مسؤول التنفيذ", "الفترة", "الإنجاز", "الحالة", ""]}>
-        {progs.map((p) => (
-          <tr key={p.id}>
-            <td className="px-3 py-2 tabular-nums">{p.seq}</td>
-            <td className="px-3 py-2 font-medium">
-              <Link href={`/plan/${p.id}`} className="text-brand-700 hover:underline">{orFallback(p.name)}</Link>
-            </td>
-            <td className="px-3 py-2 text-xs">{orFallback(p.domain, "بدون تصنيف")}</td>
-            <td className="px-3 py-2 text-xs">{orDash(p.ownerPosition)}</td>
-            <td className="px-3 py-2 text-xs tabular-nums">
-              {p.hijriStart && p.hijriEnd ? `${p.hijriStart}هـ ← ${p.hijriEnd}هـ` : p.periodText ?? "—"}
-            </td>
-            <td className="px-3 py-2"><ProgressBar value={p.progress} /></td>
-            <td className="px-3 py-2">
-              <span className="inline-flex flex-wrap items-center gap-1">
-                <Badge value={programStatusLabel(p.status)} />
-                {p.status === "معتمد" && isFollowupDue(p.lastReviewAt) && <FollowupDueBadge />}
-              </span>
-            </td>
-            <td className="px-3 py-2"><LinkButton href={`/plan/${p.id}`} variant="secondary">فتح</LinkButton></td>
-          </tr>
+      {/* مرشّح سير العمل ثلاثي الحالات — «مغلق» يعرض القسم التاريخي أدناه */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-gray-500">تصفية حسب الحالة:</span>
+        <LinkButton href="/plan" variant={!stateFilter ? "primary" : "secondary"}>الكل</LinkButton>
+        {([
+          [PROGRAM_LIFECYCLE.active, progs.length - completedCount],
+          [PROGRAM_LIFECYCLE.completed, completedCount],
+          [PROGRAM_LIFECYCLE.closed, closed.length],
+        ] as [string, number][]).map(([state, count]) => (
+          <LinkButton
+            key={state}
+            href={`/plan?حالة=${state}`}
+            variant={stateFilter === state ? "primary" : "secondary"}
+          >
+            {`${state} (${count})`}
+          </LinkButton>
         ))}
-      </Table>
+      </div>
 
-      {closed.length > 0 && (
+      {stateFilter !== PROGRAM_LIFECYCLE.closed && (
+        <Table headers={["م", "البرنامج", "المجال", "مسؤول التنفيذ", "الفترة", "الإنجاز", "الحالة", ""]}>
+          {visibleProgs.map((p) => (
+            <tr key={p.id}>
+              <td className="px-3 py-2 tabular-nums">{p.seq}</td>
+              <td className="px-3 py-2 font-medium">
+                <Link href={`/plan/${p.id}`} className="text-brand-700 hover:underline">{orFallback(p.name)}</Link>
+              </td>
+              <td className="px-3 py-2 text-xs">{orFallback(p.domain, "بدون تصنيف")}</td>
+              <td className="px-3 py-2 text-xs">{orDash(p.ownerPosition)}</td>
+              <td className="px-3 py-2 text-xs tabular-nums">
+                {p.hijriStart && p.hijriEnd ? `${p.hijriStart}هـ ← ${p.hijriEnd}هـ` : p.periodText ?? "—"}
+              </td>
+              <td className="px-3 py-2"><ProgressBar value={p.progress} /></td>
+              <td className="px-3 py-2">
+                <span className="inline-flex flex-wrap items-center gap-1">
+                  <Badge value={programLifecycle(p)} />
+                  <Badge value={programStatusLabel(p.status)} />
+                  {p.status === "معتمد" && !p.completedAt && isFollowupDue(p.lastReviewAt) && <FollowupDueBadge />}
+                </span>
+              </td>
+              <td className="px-3 py-2"><LinkButton href={`/plan/${p.id}`} variant="secondary">فتح</LinkButton></td>
+            </tr>
+          ))}
+        </Table>
+      )}
+
+      {showClosedSection && closed.length > 0 && (
         <section className="mt-8">
           <h2 className="mb-3 text-sm font-bold text-gray-600">
             البرامج المغلقة ({closed.length})

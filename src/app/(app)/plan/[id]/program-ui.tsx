@@ -6,6 +6,7 @@ import {
   approvePackageAction, updateProgramExecutionAction,
   archiveProgramAction, unarchiveProgramAction,
   closeProgramAction, reopenClosedProgramAction,
+  completeProgramAction, resumeProgramAction,
   type ActionState,
 } from "../actions";
 import { SubmitButton } from "@/components/ui";
@@ -219,7 +220,54 @@ export function ArchiveProgramForm({
 }
 
 /**
- * «إقفال البرنامج» (v2.2 §A2) — الإقفال النهائي لبرنامج منتهٍ.
+ * «تعليم البرنامج كمكتمل» (سير العمل ثلاثي الحالات §A) — متاح لبرنامج «قيد التنفيذ».
+ * لا شرط شواهد ولا مالية ولا أنشطة؛ ملاحظة الاكتمال اختيارية، والبرنامج يبقى قابلاً للتحرير.
+ */
+export function CompleteProgramForm({ programId, programName }: { programId: string; programName: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(completeProgramAction.bind(null, programId), null);
+  return (
+    <form action={formAction} className="space-y-2">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <p className="text-xs text-gray-500">
+        الاكتمال قرارك المباشر — لا يشترط عدد شواهد ولا اكتمال ميزانية ولا أي حقل. يبقى البرنامج
+        بعد اكتماله قابلاً للتحرير وإضافة الشواهد والوثائق، ويظهر في عروض البرامج المكتملة.
+      </p>
+      <input
+        name="note"
+        placeholder="ملاحظة الاكتمال (اختيارية)"
+        maxLength={2000}
+        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+      />
+      <SubmitButton confirmText={`هل تريد تعليم هذا البرنامج كمكتمل؟\n«${programName}»\n\nيبقى قابلاً للتحرير وإضافة الشواهد، ويمكن إعادته للتنفيذ في أي وقت.`}>
+        تعليم البرنامج كمكتمل
+      </SubmitButton>
+    </form>
+  );
+}
+
+/** «إعادة البرنامج للتنفيذ» — من «مكتمل» إلى «قيد التنفيذ» مع بقاء تاريخ الاكتمال في السجل */
+export function ResumeProgramForm({ programId, programName }: { programId: string; programName: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(resumeProgramAction.bind(null, programId), null);
+  return (
+    <form action={formAction} className="space-y-2">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <input
+        name="note"
+        placeholder="سبب الإعادة للتنفيذ (اختياري)"
+        maxLength={2000}
+        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+      />
+      <SubmitButton variant="secondary" confirmText={`هل تريد إعادة هذا البرنامج للتنفيذ؟\n«${programName}»\n\nيعود إلى «قيد التنفيذ» ويبقى تاريخ اكتماله السابق محفوظاً في السجل.`}>
+        إعادة البرنامج للتنفيذ
+      </SubmitButton>
+    </form>
+  );
+}
+
+/**
+ * «إقفال البرنامج نهائياً» (v2.2 §A2 + §B) — متاح للبرامج «المكتملة» فقط.
  *
  * حالة عمل مستقلة عن الأرشفة (حذف ناعم) وعن الاعتماد وعن إقفال السنة. لا يشترط شاهداً ولا
  * نشاطاً ولا نسبة جاهزية ولا اكتمال ميزانية ولا نتائج — وملاحظة الإقفال اختيارية. يبقى
@@ -232,8 +280,9 @@ export function CloseProgramForm({ programId, programName }: { programId: string
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
       <p className="text-xs text-gray-500">
-        الإقفال يُنهي البرنامج ويخفيه من القوائم التشغيلية، ويبقى كاملاً في التقارير والعروض
-        التاريخية بكل شواهده ووثائقه ومراجعه المالية. يمكن إعادة فتحه لاحقاً.
+        الإقفال النهائي يجعل البرنامج <span className="font-medium">للقراءة فقط</span> ويرفعه من
+        القوائم التشغيلية. يبقى كاملاً في التقارير والعروض التاريخية بكل شواهده ووثائقه ومراجعه
+        المالية، ويبقى متاحاً للعرض والطباعة والتصدير. يمكن إعادة فتحه لاحقاً.
       </p>
       <input
         name="note"
@@ -241,14 +290,14 @@ export function CloseProgramForm({ programId, programName }: { programId: string
         maxLength={2000}
         className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
       />
-      <SubmitButton confirmText={`هل تريد إقفال هذا البرنامج نهائياً؟\n«${programName}»\n\nسيختفي من القوائم التشغيلية ويبقى في التقارير التاريخية، ويمكن إعادة فتحه لاحقاً.`}>
-        إقفال البرنامج
+      <SubmitButton confirmText={`هل تريد إقفال هذا البرنامج نهائياً؟\n«${programName}»\n\nيصبح البرنامج للقراءة فقط: لا تعديل ولا متابعة حتى يُعاد فتحه. يبقى كاملاً في التقارير والعروض التاريخية ويبقى متاحاً للعرض والطباعة والتصدير.`}>
+        إقفال البرنامج نهائياً
       </SubmitButton>
     </form>
   );
 }
 
-/** «إعادة فتح البرنامج» — يعيد برنامجاً مغلقاً إلى القوائم التشغيلية دون مساس بتاريخ الإقفال */
+/** «إعادة فتح البرنامج» — يعيد برنامجاً مغلقاً إلى حالة «مكتمل» (لا إلى قيد التنفيذ تلقائياً) */
 export function ReopenClosedProgramForm({ programId, programName }: { programId: string; programName: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(reopenClosedProgramAction.bind(null, programId), null);
   return (
@@ -256,7 +305,8 @@ export function ReopenClosedProgramForm({ programId, programName }: { programId:
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
       <p className="text-xs text-gray-500">
-        إعادة الفتح تُرجع البرنامج إلى القوائم التشغيلية النشطة، ويبقى سجل الإقفال السابق محفوظاً.
+        إعادة الفتح تعيد البرنامج بحالة «مكتمل» ويعود قابلاً للتحرير — ولا يعود «قيد التنفيذ»
+        تلقائياً. سجل الإقفال السابق يبقى محفوظاً كاملاً.
       </p>
       <input
         name="note"
@@ -264,7 +314,7 @@ export function ReopenClosedProgramForm({ programId, programName }: { programId:
         maxLength={2000}
         className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
       />
-      <SubmitButton variant="secondary" confirmText={`هل تريد إعادة فتح هذا البرنامج؟\n«${programName}»`}>
+      <SubmitButton variant="secondary" confirmText={`هل تريد إعادة فتح هذا البرنامج؟\n«${programName}»\n\nيعود بحالة «مكتمل» ويعود قابلاً للتحرير، ويبقى سجل إقفاله السابق محفوظاً.`}>
         إعادة فتح البرنامج
       </SubmitButton>
     </form>

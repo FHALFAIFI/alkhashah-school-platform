@@ -87,10 +87,11 @@ const DEFS: Record<LinkableEntityKey, EntityDef> = {
     route: (id) => `/plan/${id}`,
     resolve: async (ids) => {
       const rows = await db
-        .select({ id: programs.id, name: programs.name, status: programs.status })
+        .select({ id: programs.id, name: programs.name, status: programs.status, closedAt: programs.closedAt })
         .from(programs)
         .where(inArray(programs.id, ids));
-      return rows.map((r) => ({ id: r.id, labelAr: r.name, locked: isLockedState(r.status) }));
+      // البرنامج المغلق نهائياً (closedAt) مقفل أيضاً — شواهده محفوظة لا تُفك ولا تُعدَّل
+      return rows.map((r) => ({ id: r.id, labelAr: r.name, locked: isLockedState(r.status) || Boolean(r.closedAt) }));
     },
   },
   activity: {

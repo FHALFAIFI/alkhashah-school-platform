@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import {
   programs, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups,
-  programClosureHistory,
+  programClosureHistory, users,
 } from "@/db/schema";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { evidenceForEntity } from "@/lib/evidence";
@@ -12,8 +12,10 @@ import { programEvidenceSummary } from "@/lib/plan/program-service";
 import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
 import { isFollowupDue, FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 import { programStatusLabel } from "@/lib/plan/status-labels";
+import { programLifecycle, nextLifecycleAction, PROGRAM_LIFECYCLE } from "@/lib/plan/lifecycle";
 import { getVersions } from "@/lib/versioning";
-import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps } from "@/components/ui";
+import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps, DualDate } from "@/components/ui";
+import { dualDisplay } from "@/lib/dates";
 import { orFallback, formatMoney, numOrNull } from "@/lib/format";
 import { FollowupDueBadge } from "../followup-badge";
 import {
@@ -21,6 +23,7 @@ import {
   ChangeRequestDecision, ProgramExecutionForm,
   ArchiveProgramForm, UnarchiveProgramButton,
   CloseProgramForm, ReopenClosedProgramForm,
+  CompleteProgramForm, ResumeProgramForm,
 } from "./program-ui";
 import { EvidencePanel } from "@/components/evidence-panel";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
@@ -54,14 +57,36 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
   const isArchived = Boolean(program.archivedAt);
   // البرنامج المغلق نهائياً (v2.2 §A2) للقراءة فقط أيضاً — لا تحديث تنفيذ حتى يُعاد فتحه.
   const isClosed = Boolean(program.closedAt);
+  // سير العمل ثلاثي الحالات: «قيد التنفيذ» / «مكتمل» / «مغلق» — مشتق من العمودين الزمنيين
+  const lifecycle = programLifecycle(program);
+  const isCompleted = lifecycle === PROGRAM_LIFECYCLE.completed;
   const canWrite = user.permissions.has("plan.write") && program.status !== "مقفل" && !isArchived && !isClosed;
   const canApprove = user.permissions.has("plan.approve");
+
+  // أسماء المسؤولين عن تحولات الحالة (آخر مسؤول + منفّذو سجل التحولات)
+  const actorIds = [
+    ...new Set(
+      [program.completedBy, program.closedBy, program.reopenedBy, ...closureHistory.map((h) => h.actorId)]
+        .filter((v): v is string => Boolean(v)),
+    ),
+  ];
+  const actorRows = actorIds.length
+    ? await db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.id, actorIds))
+    : [];
+  const actorName = (uid: string | null) => actorRows.find((u) => u.id === uid)?.displayName ?? null;
+  // آخر مسؤول = منفّذ أحدث تحول في السجل (السجل مرتب تنازلياً)، وإلا مسؤول الحالة الراهنة
+  const lastResponsible =
+    actorName(closureHistory[0]?.actorId ?? null) ??
+    actorName(program.closedBy) ??
+    actorName(program.completedBy) ??
+    null;
   // سجلات مرتبطة تحدد صياغة تأكيد الأرشفة (إخفاء مع الاحتفاظ بالسجلات التاريخية)
   const hasLinkedData =
     evidence.length > 0 || deliverables.length > 0 || roadmap.length > 0 || followups.length > 0 || changeRequests.length > 0;
 
   /** مراحل سير عمل البرنامج: الإعداد ← الاعتماد ← التنفيذ والمتابعة ← الإقفال */
-  const workflowCurrent = program.status === "مقفل" ? 4 : program.status === "معتمد" ? 2 : 0;
+  const workflowCurrent =
+    program.status === "مقفل" || isClosed ? 4 : program.status === "معتمد" ? 2 : 0;
   const followupDue = program.status === "معتمد" && isFollowupDue(program.lastReviewAt);
 
   const infoRows: [string, string | null][] = [
@@ -96,7 +121,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {isArchived && <Badge value="مؤرشف" />}
-            {isClosed && <Badge value="مغلق" />}
+            <Badge value={lifecycle} />
             <Badge value={programStatusLabel(program.status)} />
             {user.permissions.has("ai.use") && <AskAssistant type="program" id={id} label={`برنامج: ${orFallback(program.name)}`} />}
             <LinkButton href={`/plan/${id}/report`} variant="secondary">تقرير البرنامج</LinkButton>
@@ -122,11 +147,25 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
       {isClosed && (
         <Card className="border-gray-300 bg-gray-50">
           <div className="min-w-0">
-            <p className="font-medium text-gray-800">هذا البرنامج مغلق — مرفوع من القوائم التشغيلية</p>
+            <p className="font-medium text-gray-800">هذا البرنامج مغلق نهائياً — للقراءة فقط ومرفوع من القوائم التشغيلية</p>
             <p className="mt-1 text-xs text-gray-600">
-              السجل كامل ومحفوظ: الشواهد والوثائق والمراجع المالية والملاحظات والتقارير كما هي،
-              ويظهر البرنامج في التقارير والعروض التاريخية.
+              لا تعديل ولا متابعة حتى يُعاد فتحه. السجل كامل ومحفوظ: الشواهد والوثائق والمراجع
+              المالية والملاحظات والتقارير كما هي، ويبقى البرنامج متاحاً للعرض والطباعة والتصدير
+              في التقارير والعروض التاريخية.
               {program.closureNote ? ` ملاحظة الإقفال: ${program.closureNote}` : ""}
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {isCompleted && !isArchived && (
+        <Card className="border-emerald-200 bg-emerald-50">
+          <div className="min-w-0">
+            <p className="font-medium text-emerald-900">هذا البرنامج مكتمل</p>
+            <p className="mt-1 text-xs text-emerald-800">
+              يبقى قابلاً للتحرير وإضافة الشواهد والوثائق حتى إقفاله نهائياً، ويظهر في عروض
+              وتقارير البرامج المكتملة.
+              {program.completionNote ? ` ملاحظة الاكتمال: ${program.completionNote}` : ""}
             </p>
           </div>
         </Card>
@@ -238,7 +277,9 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           entityType="program"
           entityId={id}
           items={evidence.map((e) => ({ id: e.item.id, title: e.item.title, kind: e.item.kind, role: e.item.role, fileId: e.item.fileId }))}
-          canWrite={user.permissions.has("evidence.write")}
+          // البرنامج المغلق نهائياً للقراءة فقط — الشواهد تُعرض وتبقى محفوظة، ولا تُضاف/تُعدَّل.
+          // البرنامج «المكتمل» يقبل إضافة الشواهد كالمعتاد.
+          canWrite={user.permissions.has("evidence.write") && !isClosed}
         />
       </div>
 
@@ -379,33 +420,83 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         </Card>
       )}
 
-      {/* الإقفال النهائي وإعادة الفتح (v2.2 §A2) — حالة عمل منفصلة عن الأرشفة (الحذف الناعم) */}
-      {canApprove && !isArchived && (
-        <Card>
-          <h2 className="mb-2 font-bold text-brand-900">{isClosed ? "إعادة فتح البرنامج" : "إقفال البرنامج"}</h2>
-          {isClosed ? (
-            <ReopenClosedProgramForm programId={id} programName={orFallback(program.name)} />
-          ) : (
-            <CloseProgramForm programId={id} programName={orFallback(program.name)} />
-          )}
-          {closureHistory.length > 0 && (
-            <div className="mt-4 border-t border-sand-100 pt-3">
-              <h3 className="mb-2 text-xs font-bold text-gray-600">سجل الإقفال وإعادة الفتح</h3>
-              <ul className="space-y-1 text-xs text-gray-600">
-                {closureHistory.map((h) => (
-                  <li key={h.id} className="flex flex-wrap items-center gap-2">
-                    <Badge value={h.action} />
-                    <span className="tabular-nums text-gray-400">
-                      {h.at.toLocaleDateString("ar-SA-u-nu-latn")}
-                    </span>
-                    {h.note && <span className="text-gray-500">— {h.note}</span>}
-                  </li>
-                ))}
-              </ul>
+      {/* سير عمل البرنامج ثلاثي الحالات: «قيد التنفيذ» ← «مكتمل» ← «مغلق» — منفصل عن
+          الأرشفة (الحذف الناعم) وعن اعتماد الحزمة وعن إقفال السنة */}
+      <Card>
+        <h2 className="mb-3 font-bold text-brand-900">حالة البرنامج</h2>
+        <dl className="mb-3 grid grid-cols-1 gap-x-8 gap-y-2 text-sm md:grid-cols-2">
+          <div className="flex items-center gap-2">
+            <dt className="w-32 shrink-0 font-medium text-gray-500">الحالة الحالية:</dt>
+            <dd><Badge value={lifecycle} /></dd>
+          </div>
+          {program.completedAt && (
+            <div className="flex items-center gap-2">
+              <dt className="w-32 shrink-0 font-medium text-gray-500">تاريخ الاكتمال:</dt>
+              <dd className="text-gray-800">
+                {(() => { const d = dualDisplay(program.completedAt, "employee"); return d ? <DualDate primary={d.primary} secondary={d.secondary} /> : "—"; })()}
+              </dd>
             </div>
           )}
-        </Card>
-      )}
+          {program.closedAt && (
+            <div className="flex items-center gap-2">
+              <dt className="w-32 shrink-0 font-medium text-gray-500">تاريخ الإقفال:</dt>
+              <dd className="text-gray-800">
+                {(() => { const d = dualDisplay(program.closedAt, "employee"); return d ? <DualDate primary={d.primary} secondary={d.secondary} /> : "—"; })()}
+              </dd>
+            </div>
+          )}
+          {lastResponsible && (
+            <div className="flex items-center gap-2">
+              <dt className="w-32 shrink-0 font-medium text-gray-500">آخر مسؤول:</dt>
+              <dd className="text-gray-800">{lastResponsible}</dd>
+            </div>
+          )}
+          {!isArchived && (
+            <div className="flex items-center gap-2">
+              <dt className="w-32 shrink-0 font-medium text-gray-500">الإجراء المتاح:</dt>
+              <dd className="text-gray-800">{nextLifecycleAction(program)}</dd>
+            </div>
+          )}
+        </dl>
+
+        {!isArchived && (
+          <div className="space-y-4 border-t border-sand-100 pt-3">
+            {lifecycle === PROGRAM_LIFECYCLE.active && canWrite && (
+              <CompleteProgramForm programId={id} programName={orFallback(program.name)} />
+            )}
+            {isCompleted && canApprove && (
+              <CloseProgramForm programId={id} programName={orFallback(program.name)} />
+            )}
+            {isCompleted && canWrite && (
+              <ResumeProgramForm programId={id} programName={orFallback(program.name)} />
+            )}
+            {isClosed && canApprove && (
+              <ReopenClosedProgramForm programId={id} programName={orFallback(program.name)} />
+            )}
+          </div>
+        )}
+
+        {closureHistory.length > 0 && (
+          <div className="mt-4 border-t border-sand-100 pt-3">
+            <h3 className="mb-2 text-xs font-bold text-gray-600">سجل تحولات الحالة</h3>
+            <ul className="space-y-1 text-xs text-gray-600">
+              {closureHistory.map((h) => (
+                <li key={h.id} className="flex flex-wrap items-center gap-2">
+                  <Badge value={h.action} />
+                  {h.fromStatus && h.toStatus && (
+                    <span className="text-gray-500">{h.fromStatus} ← {h.toStatus}</span>
+                  )}
+                  <span className="tabular-nums text-gray-400">
+                    {h.at.toLocaleDateString("ar-SA-u-nu-latn")}
+                  </span>
+                  {actorName(h.actorId) && <span className="text-gray-500">· {actorName(h.actorId)}</span>}
+                  {h.note && <span className="text-gray-500">— {h.note}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>
 
       {canApprove && !isArchived && (
         <Card className="border-red-100">

@@ -114,11 +114,12 @@ function dateRangeTs(column: AnyColumn, filters: ReportFilters): SQL[] {
 
 /* ────────────────────────────── الخطة والبرامج ────────────────────────────── */
 
-async function loadPrograms(filters: ReportFilters, mode: "active" | "closed" | "archived" | "reopened"): Promise<ReportRow[]> {
+async function loadPrograms(filters: ReportFilters, mode: "active" | "completed" | "closed" | "archived" | "reopened"): Promise<ReportRow[]> {
   const excluded = await getExcludedIdSets();
   const where: (SQL | undefined)[] = [notSynthetic(programs.id, excluded.programs)];
 
   if (mode === "active") where.push(isNull(programs.archivedAt), isNull(programs.closedAt));
+  if (mode === "completed") where.push(isNull(programs.archivedAt), isNull(programs.closedAt), isNotNull(programs.completedAt), ...dateRangeTs(programs.completedAt, filters));
   if (mode === "closed") where.push(isNotNull(programs.closedAt), ...dateRangeTs(programs.closedAt, filters));
   if (mode === "archived") where.push(isNotNull(programs.archivedAt), ...dateRangeTs(programs.archivedAt, filters));
   if (mode === "reopened") where.push(isNotNull(programs.reopenedAt), ...dateRangeTs(programs.reopenedAt, filters));
@@ -135,6 +136,8 @@ async function loadPrograms(filters: ReportFilters, mode: "active" | "closed" | 
     progress: p.progress,
     executionStatus: p.executionStatus,
     status: p.status,
+    completedAt: isoDate(p.completedAt),
+    completionNote: p.completionNote,
     closedAt: isoDate(p.closedAt),
     closureNote: p.closureNote,
     archivedAt: isoDate(p.archivedAt),
@@ -151,6 +154,8 @@ async function loadClosureHistory(filters: ReportFilters): Promise<ReportRow[]> 
     .select({
       programName: programs.name,
       action: programClosureHistory.action,
+      fromStatus: programClosureHistory.fromStatus,
+      toStatus: programClosureHistory.toStatus,
       at: programClosureHistory.at,
       note: programClosureHistory.note,
       actor: users.displayName,
@@ -1015,6 +1020,7 @@ async function loadAuditLog(filters: ReportFilters, exportsOnly: boolean): Promi
 
 const LOADERS: Record<string, (f: ReportFilters) => Promise<ReportRow[]>> = {
   "programs-active": (f) => loadPrograms(f, "active"),
+  "programs-completed": (f) => loadPrograms(f, "completed"),
   "programs-closed": (f) => loadPrograms(f, "closed"),
   "programs-archived": (f) => loadPrograms(f, "archived"),
   "programs-reopened": (f) => loadPrograms(f, "reopened"),
