@@ -2,7 +2,52 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — CORRECTIVE PATCH v2.2.1 READY, NOT DEPLOYED (2026-07-30)
+## Latest checkpoint — CORRECTIVE PATCH v2.2.1 DEPLOYED to production 2026-07-30 — CONDITIONALLY READY
+- **DEPLOYED.** Commits `e88add8` + `936c7c0` (+ docs `f946de8`), image `madrasa-app:0.1.0-v2_2_1-rc`
+  `sha256:ab259dd83a3a…` (digest verified on the running container). Migration **22 → 23**, tables
+  still 83. ~4 s app stop→start; **db container never restarted** (StartedAt 2026-07-29T15:01:06Z,
+  RestartCount 0). Full report: `docs/DEPLOYMENT_REPORT_V2_2_1.md`.
+- **Migration identity resolved:** `0022_steep_joystick.sql` is the 23rd file (drizzle names 0-based,
+  the ledger counts 1-based). No file overwritten (`git log --diff-filter=M -- drizzle/*.sql` = 0),
+  23 unique files / 23 unique journal entries, exactly one migration applied. Content = 3 nullable
+  `ADD COLUMN` (`programs.completion_note`, `program_closure_history.from_status`/`to_status`); 0 hits
+  for drop/truncate/delete/rename/insert/seed.
+- **Seed proof:** resolved compose has 0 seed/bootstrap/reset hits, `seed` service absent from the
+  resolved config (profile-gated), init command literally `sh -c "npx tsx src/db/migrate.ts"`,
+  migration log one line, roles 2 / perms 59 / users 2 unchanged, new columns 100% NULL.
+- **Backup `20260730-090911`** (db + storage + SHA256SUMS + RECOVERY-MANIFEST): checksums OK,
+  decrypts to exact byte sizes, `pg_restore --list` 547 objects, tar 160 entries, **test-restored**
+  into an isolated DB where all 30 counts and all 8 fingerprints matched production exactly.
+  Passphrase never echoed/logged/argv'd; resolved compose config deleted after inspection.
+- **Data preserved:** every historical count unchanged; D-022 `4572c57060e20c4b0de4db52545a8e3f`,
+  docs `a4a8b924c7fcbf34273cfc14c6aa6aef`, per-snapshot `33|a3ca8492…`, perf `6b1bb98c…`, ratings
+  `b6f4a99e…`, storage `80|72db544f…`, rooms `8|890cb6c4…`, geometry `10|119e7b88…` — ALL MATCH.
+  Programs/history fingerprints **excluding the temp test record** = exact pre-patch baselines
+  (`428723ee…`, `707cf603…`) → no pre-existing record changed. Finance 5101/3699 unchanged.
+- **Smoke (real `admin` account, no bypass):** sketch 23/23 (+ / − / fit / reset / limits / wheel /
+  pan / bounds / floor switch / room nav / pointer-leak / 0 non-GET / 0 console errors; mobile
+  390×844 incl. touch drag). Lifecycle 30/30 on temp program `71fce774-…`: قيد التنفيذ → مكتمل →
+  مغلق (read-only) → مكتمل → قيد التنفيذ, no-evidence/empty-note closure, 3 duplicate stale submits
+  → **0** extra history rows, legacy pre-patch closed program verified **read-only and untouched**,
+  3-state filters + completed/closed/transition reports OK.
+- **Cleanup:** temp program archived by **exact captured ID** (guards: ID in URL + marker in title);
+  hidden from /plan and the active/completed/closed reports; its append-only history retained and
+  documented. Evidence 30/30 and files 80 untouched (no repeat of the v2.2 evidence-archiving error).
+- **CONDITIONALLY READY — 3 pre-existing (not regression) issues:** (1) **UI does not refresh after
+  a Server Action** — data saves correctly but the screen needs a manual refresh; reproduced on the
+  untouched pre-existing `updateProgramExecutionAction` (POST 200, `progress=42` in SQL, card still
+  showed 0٪). Codebase already documents this in `evidence-panel.tsx:51-57` and fixes it there with
+  `router.refresh()`; the 4 lifecycle forms need the same ~4-line follow-up (NOT applied — outside
+  approved scope). (2) `programs-closed`/`programs-reopened` report modes don't exclude archived
+  records → the archived temp program still shows in «البرامج المعاد فتحها». (3) **Ollama is
+  LAN-reachable** (`0.0.0.0:11434` via the `com.fahad.ollama-serve` LaunchAgent — the 07-29 reboot
+  undid the session-scoped Stage-1 fix); raised before deploying, **owner chose to defer**.
+- **STOPPED:** no release tag, no gold backup, rollback images retained
+  (`madrasa-app:0.1.0-prev-v2_2_1-20260730` = `b13382d15423`), no host-PC migration, not marked
+  finally accepted. Rollback = retag the prev image only (migration 0022 is nullable-additive, so
+  the old image runs fine on ledger 23; no DB action).
+
+## Earlier checkpoint — CORRECTIVE PATCH v2.2.1 READY, NOT DEPLOYED (2026-07-30)
 - **Two post-deployment issues fixed on the branch; production untouched.** RC head `936c7c0`
   (`e88add8` sketch + `936c7c0` workflow). Full report: `docs/CORRECTIVE_PATCH_V2_2_1.md`.
 - **Issue 1 — /building sketch controls** were broken by 6 compounding defects (MIN_SCALE=1
