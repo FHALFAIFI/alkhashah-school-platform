@@ -3,8 +3,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@/db";
-import { storedFiles } from "@/db/schema";
+import { storedFiles, userRoles, roles, auditLog } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import {
+  PRINCIPAL_ROLE_KEY,
+  FILE_ACCEPTED,
+  FILE_PENDING,
+  ACCEPT_MODE_AUTO,
+  ACCEPT_MODE_MANUAL,
+} from "@/lib/auth/roles";
 
 /**
  * تجريد التخزين — الإصدار الأول محلي خاص خارج المجلد العام،
@@ -125,6 +132,19 @@ export function validateUpload(originalName: string, mime: string, size: number)
   return null;
 }
 
+/**
+ * هل هذا المستخدم مديرَ مدرسة؟ يُقرأ من جدول الأدوار في القاعدة مباشرةً —
+ * قرار القبول لا يعتمد أبداً على قيمة من المتصفح ولا على تذكُّر المستدعي (D-032).
+ */
+async function isPrincipalUser(userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ key: roles.key })
+    .from(userRoles)
+    .innerJoin(roles, eq(userRoles.roleId, roles.id))
+    .where(eq(userRoles.userId, userId));
+  return rows.some((r) => r.key === PRINCIPAL_ROLE_KEY);
+}
+
 export async function saveUploadedFile(opts: {
   originalName: string;
   mime: string;
@@ -143,6 +163,26 @@ export async function saveUploadedFile(opts: {
   const id = randomUUID();
   const scope = opts.scope ?? "attachments";
   const relPath = path.join(scope, id.slice(0, 2), `${id}${ext}`);
+
+  // القبول (D-032): رفع المدير يُقبل فوراً — لا اعتماد ثانٍ من الشخص نفسه؛
+  // رفع أي دور آخر يبقى «قيد الاعتماد» حتى يعتمده المدير. فحوص أمان الملف أعلاه
+  // تسري في الحالتين قبل هذه النقطة.
+  // نطاق "reports" مستثنى: ملفاته وثائق يولّدها النظام عند الإصدار لا مرفوعات مستخدم،
+  // ولها آلية الإصدار والتجميد الخاصة بها (documents.issued).
+  const applyAcceptance = scope !== "reports";
+  const byPrincipal =
+    applyAcceptance && opts.uploadedBy ? await isPrincipalUser(opts.uploadedBy) : false;
+  const acceptance = !applyAcceptance
+    ? {}
+    : byPrincipal
+      ? {
+          acceptanceStatus: FILE_ACCEPTED,
+          acceptanceMode: ACCEPT_MODE_AUTO,
+          acceptedBy: opts.uploadedBy,
+          acceptedAt: new Date(),
+        }
+      : { acceptanceStatus: FILE_PENDING };
+
   await storage.put(relPath, opts.data);
   const [file] = await db
     .insert(storedFiles)
@@ -155,9 +195,57 @@ export async function saveUploadedFile(opts: {
       scope,
       sensitive: opts.sensitive ?? false,
       uploadedBy: opts.uploadedBy,
+      ...acceptance,
     })
     .returning();
+  if (applyAcceptance) {
+    // سجل التدقيق المركزي لطريقة القبول — إدراج مباشر (لا يستورد lib/audit كي لا
+    // تنشأ دورة استيراد؛ الجدول نفسه والحقول نفسها)
+    await db.insert(auditLog).values({
+      actorId: opts.uploadedBy ?? null,
+      action: byPrincipal ? "file.auto_accepted" : "file.pending_acceptance",
+      entityType: "stored_file",
+      entityId: file.id,
+      summary: byPrincipal
+        ? `${ACCEPT_MODE_AUTO} — ${opts.originalName}`
+        : `ملف بانتظار اعتماد المدير — ${opts.originalName}`,
+    });
+  }
   return file;
+}
+
+/**
+ * اعتماد المدير اليدوي لملف «قيد الاعتماد» (D-032).
+ * التحقق من كون المعتمِد مديراً يجري هنا على الخادم من جدول الأدوار —
+ * واجهة الاستدعاء مسؤولة عن المصادقة فقط.
+ */
+export async function acceptStoredFile(opts: {
+  fileId: string;
+  actorId: string;
+}): Promise<{ error?: string; success?: string }> {
+  if (!(await isPrincipalUser(opts.actorId))) {
+    return { error: "اعتماد الملفات صلاحية مدير المدرسة حصراً" };
+  }
+  const [file] = await db.select().from(storedFiles).where(eq(storedFiles.id, opts.fileId));
+  if (!file) return { error: "الملف غير موجود" };
+  if (file.acceptanceStatus !== FILE_PENDING) return { error: "الملف ليس بانتظار الاعتماد" };
+  await db
+    .update(storedFiles)
+    .set({
+      acceptanceStatus: FILE_ACCEPTED,
+      acceptanceMode: ACCEPT_MODE_MANUAL,
+      acceptedBy: opts.actorId,
+      acceptedAt: new Date(),
+    })
+    .where(eq(storedFiles.id, opts.fileId));
+  await db.insert(auditLog).values({
+    actorId: opts.actorId,
+    action: "file.manually_accepted",
+    entityType: "stored_file",
+    entityId: file.id,
+    summary: `${ACCEPT_MODE_MANUAL} — ${file.originalName}`,
+  });
+  return { success: "اعتُمد الملف" };
 }
 
 export async function readStoredFile(fileId: string) {

@@ -19,6 +19,7 @@ const makeUser = (perms: string[]) => ({
   displayName: "اختبار",
   personId: null,
   permissions: new Set(perms),
+  roleKeys: new Set<string>(),
   csrfToken: "csrf-test-token",
   sessionId: "x",
 });

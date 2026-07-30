@@ -9,6 +9,7 @@ import {
   sessions,
   users,
   userRoles,
+  roles,
   rolePermissions,
   permissions as permissionsTable,
 } from "@/db/schema";
@@ -72,9 +73,13 @@ export type CurrentUser = {
   displayName: string;
   personId: string | null;
   permissions: Set<string>;
+  /** مفاتيح أدوار المستخدم (مثل principal / sysadmin) — أساس قرارات «هل هو المدير؟» على الخادم (D-032) */
+  roleKeys: Set<string>;
   csrfToken: string;
   sessionId: string;
 };
+
+export { PRINCIPAL_ROLE_KEY } from "./roles";
 
 /** cached per request */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
@@ -112,9 +117,12 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     await db.update(sessions).set({ lastSeenAt: now }).where(eq(sessions.id, row.sessionId));
   }
 
-  const roleIds = (
-    await db.select({ roleId: userRoles.roleId }).from(userRoles).where(eq(userRoles.userId, row.userId))
-  ).map((r) => r.roleId);
+  const roleRows = await db
+    .select({ roleId: userRoles.roleId, roleKey: roles.key })
+    .from(userRoles)
+    .innerJoin(roles, eq(userRoles.roleId, roles.id))
+    .where(eq(userRoles.userId, row.userId));
+  const roleIds = roleRows.map((r) => r.roleId);
 
   let permKeys: string[] = [];
   if (roleIds.length > 0) {
@@ -133,6 +141,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     displayName: row.displayName,
     personId: row.personId,
     permissions: new Set(permKeys),
+    roleKeys: new Set(roleRows.map((r) => r.roleKey)),
     csrfToken: row.csrfToken,
     sessionId: row.sessionId,
   };

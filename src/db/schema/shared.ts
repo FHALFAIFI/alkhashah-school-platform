@@ -24,6 +24,16 @@ export const storedFiles = pgTable("stored_files", {
   scope: text("scope").notNull().default("attachments"), // attachments | branding | backgrounds | reports
   sensitive: boolean("sensitive").notNull().default(false),
   uploadedBy: uuid("uploaded_by").references(() => users.id),
+  /**
+   * قبول الملف (D-032): يُحدَّد على الخادم من دور المستخدم المصادَق حصراً — لا من المتصفح.
+   * «مقبول» فوراً لرفع المدير (وضع «قبول تلقائي بواسطة المدير»)، و«قيد الاعتماد» لغيره حتى
+   * يعتمده المدير («اعتماد يدوي بواسطة المدير»). NULL = ملف سابق للخاصية، يُعامل مقبولاً —
+   * فلا يُعاد كتابة أي سجل تاريخي.
+   */
+  acceptanceStatus: text("acceptance_status"), // مقبول | قيد الاعتماد
+  acceptanceMode: text("acceptance_mode"), // قبول تلقائي بواسطة المدير | اعتماد يدوي بواسطة المدير
+  acceptedBy: uuid("accepted_by").references(() => users.id),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -1,10 +1,13 @@
-import { and, desc, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { requirePermission } from "@/lib/auth/session";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { requirePermission, PRINCIPAL_ROLE_KEY } from "@/lib/auth/session";
 import { db } from "@/db";
-import { evidenceItems, evidenceLinks } from "@/db/schema";
-import { PageHeader, Table, Badge, EmptyState, LinkButton } from "@/components/ui";
+import { evidenceItems, evidenceLinks, storedFiles, users } from "@/db/schema";
+import { FILE_PENDING } from "@/lib/auth/roles";
+import { PageHeader, Table, Badge, EmptyState, LinkButton, Card } from "@/components/ui";
+import { dualNumericCell } from "@/lib/dates";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { EvidenceReviewControl } from "./review-ui";
+import { AcceptFileButton } from "./pending-files-ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
 
 export const metadata = { title: "الشواهد" };
@@ -16,6 +19,24 @@ export default async function EvidencePage({ searchParams }: { searchParams: Pro
   const params = await searchParams;
   // الافتراضي: النشط فقط. الأرشفة إخفاء غير مدمّر — والمؤرشف يبقى قابلاً للعرض والاستعادة.
   const showArchived = params["عرض"] === "المؤرشفة";
+
+  // طابور اعتماد المدير (D-032): ملفات رفعها غير المدير وتنتظر اعتماده اليدوي.
+  // يظهر للمدير فقط — والاعتماد نفسه محروس بالدور على الخادم داخل acceptStoredFile.
+  const isPrincipal = user.roleKeys.has(PRINCIPAL_ROLE_KEY);
+  const pendingFiles = isPrincipal
+    ? await db
+        .select({
+          id: storedFiles.id,
+          originalName: storedFiles.originalName,
+          scope: storedFiles.scope,
+          createdAt: storedFiles.createdAt,
+          uploaderName: users.displayName,
+        })
+        .from(storedFiles)
+        .leftJoin(users, eq(storedFiles.uploadedBy, users.id))
+        .where(eq(storedFiles.acceptanceStatus, FILE_PENDING))
+        .orderBy(desc(storedFiles.createdAt))
+    : [];
 
   const excluded = await getExcludedIdSets();
   const items = await db
@@ -52,6 +73,28 @@ export default async function EvidencePage({ searchParams }: { searchParams: Pro
         <LinkButton href="/evidence" variant={!showArchived ? "primary" : "secondary"}>الشواهد النشطة</LinkButton>
         <LinkButton href="/evidence?عرض=المؤرشفة" variant={showArchived ? "primary" : "secondary"}>المؤرشفة</LinkButton>
       </div>
+      {isPrincipal && pendingFiles.length > 0 && (
+        <Card className="mb-4 border-amber-200 bg-amber-50/50">
+          <h2 className="mb-2 text-sm font-bold text-amber-900">
+            ملفات بانتظار اعتمادك ({pendingFiles.length})
+          </h2>
+          <p className="mb-3 text-xs text-amber-800">
+            رفعها مستخدمون آخرون — ملفاتك أنت تُقبل تلقائياً ولا تظهر هنا.
+          </p>
+          <Table headers={["الملف", "رفعه", "التاريخ", ""]}>
+            {pendingFiles.map((f) => (
+              <tr key={f.id}>
+                <td className="px-3 py-2 text-sm font-medium">{f.originalName}</td>
+                <td className="px-3 py-2 text-xs">{f.uploaderName ?? "—"}</td>
+                <td className="px-3 py-2 text-xs tabular-nums">{dualNumericCell(f.createdAt)}</td>
+                <td className="px-3 py-2">
+                  <AcceptFileButton fileId={f.id} />
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </Card>
+      )}
       {items.length === 0 ? (
         <EmptyState
           title={showArchived ? "لا شواهد مؤرشفة" : "لا شواهد بعد"}

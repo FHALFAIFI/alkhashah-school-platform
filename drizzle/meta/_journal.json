@@ -162,6 +162,13 @@
       "when": 1785397453264,
       "tag": "0022_steep_joystick",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785451273655,
+      "tag": "0023_numerous_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

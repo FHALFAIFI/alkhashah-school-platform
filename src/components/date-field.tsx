@@ -10,7 +10,7 @@
  *   يُتذكّر في المتصفح ويُطبَّق بعد التركيب (لا فرق ترطيب — D-029).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   GREGORIAN_MONTHS_AR,
   HIJRI_MONTHS,
@@ -29,13 +29,42 @@ type Mode = "ميلادي" | "هجري";
 const inputCls =
   "min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 lg:min-h-0";
 
-function readStoredMode(): Mode | null {
+/**
+ * مخزن تفضيل التقويم — useSyncExternalStore هو النمط الآمن للترطيب:
+ * الخادم يعرض «ميلادي» دائماً، وبعد التركيب يُقرأ تفضيل المتصفح فتتزامن
+ * كل حقول التاريخ على الصفحة معاً دون فرق ترطيب (D-029).
+ */
+const modeListeners = new Set<() => void>();
+
+function subscribeMode(cb: () => void) {
+  modeListeners.add(cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    modeListeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+
+function getModeSnapshot(): Mode {
   try {
     const v = window.localStorage.getItem(MODE_STORAGE_KEY);
-    return v === "هجري" || v === "ميلادي" ? v : null;
+    return v === "هجري" ? "هجري" : "ميلادي";
   } catch {
-    return null;
+    return "ميلادي";
   }
+}
+
+function getModeServerSnapshot(): Mode {
+  return "ميلادي";
+}
+
+function storeMode(next: Mode) {
+  try {
+    window.localStorage.setItem(MODE_STORAGE_KEY, next);
+  } catch {
+    // التفضيل تحسين فقط
+  }
+  for (const cb of modeListeners) cb();
 }
 
 export function DateField({
@@ -52,14 +81,8 @@ export function DateField({
   hint?: string;
 }) {
   const initialIso = defaultValue && parseIsoDate(defaultValue) ? defaultValue.slice(0, 10) : "";
-  const [mode, setMode] = useState<Mode>("ميلادي");
+  const mode = useSyncExternalStore(subscribeMode, getModeSnapshot, getModeServerSnapshot);
   const [iso, setIso] = useState(initialIso);
-
-  // تطبيق تفضيل المستخدم المحفوظ بعد التركيب فقط (ترطيب مستقر)
-  useEffect(() => {
-    const stored = readStoredMode();
-    if (stored) setMode(stored);
-  }, []);
 
   const hijri = useMemo(() => {
     const d = iso ? parseIsoDate(iso) : null;
@@ -69,12 +92,7 @@ export function DateField({
   const dualLine = useMemo(() => (iso ? fullDualLine(iso) : null), [iso]);
 
   function switchMode(next: Mode) {
-    setMode(next);
-    try {
-      window.localStorage.setItem(MODE_STORAGE_KEY, next);
-    } catch {
-      // التفضيل تحسين فقط
-    }
+    storeMode(next);
   }
 
   function setHijriPart(part: "day" | "month" | "year", value: number) {

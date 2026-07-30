@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { evidenceItems, evidenceLinks, evidenceVersions } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
-import { saveUploadedFile } from "@/lib/storage";
+import { saveUploadedFile, acceptStoredFile } from "@/lib/storage";
 import { canDeleteEvidence, linkEvidence } from "@/lib/evidence";
 import { entityLabelAr, isLinkableEntityKey, resolveEntities } from "@/lib/entity-registry";
 import { audit } from "@/lib/audit";
@@ -224,6 +224,20 @@ export async function reviewEvidenceAction(_prev: ActionState, formData: FormDat
   });
   revalidatePath("/evidence");
   return { success: `سجلت المراجعة: ${decision}` };
+}
+
+/**
+ * اعتماد المدير اليدوي لملف مرفوع «قيد الاعتماد» (D-032).
+ * التحقق من الدور يجري داخل `acceptStoredFile` على الخادم من جدول الأدوار —
+ * هنا مصادقة وتحديث مسار فقط.
+ */
+export async function acceptFileAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("evidence.read");
+  const fileId = String(formData.get("fileId") ?? "");
+  if (!fileId) return { error: "الملف غير محدد" };
+  const result = await acceptStoredFile({ fileId, actorId: user.id });
+  revalidatePath("/evidence");
+  return result;
 }
 
 /**
