@@ -41,6 +41,15 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
     revalidatePath(`/plan/${id}/report`);
   }
 
+  // بطاقة تكليف المنفذ (v2.3 §20) — وثيقة مستقلة تُسلَّم للمكلف بالتنفيذ
+  async function issueCard() {
+    "use server";
+    const u = await requirePermission("reports.generate");
+    const { generateProgramCard } = await import("@/lib/reports/program-card");
+    await generateProgramCard({ programId: id, issuedBy: u.id });
+    revalidatePath(`/plan/${id}/report`);
+  }
+
   return (
     <div className="max-w-3xl space-y-4">
       <PageHeader title={`تقرير برنامج: ${program.name}`} subtitle="إصدار تقرير رسمي بلقطة ثابتة ورقم وثيقة ورمز تحقق" />
@@ -60,6 +69,14 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
           )}
           <SubmitButton>إصدار تقرير PDF جديد</SubmitButton>
           <p className="text-xs text-gray-400">يتضمن التقرير مضمون الشواهد (صور، أول صفحة PDF، نصوص، معاينات جداول) وليس أسماء الملفات فقط.</p>
+        </form>
+        {/* بطاقة تكليف المنفذ (v2.3 §20): وثيقة مستقلة برقم مرجعي ورمز QR وخانة إقرار */}
+        <form action={issueCard} className="mt-3 border-t border-sand-100 pt-3">
+          <SubmitButton variant="secondary">إصدار بطاقة تكليف المنفذ (PDF)</SubmitButton>
+          <p className="mt-1 text-xs text-gray-400">
+            بطاقة تُسلَّم للمكلف بالتنفيذ: بيانات البرنامج والمخرجات والشواهد المتوقعة وتعليمات
+            التسليم وخانة الإقرار — تُحفظ بلقطة مجمّدة في «الوثائق الصادرة» أدناه.
+          </p>
         </form>
         <div className="mt-3 border-t border-sand-100 pt-3">
           <p className="mb-2 text-xs font-medium text-gray-500">إجراءات التقرير</p>

@@ -16,40 +16,75 @@ import { z } from "zod";
 
 /* ─────────────────────────── القوائم المغلقة ─────────────────────────── */
 
-/** أنواع الوثائق والتقارير التي تُدار قوالبها (§E7) */
+/**
+ * أنواع الوثائق والتقارير التي تُدار قوالبها (§E7، v2.3 §9).
+ * القائمة موسّعة لتغطي كامل نموذج التسليم (§9) وتوفّق مفردات المولدات القائمة
+ * (committee_report/executive_report/meeting_minutes/performance_report كانت
+ * أنواعاً تُكتب في `documents` بلا قالب يقابلها).
+ */
 export const TEMPLATE_DOC_TYPES = [
   "program_report",
   "program_closure",
+  "program_card",
+  "program_completion",
   "financial_report",
   "income_expense_report",
   "committee_assignment",
   "committee_minutes",
+  "committee_report",
   "council_minutes",
+  "meeting_minutes",
   "employee_performance_report",
   "final_evaluation_report",
+  "performance_report",
+  "overall_performance_report",
+  "employee_report",
   "evidence_report",
   "building_report",
+  "inspection_report",
+  "room_checklist",
+  "readiness_report",
+  "maintenance_letter",
+  "maintenance_followup",
+  "maintenance_closure",
   "risk_report",
+  "swot_report",
   "external_evaluation_report",
+  "executive_report",
   "official_letter",
 ] as const;
 export type TemplateDocType = (typeof TEMPLATE_DOC_TYPES)[number];
 
 /** التسمية العربية لكل نوع — تُعرض في «إدارة القوالب» */
 export const DOC_TYPE_LABELS: Record<TemplateDocType, string> = {
-  program_report: "تقرير برنامج",
+  program_report: "تقرير برنامج (بطاقة التنفيذ)",
   program_closure: "وثيقة إقفال برنامج",
-  financial_report: "تقرير مالي",
-  income_expense_report: "تقرير الإيرادات والمصروفات",
+  program_card: "بطاقة تكليف منفذ برنامج",
+  program_completion: "تقرير اكتمال برنامج",
+  financial_report: "التقرير المالي الملخّص",
+  income_expense_report: "التقرير المالي التفصيلي",
   committee_assignment: "نموذج توزيع مهام لجنة",
   committee_minutes: "محضر اجتماع لجنة",
+  committee_report: "تقرير لجنة",
   council_minutes: "محضر اجتماع مجلس",
-  employee_performance_report: "تقرير أداء موظف",
+  meeting_minutes: "محضر اجتماع",
+  employee_performance_report: "تقرير أداء موظف تفصيلي",
   final_evaluation_report: "تقرير التقييم النهائي",
-  evidence_report: "تقرير الشواهد",
+  performance_report: "تقرير جلسة أداء",
+  overall_performance_report: "تقرير الأداء العام",
+  employee_report: "تقرير منسوبي المدرسة",
+  evidence_report: "تقرير حافظة الشواهد",
   building_report: "تقرير المبنى والمرافق",
+  inspection_report: "تقرير فحص",
+  room_checklist: "قائمة فحص غرفة",
+  readiness_report: "تقرير الجاهزية",
+  maintenance_letter: "خطاب بلاغ صيانة",
+  maintenance_followup: "تقرير متابعة صيانة",
+  maintenance_closure: "تقرير إغلاق بلاغ صيانة",
   risk_report: "تقرير المخاطر",
+  swot_report: "تقرير التحليل الرباعي",
   external_evaluation_report: "تقرير التقييم الخارجي",
+  executive_report: "التقرير التنفيذي الشامل",
   official_letter: "خطاب رسمي عام",
 };
 

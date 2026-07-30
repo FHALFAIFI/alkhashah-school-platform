@@ -137,6 +137,87 @@ export const DOC_COLUMNS: Record<TemplateDocType, readonly ColumnDef[]> = {
     { key: "actions", label: "الإجراءات" },
     { key: "status", label: "الحالة" },
   ],
+  // ── أنواع v2.3 §9 الجديدة ────────────────────────────────────────────────
+  program_card: [
+    { key: "field", label: "البند" },
+    { key: "value", label: "القيمة" },
+  ],
+  program_completion: [
+    { key: "field", label: "البند" },
+    { key: "value", label: "القيمة" },
+  ],
+  committee_report: [
+    { key: "meeting", label: "الاجتماع" },
+    { key: "date", label: "التاريخ" },
+    { key: "status", label: "الحالة" },
+    { key: "outcomes", label: "القرارات" },
+  ],
+  meeting_minutes: [
+    { key: "topic", label: "الموضوع" },
+    { key: "outcome", label: "القرار أو التوصية" },
+    { key: "owner", label: "المسؤول" },
+    { key: "signature", label: "التوقيع" },
+  ],
+  performance_report: [
+    { key: "indicator", label: "المؤشر" },
+    { key: "weight", label: "الوزن" },
+    { key: "rating", label: "التقدير" },
+    { key: "score", label: "الدرجة الموزونة" },
+  ],
+  overall_performance_report: [
+    { key: "criterion", label: "المعيار" },
+    { key: "average", label: "المتوسط" },
+    { key: "sample", label: "عدد التقييمات" },
+    { key: "status", label: "الحالة" },
+  ],
+  employee_report: [
+    { key: "name", label: "الاسم" },
+    { key: "category", label: "الفئة" },
+    { key: "jobTitle", label: "المسمى" },
+    { key: "status", label: "الحالة" },
+  ],
+  inspection_report: [
+    { key: "item", label: "بند الفحص" },
+    { key: "result", label: "النتيجة" },
+    { key: "severity", label: "الخطورة" },
+    { key: "note", label: "الملاحظة" },
+  ],
+  room_checklist: [
+    { key: "item", label: "بند الفحص" },
+    { key: "answer", label: "الإجابة" },
+    { key: "critical", label: "حرج؟" },
+    { key: "note", label: "الملاحظة" },
+  ],
+  readiness_report: [
+    { key: "room", label: "الغرفة" },
+    { key: "status", label: "الحالة" },
+    { key: "percent", label: "نسبة البنود السليمة" },
+    { key: "reason", label: "السبب" },
+  ],
+  maintenance_letter: [
+    { key: "field", label: "البند" },
+    { key: "value", label: "القيمة" },
+  ],
+  maintenance_followup: [
+    { key: "date", label: "التاريخ" },
+    { key: "status", label: "الحالة" },
+    { key: "action", label: "الإجراء" },
+    { key: "actor", label: "بواسطة" },
+  ],
+  maintenance_closure: [
+    { key: "field", label: "البند" },
+    { key: "value", label: "القيمة" },
+  ],
+  swot_report: [
+    { key: "category", label: "الفئة" },
+    { key: "code", label: "الرمز" },
+    { key: "text", label: "النص" },
+  ],
+  executive_report: [
+    { key: "section", label: "القسم" },
+    { key: "metric", label: "المؤشر" },
+    { key: "value", label: "القيمة" },
+  ],
   official_letter: [],
 };
 

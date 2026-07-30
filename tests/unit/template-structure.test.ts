@@ -21,7 +21,8 @@ import { DEFAULT_TEMPLATE_CONFIG, TEMPLATE_DOC_TYPES, parseTemplateConfig } from
 describe("سجل الأقسام والأعمدة", () => {
   it("كل نوع وثيقة له تعريف أعمدة (ولو فارغاً)", () => {
     expect(allDocTypesHaveColumnDefinitions()).toBe(true);
-    expect(TEMPLATE_DOC_TYPES.length).toBe(14);
+    // v2.3 §9: القائمة موسّعة لتغطي كامل نموذج التسليم + توفيق مفردات المولدات
+    expect(TEMPLATE_DOC_TYPES.length).toBe(29);
   });
 
   it("الخطاب الرسمي بلا جدول — قائمة أعمدة فارغة لا خيارات وهمية", () => {

@@ -11,8 +11,9 @@ import {
   people,
   users,
 } from "@/db/schema";
-import { PageHeader, Card, Badge, Table } from "@/components/ui";
+import { PageHeader, Card, Badge, Table, SubmitButton } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
+import { revalidatePath } from "next/cache";
 import { isUuid } from "@/lib/validation";
 import { orDash, orFallback } from "@/lib/format";
 import { dualNumericCell } from "@/lib/dates";
@@ -58,6 +59,25 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
   const actorName = new Map(actorRows.map((u) => [u.id, u.name]));
 
   const canWrite = user.permissions.has("maintenance.write");
+
+  // آخر خطاب مولَّد لهذا البلاغ (إن وُجد)
+  const { documents } = await import("@/db/schema");
+  const letterDoc = issue.documentId
+    ? (
+        await db
+          .select({ id: documents.id, docNumber: documents.docNumber, pdfFileId: documents.pdfFileId })
+          .from(documents)
+          .where(eq(documents.id, issue.documentId))
+      )[0] ?? null
+    : null;
+
+  async function issueLetter() {
+    "use server";
+    const u = await requirePermission("reports.generate", "maintenance.read");
+    const { generateMaintenanceLetter } = await import("@/lib/reports/maintenance-letter");
+    await generateMaintenanceLetter({ issueId: id, issuedBy: u.id });
+    revalidatePath(`/building/maintenance/${id}`);
+  }
 
   return (
     <div className="space-y-4">
@@ -136,6 +156,29 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
             <IssueWorkflowControl issueId={issue.id} status={issue.status} resolution={issue.resolution} />
           ) : (
             <p className="text-sm text-gray-400">المتابعة لصاحب صلاحية الصيانة</p>
+          )}
+          {/* خطاب البلاغ الرسمي (v2.3 §18): يُولَّد بعد الاعتماد ويُرسل للجهة المسؤولة */}
+          {user.permissions.has("reports.generate") && issue.status !== "مسودة" && (
+            <form action={issueLetter} className="mt-3 border-t border-sand-100 pt-3">
+              <SubmitButton variant="secondary">توليد خطاب البلاغ الرسمي (PDF)</SubmitButton>
+              <p className="mt-1 text-xs text-gray-400">
+                خطاب برقم وثيقة ورمز تحقق ولقطة مجمّدة — يتضمن الموقع والوصف والصور وقسمي
+                المتابعة والنتيجة النهائية.
+              </p>
+            </form>
+          )}
+          {letterDoc && (
+            <p className="mt-2 text-xs">
+              آخر خطاب مولَّد: <span className="tabular-nums">{letterDoc.docNumber}</span>
+              {letterDoc.pdfFileId && (
+                <>
+                  {" — "}
+                  <a href={`/api/files/${letterDoc.pdfFileId}`} className="text-brand-700 underline">
+                    تنزيل PDF
+                  </a>
+                </>
+              )}
+            </p>
           )}
           {(issue.photos ?? []).length > 0 && (
             <div className="mt-3">

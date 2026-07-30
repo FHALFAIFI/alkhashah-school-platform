@@ -279,8 +279,8 @@ describe("§E2/§E4 — التصيير", () => {
 });
 
 describe("§E7 — نطاق القوالب", () => {
-  it("الأنواع الأربعة عشر المطلوبة معرَّفة وبتسميات عربية", () => {
-    expect(TEMPLATE_DOC_TYPES).toHaveLength(14);
+  it("كل الأنواع معرَّفة وبتسميات عربية (v2.3 §9: القائمة موسّعة إلى 29)", () => {
+    expect(TEMPLATE_DOC_TYPES).toHaveLength(29);
     for (const t of TEMPLATE_DOC_TYPES) {
       expect(DOC_TYPE_LABELS[t], `${t} بلا تسمية عربية`).toBeTruthy();
     }
