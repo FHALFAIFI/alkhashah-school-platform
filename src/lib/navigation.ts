@@ -93,6 +93,10 @@ const PARENT_MAP: Readonly<Record<string, string>> = {
   // بلاغ صيانة واحد يعود إلى قائمة البلاغات
   "/building/maintenance/[id]": "/building/maintenance",
 
+  // الأداء الوظيفي — اللوحة العامة وتقرير المنسوب
+  "/performance/analytics": "/performance",
+  "/performance/employees/[personId]": "/performance/analytics",
+
   // المساعد الذكي
   "/assistant/drafts": "/assistant",
 

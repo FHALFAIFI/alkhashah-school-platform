@@ -42,6 +42,7 @@ export default async function PerformancePage() {
         actions={
           <>
             <SectionReportsLink category="performance" />
+            <LinkButton href="/performance/analytics" variant="secondary">لوحة الأداء العام</LinkButton>
             <LinkButton href="/performance/models" variant="secondary">نماذج الأداء</LinkButton>
           </>
         }
