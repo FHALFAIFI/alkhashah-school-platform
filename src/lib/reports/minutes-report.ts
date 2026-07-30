@@ -3,6 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { committees, committeeMembers, meetings, meetingOutcomes, people, documents, meetingTypes, meetingAttachments } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
+import { getOfficialHeader } from "@/lib/document-header";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
@@ -101,12 +102,15 @@ export async function generateMinutesDocument(opts: { meetingId: string; issuedB
     htmlSnapshot: "",
     issuedBy: opts.issuedBy,
   });
+  // الترويسة الرسمية المركزية (v2.3 §8): الهوية والشعارات من الإعدادات
+  const identityHeader = await getOfficialHeader();
   const finalHtml = officialPageHtml({
     title,
     bodyHtml: body,
     issuedAtText,
     docNumber: doc.docNumber,
     verificationCode: doc.verificationCode,
+    identity: identityHeader,
   });
   const pdf = await htmlToPdf(finalHtml);
   const pdfFile = await saveUploadedFile({

@@ -6,6 +6,7 @@ import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { getDocumentIdentity, resolveHeader, type IdentityToggles } from "@/lib/document-identity";
+import { getOfficialHeader } from "@/lib/document-header";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
 import { orFallback, orDash } from "@/lib/format";
 import { escapeHtml as esc } from "@/lib/html-escape";
@@ -102,13 +103,9 @@ export async function generateAssignmentForm(opts: {
   `;
 
   const title = `نموذج توزيع مهام — ${orFallback(c.nameAr)}`;
-  const identityHeader = {
-    orgLines: header.orgLines,
-    headerNote: header.headerNote,
-    footerNote: header.footerNote,
-    principalName: header.principalName,
-    academicYear: header.academicYear,
-  };
+  // الترويسة الرسمية المركزية الموحّدة (v2.3 §8) — تحمل الشعارات والمسمى أيضاً
+  const identityHeader = await getOfficialHeader({ toggles: opts.toggles });
+  void header;
   const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, identity: identityHeader });
   const doc = await issueDocument({
     docType: "committee_assignment",

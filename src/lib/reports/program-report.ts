@@ -9,6 +9,7 @@ import { num } from "@/lib/budget/calc";
 import { formatMoney, orDash, numOrNull } from "@/lib/format";
 import { renderEvidenceContent } from "@/lib/evidence-render";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
+import { getOfficialHeader } from "@/lib/document-header";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile, readStoredFile } from "@/lib/storage";
 import { getSetting } from "@/lib/settings";
@@ -159,7 +160,9 @@ export async function generateProgramReport(opts: {
 
   const title = `تقرير برنامج: ${program.name}`;
   // إصدار الوثيقة أولاً للحصول على الرقم ورمز التحقق ثم توليد PDF باللقطة النهائية
-  const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, signatureDataUri, stampDataUri });
+  // الترويسة الرسمية المركزية (v2.3 §8): الهوية والشعارات من الإعدادات
+  const identityHeader = await getOfficialHeader();
+  const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, signatureDataUri, stampDataUri, identity: identityHeader });
   const doc = await issueDocument({
     docType: "program_report",
     title,
@@ -179,6 +182,7 @@ export async function generateProgramReport(opts: {
     verificationCode: doc.verificationCode,
     signatureDataUri,
     stampDataUri,
+    identity: identityHeader,
   });
   const pdf = await htmlToPdf(finalHtml);
   const pdfFile = await saveUploadedFile({

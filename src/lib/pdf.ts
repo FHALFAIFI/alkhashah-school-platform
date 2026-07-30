@@ -22,7 +22,7 @@ function getFontCss(): string {
   return fontCss;
 }
 
-/** ترويسة محلولة من هوية الوثائق المركزية (§6) — تُحقن هنا وتُجمّد ضمن لقطة الوثيقة. */
+/** ترويسة محلولة من هوية الوثائق المركزية (§6/§8) — تُحقن هنا وتُجمّد ضمن لقطة الوثيقة. */
 export type PageHeaderIdentity = {
   orgLines: string[];
   headerNote?: string;
@@ -30,6 +30,9 @@ export type PageHeaderIdentity = {
   principalName?: string;
   academicYear?: string;
   signerTitle?: string;
+  /** شعارا الوزارة والمدرسة كـ data URIs محلية — لا جلب شبكي وقت التوليد (§8) */
+  ministryLogoDataUri?: string;
+  schoolLogoDataUri?: string;
 };
 
 export function officialPageHtml(opts: {
@@ -68,11 +71,18 @@ body { font-family: 'IBM Plex Sans Arabic', sans-serif; color: #1a1a1a; margin: 
 .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1f5244; padding-bottom: 8px; margin-bottom: 16px; }
 .header .org { font-size: 10px; line-height: 1.6; }
 .header .title { text-align: center; }
+/* شعارات رسمية: أبعاد ثابتة الاحتواء بلا تشويه، وبياض كافٍ حولها (§8) */
+.header .logo { max-height: 58px; max-width: 90px; object-fit: contain; display: block; margin: 0 auto 4px; }
+.header .logo-box { text-align: center; padding-inline: 8px; }
 h1 { font-size: 16px; color: #1f5244; margin: 0 0 4px; }
 h2 { font-size: 13px; color: #1f5244; border-inline-start: 3px solid #348066; padding-inline-start: 8px; margin: 16px 0 8px; }
 table { width: 100%; border-collapse: collapse; margin: 8px 0; }
 th, td { border: 1px solid #cfcabc; padding: 5px 7px; text-align: right; vertical-align: top; }
 th { background: #f2f0eb; font-weight: 700; }
+/* التقارير الطويلة (v2.3 §7): ترويسة الجدول تتكرر مع كل صفحة، والصف لا ينقسم بين صفحتين */
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+h2 { page-break-after: avoid; }
 .meta { font-size: 10px; color: #555; }
 .evidence-img { max-width: 100%; max-height: 340px; border: 1px solid #ddd; border-radius: 4px; margin: 4px 0; }
 .truncation-note { color: #8a6d00; background: #fff8e0; padding: 4px 8px; border-radius: 4px; font-size: 10px; }
@@ -87,22 +97,36 @@ th { background: #f2f0eb; font-weight: 700; }
 </head>
 <body>
 <div class="header">
-  <div class="org">
-    ${org}${headerNote}
+  <div style="display:flex;align-items:flex-start;gap:6px;">
+    ${
+      opts.identity?.ministryLogoDataUri
+        ? `<div class="logo-box"><img class="logo" src="${escapeHtml(opts.identity.ministryLogoDataUri)}" alt="شعار وزارة التعليم"></div>`
+        : ""
+    }
+    <div class="org">
+      ${org}${headerNote}
+    </div>
   </div>
   <div class="title">
     <h1>${escapeHtml(opts.title)}</h1>
     <div class="meta">${metaNote}${yearLine}</div>
   </div>
-  <div class="org meta">
-    ${opts.docNumber ? `رقم الوثيقة: <strong>${escapeHtml(opts.docNumber)}</strong><br>` : ""}
-    ${opts.verificationCode ? `رمز التحقق: <strong>${escapeHtml(opts.verificationCode)}</strong><br>` : ""}
-    ${opts.issuedAtText ? `تاريخ الإصدار: ${escapeHtml(opts.issuedAtText)}` : ""}
+  <div style="display:flex;align-items:flex-start;gap:6px;">
+    <div class="org meta">
+      ${opts.docNumber ? `رقم الوثيقة: <strong>${escapeHtml(opts.docNumber)}</strong><br>` : ""}
+      ${opts.verificationCode ? `رمز التحقق: <strong>${escapeHtml(opts.verificationCode)}</strong><br>` : ""}
+      ${opts.issuedAtText ? `تاريخ الإصدار: ${escapeHtml(opts.issuedAtText)}` : ""}
+    </div>
+    ${
+      opts.identity?.schoolLogoDataUri
+        ? `<div class="logo-box"><img class="logo" src="${escapeHtml(opts.identity.schoolLogoDataUri)}" alt="شعار المدرسة"></div>`
+        : ""
+    }
   </div>
 </div>
 ${opts.bodyHtml}
 ${
-  opts.signatureDataUri || opts.stampDataUri
+  opts.signatureDataUri || opts.stampDataUri || opts.identity?.principalName
     ? `<div class="signatures">
         <div class="sig-block">
           ${opts.signatureDataUri ? `<img class="sig-img" src="${escapeHtml(opts.signatureDataUri)}" alt="">` : ""}
@@ -118,7 +142,7 @@ ${
 </html>`;
 }
 
-export async function htmlToPdf(html: string): Promise<Buffer> {
+export async function htmlToPdf(html: string, opts?: { pageNumbers?: boolean }): Promise<Buffer> {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ args: ["--font-render-hinting=none"] });
   try {
@@ -128,6 +152,15 @@ export async function htmlToPdf(html: string): Promise<Buffer> {
       format: "A4",
       margin: { top: "15mm", bottom: "15mm", left: "12mm", right: "12mm" },
       printBackground: true,
+      // أرقام الصفحات للتقارير الطويلة (v2.3 §7) — من مولّد PDF نفسه فتصح مهما طال التقرير
+      ...(opts?.pageNumbers
+        ? {
+            displayHeaderFooter: true,
+            headerTemplate: "<span></span>",
+            footerTemplate:
+              '<div style="width:100%;text-align:center;font-size:8px;color:#777;" dir="rtl">صفحة <span class="pageNumber"></span> من <span class="totalPages"></span></div>',
+          }
+        : {}),
     });
     return Buffer.from(pdf);
   } finally {

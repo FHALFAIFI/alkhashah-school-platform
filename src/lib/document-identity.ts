@@ -19,6 +19,8 @@ export type DocumentIdentity = {
   educationOffice: string;
   schoolName: string;
   principalName: string;
+  /** المسمى الوظيفي للموقّع — مركزي لا يُكرر في المولدات (v2.3 §8) */
+  principalTitle: string;
   academicYear: string;
   gregorianYear: string;
   headerNote: string;
@@ -30,13 +32,18 @@ export type DocumentIdentity = {
   stampFileId: string | null;
 };
 
-/** القيم الافتراضية الرسمية الحالية للمجمع — تبقى كما كانت قبل مركزة الهوية. */
+/**
+ * القيم الافتراضية الرسمية الحالية للمجمع — تبقى كما كانت قبل مركزة الهوية.
+ * اسم المدير يبقى فارغاً حتى يُدخله المدير من إعدادات هوية الوثائق —
+ * لا اسم شخصياً في الشيفرة (v2.3 §8).
+ */
 export const DEFAULT_IDENTITY: DocumentIdentity = {
   ministryName: "المملكة العربية السعودية — وزارة التعليم",
   educationDepartment: "إدارة التعليم في محافظة صبيا",
   educationOffice: "مكتب تعليم العيدابي",
   schoolName: "مجمع الخشعة التعليمي للبنين",
   principalName: "",
+  principalTitle: "مدير مجمع الخشعة للبنين",
   academicYear: "1448-1449هـ",
   gregorianYear: "2026-2027م",
   headerNote: "",
@@ -112,6 +119,7 @@ export function resolveHeader(
     orgLines,
     schoolName: t.schoolName ? v.schoolName : "",
     principalName: t.principalName ? v.principalName : "",
+    principalTitle: t.principalName ? v.principalTitle : "",
     academicYear: t.academicYear ? v.academicYear : "",
     headerNote: t.headerNote ? v.headerNote : "",
     footerNote: t.footerNote ? v.footerNote : "",
@@ -128,6 +136,7 @@ export type ResolvedHeader = {
   orgLines: string[];
   schoolName: string;
   principalName: string;
+  principalTitle: string;
   academicYear: string;
   headerNote: string;
   footerNote: string;

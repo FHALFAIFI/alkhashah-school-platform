@@ -3,6 +3,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { floors, rooms, assets, inspections, maintenanceIssues, documents } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
+import { getOfficialHeader } from "@/lib/document-header";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
@@ -80,9 +81,11 @@ export async function generateBuildingReport(opts: { issuedBy: string }) {
   </table>`;
 
   const title = "تقرير المبنى المدرسي (مجمع البنين)";
-  const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText });
+  // الترويسة الرسمية المركزية (v2.3 §8): الهوية والشعارات من الإعدادات
+  const identityHeader = await getOfficialHeader();
+  const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, identity: identityHeader });
   const doc = await issueDocument({ docType: "building_report", title, entityType: "building", htmlSnapshot: preliminaryHtml, withSignature: false, withStamp: false, issuedBy: opts.issuedBy });
-  const finalHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, docNumber: doc.docNumber, verificationCode: doc.verificationCode });
+  const finalHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, docNumber: doc.docNumber, verificationCode: doc.verificationCode, identity: identityHeader });
   const pdf = await htmlToPdf(finalHtml);
   const pdfFile = await saveUploadedFile({ originalName: `${doc.docNumber}.pdf`, mime: "application/pdf", data: pdf, scope: "reports", uploadedBy: opts.issuedBy });
   await db.update(documents).set({ htmlSnapshot: finalHtml, pdfFileId: pdfFile.id }).where(eq(documents.id, doc.id));

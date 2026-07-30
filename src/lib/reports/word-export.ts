@@ -47,13 +47,29 @@ function rtlTable(headers: string[], rows: string[][]): Table {
   });
 }
 
+/** ترويسة رسمية اختيارية — من هوية الوثائق المركزية (v2.3 §8)، لا نص ثابت */
+export type WordHeader = {
+  orgLines: string[];
+  principalName?: string;
+  principalTitle?: string;
+  academicYear?: string;
+  footerNote?: string;
+};
+
 export async function buildWordReport(opts: {
   title: string;
   meta: [string, string][];
   sections: { heading: string; paragraphs?: string[]; table?: { headers: string[]; rows: string[][] } }[];
+  header?: WordHeader;
 }): Promise<Buffer> {
+  const headerLines = opts.header?.orgLines?.length
+    ? opts.header.orgLines
+    : ["مجمع الخشعة التعليمي للبنين — منصة الإدارة المدرسية المتكاملة"];
   const children: (Paragraph | Table)[] = [
-    rtlHeading("مجمع الخشعة التعليمي للبنين — منصة الإدارة المدرسية المتكاملة", HeadingLevel.HEADING_2),
+    ...headerLines.map((l, i) =>
+      rtlHeading(l, i === headerLines.length - 1 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3),
+    ),
+    ...(opts.header?.academicYear ? [rtlPara(`العام الدراسي: ${opts.header.academicYear}`)] : []),
     rtlHeading(opts.title, HeadingLevel.HEADING_1),
     ...opts.meta.map(([k, v]) => rtlPara(`${k}: ${v}`)),
   ];
@@ -62,6 +78,14 @@ export async function buildWordReport(opts: {
     for (const p of s.paragraphs ?? []) children.push(rtlPara(p));
     if (s.table) children.push(rtlTable(s.table.headers, s.table.rows));
   }
+  // خانة التوقيع الرسمية: المسمى ثم الاسم من الهوية المركزية
+  if (opts.header?.principalTitle || opts.header?.principalName) {
+    children.push(rtlPara(""));
+    if (opts.header.principalTitle) children.push(rtlPara(opts.header.principalTitle, true));
+    if (opts.header.principalName) children.push(rtlPara(opts.header.principalName, true));
+    children.push(rtlPara("التوقيع: ................................"));
+  }
+  if (opts.header?.footerNote) children.push(rtlPara(opts.header.footerNote));
   const doc = new Document({
     styles: {
       default: {

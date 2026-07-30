@@ -5,7 +5,11 @@ import { audit } from "@/lib/audit";
 import { reportByKey, isSortableColumn, type ReportFilters } from "@/lib/reports/catalog";
 import { runReportForExport } from "@/lib/reports/loaders";
 import { toCsv, safeFileName, sanitizeCell, MAX_EXPORT_ROWS } from "@/lib/reports/export-safety";
-import { dualNumericCell } from "@/lib/dates";
+import { dualNumericCell, todayIso } from "@/lib/dates";
+import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
+import { getOfficialHeader } from "@/lib/document-header";
+import { buildWordReport } from "@/lib/reports/word-export";
+import { escapeHtml } from "@/lib/html-escape";
 
 /**
  * تصدير تقارير مركز التقارير (v2.2 §D10/§10).
@@ -34,7 +38,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "لا تملك صلاحية هذا التقرير" }, { status: 403 });
   }
 
-  const format = sp.get("format") === "xlsx" ? "xlsx" : "csv";
+  const FORMATS = ["csv", "xlsx", "pdf", "docx"] as const;
+  const requested = sp.get("format") ?? "csv";
+  const format = (FORMATS as readonly string[]).includes(requested) ? (requested as (typeof FORMATS)[number]) : "csv";
   const sort = sp.get("sort");
   const filters: ReportFilters = {
     search: sp.get("search") ?? undefined,
@@ -66,17 +72,32 @@ export async function GET(request: NextRequest) {
   };
   const matrix = rows.rows.map((row) => def.columns.map((c) => cellOf(row, c)));
 
+  const formatLabel = { csv: "CSV", xlsx: "Excel", pdf: "PDF", docx: "Word" }[format];
   await audit({
     actorId: user.id,
     action: "report.exported",
     entityType: "report",
     entityId: def.key,
-    summary: `تصدير «${def.label}» بصيغة ${format === "xlsx" ? "Excel" : "CSV"} — ${rows.rows.length} صف${rows.truncated ? ` (اقتُطع عند ${MAX_EXPORT_ROWS})` : ""}`,
+    summary: `تصدير «${def.label}» بصيغة ${formatLabel} — ${rows.rows.length} صف${rows.truncated ? ` (اقتُطع عند ${MAX_EXPORT_ROWS})` : ""}`,
   });
 
-  const fileName = safeFileName(def.label, format);
+  // المرشّحات الفعّالة تُعرض داخل التقرير المولَّد (v2.3 §7)
+  const activeFilters: [string, string][] = [];
+  if (filters.search) activeFilters.push(["بحث", filters.search]);
+  if (filters.dateFrom) activeFilters.push(["من تاريخ", dualNumericCell(filters.dateFrom)]);
+  if (filters.dateTo) activeFilters.push(["إلى تاريخ", dualNumericCell(filters.dateTo)]);
+  if (filters.status) activeFilters.push(["الحالة", filters.status]);
+
+  // اسم الملف: نوع التقرير + اسم المدرسة + تاريخ التوليد (v2.3 §7)
+  const identityHeader = format === "pdf" || format === "docx" ? await getOfficialHeader() : null;
+  const schoolName = identityHeader?.resolved.schoolName ?? "";
+  const fileName = safeFileName(
+    [def.label, schoolName, todayIso()].filter(Boolean).join(" — "),
+    format,
+  );
   // ترميز RFC 5987 للاسم العربي، مع بديل ASCII بسيط للمتصفّحات القديمة
   const disposition = `attachment; filename="report.${format}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+  const noStore = { "Cache-Control": "no-store" };
 
   if (format === "csv") {
     const csv = toCsv(headers, matrix);
@@ -85,7 +106,84 @@ export async function GET(request: NextRequest) {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": disposition,
         // التقارير قد تحوي بيانات مدرسية — لا تُخزَّن في وسيط مشترك
-        "Cache-Control": "no-store",
+        ...noStore,
+      },
+    });
+  }
+
+  if (format === "pdf") {
+    // معاينة مولَّدة لا وثيقة مُصدَرة: بلا رقم وثيقة ولا لقطة (v2.3 §7 — المسودات تُعاد
+    // دون أن تصبح إصدارات). الجداول الطويلة: ترويسة الجدول تتكرر مع كل صفحة (thead)
+    // وأرقام الصفحات من مولّد PDF نفسه.
+    const filtersHtml = activeFilters.length
+      ? `<p class="meta">المرشّحات الفعّالة: ${activeFilters
+          .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(String(v))}`)
+          .join(" · ")}</p>`
+      : "";
+    const truncNote = rows.truncated
+      ? `<p class="truncation-note">اقتُطع التقرير عند ${MAX_EXPORT_ROWS} صف — ضيّق المرشّحات للاطلاع على البقية.</p>`
+      : "";
+    const tableHtml = `
+      <table>
+        <thead><tr>${def.columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${matrix
+            .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(String(c === "" ? "—" : c))}</td>`).join("")}</tr>`)
+            .join("\n")}
+        </tbody>
+      </table>`;
+    const bodyHtml = `
+      <p class="meta">${escapeHtml(def.description)}</p>
+      ${filtersHtml}
+      <p class="meta">عدد الصفوف: ${rows.rows.length} — توليد بتاريخ ${escapeHtml(dualNumericCell(todayIso()))}</p>
+      ${truncNote}
+      ${tableHtml}`;
+    const html = officialPageHtml({
+      title: def.label,
+      bodyHtml,
+      issuedAtText: dualNumericCell(todayIso()),
+      identity: identityHeader ?? undefined,
+    });
+    const pdf = await htmlToPdf(html, { pageNumbers: true });
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": disposition,
+        ...noStore,
+      },
+    });
+  }
+
+  if (format === "docx") {
+    const buffer = await buildWordReport({
+      title: def.label,
+      meta: [
+        ...activeFilters,
+        ["عدد الصفوف", String(rows.rows.length)],
+        ["تاريخ التوليد", dualNumericCell(todayIso())],
+      ],
+      sections: [
+        {
+          heading: def.label,
+          paragraphs: [def.description],
+          table: { headers, rows: matrix.map((r) => r.map((c) => String(c === "" ? "—" : c))) },
+        },
+      ],
+      header: identityHeader
+        ? {
+            orgLines: identityHeader.resolved.orgLines,
+            principalName: identityHeader.resolved.principalName,
+            principalTitle: identityHeader.resolved.principalTitle,
+            academicYear: identityHeader.resolved.academicYear,
+            footerNote: identityHeader.resolved.footerNote,
+          }
+        : undefined,
+    });
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": disposition,
+        ...noStore,
       },
     });
   }

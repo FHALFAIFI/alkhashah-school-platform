@@ -6,6 +6,7 @@ import {
   people, rooms, maintenanceIssues, inspections, documents, evidenceItems,
 } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
+import { getOfficialHeader } from "@/lib/document-header";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric, todayIso } from "@/lib/dates";
@@ -145,12 +146,15 @@ export async function generateExecutiveReport(opts: {
     withStamp: opts.withStamp,
     issuedBy: opts.issuedBy,
   });
+  // الترويسة الرسمية المركزية (v2.3 §8): الهوية والشعارات من الإعدادات
+  const identityHeader = await getOfficialHeader();
   const finalHtml = officialPageHtml({
     title,
     bodyHtml: body,
     issuedAtText,
     docNumber: doc.docNumber,
     verificationCode: doc.verificationCode,
+    identity: identityHeader,
   });
   const pdf = await htmlToPdf(finalHtml);
   const pdfFile = await saveUploadedFile({

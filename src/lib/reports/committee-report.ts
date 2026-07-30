@@ -3,6 +3,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, planYears, meetingTypes, meetingAttachments } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
+import { getOfficialHeader } from "@/lib/document-header";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
@@ -109,7 +110,9 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
   body += `<p style="margin-top:16px">يُعتمد التقرير بتوقيع ${chair ? `الرئيس (${esc(orFallback(chair.name))})` : "الرئيس"} و${secretary ? `المقرر (${esc(orFallback(secretary.name))})` : "المقرر"} عند الحاجة — التوقيع ليس شرطاً إلزامياً لهذا التقرير.</p>`;
 
   const title = `تقرير اللجنة: ${orFallback(c.nameAr)}`;
-  const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText });
+  // الترويسة الرسمية المركزية (v2.3 §8): الهوية والشعارات من الإعدادات
+  const identityHeader = await getOfficialHeader();
+  const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, identity: identityHeader });
   const doc = await issueDocument({
     docType: "committee_report",
     title,
@@ -120,7 +123,7 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
     withStamp: false,
     issuedBy: opts.issuedBy,
   });
-  const finalHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, docNumber: doc.docNumber, verificationCode: doc.verificationCode });
+  const finalHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, docNumber: doc.docNumber, verificationCode: doc.verificationCode, identity: identityHeader });
   const pdf = await htmlToPdf(finalHtml);
   const pdfFile = await saveUploadedFile({
     originalName: `${doc.docNumber}.pdf`,

@@ -153,7 +153,7 @@ export default async function ReportsPage({
     sort: filters.sort,
     dir: filters.dir,
   };
-  const exportQuery = (format: "csv" | "xlsx") => {
+  const exportQuery = (format: "csv" | "xlsx" | "pdf" | "docx") => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(baseParams)) if (v) p.set(k, v);
     p.set("format", format);
@@ -227,17 +227,30 @@ export default async function ReportsPage({
             </div>
             {canExport && (
               <div className="flex flex-wrap items-center gap-2 print:hidden">
+                {/* كل تقرير قابل للتنزيل PDF وWord (v2.3 §7) إضافة إلى CSV/Excel */}
                 <a
-                  href={exportQuery("csv")}
+                  href={exportQuery("pdf")}
+                  className="inline-flex min-h-11 items-center rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0"
+                >
+                  تنزيل PDF
+                </a>
+                <a
+                  href={exportQuery("docx")}
                   className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0"
                 >
-                  تصدير CSV
+                  تنزيل Word
                 </a>
                 <a
                   href={exportQuery("xlsx")}
                   className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0"
                 >
                   تصدير Excel
+                </a>
+                <a
+                  href={exportQuery("csv")}
+                  className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0"
+                >
+                  CSV
                 </a>
               </div>
             )}

@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { perfCycles, perfSessions, perfRatings, people, documents } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
+import { getOfficialHeader } from "@/lib/document-header";
 import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile, readStoredFile } from "@/lib/storage";
 import { getSetting } from "@/lib/settings";
@@ -123,11 +124,17 @@ export async function generateSessionReport(opts: {
   // حقول التوقيع: توقيع المدير وختمه خياران مستقلان؛ توقيع المعلم/الموظف يدوي دائماً
   const signatureDataUri = opts.withSignature ? await brandingDataUri("branding.signature_file") : null;
   const stampDataUri = opts.withStamp ? await brandingDataUri("branding.stamp_file") : null;
+  // مسمى الموقّع واسمه من هوية الوثائق المركزية — لا نص ثابت (v2.3 §8)
+  const sigIdentity = await getOfficialHeader();
+  const signerLine = [sigIdentity.signerTitle ?? "", sigIdentity.principalName ?? ""]
+    .filter(Boolean)
+    .map((s) => esc(s))
+    .join("<br>");
   body += `
   <div class="signatures">
     <div class="sig-block">
       ${signatureDataUri ? `<img class="sig-img" src="${signatureDataUri}" alt="">` : ""}
-      <div class="sig-line">مدير المجمع — التوقيع والتاريخ</div>
+      <div class="sig-line">${signerLine || "التوقيع والتاريخ"}<br>التوقيع والتاريخ</div>
     </div>
     <div class="sig-block">
       ${stampDataUri ? `<img class="stamp-img" src="${stampDataUri}" alt="">` : ""}
@@ -146,12 +153,15 @@ export async function generateSessionReport(opts: {
     withStamp: opts.withStamp,
     issuedBy: opts.issuedBy,
   });
+  // الترويسة الرسمية المركزية (v2.3 §8) — الهوية نفسها المستعملة في خانة التوقيع أعلاه
+  const identityHeader = sigIdentity;
   const finalHtml = officialPageHtml({
     title,
     bodyHtml: body,
     issuedAtText,
     docNumber: doc.docNumber,
     verificationCode: doc.verificationCode,
+    identity: identityHeader,
   });
   const pdf = await htmlToPdf(finalHtml);
   const pdfFile = await saveUploadedFile({
