@@ -71,7 +71,7 @@ function statusOptionsFor(reportKey: string): string[] {
     case "meetings-register":
       return ["مسودة", "مكتمل", "معتمد"];
     case "maintenance-register":
-      return ["مفتوح", "قيد المعالجة", "مغلق"];
+      return ["مسودة", "معتمد", "تم الإرسال", "تحت المعالجة", "تم الإصلاح", "لم يتم الإصلاح", "مغلق"];
     case "import-batches":
       return ["معاينة", "معتمد", "ملغى"];
     case "perf-evaluations":

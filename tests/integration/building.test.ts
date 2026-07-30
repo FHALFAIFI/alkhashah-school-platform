@@ -162,28 +162,49 @@ describe("التوأم الرقمي (A11, A12, A14)", () => {
     expect(ins?.error).toBeDefined();
   });
 
-  it("حساب الجاهزية والتجاوز بسبب إلزامي", async () => {
+  it("الجاهزية الشفافة (v2.3 §16): حرج فاشل = غير جاهز، غير حرج = يحتاج معالجة، لا فحص = لم يبدأ", async () => {
     const { computeRoomReadiness } = await import("@/lib/building/readiness");
+    const snapshot = [
+      { key: "a", label: "الإضاءة", severityOnFail: "متوسط" },
+      { key: "b", label: "مخرج الطوارئ", severityOnFail: "حرج" },
+    ];
+
     const full = computeRoomReadiness({
-      latestInspection: { results: [{ key: "a", ok: true }, { key: "b", ok: true }] },
-      assets: [{ condition: "جيدة", important: true }],
-      openIssues: 0,
+      latestInspection: { results: [{ key: "a", ok: true }, { key: "b", ok: true }], templateSnapshot: snapshot },
     });
-    expect(full.readiness).toBe(100);
-    const damaged = computeRoomReadiness({
-      latestInspection: { results: [{ key: "a", ok: true }, { key: "b", ok: false }] },
-      assets: [{ condition: "خارج الخدمة", important: true }],
-      openIssues: 2,
+    expect(full.statusAr).toBe("جاهز");
+    expect(full.percent).toBe(100);
+    expect(full.ready).toBe(true);
+
+    // بند حرج فاشل — لا يمكن اعتبار الغرفة جاهزة مهما كانت النسبة
+    const criticalFail = computeRoomReadiness({
+      latestInspection: { results: [{ key: "a", ok: true }, { key: "b", ok: false }], templateSnapshot: snapshot },
     });
-    expect(damaged.readiness).toBeLessThan(50);
+    expect(criticalFail.statusAr).toBe("غير جاهز");
+    expect(criticalFail.ready).toBe(false);
+    expect(criticalFail.failedCritical.map((c) => c.label)).toEqual(["مخرج الطوارئ"]);
+
+    // بند غير حرج فاشل فقط — يحتاج معالجة بنسبة ظاهرة
+    const minorFail = computeRoomReadiness({
+      latestInspection: { results: [{ key: "a", ok: false }, { key: "b", ok: true }], templateSnapshot: snapshot },
+    });
+    expect(minorFail.statusAr).toBe("يحتاج معالجة");
+    expect(minorFail.percent).toBe(50);
+    expect(minorFail.failedOther.map((c) => c.label)).toEqual(["الإضاءة"]);
+
+    // لا فحص بعد — «لم يبدأ» بلا نسبة مُختلقة
+    const noInspection = computeRoomReadiness({ latestInspection: null });
+    expect(noInspection.statusAr).toBe("لم يبدأ");
+    expect(noInspection.percent).toBeNull();
+    expect(noInspection.ready).toBeNull();
+
     const overridden = computeRoomReadiness({
       latestInspection: null,
-      assets: [],
-      openIssues: 5,
-      override: { value: 90 },
+      override: { value: 90, reason: "قرار المدير" },
     });
-    expect(overridden.readiness).toBe(90);
-    expect(overridden.source).toBe("تجاوز يدوي");
+    expect(overridden.statusAr).toBe("تجاوز يدوي");
+    expect(overridden.percent).toBe(90);
+    expect(overridden.override?.reason).toBe("قرار المدير");
   });
 });
 
@@ -283,11 +304,11 @@ describe("فتح غرفة بالرمز (بديل QR اليدوي على HTTP)", 
   });
 });
 
-describe("سير الصيانة: تكليف ← تم الإصلاح بملاحظة ← إغلاق متحقق", () => {
-  it("البلاغ يخزن المكلف، وملاحظة الإصلاح تسجل، والإغلاق يختم closedAt/verifiedBy", async () => {
+describe("دورة حياة البلاغ (v2.3 §18): مسودة ← معتمد ← إرسال ← معالجة ← نتيجة ← إغلاق", () => {
+  it("الانتقالات محكومة، الإرسال يتطلب جهة، وكل انتقال يُسجَّل في السجل الإلحاقي", async () => {
     const { db } = await import("@/db");
-    const { people, maintenanceIssues } = await import("@/db/schema");
-    const { createIssueAction, updateIssueStatusAction } = await import("@/app/(app)/building/actions");
+    const { people, maintenanceIssues, maintenanceStatusHistory } = await import("@/db/schema");
+    const { createIssueAction, transitionIssueAction } = await import("@/app/(app)/building/actions");
 
     const [person] = await db
       .insert(people)
@@ -305,35 +326,126 @@ describe("سير الصيانة: تكليف ← تم الإصلاح بملاحظ
 
     const [issue] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.title, title));
     expect(issue.ownerPersonId).toBe(person.id);
-    expect(issue.status).toBe("مفتوح");
+    expect(issue.status).toBe("مسودة");
 
-    // تم الإصلاح مع ملاحظة اختيارية
-    const fixFd = new FormData();
-    fixFd.set("status", "تم الإصلاح");
-    fixFd.set("repairNote", "استبدال صمام التصريف");
-    await updateIssueStatusAction(issue.id, fixFd);
-    let [updated] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
-    expect(updated.status).toBe("تم الإصلاح");
-    expect(updated.repairNote).toBe("استبدال صمام التصريف");
-    expect(updated.closedAt).toBeNull();
+    const go = async (entries: Record<string, string>) => {
+      const f = new FormData();
+      f.set("issueId", issue.id);
+      for (const [k, v] of Object.entries(entries)) f.set(k, v);
+      return transitionIssueAction(null, f);
+    };
 
-    // حالة غير معروفة ترفض بصمت — لا تغيير
-    const badFd = new FormData();
-    badFd.set("status", "حالة مخترعة");
-    await updateIssueStatusAction(issue.id, badFd);
-    [updated] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
-    expect(updated.status).toBe("تم الإصلاح");
+    // انتقال غير مسموح من «مسودة»
+    const illegal = await go({ toStatus: "تم الإصلاح" });
+    expect(illegal?.error).toContain("لا يمكن الانتقال");
 
-    // الإغلاق المتحقق يختم التاريخ والمتحقق
-    const closeFd = new FormData();
-    closeFd.set("status", "مغلق ومتحقق");
-    await updateIssueStatusAction(issue.id, closeFd);
+    // اعتماد
+    expect((await go({ toStatus: "معتمد" }))?.success).toBeTruthy();
+    let [cur] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
+    expect(cur.status).toBe("معتمد");
+    expect(cur.approvedBy).toBe(testUserId);
+    expect(cur.approvedAt).not.toBeNull();
+
+    // الإرسال بلا جهة مستلمة يُرفض
+    const noRecipient = await go({ toStatus: "تم الإرسال" });
+    expect(noRecipient?.error).toContain("الجهة المستلمة");
+
+    expect((await go({ toStatus: "تم الإرسال", sentTo: "شركة الصيانة المتحدة", sentAt: "2026-08-01" }))?.success).toBeTruthy();
+    [cur] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
+    expect(cur.sentTo).toBe("شركة الصيانة المتحدة");
+    expect(cur.sentAt).toBe("2026-08-01");
+
+    expect((await go({ toStatus: "تحت المعالجة" }))?.success).toBeTruthy();
+    expect(
+      (
+        await go({
+          toStatus: "تم الإصلاح",
+          visitDate: "2026-08-05",
+          actionTaken: "استبدال صمام التصريف",
+          repairNote: "تم الاختبار بعد الإصلاح",
+        })
+      )?.success,
+    ).toBeTruthy();
+    [cur] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
+    expect(cur.resolution).toBe("تم الإصلاح");
+    expect(cur.visitDate).toBe("2026-08-05");
+    expect(cur.closedAt).toBeNull();
+
+    // الإغلاق بعد «تم الإصلاح» لا يتطلب سبباً — ويختم التاريخ والمتحقق
+    expect((await go({ toStatus: "مغلق" }))?.success).toBeTruthy();
     const [closed] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
-    expect(closed.status).toBe("مغلق ومتحقق");
+    expect(closed.status).toBe("مغلق");
     expect(closed.closedAt).not.toBeNull();
     expect(closed.verifiedBy).toBe(testUserId);
-    expect(closed.verifiedAt).not.toBeNull();
-    expect(closed.repairNote).toBe("استبدال صمام التصريف"); // الملاحظة لا تمسح عند الإغلاق
+    expect(closed.repairNote).toBe("تم الاختبار بعد الإصلاح");
+
+    // البلاغ المغلق نهائي
+    const afterClose = await go({ toStatus: "تحت المعالجة" });
+    expect(afterClose?.error).toContain("لا يمكن الانتقال");
+
+    // السجل الإلحاقي: إنشاء + 5 انتقالات ناجحة
+    const history = await db
+      .select()
+      .from(maintenanceStatusHistory)
+      .where(eq(maintenanceStatusHistory.issueId, issue.id));
+    expect(history.map((h) => h.toStatus)).toEqual([
+      "مسودة",
+      "معتمد",
+      "تم الإرسال",
+      "تحت المعالجة",
+      "تم الإصلاح",
+      "مغلق",
+    ]);
+  });
+
+  it("إغلاق «لم يتم الإصلاح» يتطلب سبباً وتوصية وقرار تصعيد", async () => {
+    const { db } = await import("@/db");
+    const { maintenanceIssues } = await import("@/db/schema");
+    const { createIssueAction, transitionIssueAction } = await import("@/app/(app)/building/actions");
+
+    const title = `عطل لم يُصلح ${Math.random().toString(36).slice(2, 8)}`;
+    const fd = new FormData();
+    fd.set("title", title);
+    fd.set("priority", "متوسطة");
+    await createIssueAction(null, fd);
+    const [issue] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.title, title));
+
+    const go = async (entries: Record<string, string>) => {
+      const f = new FormData();
+      f.set("issueId", issue.id);
+      for (const [k, v] of Object.entries(entries)) f.set(k, v);
+      return transitionIssueAction(null, f);
+    };
+
+    await go({ toStatus: "معتمد" });
+    await go({ toStatus: "تحت المعالجة" });
+    await go({ toStatus: "لم يتم الإصلاح", actionTaken: "زيارة دون قطع الغيار المطلوبة" });
+
+    // الإغلاق بلا سبب/توصية/تصعيد يُرفض
+    expect((await go({ toStatus: "مغلق" }))?.error).toContain("سبب الإغلاق");
+    expect((await go({ toStatus: "مغلق", closureReason: "تعذر توفير قطع الغيار" }))?.error).toContain("توصية");
+    expect(
+      (
+        await go({
+          toStatus: "مغلق",
+          closureReason: "تعذر توفير قطع الغيار",
+          followupRecommendation: "إعادة البلاغ مطلع الفصل القادم",
+        })
+      )?.error,
+    ).toContain("تصعيد");
+
+    const closedOk = await go({
+      toStatus: "مغلق",
+      closureReason: "تعذر توفير قطع الغيار",
+      followupRecommendation: "إعادة البلاغ مطلع الفصل القادم",
+      escalationNeeded: "نعم",
+    });
+    expect(closedOk?.success).toBeTruthy();
+    const [closed] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issue.id));
+    expect(closed.status).toBe("مغلق");
+    expect(closed.resolution).toBe("لم يتم الإصلاح");
+    expect(closed.closureReason).toBe("تعذر توفير قطع الغيار");
+    expect(closed.escalationNeeded).toBe(true);
   });
 
   it("البلاغ يرفض مكلفاً غير موجود في سجل الأشخاص النشطين", async () => {

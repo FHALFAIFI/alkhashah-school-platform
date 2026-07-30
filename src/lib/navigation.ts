@@ -90,6 +90,9 @@ const PARENT_MAP: Readonly<Record<string, string>> = {
   // المالية — لا صفحة فهرس على `/budget/items`، فتفصيل البند يعود إلى لوحة المالية
   "/budget/items/[id]": "/budget",
 
+  // بلاغ صيانة واحد يعود إلى قائمة البلاغات
+  "/building/maintenance/[id]": "/building/maintenance",
+
   // المساعد الذكي
   "/assistant/drafts": "/assistant",
 

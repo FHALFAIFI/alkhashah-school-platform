@@ -7,7 +7,8 @@ import { z } from "zod";
 import { db } from "@/db";
 import {
   floors, floorGeometryVersions, floorBackgrounds, rooms, assets, assetHistory,
-  inspectionTemplates, inspections, maintenanceIssues, people, readinessOverrides, siteZones,
+  inspectionTemplates, inspections, inspectionFindings, maintenanceIssues,
+  maintenanceStatusHistory, people, readinessOverrides, siteZones,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
@@ -18,6 +19,9 @@ import { getAssetDependencies, ASSET_EVENT } from "@/lib/building/asset-lifecycl
 import { ASSET_DELETE_CONFIRM } from "@/lib/building/asset-constants";
 import { orFallback } from "@/lib/format";
 import { userFacingError } from "@/lib/user-error";
+import { recordInspection } from "@/lib/building/inspection-recording";
+import { ISSUE_TRANSITIONS } from "@/lib/building/maintenance-lifecycle";
+import { isValidIsoDate, todayIso } from "@/lib/dates";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -527,20 +531,86 @@ export async function submitInspectionAction(_prev: ActionState, formData: FormD
     note: String(formData.get(`note_${item.key}`) ?? "") || undefined,
   }));
 
-  await db.insert(inspections).values({
+  // نقطة التسجيل الموحّدة (v2.3 §16): تجميد لقطة القالب + إنشاء ملاحظات للبنود الفاشلة
+  await recordInspection({
     roomId: parsed.data.roomId,
-    templateId: parsed.data.templateId,
+    template,
     results,
     notes: parsed.data.notes || null,
     inspectorId: user.id,
-    // تجميد تاريخي: نسخة القالب المستخدَمة الآن — لا تغيّرها تعديلات القالب اللاحقة
-    templateSnapshot: template.sections ?? template.items,
-    templateVersion: template.version,
   });
   await audit({ actorId: user.id, action: "inspection.submitted", entityType: "room", entityId: parsed.data.roomId, summary: `فحص ${orFallback(room.nameAr)}` });
   revalidatePath("/building/inspections");
   revalidatePath(`/building/rooms/${parsed.data.roomId}`);
   return { success: "سجل الفحص" };
+}
+
+// ————————————————— ملاحظات الفحص (v2.3 §16) —————————————————
+
+/** تحديث ملاحظة فحص مفتوحة: الموعد المستهدف والمسؤولية */
+export async function updateFindingAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("inspections.write");
+  const findingId = String(formData.get("findingId") ?? "");
+  const targetDate = String(formData.get("targetDate") ?? "");
+  const responsibleText = String(formData.get("responsibleText") ?? "").trim();
+  if (targetDate && !isValidIsoDate(targetDate)) return { error: "التاريخ غير صحيح — اختر التاريخ من الحقل" };
+  const [finding] = await db.select().from(inspectionFindings).where(eq(inspectionFindings.id, findingId));
+  if (!finding) return { error: "الملاحظة غير موجودة" };
+  if (finding.status !== "يحتاج معالجة") return { error: "الملاحظة مغلقة" };
+  await db
+    .update(inspectionFindings)
+    .set({ targetDate: targetDate || null, responsibleText: responsibleText || null })
+    .where(eq(inspectionFindings.id, findingId));
+  await audit({ actorId: user.id, action: "finding.updated", entityType: "inspection_finding", entityId: findingId, summary: `تحديث ملاحظة فحص «${finding.label}»` });
+  revalidatePath(`/building/rooms/${finding.roomId}`);
+  return { success: "حُدّثت الملاحظة" };
+}
+
+/** إغلاق ملاحظة فحص بعد معالجتها */
+export async function closeFindingAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("inspections.write");
+  const findingId = String(formData.get("findingId") ?? "");
+  const note = String(formData.get("resolutionNote") ?? "").trim();
+  const [finding] = await db.select().from(inspectionFindings).where(eq(inspectionFindings.id, findingId));
+  if (!finding) return { error: "الملاحظة غير موجودة" };
+  if (finding.status !== "يحتاج معالجة") return { error: "الملاحظة مغلقة مسبقاً" };
+  await db
+    .update(inspectionFindings)
+    .set({ status: "مغلق", resolutionNote: note || null, closedBy: user.id, closedAt: new Date() })
+    .where(eq(inspectionFindings.id, findingId));
+  await audit({ actorId: user.id, action: "finding.closed", entityType: "inspection_finding", entityId: findingId, summary: `إغلاق ملاحظة فحص «${finding.label}»` });
+  revalidatePath(`/building/rooms/${finding.roomId}`);
+  return { success: "أُغلقت الملاحظة" };
+}
+
+/** إنشاء بلاغ صيانة من ملاحظة فحص — يرث الغرفة والوصف والأولوية من الخطورة (§16 خطوة 14) */
+export async function createIssueFromFindingAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("inspections.write", "maintenance.write");
+  const findingId = String(formData.get("findingId") ?? "");
+  const [finding] = await db.select().from(inspectionFindings).where(eq(inspectionFindings.id, findingId));
+  if (!finding) return { error: "الملاحظة غير موجودة" };
+  if (finding.maintenanceIssueId) return { error: "أُنشئ بلاغ لهذه الملاحظة مسبقاً" };
+  const priority = finding.severity === "حرج" || finding.severity === "عالٍ" ? "عالية" : finding.severity === "متوسط" ? "متوسطة" : "منخفضة";
+  const code = await nextMaintenanceCode();
+  const [issue] = await db
+    .insert(maintenanceIssues)
+    .values({
+      code,
+      title: `ملاحظة فحص: ${finding.label}`,
+      description: finding.note ?? null,
+      roomId: finding.roomId,
+      priority,
+      status: "مسودة",
+      inspectionFindingId: finding.id,
+      reportedBy: user.id,
+    })
+    .returning();
+  await db.insert(maintenanceStatusHistory).values({ issueId: issue.id, fromStatus: null, toStatus: "مسودة", actorId: user.id, note: `أُنشئ من ملاحظة فحص «${finding.label}»` });
+  await db.update(inspectionFindings).set({ maintenanceIssueId: issue.id }).where(eq(inspectionFindings.id, findingId));
+  await audit({ actorId: user.id, action: "maintenance.created_from_finding", entityType: "maintenance", entityId: issue.id, summary: `بلاغ ${code} من ملاحظة فحص «${finding.label}»` });
+  revalidatePath(`/building/rooms/${finding.roomId}`);
+  revalidatePath("/building/maintenance");
+  return { success: `أُنشئ البلاغ ${code}` };
 }
 
 /** تجاوز الجاهزية — سبب إلزامي */
@@ -609,28 +679,87 @@ export async function createIssueAction(_prev: ActionState, formData: FormData):
       reportedBy: user.id,
     })
     .returning();
+  await db.insert(maintenanceStatusHistory).values({ issueId: issue.id, fromStatus: null, toStatus: issue.status, actorId: user.id });
   await audit({ actorId: user.id, action: "maintenance.created", entityType: "maintenance", entityId: issue.id, summary: `${code} — ${orFallback(issue.title)}` });
   revalidatePath("/building/maintenance");
-  return { success: `سجل البلاغ ${code}` };
+  return { success: `سجل البلاغ ${code} — اعتمده ليتحول من مسودة` };
 }
 
-const ISSUE_STATUSES = ["مفتوح", "قيد الإصلاح", "تم الإصلاح", "مغلق ومتحقق"] as const;
-
-export async function updateIssueStatusAction(issueId: string, formData: FormData): Promise<void> {
+/**
+ * انتقال حالة البلاغ (v2.3 §18, D-036) — الانتقالات المسموحة من
+ * `@/lib/building/maintenance-lifecycle` وتُنفَّذ هنا على الخادم حصراً؛
+ * كل انتقال يُسجَّل في السجل الإلحاقي.
+ */
+export async function transitionIssueAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("maintenance.write");
-  const status = String(formData.get("status") ?? "مفتوح");
-  if (!ISSUE_STATUSES.includes(status as (typeof ISSUE_STATUSES)[number])) return;
-  const repairNote = String(formData.get("repairNote") ?? "").trim();
+  const issueId = String(formData.get("issueId") ?? "");
+  const toStatus = String(formData.get("toStatus") ?? "");
+  const note = String(formData.get("note") ?? "").trim();
+
   const [issue] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issueId));
-  if (!issue) return;
-  const patch: Record<string, unknown> = { status, updatedAt: new Date() };
-  if (repairNote) patch.repairNote = repairNote;
-  if (status === "مغلق ومتحقق") {
+  if (!issue) return { error: "البلاغ غير موجود" };
+  const allowed = ISSUE_TRANSITIONS[issue.status] ?? [];
+  if (!allowed.includes(toStatus)) {
+    return { error: `لا يمكن الانتقال من «${issue.status}» إلى «${toStatus}»` };
+  }
+
+  const patch: Record<string, unknown> = { status: toStatus, updatedAt: new Date() };
+
+  if (toStatus === "معتمد") {
+    patch.approvedBy = user.id;
+    patch.approvedAt = new Date();
+  }
+  if (toStatus === "تم الإرسال") {
+    const sentTo = String(formData.get("sentTo") ?? "").trim();
+    const sentAt = String(formData.get("sentAt") ?? "").trim();
+    if (!sentTo) return { error: "حدد الجهة المستلمة (شركة الصيانة أو الجهة المسؤولة)" };
+    if (sentAt && !isValidIsoDate(sentAt)) return { error: "تاريخ الإرسال غير صحيح — اختر التاريخ من الحقل" };
+    patch.sentTo = sentTo;
+    patch.sentAt = sentAt || todayIso();
+  }
+  if (toStatus === "تم الإصلاح" || toStatus === "لم يتم الإصلاح") {
+    const visitDate = String(formData.get("visitDate") ?? "").trim();
+    const actionTaken = String(formData.get("actionTaken") ?? "").trim();
+    if (visitDate && !isValidIsoDate(visitDate)) return { error: "تاريخ الزيارة غير صحيح — اختر التاريخ من الحقل" };
+    if (visitDate) patch.visitDate = visitDate;
+    if (actionTaken) patch.actionTaken = actionTaken;
+    patch.resolution = toStatus;
+    const repairNote = String(formData.get("repairNote") ?? "").trim();
+    if (repairNote) patch.repairNote = repairNote;
+  }
+  if (toStatus === "تحت المعالجة" && (issue.status === "تم الإصلاح" || issue.status === "لم يتم الإصلاح")) {
+    // إعادة فتح المعالجة — النتيجة السابقة تُمسح من الحالة الجارية وتبقى في السجل
+    patch.resolution = null;
+  }
+  if (toStatus === "مغلق") {
+    // قاعدة الإغلاق (§18): «لم يتم الإصلاح» يتطلب سبباً وتوصية وقرار تصعيد
+    if (issue.resolution === "لم يتم الإصلاح") {
+      const closureReason = String(formData.get("closureReason") ?? "").trim();
+      const followup = String(formData.get("followupRecommendation") ?? "").trim();
+      const escalation = String(formData.get("escalationNeeded") ?? "");
+      if (closureReason.length < 5) return { error: "سبب الإغلاق إلزامي عند «لم يتم الإصلاح» (5 أحرف على الأقل)" };
+      if (followup.length < 5) return { error: "توصية المتابعة إلزامية عند «لم يتم الإصلاح»" };
+      if (escalation !== "نعم" && escalation !== "لا") return { error: "حدد هل يلزم تصعيد أو بلاغ جديد" };
+      patch.closureReason = closureReason;
+      patch.followupRecommendation = followup;
+      patch.escalationNeeded = escalation === "نعم";
+    }
     patch.closedAt = new Date();
     patch.verifiedBy = user.id;
     patch.verifiedAt = new Date();
   }
+
   await db.update(maintenanceIssues).set(patch).where(eq(maintenanceIssues.id, issueId));
-  await audit({ actorId: user.id, action: "maintenance.status_changed", entityType: "maintenance", entityId: issueId, summary: `${issue.code} → ${status}` });
+  await db.insert(maintenanceStatusHistory).values({
+    issueId,
+    fromStatus: issue.status,
+    toStatus,
+    note: note || null,
+    actorId: user.id,
+  });
+  await audit({ actorId: user.id, action: "maintenance.status_changed", entityType: "maintenance", entityId: issueId, summary: `${issue.code}: ${issue.status} ← ${toStatus}` });
   revalidatePath("/building/maintenance");
+  revalidatePath(`/building/maintenance/${issueId}`);
+  if (issue.roomId) revalidatePath(`/building/rooms/${issue.roomId}`);
+  return { success: `انتقل البلاغ إلى «${toStatus}»` };
 }

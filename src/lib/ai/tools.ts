@@ -647,12 +647,14 @@ const roomBrief: ReadTool = {
       .where(eq(readinessOverrides.roomId, room.id))
       .orderBy(desc(readinessOverrides.createdAt))
       .limit(1);
-    const { readiness, source } = computeRoomReadiness({
-      latestInspection: latestIns ? { results: latestIns.results ?? [] } : null,
-      assets: roomAssets,
-      openIssues: openIssues.length,
-      override: override ? { value: override.overrideValue } : null,
+    void roomAssets;
+    const readiness = computeRoomReadiness({
+      latestInspection: latestIns
+        ? { results: latestIns.results ?? [], templateSnapshot: latestIns.templateSnapshot }
+        : null,
+      override: override ? { value: override.overrideValue, reason: override.reason } : null,
     });
+    const readinessText = readiness.percent === null ? readiness.statusAr : `${readiness.statusAr} (${readiness.percent}٪)`;
 
     const dims = room.lengthM && room.widthM ? `الأبعاد ${room.lengthM}×${room.widthM} م` : null;
     const rows: ReadToolResult["rows"] = [
@@ -663,7 +665,7 @@ const roomBrief: ReadTool = {
           .join(" — "),
         href: `/building/rooms/${room.id}`,
       },
-      { title: `الجاهزية: ${readiness}٪`, detail: source },
+      { title: `الجاهزية: ${readinessText}` },
       { title: "آخر فحص", detail: latestIns ? latestIns.inspectionDate.toLocaleDateString("ar-SA-u-nu-latn") : "لم تفحص إطلاقاً" },
     ];
     for (const issue of openIssues) {
@@ -671,7 +673,7 @@ const roomBrief: ReadTool = {
     }
 
     return {
-      summary: `غرفة «${room.nameAr}» (${room.code}): الجاهزية ${readiness}٪ — بلاغات مفتوحة: ${openIssues.length} — آخر فحص: ${latestIns ? latestIns.inspectionDate.toLocaleDateString("ar-SA-u-nu-latn") : "لا يوجد"}`,
+      summary: `غرفة «${room.nameAr}» (${room.code}): الجاهزية ${readinessText} — بلاغات قائمة: ${openIssues.length} — آخر فحص: ${latestIns ? latestIns.inspectionDate.toLocaleDateString("ar-SA-u-nu-latn") : "لا يوجد"}`,
       rows,
     };
   },

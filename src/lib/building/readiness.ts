@@ -1,37 +1,123 @@
 /**
- * حساب جاهزية الغرفة من نتائج الفحص وحالة الأصول المطلوبة والبلاغات المفتوحة.
- * التجاوز اليدوي ممكن فقط بسبب مسجل إلزامي.
+ * جاهزية الغرفة (v2.3 §16) — حساب شفاف بالكامل: الواجهة تعرض لماذا الغرفة جاهزة
+ * أو غير جاهزة بنداً بنداً، لا مزيجاً موزوناً مبهماً.
+ *
+ * القواعد المحسومة:
+ *  - لا فحص بعد ← «لم يبدأ» بلا نسبة مُختلقة (لا 50٪ وهمية).
+ *  - بند حرج فاشل ← «غير جاهز» مهما كانت النسبة — لا يمكن اعتبار الغرفة جاهزة.
+ *  - بنود غير حرجة فاشلة فقط ← «يحتاج معالجة» مع نسبة البنود السليمة.
+ *  - كل البنود سليمة ← «جاهز» (100٪).
+ *  - التجاوز اليدوي يتصدّر بقيمته وسببه وفاعله — ويبقى مسجَّلاً في سجل إلحاقي.
+ *
+ * وحدة نقية بلا قاعدة بيانات — تُختبر وحدوياً بالكامل.
  */
-export function computeRoomReadiness(opts: {
-  latestInspection: { results: { key: string; ok: boolean }[] } | null;
-  assets: { condition: string; important: boolean }[];
-  openIssues: number;
-  override?: { value: number } | null;
-}): { readiness: number; source: "تجاوز يدوي" | "محسوبة"; parts: Record<string, number> } {
-  if (opts.override) {
-    return { readiness: opts.override.value, source: "تجاوز يدوي", parts: {} };
-  }
-  // الفحص: نسبة البنود السليمة (وزن 50)
-  let inspectionScore = 100;
-  if (opts.latestInspection && opts.latestInspection.results.length > 0) {
-    const ok = opts.latestInspection.results.filter((r) => r.ok).length;
-    inspectionScore = Math.round((ok / opts.latestInspection.results.length) * 100);
-  } else if (!opts.latestInspection) {
-    inspectionScore = 50; // لا فحص بعد — جاهزية جزئية
-  }
-  // الأصول: نسبة الأصول بحالة سليمة (وزن 30)
-  let assetScore = 100;
-  if (opts.assets.length > 0) {
-    const good = opts.assets.filter((a) => a.condition === "ممتازة" || a.condition === "جيدة").length;
-    assetScore = Math.round((good / opts.assets.length) * 100);
-  }
-  // البلاغات المفتوحة: خصم 15 لكل بلاغ حتى 60 (وزن 20)
-  const issueScore = Math.max(0, 100 - opts.openIssues * 25);
 
-  const readiness = Math.round(inspectionScore * 0.5 + assetScore * 0.3 + issueScore * 0.2);
+export type ReadinessCheck = {
+  key: string;
+  label: string;
+  ok: boolean;
+  /** فشل هذا البند يمنع الجاهزية */
+  critical: boolean;
+  severity: string;
+  note?: string;
+};
+
+export type RoomReadiness = {
+  /** لم يبدأ | جاهز | يحتاج معالجة | غير جاهز | تجاوز يدوي */
+  statusAr: "لم يبدأ" | "جاهز" | "يحتاج معالجة" | "غير جاهز" | "تجاوز يدوي";
+  /** نسبة البنود السليمة من آخر فحص — null قبل أول فحص */
+  percent: number | null;
+  /** null قبل أول فحص */
+  ready: boolean | null;
+  /** كل بنود آخر فحص مع نتيجتها — أساس «لماذا؟» في الواجهة */
+  checks: ReadinessCheck[];
+  /** البنود الحرجة الفاشلة — سبب «غير جاهز» */
+  failedCritical: ReadinessCheck[];
+  /** البنود غير الحرجة الفاشلة — سبب «يحتاج معالجة» */
+  failedOther: ReadinessCheck[];
+  override: { value: number; reason: string; actorName?: string | null; at?: Date | null } | null;
+};
+
+type SnapshotItem = {
+  key: string;
+  label: string;
+  severityOnFail?: string;
+};
+
+/** استخراج بنود لقطة القالب المجمَّدة — تدعم شكلي اللقطة (أقسام غنية أو قائمة مسطّحة) */
+export function snapshotItems(snapshot: unknown): SnapshotItem[] {
+  if (!Array.isArray(snapshot)) return [];
+  const first = snapshot[0] as Record<string, unknown> | undefined;
+  if (first && Array.isArray(first.items)) {
+    // أقسام غنية: [{title, items: [{key,label,severityOnFail?}]}]
+    return (snapshot as { items: SnapshotItem[] }[]).flatMap((s) => s.items);
+  }
+  return snapshot as SnapshotItem[];
+}
+
+export function computeRoomReadiness(opts: {
+  latestInspection: {
+    results: { key: string; ok: boolean; note?: string }[];
+    templateSnapshot: unknown;
+  } | null;
+  override?: { value: number; reason: string; actorName?: string | null; at?: Date | null } | null;
+}): RoomReadiness {
+  if (opts.override) {
+    return {
+      statusAr: "تجاوز يدوي",
+      percent: opts.override.value,
+      ready: opts.override.value >= 100,
+      checks: [],
+      failedCritical: [],
+      failedOther: [],
+      override: opts.override,
+    };
+  }
+
+  const insp = opts.latestInspection;
+  if (!insp || insp.results.length === 0) {
+    return {
+      statusAr: "لم يبدأ",
+      percent: null,
+      ready: null,
+      checks: [],
+      failedCritical: [],
+      failedOther: [],
+      override: null,
+    };
+  }
+
+  const items = snapshotItems(insp.templateSnapshot);
+  const byKey = new Map(items.map((i) => [i.key, i]));
+
+  const checks: ReadinessCheck[] = insp.results.map((r) => {
+    const item = byKey.get(r.key);
+    const severity = item?.severityOnFail ?? "متوسط";
+    return {
+      key: r.key,
+      label: item?.label ?? r.key,
+      ok: r.ok,
+      critical: severity === "حرج",
+      severity,
+      note: r.note,
+    };
+  });
+
+  const failedCritical = checks.filter((c) => !c.ok && c.critical);
+  const failedOther = checks.filter((c) => !c.ok && !c.critical);
+  const okCount = checks.filter((c) => c.ok).length;
+  const percent = Math.round((okCount / checks.length) * 100);
+
+  const statusAr =
+    failedCritical.length > 0 ? "غير جاهز" : failedOther.length > 0 ? "يحتاج معالجة" : "جاهز";
+
   return {
-    readiness,
-    source: "محسوبة",
-    parts: { الفحص: inspectionScore, الأصول: assetScore, البلاغات: issueScore },
+    statusAr,
+    percent,
+    ready: statusAr === "جاهز",
+    checks,
+    failedCritical,
+    failedOther,
+    override: null,
   };
 }

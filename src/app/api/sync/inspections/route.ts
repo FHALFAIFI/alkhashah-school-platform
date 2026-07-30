@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { inspections, rooms, floors, siteZones, inspectionTemplates } from "@/db/schema";
+import { rooms, floors, siteZones, inspectionTemplates } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { saveUploadedFile } from "@/lib/storage";
 import { userFacingError } from "@/lib/user-error";
+import { recordInspection } from "@/lib/building/inspection-recording";
 
 /**
  * مزامنة فحوصات وضع عدم الاتصال — idempotent عبر clientOpId:
@@ -79,22 +80,20 @@ export async function POST(req: NextRequest) {
         photoIds.push(stored.id);
       }
 
-      const inserted = await db
-        .insert(inspections)
-        .values({
-          clientOpId: op.clientOpId,
-          roomId: op.roomId,
-          templateId: op.templateId,
-          inspectionDate: new Date(op.inspectedAt),
-          results: op.results,
-          photos: photoIds,
-          notes: op.notes || null,
-          inspectorId: user.id,
-        })
-        .onConflictDoNothing({ target: inspections.clientOpId })
-        .returning({ id: inspections.id });
+      // نقطة التسجيل الموحّدة (v2.3 §16): تجميد لقطة القالب + إنشاء ملاحظات البنود
+      // الفاشلة — كان مسار المزامنة يُسقط اللقطة فيفقد الفحص أصله التاريخي.
+      const { inspectionId } = await recordInspection({
+        roomId: op.roomId,
+        template,
+        results: op.results,
+        inspectorId: user.id,
+        notes: op.notes || null,
+        photos: photoIds,
+        clientOpId: op.clientOpId,
+        inspectionDate: new Date(op.inspectedAt),
+      });
 
-      if (inserted.length > 0) applied.push(op.clientOpId);
+      if (inspectionId) applied.push(op.clientOpId);
       else skipped.push(op.clientOpId); // مزامن مسبقاً — لا تكرار
     } catch (e) {
       failed.push({ clientOpId: op.clientOpId, error: userFacingError(e, "خطأ") });

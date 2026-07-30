@@ -85,6 +85,22 @@ const badgeColors: Record<string, string> = {
   "ملغي": "bg-gray-100 text-gray-500",
   "لم يراجع": "bg-amber-50 text-amber-700",
   "مقبول": "bg-emerald-100 text-emerald-800",
+  // دورة حياة بلاغات الصيانة (v2.3 §18)
+  "تم الإرسال": "bg-blue-100 text-blue-800",
+  "تحت المعالجة": "bg-amber-100 text-amber-800",
+  "لم يتم الإصلاح": "bg-red-100 text-red-800",
+  // الفحص والجاهزية (v2.3 §16)
+  "جارٍ الفحص": "bg-blue-100 text-blue-800",
+  "يحتاج معالجة": "bg-amber-100 text-amber-800",
+  "غير جاهز": "bg-red-100 text-red-800",
+  "تجاوز يدوي": "bg-purple-100 text-purple-800",
+  "حرج": "bg-red-100 text-red-800",
+  "عالٍ": "bg-red-50 text-red-700",
+  "متوسط": "bg-amber-100 text-amber-800",
+  "منخفض": "bg-gray-100 text-gray-600",
+  // دفتر العمليات المالية (v2.3 §6)
+  "إيراد": "bg-emerald-50 text-emerald-700",
+  "مصروف": "bg-red-50 text-red-700",
 };
 
 export function Badge({ value }: { value: string }) {

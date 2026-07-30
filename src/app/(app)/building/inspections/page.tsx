@@ -2,7 +2,7 @@ import Link from "next/link";
 import { asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
-import { inspectionTemplates, inspections, rooms, floors, maintenanceIssues, assets, readinessOverrides } from "@/db/schema";
+import { inspectionTemplates, inspections, rooms, floors, maintenanceIssues, readinessOverrides } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, ProgressBar } from "@/components/ui";
 import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { computeRoomReadiness } from "@/lib/building/readiness";
@@ -15,13 +15,12 @@ export const dynamic = "force-dynamic";
 
 export default async function InspectionsPage() {
   const user = await requirePermission("inspections.read");
-  const [templates, allRooms, allFloors, allInspections, allIssues, allAssets, overrides] = await Promise.all([
+  const [templates, allRooms, allFloors, allInspections, allIssues, overrides] = await Promise.all([
     db.select().from(inspectionTemplates).orderBy(asc(inspectionTemplates.createdAt)),
     db.select().from(rooms).where(eq(rooms.active, true)).orderBy(asc(rooms.code)),
     db.select().from(floors),
     db.select().from(inspections).orderBy(desc(inspections.inspectionDate)),
     db.select().from(maintenanceIssues),
-    db.select().from(assets).where(eq(assets.active, true)),
     db.select().from(readinessOverrides).orderBy(desc(readinessOverrides.createdAt)),
   ]);
   const floorName = new Map(allFloors.map((f) => [f.id, f.nameAr]));
@@ -29,16 +28,17 @@ export default async function InspectionsPage() {
 
   const readinessRows = allRooms.map((room) => {
     const latest = allInspections.find((i) => i.roomId === room.id) ?? null;
-    const roomAssets = allAssets.filter((a) => a.roomId === room.id);
-    const open = allIssues.filter((i) => i.roomId === room.id && (i.status === "مفتوح" || i.status === "قيد الإصلاح")).length;
+    const open = allIssues.filter(
+      (i) => i.roomId === room.id && i.status !== "مغلق" && i.status !== "مسودة",
+    ).length;
     const override = overrides.find((o) => o.roomId === room.id) ?? null;
-    const { readiness, source } = computeRoomReadiness({
-      latestInspection: latest ? { results: latest.results ?? [] } : null,
-      assets: roomAssets.map((a) => ({ condition: a.condition, important: a.important })),
-      openIssues: open,
-      override: override ? { value: override.overrideValue } : null,
+    const readiness = computeRoomReadiness({
+      latestInspection: latest
+        ? { results: latest.results ?? [], templateSnapshot: latest.templateSnapshot }
+        : null,
+      override: override ? { value: override.overrideValue, reason: override.reason } : null,
     });
-    return { room, readiness, source, lastInspection: latest?.inspectionDate ?? null, open };
+    return { room, readiness, lastInspection: latest?.inspectionDate ?? null, open };
   });
 
   return (
@@ -85,16 +85,26 @@ export default async function InspectionsPage() {
 
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">جاهزية الغرف</h2>
-        <Table headers={["الرمز", "الغرفة", "الدور", "الجاهزية", "المصدر", "آخر فحص", "بلاغات مفتوحة"]}>
-          {readinessRows.map(({ room, readiness, source, lastInspection, open }) => (
+        <p className="mb-3 text-xs text-gray-500">
+          الحالة من آخر فحص: بند حرج فاشل = «غير جاهز»، بنود غير حرجة فاشلة = «يحتاج معالجة»،
+          وكل التفاصيل بنداً بنداً داخل صفحة الغرفة.
+        </p>
+        <Table headers={["الرمز", "الغرفة", "الدور", "الحالة", "نسبة البنود السليمة", "آخر فحص", "بلاغات قائمة"]}>
+          {readinessRows.map(({ room, readiness, lastInspection, open }) => (
             <tr key={room.id}>
               <td className="px-3 py-2 tabular-nums">{room.code}</td>
               <td className="px-3 py-2 font-medium">
                 <Link href={`/building/rooms/${room.id}`} className="text-brand-700 hover:underline">{orFallback(room.nameAr)}</Link>
               </td>
               <td className="px-3 py-2 text-xs">{floorName.get(room.floorId)}</td>
-              <td className="px-3 py-2"><ProgressBar value={readiness} /></td>
-              <td className="px-3 py-2 text-xs">{source}</td>
+              <td className="px-3 py-2"><Badge value={readiness.statusAr} /></td>
+              <td className="px-3 py-2">
+                {readiness.percent === null ? (
+                  <span className="text-xs text-gray-400">—</span>
+                ) : (
+                  <ProgressBar value={readiness.percent} />
+                )}
+              </td>
               <td className="px-3 py-2 text-xs tabular-nums">
                 {lastInspection ? lastInspection.toLocaleDateString("ar-SA-u-nu-latn") : "لم يفحص"}
               </td>

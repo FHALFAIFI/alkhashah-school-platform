@@ -1,7 +1,9 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { createIssueAction, updateIssueStatusAction, type ActionState } from "../actions";
+import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createIssueAction, transitionIssueAction, type ActionState } from "../actions";
+import { ISSUE_TRANSITIONS, transitionLabel } from "@/lib/building/maintenance-lifecycle";
 import { Field, SubmitButton } from "@/components/ui";
 
 export function NewIssueForm({
@@ -62,32 +64,129 @@ export function NewIssueForm({
   );
 }
 
-export function IssueStatusControl({ issueId, status }: { issueId: string; status: string }) {
-  const [nextStatus, setNextStatus] = useState(status);
+/**
+ * التحكم في دورة حياة البلاغ (v2.3 §18) — الأزرار من خريطة الانتقالات المسموحة نفسها
+ * المنفَّذة على الخادم؛ الانتقالات ذات الحقول (الإرسال/نتيجة المعالجة/إغلاق «لم يتم
+ * الإصلاح») تفتح نموذجاً صغيراً بالحقول المطلوبة.
+ */
+export function IssueWorkflowControl({
+  issueId,
+  status,
+  resolution,
+}: {
+  issueId: string;
+  status: string;
+  resolution: string | null;
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(transitionIssueAction, null);
+  const router = useRouter();
+  // بعد نجاح الانتقال: تحديث فوري للعرض — لا شاشة قديمة تحتاج تحديثاً يدوياً
+  useEffect(() => {
+    if (state?.success) router.refresh();
+  }, [state?.success, router]);
+
+  const allowed = ISSUE_TRANSITIONS[status] ?? [];
+  if (allowed.length === 0) return null;
+
   return (
-    <form action={updateIssueStatusAction.bind(null, issueId)} className="flex flex-col gap-1">
-      <select
-        name="status"
-        value={nextStatus}
-        onChange={(e) => setNextStatus(e.target.value)}
-        className="rounded border border-gray-300 bg-white px-2 py-1 text-xs"
-      >
-        <option value="مفتوح">مفتوح</option>
-        <option value="قيد الإصلاح">قيد الإصلاح</option>
-        <option value="تم الإصلاح">تم الإصلاح</option>
-        <option value="مغلق ومتحقق">مغلق ومتحقق</option>
-      </select>
-      <input
-        name="repairNote"
-        placeholder={nextStatus === "تم الإصلاح" ? "ما الذي أصلح؟ (اختياري)" : "ملاحظة الإصلاح (اختياري)"}
-        className="w-32 max-w-full rounded border border-gray-300 px-2 py-1 text-xs"
-      />
-      <SubmitButton
-        variant="secondary"
-        confirmText={nextStatus === "مغلق ومتحقق" ? "إغلاق البلاغ نهائياً بعد التحقق من الإصلاح؟ لا يمكن تحديثه بعد الإغلاق." : undefined}
-      >
-        حفظ
-      </SubmitButton>
-    </form>
+    // إعادة التركيب عند النجاح تطوي نموذج الانتقال المفتوح (نمط key المعتمد في المشروع)
+    <div key={state?.success ?? "init"}>
+      <WorkflowButtons state={state} formAction={formAction} issueId={issueId} allowed={allowed} resolution={resolution} />
+    </div>
+  );
+}
+
+function WorkflowButtons({
+  state,
+  formAction,
+  issueId,
+  allowed,
+  resolution,
+}: {
+  state: ActionState;
+  formAction: (formData: FormData) => void;
+  issueId: string;
+  allowed: string[];
+  resolution: string | null;
+}) {
+  const [openTransition, setOpenTransition] = useState<string | null>(null);
+
+  const needsForm = (to: string) =>
+    to === "تم الإرسال" ||
+    to === "تم الإصلاح" ||
+    to === "لم يتم الإصلاح" ||
+    (to === "مغلق" && resolution === "لم يتم الإصلاح");
+
+  return (
+    <div className="space-y-2">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <div className="flex flex-wrap gap-1.5">
+        {allowed.map((to) =>
+          needsForm(to) ? (
+            <button
+              key={to}
+              type="button"
+              onClick={() => setOpenTransition(openTransition === to ? null : to)}
+              className="min-h-11 rounded-lg border border-sand-200 px-2.5 py-1 text-xs hover:bg-sand-100 lg:min-h-0"
+            >
+              {transitionLabel(to)}
+            </button>
+          ) : (
+            <form key={to} action={formAction} className="inline">
+              <input type="hidden" name="issueId" value={issueId} />
+              <input type="hidden" name="toStatus" value={to} />
+              <SubmitButton variant="secondary">{transitionLabel(to)}</SubmitButton>
+            </form>
+          ),
+        )}
+      </div>
+
+      {openTransition && (
+        <form action={formAction} className="space-y-2 rounded-lg bg-sand-50 p-3">
+          <input type="hidden" name="issueId" value={issueId} />
+          <input type="hidden" name="toStatus" value={openTransition} />
+          <p className="text-xs font-bold text-gray-600">{transitionLabel(openTransition)}</p>
+
+          {openTransition === "تم الإرسال" && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Field label="الجهة المستلمة (شركة الصيانة / الجهة المسؤولة)" name="sentTo" required />
+              <Field label="تاريخ الإرسال" name="sentAt" type="date" />
+            </div>
+          )}
+
+          {(openTransition === "تم الإصلاح" || openTransition === "لم يتم الإصلاح") && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Field label="تاريخ زيارة الصيانة" name="visitDate" type="date" />
+              <Field label="الإجراء المتخذ" name="actionTaken" />
+              <Field label="ملاحظة الإصلاح" name="repairNote" />
+            </div>
+          )}
+
+          {openTransition === "مغلق" && resolution === "لم يتم الإصلاح" && (
+            <div className="space-y-2">
+              <Field label="سبب الإغلاق دون إصلاح" name="closureReason" required />
+              <Field label="توصية المتابعة" name="followupRecommendation" required />
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">هل يلزم تصعيد أو بلاغ جديد؟ <span className="text-red-500">*</span></label>
+                <select name="escalationNeeded" required defaultValue="" className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
+                  <option value="" disabled>اختر</option>
+                  <option value="نعم">نعم — يلزم تصعيد أو بلاغ جديد</option>
+                  <option value="لا">لا</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          <Field label="ملاحظة على الانتقال (اختياري)" name="note" />
+          <div className="flex gap-2">
+            <SubmitButton>تأكيد</SubmitButton>
+            <button type="button" onClick={() => setOpenTransition(null)} className="min-h-11 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100 lg:min-h-0">
+              إلغاء
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

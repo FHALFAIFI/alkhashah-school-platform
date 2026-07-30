@@ -401,15 +401,20 @@ async function maintenanceItems(user: CurrentUser, ex: SyntheticIdSets): Promise
     })
     .from(maintenanceIssues)
     .leftJoin(rooms, eq(maintenanceIssues.roomId, rooms.id))
-    .where(and(inArray(maintenanceIssues.status, ["مفتوح", "قيد الإصلاح", "تم الإصلاح"]), notSynthetic(maintenanceIssues.id, ex.maintenance)))
+    .where(and(inArray(maintenanceIssues.status, ["معتمد", "تم الإرسال", "تحت المعالجة", "تم الإصلاح", "لم يتم الإصلاح"]), notSynthetic(maintenanceIssues.id, ex.maintenance)))
     .orderBy(desc(maintenanceIssues.createdAt));
   return issues.map((i) => ({
     title: `${i.title} (${i.code})`,
     detail: i.roomName ?? undefined,
     status: i.status,
     href: `/building/maintenance#issue-${i.code}`,
-    action: i.status === "تم الإصلاح" ? "تحقق وأغلق البلاغ" : "تابع الإصلاح",
-    urgent: i.priority === "عالية" && i.status === "مفتوح",
+    action:
+      i.status === "تم الإصلاح" || i.status === "لم يتم الإصلاح"
+        ? "أغلق البلاغ بنتيجته"
+        : i.status === "معتمد"
+          ? "أرسل البلاغ للجهة المسؤولة"
+          : "تابع المعالجة",
+    urgent: i.priority === "عالية" && (i.status === "معتمد" || i.status === "تم الإرسال"),
   }));
 }
 

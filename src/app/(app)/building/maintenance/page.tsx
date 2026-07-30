@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
@@ -5,9 +6,9 @@ import { maintenanceIssues, people, rooms } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, EmptyState } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { orFallback } from "@/lib/format";
-import { NewIssueForm, IssueStatusControl } from "./maintenance-ui";
+import { NewIssueForm } from "./maintenance-ui";
 
-export const metadata = { title: "الصيانة" };
+export const metadata = { title: "بلاغات الصيانة" };
 export const dynamic = "force-dynamic";
 
 export default async function MaintenancePage() {
@@ -26,7 +27,7 @@ export default async function MaintenancePage() {
     <div className="space-y-4">
       <PageHeader
         title="بلاغات الصيانة"
-        subtitle="سير عمل بسيط: بلاغ ← إصلاح ← إغلاق وتحقق — بلا بوابة موردين أو فواتير أو تكاليف"
+        subtitle="دورة حياة رسمية: مسودة ← اعتماد ← إرسال للجهة المسؤولة ← معالجة ← نتيجة (تم الإصلاح / لم يتم الإصلاح) ← إغلاق — افتح البلاغ لمتابعته وتوليد خطابه"
       />
       {canWrite && (
         <Card>
@@ -40,27 +41,29 @@ export default async function MaintenancePage() {
       {issues.length === 0 ? (
         <EmptyState title="لا بلاغات صيانة" />
       ) : (
-        <Table headers={["الرمز", "البلاغ", "الموقع", "المكلف بالإصلاح", "الأولوية", "الحالة", "الصور", canWrite ? "تحديث" : ""]}>
+        <Table headers={["الرمز", "البلاغ", "الموقع", "المكلف بالإصلاح", "الأولوية", "الحالة", "النتيجة", ""]}>
           {issues.map((i) => (
-            <tr key={i.id} id={`issue-${i.code}`}>
-              <td className="px-3 py-2 tabular-nums">{i.code}</td>
+            <tr key={i.id} id={`issue-${i.code}`} className="scroll-mt-20">
+              <td className="px-3 py-2 tabular-nums">
+                <Link href={`/building/maintenance/${i.id}`} className="text-brand-700 hover:underline">
+                  {i.code}
+                </Link>
+              </td>
               <td className="px-3 py-2">
-                <span className="font-medium">{orFallback(i.title)}</span>
+                <Link href={`/building/maintenance/${i.id}`} className="font-medium text-brand-800 hover:underline">
+                  {orFallback(i.title)}
+                </Link>
                 {i.description && <p className="text-xs text-gray-400">{i.description}</p>}
-                {i.repairNote && <p className="text-xs text-emerald-700">الإصلاح: {i.repairNote}</p>}
               </td>
               <td className="px-3 py-2 text-xs">{i.roomId ? orFallback(roomName.get(i.roomId), "—") : "—"}</td>
               <td className="px-3 py-2 text-xs">{i.ownerPersonId ? orFallback(personName.get(i.ownerPersonId), "—") : "—"}</td>
               <td className="px-3 py-2"><Badge value={i.priority} /></td>
               <td className="px-3 py-2"><Badge value={i.status} /></td>
-              <td className="px-3 py-2 text-xs">
-                {(i.photos ?? []).map((p, idx) => (
-                  <a key={p} href={`/api/files/${p}`} className="me-1 text-brand-700 underline">صورة {idx + 1}</a>
-                ))}
-                {(i.photos ?? []).length === 0 && "—"}
-              </td>
+              <td className="px-3 py-2 text-xs">{i.resolution ?? "—"}</td>
               <td className="px-3 py-2">
-                {canWrite && i.status !== "مغلق ومتحقق" && <IssueStatusControl issueId={i.id} status={i.status} />}
+                <Link href={`/building/maintenance/${i.id}`} className="text-xs text-brand-700 underline">
+                  فتح البلاغ ←
+                </Link>
               </td>
             </tr>
           ))}

@@ -176,6 +176,13 @@
       "when": 1785451790778,
       "tag": "0024_smooth_guardian",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785452897107,
+      "tag": "0025_clammy_blackheart",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { users } from "./core";
 import { storedFiles } from "./shared";
+import { people } from "./school";
 
 /**
  * مناطق الموقع: مجمع البنين (managed) ومجمع البنات (context — سياق جغرافي فقط،
@@ -138,6 +139,25 @@ export const assetHistory = pgTable(
  * status: مسودة | معتمد (=مُفعّل/قابل للاستخدام) | معطّل. `sections` هي المصدر الغني للتحرير
  * والمعاينة والتجميد؛ `items` قائمة مسطّحة مشتقة للتوافق مع الفحص/الجاهزية/عدم الاتصال.
  */
+
+/**
+ * سجل أنواع الغرف الموحّد (v2.3 §16-17, D-037) — كان النوع نصاً حراً في 4 قوائم متباينة،
+ * فتعذّرت مطابقة قوالب الفحص بالغرف («مختبر» في القالب لا يطابق «معمل» في الغرف).
+ * الأسماء التاريخية تُحفظ في `aliases` وتُحلّ إلى النوع نفسه — لا يُعاد كتابة أي غرفة.
+ */
+export const roomTypes = pgTable("room_types", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull().unique(),
+  labelAr: text("label_ar").notNull(),
+  /** أسماء نصية تاريخية/مرادفة تُحسب على هذا النوع عند المطابقة */
+  aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  isSystem: boolean("is_system").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const inspectionTemplates = pgTable("inspection_templates", {
   id: uuid("id").primaryKey().defaultRandom(),
   code: text("code"), // KHS-TPL-0001 — ثابت عبر إصدارات العائلة
@@ -181,6 +201,45 @@ export const inspections = pgTable(
   (t) => [index("inspections_room_idx").on(t.roomId)],
 );
 
+/**
+ * ملاحظات الفحص (v2.3 §16) — سجل لكل بند فاشل في فحص: الخطورة والمسؤولية وموعد
+ * المعالجة المستهدف، وربطه ببلاغ صيانة عند الحاجة، ومتابعته حتى الإغلاق.
+ * تُنشأ تلقائياً من بنود الفحص الفاشلة وقت التسجيل (اتصالاً وبلا اتصال).
+ */
+export const inspectionFindings = pgTable(
+  "inspection_findings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    inspectionId: uuid("inspection_id").notNull().references(() => inspections.id, { onDelete: "cascade" }),
+    roomId: uuid("room_id").notNull().references(() => rooms.id),
+    itemKey: text("item_key").notNull(),
+    label: text("label").notNull(),
+    note: text("note"),
+    /** منخفض | متوسط | عالٍ | حرج — من `severityOnFail` في نسخة القالب المجمَّدة */
+    severity: text("severity").notNull().default("متوسط"),
+    /** البند الحرج الفاشل يمنع اعتبار الغرفة جاهزة */
+    critical: boolean("critical").notNull().default(false),
+    /** المسؤول عن المعالجة — نص حر أو من سجل المنسوبين */
+    responsiblePersonId: uuid("responsible_person_id").references(() => people.id, { onDelete: "set null" }),
+    responsibleText: text("responsible_text"),
+    /** موعد المعالجة المستهدف — ميلادي ISO (D-033) */
+    targetDate: text("target_date"),
+    /** يحتاج معالجة | مغلق */
+    status: text("status").notNull().default("يحتاج معالجة"),
+    resolutionNote: text("resolution_note"),
+    closedBy: uuid("closed_by").references(() => users.id),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    /** بلاغ الصيانة المنشأ من هذه الملاحظة إن وُجد */
+    maintenanceIssueId: uuid("maintenance_issue_id").references(() => maintenanceIssues.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("inspection_findings_room_idx").on(t.roomId),
+    index("inspection_findings_status_idx").on(t.status),
+    index("inspection_findings_inspection_idx").on(t.inspectionId),
+  ],
+);
+
 /** جدولة الفحص الدوري */
 export const inspectionSchedules = pgTable("inspection_schedules", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -191,7 +250,11 @@ export const inspectionSchedules = pgTable("inspection_schedules", {
   active: boolean("active").notNull().default(true),
 });
 
-/** بلاغات الصيانة — سير عمل بسيط */
+/**
+ * بلاغات الصيانة (v2.3 §18, D-036) — دورة حياة رسمية حتى الإغلاق:
+ * مسودة ← معتمد ← تم الإرسال ← تحت المعالجة ← تم الإصلاح | لم يتم الإصلاح ← مغلق.
+ * الانتقالات محكومة على الخادم وتُسجَّل في `maintenance_status_history` (سجل إلحاقي).
+ */
 export const maintenanceIssues = pgTable(
   "maintenance_issues",
   {
@@ -203,10 +266,30 @@ export const maintenanceIssues = pgTable(
     roomId: uuid("room_id").references(() => rooms.id),
     assetId: uuid("asset_id").references(() => assets.id),
     priority: text("priority").notNull().default("متوسطة"),
-    status: text("status").notNull().default("مفتوح"), // مفتوح | قيد الإصلاح | تم الإصلاح | مغلق ومتحقق
+    /** مسودة | معتمد | تم الإرسال | تحت المعالجة | تم الإصلاح | لم يتم الإصلاح | مغلق */
+    status: text("status").notNull().default("مسودة"),
     photos: jsonb("photos").$type<string[]>(),
     ownerPersonId: uuid("owner_person_id"),
     repairNote: text("repair_note"),
+    /** اعتماد البلاغ قبل توليد الوثيقة وإرسالها */
+    approvedBy: uuid("approved_by").references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /** الإرسال: الجهة المستلمة (شركة الصيانة/الجهة المسؤولة) وتاريخ الإرسال (ISO — D-033) */
+    sentTo: text("sent_to"),
+    sentAt: text("sent_at"),
+    /** المتابعة: تاريخ زيارة الصيانة والإجراء المتخذ */
+    visitDate: text("visit_date"),
+    actionTaken: text("action_taken"),
+    /** نتيجة المعالجة النهائية: تم الإصلاح | لم يتم الإصلاح */
+    resolution: text("resolution"),
+    /** إغلاق «لم يتم الإصلاح» يتطلب سبباً وتوصية وقرار تصعيد (§18) */
+    closureReason: text("closure_reason"),
+    followupRecommendation: text("followup_recommendation"),
+    escalationNeeded: boolean("escalation_needed"),
+    /** ملاحظة الفحص التي أنشأت هذا البلاغ إن وُجدت */
+    inspectionFindingId: uuid("inspection_finding_id"),
+    /** الوثيقة الرسمية المولَّدة للبلاغ (خطاب الصيانة) */
+    documentId: uuid("document_id"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
     verifiedBy: uuid("verified_by").references(() => users.id),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
@@ -215,6 +298,24 @@ export const maintenanceIssues = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("maintenance_room_idx").on(t.roomId), index("maintenance_status_idx").on(t.status)],
+);
+
+/**
+ * سجل انتقالات حالة البلاغ — إلحاقي فقط (نمط `program_closure_history`):
+ * من/إلى/من فعلها/متى/ملاحظة. ترحيل D-036 يكتب صفاً لكل بلاغ حوِّلت حالته.
+ */
+export const maintenanceStatusHistory = pgTable(
+  "maintenance_status_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    issueId: uuid("issue_id").notNull().references(() => maintenanceIssues.id, { onDelete: "cascade" }),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status").notNull(),
+    note: text("note"),
+    actorId: uuid("actor_id").references(() => users.id),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("maintenance_history_issue_idx").on(t.issueId)],
 );
 
 /** تجاوز الجاهزية — بسبب مسجل إلزامي */

@@ -1,7 +1,17 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { submitInspectionAction, overrideReadinessAction, updateRoomAction, createIssueAction, type ActionState } from "../../actions";
+import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  submitInspectionAction,
+  overrideReadinessAction,
+  updateRoomAction,
+  createIssueAction,
+  updateFindingAction,
+  closeFindingAction,
+  createIssueFromFindingAction,
+  type ActionState,
+} from "../../actions";
 import { Field, SubmitButton } from "@/components/ui";
 
 const ROOM_TYPES = [
@@ -196,5 +206,106 @@ export function ReadinessOverrideForm({ roomId }: { roomId: string }) {
       </div>
       <SubmitButton variant="secondary">تسجيل التجاوز</SubmitButton>
     </form>
+  );
+}
+
+/**
+ * التحكم في ملاحظة فحص مفتوحة (v2.3 §16): تحديد موعد المعالجة والمسؤولية،
+ * أو إغلاقها بعد المعالجة، أو تحويلها بلاغ صيانة يتابَع من وحدة البلاغات.
+ */
+export function FindingControls({
+  findingId,
+  hasIssue,
+  canCreateIssue,
+}: {
+  findingId: string;
+  hasIssue: boolean;
+  canCreateIssue: boolean;
+}) {
+  const [updateState, updateForm] = useActionState<ActionState, FormData>(updateFindingAction, null);
+  const [closeState, closeForm] = useActionState<ActionState, FormData>(closeFindingAction, null);
+  const [issueState, issueForm] = useActionState<ActionState, FormData>(createIssueFromFindingAction, null);
+  const successMarker = updateState?.success || closeState?.success || issueState?.success || null;
+  const router = useRouter();
+
+  // بعد النجاح: تحديث فوري للعرض — إعادة التركيب عبر key تطوي النموذج المفتوح
+  useEffect(() => {
+    if (successMarker) router.refresh();
+  }, [successMarker, router]);
+
+  return (
+    <FindingControlsBody
+      key={successMarker ?? "init"}
+      findingId={findingId}
+      hasIssue={hasIssue}
+      canCreateIssue={canCreateIssue}
+      updateForm={updateForm}
+      closeForm={closeForm}
+      issueForm={issueForm}
+      error={updateState?.error || closeState?.error || issueState?.error}
+    />
+  );
+}
+
+function FindingControlsBody({
+  findingId,
+  hasIssue,
+  canCreateIssue,
+  updateForm,
+  closeForm,
+  issueForm,
+  error,
+}: {
+  findingId: string;
+  hasIssue: boolean;
+  canCreateIssue: boolean;
+  updateForm: (formData: FormData) => void;
+  closeForm: (formData: FormData) => void;
+  issueForm: (formData: FormData) => void;
+  error?: string;
+}) {
+  const [open, setOpen] = useState<"update" | "close" | null>(null);
+
+  return (
+    <div className="space-y-1.5">
+      {error && <div role="alert" className="rounded bg-red-50 p-1.5 text-xs text-red-700">{error}</div>}
+      <div className="flex flex-wrap gap-1">
+        <button
+          type="button"
+          onClick={() => setOpen(open === "update" ? null : "update")}
+          className="min-h-11 rounded border border-sand-200 px-2 py-0.5 text-xs hover:bg-sand-100 lg:min-h-0"
+        >
+          موعد ومسؤولية
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(open === "close" ? null : "close")}
+          className="min-h-11 rounded border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700 hover:bg-emerald-50 lg:min-h-0"
+        >
+          إغلاق
+        </button>
+        {canCreateIssue && !hasIssue && (
+          <form action={issueForm} className="inline">
+            <input type="hidden" name="findingId" value={findingId} />
+            <SubmitButton variant="secondary">إنشاء بلاغ صيانة</SubmitButton>
+          </form>
+        )}
+      </div>
+      {open === "update" && (
+        <form action={updateForm} className="space-y-2 rounded bg-sand-50 p-2">
+          <input type="hidden" name="findingId" value={findingId} />
+          <Field label="موعد المعالجة المستهدف" name="targetDate" type="date" />
+          <Field label="المسؤول عن المعالجة" name="responsibleText" />
+          <SubmitButton>حفظ</SubmitButton>
+        </form>
+      )}
+      {open === "close" && (
+        <form action={closeForm} className="space-y-2 rounded bg-sand-50 p-2">
+          <input type="hidden" name="findingId" value={findingId} />
+          <Field label="ماذا عولج؟ (اختياري)" name="resolutionNote" />
+          <SubmitButton>إغلاق الملاحظة</SubmitButton>
+        </form>
+      )}
+    </div>
   );
 }

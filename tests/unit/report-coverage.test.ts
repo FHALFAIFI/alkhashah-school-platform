@@ -73,6 +73,7 @@ const MATRIX: Record<string, { category: CategoryKey } | { na: string }> = {
   "/evidence/[id]": { category: "evidence" },
   "/budget": { category: "finance" },
   "/budget/items/[id]": { na: "صفحة تفصيل بند مالي واحد — تقارير المالية تُفتح من لوحة المالية ومركز التقارير" },
+  "/building/maintenance/[id]": { na: "صفحة متابعة بلاغ صيانة واحد — تقارير الصيانة من قائمة البلاغات ومركز التقارير" },
 
   // ── الأداء الوظيفي ───────────────────────────────────────────────────────
   "/performance": { category: "performance" },
