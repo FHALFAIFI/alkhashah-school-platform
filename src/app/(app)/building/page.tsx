@@ -80,7 +80,9 @@ export default async function BuildingPage({ searchParams }: { searchParams: Pro
               تعرض مسودة غير منشورة — راجعها في المحرر مع صورة المصدر ثم انشرها لمزامنة سجل الغرف.
             </p>
           )}
+          {/* key بمفتاح الدور: تبديل الدور يعيد ضبط عرض التقريب/السحب بدل وراثة إحداثيات دور آخر */}
           <FloorViewer
+            key={active.key}
             geometry={geometry}
             roomLinks={Object.fromEntries(floorRooms.map((r) => [r.geomKey, `/building/rooms/${r.id}`]))}
           />
