@@ -2,7 +2,39 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — v2.2 DEPLOYED to production (Mac mini) 2026-07-29 — CONDITIONALLY READY
+## Latest checkpoint — CORRECTIVE PATCH v2.2.1 READY, NOT DEPLOYED (2026-07-30)
+- **Two post-deployment issues fixed on the branch; production untouched.** RC head `936c7c0`
+  (`e88add8` sketch + `936c7c0` workflow). Full report: `docs/CORRECTIVE_PATCH_V2_2_1.md`.
+- **Issue 1 — /building sketch controls** were broken by 6 compounding defects (MIN_SCALE=1
+  made −/⟲ no-ops; CSS transform mixed px into viewBox units; `pinch-zoom` touch-action gave
+  pinch to the browser; no wheel handler; no fit-to-view; controls under the sticky header +
+  pointer-map leak killing room taps). Rewritten as viewBox-based math in
+  `src/lib/building/viewer-view.ts` (scale 0.5–8, window clamped, zoom-at-point, fit) with 4
+  labeled controls at the bottom corner, wheel + pinch, per-floor view reset.
+- **Issue 2 — three-state program workflow** قيد التنفيذ ← «تعليم البرنامج كمكتمل» ← مكتمل ←
+  «إقفال البرنامج نهائياً» ← مغلق, with «إعادة فتح» (→ مكتمل, never straight to تنفيذ) and
+  «إعادة للتنفيذ». State derived only from completedAt/closedAt — no evidence/percentage/
+  mandatory-field gates (D-024/D-025). Close now REQUIRES completion first. Closed = read-only
+  server-side (execution/followup/change-request/evidence-write refused; registry locks
+  evidence unlink) while view/report/print/export stay. Legacy-closed programs (production has
+  3, completedAt NULL) reopen via COALESCE backfill from their closure moment — rehearsed on a
+  real one. History table now records from/to; actions اكتمال/إقفال/إعادة فتح/إعادة للتنفيذ;
+  append-only preserved. UI: «حالة البرنامج» card + completed banner + 3-state filter on
+  /plan + «البرامج المكتملة» report + from/to in the transitions report.
+- **Migration 0022 (`0022_steep_joystick.sql`) is 3 nullable ADD COLUMNs, nothing else** —
+  old image runs fine on the migrated schema, so rollback = retag app image only.
+- **Gates:** tsc 0 · eslint 0/0 · build ✓ · **vitest 644** (+34) · **Playwright 76 pass /
+  1 skip** (C5) incl. new building-viewer + program-lifecycle specs.
+- **Clone rehearsal PASS:** fresh prod pg_dump → `madrasa_patch_clone_test` → migrate 22→23:
+  all counts + 4 fingerprints byte-identical (legacy fp `4572c570…` ✓), new columns 100% NULL;
+  real app on :3082 with clone-only login ran the full workflow incl. reopening a REAL
+  legacy-closed program (completed_at backfilled to exactly its old closed_at) — 23/23 checks.
+  Clone dropped, dumps deleted.
+- **STOPPED before production.** Patch plan + rollback in the report doc (§7–8): build
+  `0.1.0-v2_2_1-rc`, tag rollback image, fresh backup, migrate-only init, ~60–90s downtime,
+  db container never restarted. Awaiting explicit go-ahead.
+
+## Earlier checkpoint — v2.2 DEPLOYED to production (Mac mini) 2026-07-29 — CONDITIONALLY READY
 - **DEPLOYED.** RC `548a3c9` (code frozen `80a1b9c`), image `madrasa-app:0.1.0-v2_2-rc`
   `sha256:b13382d15423…` (digest verified before start AND on the running container). Migration
   **18 → 22**, tables 78 → 83. Full report `docs/DEPLOYMENT_REPORT_V2_2.md`.
