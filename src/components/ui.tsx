@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DateField } from "./date-field";
 
 export function PageHeader({
   title,
@@ -199,6 +200,18 @@ export function Field({
   hint?: string;
   autoComplete?: string;
 }) {
+  // كل حقول التاريخ تمر عبر مكوّن التقويم المزدوج (هجري/ميلادي) — D-033
+  if (type === "date") {
+    return (
+      <DateField
+        label={label}
+        name={name}
+        defaultValue={typeof defaultValue === "string" ? defaultValue : null}
+        required={required}
+        hint={hint}
+      />
+    );
+  }
   return (
     <div>
       <label htmlFor={name} className="mb-1 block text-sm font-medium text-gray-700">

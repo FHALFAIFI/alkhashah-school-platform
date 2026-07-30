@@ -63,7 +63,7 @@ export function AddIncomeForm({ planYearId, items }: { planYearId: string; items
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="مصدر الإيراد" name="source" />
             <Field label="المبلغ" name="amount" type="number" />
-            <Field label="التاريخ" name="incomeDate" />
+            <Field label="التاريخ" name="incomeDate" type="date" />
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="in-status">الحالة</label>
               <select id="in-status" name="status" defaultValue="مستلم" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0">
@@ -138,7 +138,7 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
                 className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm lg:min-h-0"
               />
             </div>
-            <Field label="التاريخ" name="expenseDate" />
+            <Field label="التاريخ" name="expenseDate" type="date" />
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-item">بند الصرف (اختياري)</label>
               <select

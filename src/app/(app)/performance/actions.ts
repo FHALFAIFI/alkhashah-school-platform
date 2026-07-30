@@ -18,6 +18,8 @@ import { sessionResult, validRating } from "@/lib/performance/scoring";
 import { snapshotAwaitingFaresCells } from "@/lib/performance/d014";
 import { numOrNull } from "@/lib/format";
 import { userFacingError } from "@/lib/user-error";
+import { optionalIsoDate } from "@/lib/dates-zod";
+import { isValidIsoDate } from "@/lib/dates";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -134,9 +136,9 @@ const cycleSchema = z.object({
   cycleType: z.enum(["معلم", "موظف"]),
   // v2.1 (§H): year key optional — store "" when blank (column is NOT NULL).
   yearKey: z.string().default(""),
-  planningDeadline: z.string().optional(),
-  midDeadline: z.string().optional(),
-  finalDeadline: z.string().optional(),
+  planningDeadline: optionalIsoDate,
+  midDeadline: optionalIsoDate,
+  finalDeadline: optionalIsoDate,
 });
 
 export async function createCycleAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -242,6 +244,7 @@ export async function createSessionAction(cycleId: string, _prev: ActionState, f
   const user = await requirePermission("performance.write");
   const sessionType = String(formData.get("sessionType") ?? "");
   const sessionDate = String(formData.get("sessionDate") ?? "") || null;
+  if (sessionDate && !isValidIsoDate(sessionDate)) return { error: "تاريخ الجلسة غير صحيح — اختر التاريخ من الحقل" };
   if (!SESSION_TYPES.includes(sessionType as (typeof SESSION_TYPES)[number])) return { error: "نوع جلسة غير صحيح" };
 
   const [cycle] = await db.select().from(perfCycles).where(eq(perfCycles.id, cycleId));

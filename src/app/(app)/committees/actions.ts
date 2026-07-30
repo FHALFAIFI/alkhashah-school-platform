@@ -16,6 +16,8 @@ import { saveUploadedFile } from "@/lib/storage";
 import { notifyAll } from "@/lib/notify";
 import { committedEmployeeCount } from "@/lib/committees/prerequisites";
 import { userFacingError } from "@/lib/user-error";
+import { optionalIsoDate } from "@/lib/dates-zod";
+import { isValidIsoDate, parseIsoDate } from "@/lib/dates";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -263,6 +265,7 @@ export async function createMeetingAction(committeeId: string, _prev: ActionStat
   if (c.status === "مقفلة") return { error: "اللجنة مقفلة" };
   const title = String(formData.get("title") ?? "").trim();
   const meetingDate = String(formData.get("meetingDate") ?? "");
+  if (meetingDate && !isValidIsoDate(meetingDate)) return { error: "تاريخ الاجتماع غير صحيح — اختر التاريخ من الحقل" };
   const agendaText = String(formData.get("agenda") ?? "");
   const agenda = agendaText.split("\n").map((s) => s.trim()).filter(Boolean);
   // نوع الاجتماع اختياري (v2.1 §H) — لا يُمنع الحفظ على فراغ. عند تمريره يجب أن يكون نوعاً مفعَّلاً.
@@ -282,7 +285,8 @@ export async function createMeetingAction(committeeId: string, _prev: ActionStat
       seq: existing.length + 1,
       title: title || `الاجتماع ${existing.length + 1}`,
       typeId,
-      meetingDate: meetingDate ? new Date(meetingDate) : null,
+      // تثبيت على منتصف اليوم UTC (parseIsoDate) كي لا ينزلق اليوم مع فرق التوقيت — D-033
+      meetingDate: meetingDate ? parseIsoDate(meetingDate) : null,
       agenda,
     })
     .returning();
@@ -305,12 +309,14 @@ export async function updateMeetingAction(meetingId: string, _prev: ActionState,
     if (!mt || !mt.active) return { error: "نوع الاجتماع غير صالح أو غير مفعَّل" };
     typeId = typeIdRaw;
   }
+  const newMeetingDate = String(formData.get("meetingDate") ?? "");
+  if (newMeetingDate && !isValidIsoDate(newMeetingDate)) return { error: "تاريخ الاجتماع غير صحيح — اختر التاريخ من الحقل" };
   await db
     .update(meetings)
     .set({
       title: String(formData.get("title") ?? m.title ?? ""),
       typeId,
-      meetingDate: formData.get("meetingDate") ? new Date(String(formData.get("meetingDate"))) : m.meetingDate,
+      meetingDate: newMeetingDate ? parseIsoDate(newMeetingDate) : m.meetingDate,
       location: String(formData.get("location") ?? "") || null,
       agenda: agendaText.split("\n").map((s) => s.trim()).filter(Boolean),
       discussion: String(formData.get("discussion") ?? "") || null,
@@ -329,7 +335,7 @@ const outcomeSchema = z.object({
   // نص النتيجة اختياري (v2.1 §H) — لا يُمنع الحفظ على فراغ (يُخزَّن "")
   text: z.string().optional(),
   ownerPersonId: z.string().optional(),
-  dueDate: z.string().optional(),
+  dueDate: optionalIsoDate,
   createTask: z.string().optional(),
 });
 
@@ -358,7 +364,7 @@ export async function addOutcomeAction(meetingId: string, _prev: ActionState, fo
         title: text.slice(0, 200),
         description: `${parsed.data.outcomeType} من اجتماع`,
         ownerPersonId: parsed.data.ownerPersonId || null,
-        dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
+        dueDate: parsed.data.dueDate ? parseIsoDate(parsed.data.dueDate) : null,
         priority: isDecision ? "عالية" : "متوسطة",
         mandatory: isDecision, // القرار ينشئ إجراءً إلزامياً دائماً
         sourceType: "meeting_outcome",

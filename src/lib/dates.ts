@@ -85,6 +85,130 @@ export function todayIso(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+/* ------------------------------------------------------------------ */
+/* الاتجاه العكسي: هجري (أم القرى) ← ميلادي — بلا مكتبات خارجية.        */
+/* التحويل بالمَعايرة على Intl نفسها فلا يوجد جدولان قد يختلفان.        */
+/* ------------------------------------------------------------------ */
+
+/** أسماء الأشهر الهجرية بترتيب أم القرى (1..12) */
+export const HIJRI_MONTHS = [
+  "محرم",
+  "صفر",
+  "ربيع الأول",
+  "ربيع الآخر",
+  "جمادى الأولى",
+  "جمادى الآخرة",
+  "رجب",
+  "شعبان",
+  "رمضان",
+  "شوال",
+  "ذو القعدة",
+  "ذو الحجة",
+] as const;
+
+/** أسماء الأشهر الميلادية بالعربية (1..12) */
+export const GREGORIAN_MONTHS_AR = [
+  "يناير",
+  "فبراير",
+  "مارس",
+  "أبريل",
+  "مايو",
+  "يونيو",
+  "يوليو",
+  "أغسطس",
+  "سبتمبر",
+  "أكتوبر",
+  "نوفمبر",
+  "ديسمبر",
+] as const;
+
+export type HijriParts = { year: number; month: number; day: number };
+
+/** أجزاء التاريخ الهجري (أم القرى) لتاريخ ميلادي */
+export function hijriPartsOf(date: Date): HijriParts {
+  const parts = HIJRI_NUMERIC_FMT.formatToParts(date);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? "0");
+  return { year: get("year"), month: get("month"), day: get("day") };
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * تحويل تاريخ هجري (أم القرى) إلى ميلادي.
+ * تقدير حسابي أولي ثم مطابقة دقيقة على Intl ضمن نافذة أيام —
+ * إن لم يوجد يوم مطابق فالتاريخ غير صحيح (مثل 30 في شهر ذي 29 يوماً).
+ */
+export function hijriToDate(h: HijriParts): Date | null {
+  if (!Number.isInteger(h.year) || !Number.isInteger(h.month) || !Number.isInteger(h.day)) return null;
+  if (h.month < 1 || h.month > 12 || h.day < 1 || h.day > 30) return null;
+  if (h.year < 1300 || h.year > 1600) return null;
+  // تقدير: بداية التقويم الهجري ≈ 622-07-19م، وطول السنة ≈ 354.367 يوماً
+  const approxDays = (h.year - 1) * 354.36707 + (h.month - 1) * 29.53 + (h.day - 1);
+  const epoch = Date.UTC(622, 6, 19, 12);
+  const guess = new Date(epoch + Math.round(approxDays) * DAY_MS);
+  for (let offset = -8; offset <= 8; offset++) {
+    const candidate = new Date(guess.getTime() + offset * DAY_MS);
+    const p = hijriPartsOf(candidate);
+    if (p.year === h.year && p.month === h.month && p.day === h.day) {
+      // تثبيت على منتصف اليوم UTC كي لا ينزلق اليوم مع فروق التوقيت
+      return new Date(Date.UTC(candidate.getUTCFullYear(), candidate.getUTCMonth(), candidate.getUTCDate(), 12));
+    }
+  }
+  return null;
+}
+
+/** تحويل هجري إلى ISO ميلادي (YYYY-MM-DD) أو null إن كان التاريخ غير صحيح */
+export function hijriToIso(h: HijriParts): string | null {
+  const d = hijriToDate(h);
+  if (!d) return null;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+/** عدد أيام الشهر الهجري (29 أو 30) حسب أم القرى */
+export function hijriMonthLength(year: number, month: number): number {
+  return hijriToDate({ year, month, day: 30 }) ? 30 : 29;
+}
+
+/** هل التاريخ الهجري صحيح في تقويم أم القرى؟ */
+export function isValidHijriDate(h: HijriParts): boolean {
+  return hijriToDate(h) !== null;
+}
+
+/** هل نص ISO تاريخاً ميلادياً صحيحاً فعلاً (يرفض 2026-02-30 ونحوه)؟ */
+export function isValidIsoDate(iso: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+  const date = new Date(Date.UTC(y, mo - 1, d, 12));
+  return (
+    date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d
+  );
+}
+
+/**
+ * الصيغة الرقمية المزدوجة المدمجة لخلايا الجداول والتصدير:
+ * «2026/8/23م (1448/3/10هـ)» — ميلادي أولاً (سياق إداري) والهجري بين قوسين.
+ * تقبل ISO أو Date؛ وأي قيمة غير تاريخية تُعاد كما هي (لا كسر للخلية).
+ */
+export function dualNumericCell(value: string | Date): string {
+  const date = value instanceof Date ? value : parseIsoDate(value);
+  if (!date || Number.isNaN(date.getTime())) return typeof value === "string" ? value : "—";
+  return `${toGregorianNumeric(date)}م (${toHijriNumeric(date)}هـ)`;
+}
+
+/**
+ * السطر المزدوج الكامل للتواريخ المهمة:
+ * «15 أغسطس 2026م — 2 ربيع الأول 1448هـ»
+ */
+export function fullDualLine(iso: string | Date): string | null {
+  const date = typeof iso === "string" ? parseIsoDate(iso) : iso;
+  if (!date) return null;
+  const g = `${date.getUTCDate()} ${GREGORIAN_MONTHS_AR[date.getUTCMonth()]} ${date.getUTCFullYear()}م`;
+  const h = hijriPartsOf(date);
+  return `${g} — ${h.day} ${HIJRI_MONTHS[h.month - 1]} ${h.year}هـ`;
+}
+
 /** هل التاريخ يقع ضمن حدث إجازة في لقطة تقويم؟ يعيد أسماء الإجازات المتقاطعة (تنبيه، لا منع) */
 export function holidayWarnings(
   iso: string,

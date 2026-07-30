@@ -11,6 +11,7 @@ import { canDeleteEvidence, linkEvidence } from "@/lib/evidence";
 import { entityLabelAr, isLinkableEntityKey, resolveEntities } from "@/lib/entity-registry";
 import { audit } from "@/lib/audit";
 import { userFacingError } from "@/lib/user-error";
+import { optionalIsoDate } from "@/lib/dates-zod";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -21,7 +22,7 @@ const meta = z.object({
   evidenceType: z.string().optional(),
   source: z.string().optional(),
   description: z.string().optional(),
-  evidenceDate: z.string().optional(),
+  evidenceDate: optionalIsoDate,
 });
 
 export async function createEvidenceAction(_prev: ActionState, formData: FormData): Promise<ActionState> {

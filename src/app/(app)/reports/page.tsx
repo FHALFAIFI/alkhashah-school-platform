@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { financialItems, people } from "@/db/schema";
 import { PageHeader, Card, Table, EmptyState, LinkButton, Badge } from "@/components/ui";
 import { formatMoney, orDash, orFallback } from "@/lib/format";
+import { dualNumericCell } from "@/lib/dates";
 import {
   REPORT_CATEGORIES,
   categoryByKey,
@@ -41,6 +42,9 @@ function renderCell(value: string | number | null, column: ReportColumn): string
       return typeof value === "number" ? `${value}٪` : orDash(value);
     case "number":
       return typeof value === "number" ? value.toLocaleString("ar-SA") : orDash(value);
+    case "date":
+      // عرض مزدوج ميلادي (هجري) لكل أعمدة التاريخ — D-033
+      return typeof value === "string" ? dualNumericCell(value) : orDash(value);
     default:
       return orDash(value);
   }

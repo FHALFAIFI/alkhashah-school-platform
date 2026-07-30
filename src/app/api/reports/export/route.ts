@@ -5,6 +5,7 @@ import { audit } from "@/lib/audit";
 import { reportByKey, isSortableColumn, type ReportFilters } from "@/lib/reports/catalog";
 import { runReportForExport } from "@/lib/reports/loaders";
 import { toCsv, safeFileName, sanitizeCell, MAX_EXPORT_ROWS } from "@/lib/reports/export-safety";
+import { dualNumericCell } from "@/lib/dates";
 
 /**
  * تصدير تقارير مركز التقارير (v2.2 §D10/§10).
@@ -56,7 +57,14 @@ export async function GET(request: NextRequest) {
   }
 
   const headers = def.columns.map((c) => c.label);
-  const matrix = rows.rows.map((row) => def.columns.map((c) => row[c.key] ?? ""));
+  // أعمدة التاريخ تُصدَّر بالعرض المزدوج نفسه الظاهر على الشاشة — D-033
+  const cellOf = (row: Record<string, unknown>, c: (typeof def.columns)[number]) => {
+    const v = row[c.key];
+    if (v === null || v === undefined || v === "") return "";
+    if (c.type === "date" && (typeof v === "string" || v instanceof Date)) return dualNumericCell(v);
+    return v as string | number;
+  };
+  const matrix = rows.rows.map((row) => def.columns.map((c) => cellOf(row, c)));
 
   await audit({
     actorId: user.id,
@@ -90,7 +98,7 @@ export async function GET(request: NextRequest) {
     // كل قيمة نصية تمرّ بمعطِّل حقن الصيغ؛ الأرقام تُكتب أرقاماً فتبقى قابلة للحساب
     const record: Record<string, string | number> = {};
     for (const c of def.columns) {
-      const v = row[c.key];
+      const v = cellOf(row, c);
       record[c.key] = typeof v === "number" ? v : sanitizeCell(v);
     }
     ws.addRow(record);

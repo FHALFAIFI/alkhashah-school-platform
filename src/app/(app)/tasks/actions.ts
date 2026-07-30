@@ -8,6 +8,8 @@ import { actionTasks } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { orFallback } from "@/lib/format";
+import { optionalIsoDate } from "@/lib/dates-zod";
+import { parseIsoDate } from "@/lib/dates";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -17,7 +19,7 @@ const taskSchema = z.object({
   description: z.string().optional(),
   ownerPersonId: z.string().optional(),
   ownerText: z.string().optional(),
-  dueDate: z.string().optional(),
+  dueDate: optionalIsoDate,
   priority: z.enum(["عالية", "متوسطة", "منخفضة"]).default("متوسطة"),
 });
 
@@ -30,7 +32,8 @@ export async function createTaskAction(_prev: ActionState, formData: FormData): 
     description: parsed.data.description || null,
     ownerPersonId: parsed.data.ownerPersonId || null,
     ownerText: parsed.data.ownerText || null,
-    dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
+    // تثبيت على منتصف اليوم UTC كي لا ينزلق اليوم مع فرق التوقيت — D-033
+    dueDate: parsed.data.dueDate ? parseIsoDate(parsed.data.dueDate) : null,
     priority: parsed.data.priority,
     sourceType: "manual",
     createdBy: user.id,

@@ -10,6 +10,7 @@ import { audit } from "@/lib/audit";
 import { saveUploadedFile, validateUpload } from "@/lib/storage";
 import { linkEvidence } from "@/lib/evidence";
 import { userFacingError } from "@/lib/user-error";
+import { optionalIsoDate } from "@/lib/dates-zod";
 
 /**
  * مبلغ اختياري (قاعدة v2.1 §H): الحقل الفارغ يُخزَّن null، وإن أُدخلت قيمة وجب أن تكون عدداً
@@ -77,7 +78,7 @@ const incomeSchema = z.object({
   planYearId: z.string().uuid(),
   source: z.string().optional(),
   amount: optionalPositiveAmount,
-  incomeDate: z.string().optional(),
+  incomeDate: optionalIsoDate,
   purpose: z.string().optional(),
   periodText: z.string().optional(),
   programId: z.string().uuid().optional().or(z.literal("")),
@@ -157,7 +158,7 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
 const expenseSchema = z.object({
   planYearId: z.string().uuid(),
   amount: optionalPositiveAmount,
-  expenseDate: z.string().optional(),
+  expenseDate: optionalIsoDate,
   programId: z.string().uuid().optional().or(z.literal("")),
   activityId: z.string().uuid().optional().or(z.literal("")),
   financialItemId: z.string().uuid("البند المالي المختار غير صالح").optional().or(z.literal("")),
