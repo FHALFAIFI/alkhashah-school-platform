@@ -2,7 +2,7 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — v2.3.0 PHASES A–E IMPLEMENTED on `scope-v2.3-principal-acceptance` (2026-07-31) — VERIFICATION IN PROGRESS
+## Latest checkpoint — v2.3.0 PHASES A–E IMPLEMENTED, ALL AUTOMATED GATES GREEN (2026-07-31) — packaging/deployment prep remaining
 - **Brief:** principal's 5th round, recorded verbatim in `docs/BRIEF_V2_3_0.md`; Phase A inventory +
   gap analysis in `docs/SCOPE_IMPACT_V2_3.md`; decisions **D-032…D-040**. Branch from `6ce990b`
   (deployed v2.2.1, production at migration 23). **Production untouched.**
@@ -50,11 +50,26 @@
   0023–0026 applied to `madrasa_test` ONLY — **production remains at ledger 23 (file 0022)**;
   4 pending prod migrations, all additive except documented D-034 label UPDATEs + D-036 status
   mapping (both rehearse-and-verify on clone first).
-- **REMAINING (Phase F):** full Playwright suite (running), fix any e2e drift from renames/UI
-  moves, PROGRESS/docs finalization, production-clone rehearsal 23→27 with counts+fingerprints,
-  encrypted backup + restore verification, controlled Mac mini deployment, delivery-evidence
-  report (§27), principal retest checklist. **No release tag, no gold backup, no host-PC
-  migration until principal acceptance.**
+- **F: clone rehearsal 23→27 PASS** (`31a741c`, `docs/DEPLOYMENT_V2_3.md` §2): all counts +
+  D-022 `4572c570…` + issued-docs `f34e3f0f…` byte-identical, D-036 mapping exact
+  (معتمد:3/مغلق:2 + one history row each), D-037 24 room types, D-034 both labels, new columns
+  100% NULL, idempotent, app boots on the migrated clone; clone dropped, dump deleted.
+- **F: full Playwright GREEN — 72 passed / 1 skipped (C5 D-018) / 0 failed, 3.8 min** (§4 of
+  the deployment doc). Drift was spec-side only: 4 date selectors → `#<name>-input`
+  (dual-calendar DateField), س5 rewritten to the real B5 maintenance lifecycle
+  (مسودة→اعتماد→إرسال→معالجة→تسجيل الإصلاح→إغلاق on `/building/maintenance/[id]`), ج8 asserts
+  «مغلق»+«تم الإصلاح», nav «بلاغات الصيانة», and س6 (assistant) deleted per D-035.
+  **Environmental finding documented in §4:** external `next start` on the macOS host aborts
+  Server-Action response streams (RSC stream never completes → useActionState stuck pending);
+  reproduced identically on the v2.2.1 baseline in an isolated worktree ⇒ NOT a v2.3
+  regression; `next dev` runner and the production Docker container are both unaffected. The
+  e2e gate stays on the standard dev webServer as in every prior release.
+- **REMAINING (Phase F):** §27 delivery-evidence report + principal retest checklist (`/pilot`
+  update), build & verify `madrasa-app:0.1.0-v2_3-rc` image + tag rollback image, fresh
+  encrypted pre-deploy backup + restore verification (prod network), controlled Mac mini
+  deployment (migrate-only init; db container never restarted) — **deployment awaits explicit
+  authorization**. No release tag, no gold backup, no host-PC migration until principal
+  acceptance.
 
 ## Earlier checkpoint — CORRECTIVE PATCH v2.2.1 DEPLOYED to production 2026-07-30 — CONDITIONALLY READY
 - **DEPLOYED.** Commits `e88add8` + `936c7c0` (+ docs `f946de8`), image `madrasa-app:0.1.0-v2_2_1-rc`

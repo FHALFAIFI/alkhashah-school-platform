@@ -6,7 +6,7 @@ import { syntheticPeopleWorkbook, syntheticPlanWorkbook } from "../helpers/fixtu
 
 /**
  * سيناريوهات سير العمل الشاملة (E2E) — تحاكي عمل مدير المدرسة عبر الوحدات كلها:
- * الاستيراد ← الخطة التشغيلية ← اللجان ← الأداء الوظيفي ← التوأم الرقمي ← المساعد الذكي.
+ * الاستيراد ← الخطة التشغيلية ← اللجان ← الأداء الوظيفي ← التوأم الرقمي.
  *
  * قواعد إلزامية:
  * - دفعة فارس الحقيقية «بيانات الموظفين في فارس.xlsx» لا تُفتح ولا تُلمس إطلاقاً،
@@ -480,7 +480,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     // اجتماع جديد — نوع الاجتماع إلزامي
     await page.fill("#title", `اجتماع تجريبي آلي ${TAG}`);
     await page.selectOption('select[name="typeId"]', { label: "دوري" });
-    await page.fill("#meetingDate", todayIso);
+    await page.fill("#meetingDate-input", todayIso);
     await page.fill("#agenda", "بند تجريبي أول\nبند تجريبي ثانٍ");
     await page.getByRole("button", { name: "إنشاء اجتماع" }).click();
     await page.waitForURL(/\/meetings\/[0-9a-f-]{36}$/, { timeout: 30_000 });
@@ -500,7 +500,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     state.decisionText = `قرار تجريبي آلي ${TAG} — متابعة تنفيذ التوصيات`;
     await page.fill("#text", state.decisionText);
     await page.selectOption('select[name="ownerPersonId"]', state.person1Id!);
-    await page.fill("#dueDate", yesterdayIso);
+    await page.fill("#dueDate-input", yesterdayIso);
     await page.getByRole("button", { name: "تسجيل النتيجة" }).click();
     await expect(page.getByText("سجلت النتيجة")).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("tr", { hasText: state.decisionText }).getByText("إلزامي")).toBeVisible();
@@ -582,7 +582,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
 
     // جلسة التخطيط: تقييم كل المؤشرات ← إصدار التقرير ← رفع الموقع ← اكتمال
     await page.selectOption('select[name="sessionType"]', "تخطيط");
-    await page.locator('form:has(select[name="sessionType"])').locator("#sessionDate").fill(todayIso);
+    await page.locator('form:has(select[name="sessionType"])').locator("#sessionDate-input").fill(todayIso);
     await page.getByRole("button", { name: "إنشاء جلسة" }).click();
     await page.waitForURL(/\/sessions\/[0-9a-f-]{36}$/, { timeout: 30_000 });
     await rateAllIndicators(page);
@@ -602,7 +602,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
 
     // جلسة التقييم النهائي
     await page.selectOption('select[name="sessionType"]', "نهائي");
-    await page.locator('form:has(select[name="sessionType"])').locator("#sessionDate").fill(todayIso);
+    await page.locator('form:has(select[name="sessionType"])').locator("#sessionDate-input").fill(todayIso);
     await page.getByRole("button", { name: "إنشاء جلسة" }).click();
     await page.waitForURL(/\/sessions\/[0-9a-f-]{36}$/, { timeout: 30_000 });
     state.finalSessionId = page.url().split("/").pop()!;
@@ -703,24 +703,40 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await issueForm.getByRole("button", { name: "تسجيل البلاغ" }).click();
     await expect(page.getByText(/سجل البلاغ KHS-MNT-/)).toBeVisible({ timeout: 20_000 });
 
-    // صفحة الصيانة: البلاغ بالمكلف ← قيد الإصلاح ← تم الإصلاح ← مغلق ومتحقق
-    await nav(page, "الصيانة", "/building/maintenance");
+    // صفحة بلاغات الصيانة: البلاغ الجديد «مسودة» والدورة تُدار من صفحة البلاغ (v2.3 §18, D-036)
+    await nav(page, "بلاغات الصيانة", "/building/maintenance");
     const row = page.locator("tr", { hasText: state.issueTitle });
     await expect(row.getByText("تجريبي أول مثال")).toBeVisible();
+    await expect(row.locator("span.rounded-full", { hasText: "مسودة" })).toBeVisible();
+    await row.getByRole("link", { name: "فتح البلاغ ←" }).click();
+    await page.waitForURL(/\/building\/maintenance\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 
-    await row.locator('select[name="status"]').selectOption("قيد الإصلاح");
-    await row.getByRole("button", { name: "حفظ" }).click();
-    await expect(row.locator("span.rounded-full", { hasText: "قيد الإصلاح" })).toBeVisible({ timeout: 20_000 });
+    // مسودة ← معتمد (زر مباشر بلا نموذج)
+    await page.getByRole("button", { name: "اعتماد البلاغ" }).click();
+    await expect(page.getByText("انتقل البلاغ إلى «معتمد»")).toBeVisible({ timeout: 20_000 });
 
-    await row.locator('select[name="status"]').selectOption("تم الإصلاح");
-    await row.locator('input[name="repairNote"]').fill(`أصلح تجريبي آلي ${TAG}`);
-    await row.getByRole("button", { name: "حفظ" }).click();
-    await expect(row.locator("span.rounded-full", { hasText: "تم الإصلاح" })).toBeVisible({ timeout: 20_000 });
+    // معتمد ← تم الإرسال — نموذج بجهة مستلمة إلزامية (التاريخ يفترض اليوم إن تُرك)
+    await page.getByRole("button", { name: "تسجيل الإرسال" }).click();
+    await page.fill("#sentTo", `جهة صيانة تجريبي آلي ${TAG}`);
+    await page.getByRole("button", { name: "تأكيد", exact: true }).click();
+    await expect(page.getByText("انتقل البلاغ إلى «تم الإرسال»")).toBeVisible({ timeout: 20_000 });
 
-    await row.locator('select[name="status"]').selectOption("مغلق ومتحقق");
-    await row.getByRole("button", { name: "حفظ" }).click(); // حوار التأكيد يقبل تلقائياً
-    await expect(row.locator("span.rounded-full", { hasText: "مغلق ومتحقق" })).toBeVisible({ timeout: 20_000 });
-    await expect(row.locator('select[name="status"]')).toHaveCount(0);
+    // تم الإرسال ← تحت المعالجة (زر مباشر)
+    await page.getByRole("button", { name: "بدء المعالجة" }).click();
+    await expect(page.getByText("انتقل البلاغ إلى «تحت المعالجة»")).toBeVisible({ timeout: 20_000 });
+
+    // تحت المعالجة ← تم الإصلاح — نموذج الإجراء المتخذ وملاحظة الإصلاح
+    await page.getByRole("button", { name: "تسجيل الإصلاح" }).click();
+    await page.fill("#actionTaken", `إجراء تجريبي آلي ${TAG}`);
+    await page.fill("#repairNote", `أصلح تجريبي آلي ${TAG}`);
+    await page.getByRole("button", { name: "تأكيد", exact: true }).click();
+    await expect(page.getByText("انتقل البلاغ إلى «تم الإصلاح»")).toBeVisible({ timeout: 20_000 });
+
+    // تم الإصلاح ← مغلق — الحالة نهائية: شارة «مغلق» ولا أزرار انتقال بعدها
+    await page.getByRole("button", { name: "إغلاق البلاغ" }).click();
+    await expect(page.locator("span.rounded-full", { hasText: "مغلق" }).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "إغلاق البلاغ" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "اعتماد البلاغ" })).toHaveCount(0);
 
     // تقرير المبنى: الإجراءات المجمّعة (طباعة/تنزيل Word/تنزيل Excel/فتح مسودة بريد) دون تمرير أفقي
     await page.goto("/building/report");
@@ -736,34 +752,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(maintCard.getByText(state.issueTitle)).toHaveCount(0);
   });
 
-  test("س6: المساعد الذكي — دخول سياقي من صفحة البرنامج بمقترحات عربية", async ({ page }) => {
-    test.setTimeout(120_000);
-    test.skip(!state.programId, "يتطلب برنامج السيناريو الثاني");
-    await login(page);
-
-    await nav(page, "البرامج والمبادرات", "/plan");
-    await page.locator(`a[href="/plan/${state.programId}"]`).first().click();
-    await page.waitForURL(`**/plan/${state.programId}`);
-    await expect(page.getByLabel("مراحل سير العمل")).toBeVisible({ timeout: 20_000 });
-
-    const contextual = page.getByRole("link", { name: "اسأل المساعد" });
-    if ((await contextual.count()) === 0) {
-      // لا مدخل سياقي — الذكاء الاصطناعي غير متاح لهذا المستخدم
-      await expect(contextual).toHaveCount(0);
-      test.skip(true, "المدخل السياقي للمساعد غير ظاهر (الصلاحية/الإعداد) — تخطٍّ مقصود دون تفعيل يدوي");
-    }
-    await contextual.click();
-    await page.waitForURL("**/assistant?**");
-    expect(decodeURIComponent(page.url())).toContain("نوع=program");
-    expect(decodeURIComponent(page.url())).toContain(`معرف=${state.programId}`);
-
-    if (await page.getByText("المساعد معطل حالياً").count()) {
-      test.skip(true, "المساعد معطل في الإعدادات — لا يفعل آلياً من الاختبار");
-    }
-    await expect(page.getByText("السياق:")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole("button", { name: "افحص اكتمال شواهد هذا البرنامج" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "لخّص حالة هذا البرنامج" })).toBeVisible();
-  });
+  // س6 (المساعد الذكي) حُذف — إزالة وقت تشغيل الذكاء الاصطناعي بالكامل (v2.3 §12, D-035)
 
   test("س7: حرمة دفعة فارس — تبقى بحالة «معاينة» دون أي مساس", async ({ page }) => {
     await login(page);
@@ -896,7 +885,8 @@ test.describe("سيناريوهات سير العمل — 390×844", () => {
     await login(page);
     await page.goto("/building/maintenance");
     const row = page.locator("tr", { hasText: state.issueTitle! });
-    await expect(row.locator("span.rounded-full", { hasText: "مغلق ومتحقق" })).toBeVisible();
+    await expect(row.locator("span.rounded-full", { hasText: "مغلق" })).toBeVisible();
+    await expect(row.getByText("تم الإصلاح")).toBeVisible();
     await expectNoOverflow(page, "/building/maintenance");
   });
 });

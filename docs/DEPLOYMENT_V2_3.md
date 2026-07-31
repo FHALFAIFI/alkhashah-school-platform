@@ -60,11 +60,45 @@ Post-migration results:
 | production build | ✓ (zero AI references; only the dormant `ai_*` schema per D-035 and one historical task label) |
 | Playwright e2e | see §4 |
 
-## 4) Playwright e2e — (recorded when the run completes)
+## 4) Playwright e2e — **GREEN** (2026-07-31)
+
+**72 passed / 1 skipped / 0 failed (3.8 min)** — full suite (18 spec files), standard runner
+(`npm run test:e2e`: Playwright-managed `next dev` on :3081 against isolated `madrasa_test` at
+ledger 27, truncate+reseed per run). The 1 skip is C5 real-HTTPS camera (D-018 environmental
+deferral, `test.skip(!https)`) — same as every release since v2.1.
+
+Drift fixed (spec-side only; no app change was needed):
+- **Dual-calendar DateField (B1/D-033)** renders its input as `#<name>-input` — updated 4 stale
+  selectors in `workflows.spec.ts` (`#meetingDate`, `#dueDate`, 2× `#sessionDate`).
+- **Maintenance lifecycle (B5/D-036)** — س5 rewritten from the removed inline per-row status
+  select to the real workflow: list shows «مسودة» → open `/building/maintenance/[id]` →
+  «اعتماد البلاغ» → «تسجيل الإرسال» (required الجهة المستلمة) → «بدء المعالجة» →
+  «تسجيل الإصلاح» (الإجراء المتخذ + ملاحظة) → «إغلاق البلاغ» → terminal: «مغلق» badge, zero
+  transition buttons. ج8 asserts «مغلق» + resolution «تم الإصلاح» (was «مغلق ومتحقق»).
+- **Nav rename (E)**: «الصيانة» → «بلاغات الصيانة» in س5's sidebar navigation.
+- **س6 (AI assistant) deleted** per D-035 — it exercised the removed assistant and could only
+  ever skip; the workflows file header no longer lists the assistant module.
+
+### Environmental note — external `next start` on the macOS host (NOT a product defect)
+
+The first full run was executed against an external production server (`next start` on :3081,
+resumed from the previous session's method) and showed 10 failures, all one symptom: a Server
+Action POST returns 200 in ~20 ms but the RSC response stream never completes client-side
+(`net::ERR_ABORTED` mid-stream), leaving `useActionState` pending forever — save/transition
+buttons stuck disabled. Isolation evidence:
+- Same test, same build, `next dev` runner → passes.
+- **v2.2.1 baseline `6ce990b` rebuilt in an isolated worktree under `next start` on this host →
+  fails identically** ⇒ not introduced by v2.3 code.
+- Production (Docker, node 24.18) demonstrably runs Server Actions fine — the v2.2.1 deployment
+  smoke (2026-07-30) drove the full lifecycle through the deployed container with the same
+  host Playwright/Chromium.
+Conclusion: quirk of `next start` (Next 16.2.12) on the macOS host (node 24.16) only. The e2e
+gate runs via the standard dev webServer, as in every prior release; production verification
+remains the authenticated smoke on the deployed container at deploy time.
 
 ## 5) Remaining before verdict
 
-- [ ] Full Playwright suite green (fix drift from renames/UI moves if any).
+- [x] Full Playwright suite green — **72/1skip/0fail** (§4; drift fixed spec-side).
 - [ ] Fresh encrypted pre-deploy backup inside the prod network + checksum + restore verification.
 - [ ] Build & verify `madrasa-app:0.1.0-v2_3-rc` image; tag rollback image.
 - [ ] Controlled Mac mini deployment (migrate-only init; db container never restarted).
