@@ -96,11 +96,70 @@ Conclusion: quirk of `next start` (Next 16.2.12) on the macOS host (node 24.16) 
 gate runs via the standard dev webServer, as in every prior release; production verification
 remains the authenticated smoke on the deployed container at deploy time.
 
-## 5) Remaining before verdict
+## 5) §27 delivery evidence (pre-deployment portion)
 
-- [x] Full Playwright suite green — **72/1skip/0fail** (§4; drift fixed spec-side).
-- [ ] Fresh encrypted pre-deploy backup inside the prod network + checksum + restore verification.
+Deploy-time items (image digest, backup checksum, restore verification, post-deploy
+screenshots, final verdict line) are appended at deployment. Available now:
+
+- **Commits (branch `scope-v2.3-principal-acceptance`, from v2.2.1 base `6ce990b`):**
+  `5337b45` A inventory/decisions · `25d2c1d` B1 dates · `1148975` B2 uploads ·
+  `7632ab8` B3 finance · `61d4457` B4+B5 building · `31dba1d` C1+C3 identity/exports ·
+  `9332dec` C5+C6 analytics · `ce0945c` C4+C7 templates/cards · `a3827b7` D interface ·
+  `d952f07` E AI removal · `31a741c` F rehearsal · `8f4bf29` F e2e green ·
+  final head = the commit carrying this section (v2.3 pilot checklist + D-035 residue).
+- **Migrations (production 23 → 27):** §1 table — `0023` stored_files acceptance ·
+  `0024` finance invoice/updated_by · `0025` room_types + inspection_findings +
+  maintenance lifecycle/history + D-036 mapping · `0026` D-034 permission labels.
+  Schema delta: +3 tables (83 → 86), all new columns nullable, no DROP/TRUNCATE/DELETE.
+- **Removed AI dependency list (D-035):** `src/lib/ai/*` (provider, orchestrator, tools,
+  assist, settings, both model-health checks), `src/app/api/ai/*` (chat, conversations,
+  proposals, test), assistant pages + components (dock, chat, ask button), AI settings
+  card, pilot `aiStatus()` per-render probe, `ai.use`/`ai.manage` seed permissions,
+  `aiMeetingSummaryAction`, AI env vars + compose `AI_ENABLED`/`AI_PROVIDER`/
+  `OLLAMA_BASE_URL` + host-gateway extra_hosts, playwright AI env, workflows س6 e2e
+  scenario, and (final residue, this commit) the `ai.enabled`/`ai.provider` seed settings
+  rows + the orphaned `.env.example` Ollama block. **Zero npm AI packages existed** (Ollama
+  was reached over plain HTTP). `ai_*` tables remain dormant per D-035 — no destructive
+  migration; production rows preserved.
+- **Test totals:** vitest **682** (unit + integration) · Playwright **72 passed / 1 skipped
+  (C5 D-018) / 0 failed** (§4) · typecheck 0 · eslint 0/0 · production build ✓.
+- **Authorization coverage:** role-derived upload acceptance (B2, 6 integration tests);
+  D-013 individual-performance exclusion intact (dashboard incomplete-evaluations card is
+  permission-gated); template actual-record preview re-derives eligibility server-side
+  (wrong-type/archived/non-existent → refused, IDOR tests); report/export routes behind
+  per-type read permissions; unauthenticated preview → 401/403 (e2e).
+- **Default-template inventory:** **29 doc types** in `src/lib/templates/schema.ts`
+  (program: report/closure/card/completion; finance: summary/detailed; committees:
+  assignment/minutes/report + council + generic meeting; performance: employee-detail/
+  final/session/overall; registers: employees/evidence; building: report/inspection/
+  room-checklist/readiness; maintenance: letter/followup/closure; risk; SWOT; external
+  evaluation; executive; general official letter) — every generator docType reconciled
+  against the registry (C4).
+- **Report generation:** all **54** registry reports export **pdf|docx** via
+  `/api/reports/export` with filters shown, page numbers, repeating table headers, §7
+  filename convention (C3); samples verified in e2e (PDF magic bytes + docx ZIP + hidden
+  columns honored in both).
+- **Production-clone rehearsal:** §2 — PASS, byte-identical counts and fingerprints,
+  exact D-036 mapping, idempotent, app boots on the migrated clone.
+- **Known limitations:** unchanged pilot boundaries (no attendance/quorum model by product
+  decision; mail = drafts only; employee login accounts disabled; upper floors unpublished
+  drafts; D-014 pending Fares reconciliation; C5 deferred D-018; synthetic-record archiving
+  deferred). v2.2.1's three pre-existing notes remain tracked: Server-Action UI refresh on
+  4 lifecycle forms (v2.3 new UIs use `router.refresh()`), archived records in
+  closed/reopened report modes, Ollama LAN exposure (now moot for the app — zero AI
+  runtime — but the host LaunchAgent is still owner-deferred).
+- **Principal retest checklist:** `/pilot` rewritten for v2.3.0 — 21 tasks covering every
+  fifth-round change, each submitting through the real feedback channel; verified by
+  `pilot-retest.spec.ts`.
+
+## 6) Remaining before verdict
+
+- [x] Full Playwright suite green — **72/1skip/0fail** (§4; drift fixed spec-side; the
+      subsequent v2.3 pilot-checklist update re-verified via `pilot-retest.spec.ts`).
+- [x] §27 delivery evidence (pre-deployment portion, §5) + principal retest checklist
+      (`/pilot` rewritten to v2.3.0 — 21 tasks).
 - [ ] Build & verify `madrasa-app:0.1.0-v2_3-rc` image; tag rollback image.
-- [ ] Controlled Mac mini deployment (migrate-only init; db container never restarted).
-- [ ] §27 delivery evidence + principal retest checklist (`/pilot` update).
+- [ ] Fresh encrypted pre-deploy backup inside the prod network + checksum + restore verification.
+- [ ] Controlled Mac mini deployment (migrate-only init; db container never restarted) —
+      **awaits explicit authorization**.
 - [ ] STOP before: release tag, gold backup, host-PC migration (await principal acceptance).

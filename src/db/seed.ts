@@ -159,8 +159,6 @@ async function seedSettings() {
     "performance.followup_target": 5,
     "branding.signature_default": false,
     "branding.stamp_default": false,
-    "ai.enabled": false,
-    "ai.provider": "ollama",
     "m365.enabled": false,
     "backup.daily_retention": 14,
     "backup.weekly_retention": 8,
