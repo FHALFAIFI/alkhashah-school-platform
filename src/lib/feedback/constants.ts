@@ -55,7 +55,6 @@ export const FEEDBACK_MODULES = [
   "التقويم",
   "الشواهد",
   "المهام والإجراءات",
-  "المساعد الذكي",
   "الإشعارات",
   "الإدارة",
   "أخرى",
@@ -76,7 +75,6 @@ const MODULE_BY_PREFIX: { prefix: string; module: string }[] = [
   { prefix: "/calendar", module: "التقويم" },
   { prefix: "/evidence", module: "الشواهد" },
   { prefix: "/tasks", module: "المهام والإجراءات" },
-  { prefix: "/assistant", module: "المساعد الذكي" },
   { prefix: "/notifications", module: "الإشعارات" },
   { prefix: "/admin", module: "الإدارة" },
 ];

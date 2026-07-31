@@ -14,7 +14,6 @@ import { dualNumericCell } from "@/lib/dates";
 import { isUuid } from "@/lib/validation";
 import { orFallback } from "@/lib/format";
 import { InspectionRunForm, ReadinessOverrideForm, RoomEditForm, RoomIssueForm, FindingControls } from "./room-ui";
-import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
@@ -85,7 +84,6 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
       <PageHeader
         title={`${orFallback(room.nameAr)} (${room.code})`}
         subtitle={`${floor.nameAr} — ${orFallback(room.roomType)}${room.lengthM && room.widthM ? ` — ${Number(room.lengthM).toFixed(1)}×${Number(room.widthM).toFixed(1)}م` : ""}${room.areaM2 ? ` — ${Number(room.areaM2).toFixed(1)} م²` : ""}`}
-        actions={user.permissions.has("ai.use") ? <AskAssistant type="room" id={id} label={`غرفة ${orFallback(room.nameAr)} (${room.code})`} /> : undefined}
       />
 
       {/* صف الإجراء التالي — أين أنا وماذا أفعل الآن */}

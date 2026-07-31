@@ -6,12 +6,9 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, committeeMembers, meetings, meetingOutcomes, people, documents, actionTasks, meetingTypes, meetingAttachments, storedFiles } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
-import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { MeetingEditForm, OutcomeForm, SignedMinutesUpload, CompleteMeetingButton, MeetingAttachmentForm, DeleteAttachmentButton } from "./meeting-ui";
 import { generateMinutesDocument } from "@/lib/reports/minutes-report";
 import { SubmitButton } from "@/components/ui";
-import { aiEnabled } from "@/lib/ai/provider";
-import { AiMeetingAssistant } from "@/components/integrations-ui";
 import { orFallback, orDash } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -49,7 +46,6 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   const taskById = new Map(tasks.map((t) => [t.id, t]));
 
   const canWrite = user.permissions.has("committees.write") && meeting.status !== "مكتمل";
-  const showAiMeetingAssistant = (await aiEnabled()) && canWrite;
   const canApprove = user.permissions.has("committees.approve");
   const chair = members.find((x) => x.m.role === "رئيس" || x.m.role === "قائد");
   const secretary = members.find((x) => x.m.role === "مقرر");
@@ -82,9 +78,6 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
           <div className="flex flex-wrap items-center gap-2">
             {typeName && <Badge value={typeName} />}
             <Badge value={meeting.status} />
-            {user.permissions.has("ai.use") && (
-              <AskAssistant type="meeting" id={mid} label={`اجتماع ${orFallback(committee.nameAr)}: ${orFallback(meeting.title, String(meeting.seq))}`} />
-            )}
           </div>
         }
       />
@@ -191,8 +184,6 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
         )}
         {canWrite && <MeetingAttachmentForm meetingId={mid} />}
       </Card>
-
-      {showAiMeetingAssistant && <AiMeetingAssistant meetingId={mid} />}
 
       <div id="minutes" className="scroll-mt-20">
       <Card>

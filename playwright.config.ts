@@ -36,7 +36,7 @@ export default defineConfig({
         // AI_ENABLED=true: أولاما المحلي شغّال في هذه البيئة (يثبته فحص الاتصال الحي في
         // assistant.spec) فتظهر مرساة المساعد. LOGIN_RATE_LIMIT_PER_MIN عالٍ حتى لا تُفعّل
         // عمليات الدخول المتتابعة عبر المجموعة محددَ المعدل (الإنتاج يبقى على 10).
-        command: `MADRASA_ENV=test MADRASA_INCLUDE_SYNTHETIC=1 AI_ENABLED=true LOGIN_RATE_LIMIT_PER_MIN=1000 DATABASE_URL=${TEST_DB_URL} STORAGE_DIR=storage-e2e npx next dev -p ${E2E_PORT}`,
+        command: `MADRASA_ENV=test MADRASA_INCLUDE_SYNTHETIC=1 LOGIN_RATE_LIMIT_PER_MIN=1000 DATABASE_URL=${TEST_DB_URL} STORAGE_DIR=storage-e2e npx next dev -p ${E2E_PORT}`,
         url: `http://localhost:${E2E_PORT}`,
         // لا تُعِد استخدام خادم قائم — قد يكون خادم التطوير على القاعدة الحقيقية
         reuseExistingServer: false,

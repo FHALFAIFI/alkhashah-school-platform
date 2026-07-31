@@ -53,8 +53,6 @@ describe("مركز التشغيل التجريبي — الحالة المحسو
     expect(s.plan.total).toBe(26);
     expect(s.groundPublished).toBe(true);
     expect(s.upperFloorsPending).toContain("الدور الأول");
-    // الذكاء الاصطناعي غير مفعّل في بيئة الاختبار — لا شبكة
-    expect(s.ai.enabled).toBe(false);
   });
 
   it("حالة التنفيذ: 52 منسوباً (42 معلماً/10 موظفين)، بلا حسابات، اللجان والأداء متاحان", async () => {

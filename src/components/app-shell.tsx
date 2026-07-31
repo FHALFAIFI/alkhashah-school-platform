@@ -16,7 +16,6 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: "/dashboard", label: "مركز عمل مدير المدرسة", icon: "◧" },
       { href: "/pilot", label: "مركز التشغيل التجريبي", icon: "✦" },
-      { href: "/assistant", label: "مساعد المدير الذكي", permission: "ai.use", icon: "✦" },
       { href: "/tasks", label: "المهام والإجراءات", permission: "tasks.read", icon: "☑" },
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },
     ],
@@ -53,7 +52,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: "/building/facilities", label: "المرافق المطلوب توفيرها", permission: "building.read", icon: "▦" },
       { href: "/building/assets", label: "العهدة والأصول", permission: "assets.read", icon: "▥" },
       { href: "/building/inspections", label: "الفحص والجاهزية", permission: "inspections.read", icon: "✓" },
-      { href: "/building/maintenance", label: "الصيانة", permission: "maintenance.read", icon: "🛠" },
+      { href: "/building/maintenance", label: "بلاغات الصيانة", permission: "maintenance.read", icon: "🛠" },
     ],
   },
   {
@@ -223,8 +222,8 @@ export function AppShell({
           </div>
         </header>
         <OfflineBanner />
-        {/* حاشية سفلية على الجوال تكفي لتمرير آخر المحتوى فوق زر المساعد العائم */}
-        <main className="min-w-0 flex-1 p-3 pb-24 sm:p-4 sm:pb-24 lg:p-6 lg:pb-6">
+        {/* لا أزرار عائمة بعد v2.3 (§19 + إزالة المساعد) — حاشية سفلية عادية */}
+        <main className="min-w-0 flex-1 p-3 pb-6 sm:p-4 sm:pb-6 lg:p-6 lg:pb-6">
           {/* زر «العودة» الموحّد — يظهر تلقائياً في كل صفحة فرعية (v2.2 §C) */}
           <BackNav />
           {children}

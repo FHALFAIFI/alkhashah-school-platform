@@ -143,7 +143,7 @@ export default async function CleanupPage() {
       <Card className={exclusionOn ? "border-emerald-200 bg-emerald-50" : "border-sand-200"}>
         <p className="text-sm">
           الاستبعاد المركزي للسجلات الاصطناعية من كل الواجهات (الخطة والبرامج، المتابعة، سجل الشواهد،
-          التقارير والتصديرات، اللوحة ومركز العمل، البحث، سياق المساعد وأدواته):{" "}
+          التقارير والتصديرات، اللوحة ومركز العمل، البحث):{" "}
           <span className={`font-bold ${exclusionOn ? "text-emerald-800" : "text-gray-600"}`}>
             {exclusionOn ? "مُفعَّل" : "معطّل (بيئة اختبار)"}
           </span>

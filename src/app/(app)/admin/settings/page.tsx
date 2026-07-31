@@ -1,6 +1,5 @@
 import { requirePermission } from "@/lib/auth/session";
 import { getSetting, setSetting } from "@/lib/settings";
-import { getAiConfig, providerNameAr } from "@/lib/ai/settings";
 import { getDocumentIdentity, saveDocumentIdentity } from "@/lib/document-identity";
 import { saveUploadedFile, validateUpload } from "@/lib/storage";
 import { PageHeader, Card, SubmitButton, Field, LinkButton } from "@/components/ui";
@@ -12,12 +11,11 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const user = await requirePermission("admin.settings");
-  const [sigDefault, stampDefault, followupTarget, assetPrefix, aiConfig, identity] = await Promise.all([
+  const [sigDefault, stampDefault, followupTarget, assetPrefix, identity] = await Promise.all([
     getSetting("branding.signature_default", false),
     getSetting("branding.stamp_default", false),
     getSetting("performance.followup_target", 5),
     getSetting("assets.code_prefix", "KHS-AST-"),
-    getAiConfig(),
     getDocumentIdentity(),
   ]);
 
@@ -145,18 +143,6 @@ export default async function SettingsPage() {
           </div>
           <SubmitButton>حفظ الإعدادات</SubmitButton>
         </form>
-      </Card>
-      <Card>
-        <h2 className="mb-1 font-bold text-gray-800">الذكاء الاصطناعي</h2>
-        <p className="text-sm text-gray-500">
-          الحالة: <strong>{aiConfig.enabled ? `مفعل — ${providerNameAr(aiConfig.provider)}` : "معطل (الافتراضي)"}</strong> — التطبيق يعمل
-          كاملاً بدونه، والتفعيل والفحص من صفحة الإعدادات المخصصة.
-        </p>
-        {user.permissions.has("ai.manage") && (
-          <div className="mt-3">
-            <LinkButton href="/admin/settings/ai" variant="secondary">فتح إعدادات الذكاء الاصطناعي</LinkButton>
-          </div>
-        )}
       </Card>
     </div>
   );

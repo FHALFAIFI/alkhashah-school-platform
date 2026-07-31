@@ -396,32 +396,6 @@ export async function uploadSignedReportAction(sessionId: string, _prev: ActionS
   return { success: isReplacement ? "استُبدل التقرير الموقع — النسخة السابقة محفوظة" : "رفع التقرير الموقع" };
 }
 
-/**
- * تمييز «اكتمل التقييم» عن «استُلم التقرير الموقع».
- * يُعلّم أن التقييم أُنجز وأُصدر التقرير غير الموقع؛ يبقى الاكتمال النهائي مشروطاً برفع
- * التقرير الموقع عبر `completeSessionAction`.
- */
-export async function markEvaluationCompletedAction(sessionId: string): Promise<ActionState> {
-  const user = await requirePermission("performance.write", "performance.individual.read");
-  const [session] = await db.select().from(perfSessions).where(eq(perfSessions.id, sessionId));
-  if (!session) return { error: "الجلسة غير موجودة" };
-  if (session.status === "مكتملة" || session.status === "مقفلة") return { error: "الجلسة مكتملة بالفعل" };
-  if (!session.reportDocId) return { error: "أصدر تقرير الجلسة (غير الموقع) أولاً" };
-
-  await db
-    .update(perfSessions)
-    .set({ evaluationCompletedAt: new Date(), status: "بانتظار التقرير الموقع", updatedAt: new Date() })
-    .where(eq(perfSessions.id, sessionId));
-  await audit({
-    actorId: user.id,
-    action: "perf_session.evaluation_completed",
-    entityType: "perf_session",
-    entityId: sessionId,
-    summary: "اكتمل التقييم — بانتظار التقرير الموقع",
-  });
-  revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
-  return { success: "سُجّل اكتمال التقييم — يبقى رفع التقرير الموقع لإتمام الجلسة" };
-}
 
 /**
  * Complete / lock a session.

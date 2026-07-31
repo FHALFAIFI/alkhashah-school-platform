@@ -5,7 +5,6 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { perfCycles, perfSessions, perfRatings, people, improvementPlans, documents } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, ProgressBar, WorkflowSteps } from "@/components/ui";
-import { AskAssistant } from "@/components/assistant/ask-assistant";
 import { cycleProgress, weakIndicators } from "@/lib/performance/scoring";
 import { NewSessionForm, ImprovementPlanForm, PlanStatusControl } from "./cycle-ui";
 import { dualDisplay, todayIso } from "@/lib/dates";
@@ -79,9 +78,6 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Badge value={cycle.status} />
-            {user.permissions.has("ai.use") && (
-              <AskAssistant type="performance" id={id} label={`دورة أداء: ${person.fullName} (${cycle.yearKey})`} />
-            )}
           </div>
         }
       />

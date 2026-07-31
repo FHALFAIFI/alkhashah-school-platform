@@ -22,7 +22,8 @@ const SOURCE_LABELS: Record<string, string> = {
   inspection: "فحص",
   maintenance: "صيانة",
   manual: "يدوي",
-  ai_assistant: "مساعد ذكي",
+  // تسمية تاريخية لمهام أنشأها المساعد قبل إزالته (v2.3 §12) — تبقى للسجلات القائمة
+  ai_assistant: "مساعد ذكي (سابقاً)",
 };
 
 export default async function TasksPage() {

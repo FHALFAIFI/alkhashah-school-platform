@@ -1,3 +1,8 @@
+/**
+ * جداول المساعد الذكي — خاملة منذ v2.3 (D-035): أُزيل كل مسار التشغيل، وتبقى
+ * الجداول وتعريفاتها كما هي حفاظاً على البيانات القائمة ولأن حذفها ترحيل مدمّر.
+ * لا شيء في التطبيق يقرؤها أو يكتبها.
+ */
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./core";
 

@@ -69,7 +69,7 @@ describe("التقارير الموقعة: التمييز والنسخ والت�
     const { db } = await import("@/db");
     const { perfSessions } = await import("@/db/schema");
     const { eq } = await import("drizzle-orm");
-    const { missingSignedReports, missingSignedReportCount } = await import("@/lib/performance/signed-reports");
+    const { missingSignedReports } = await import("@/lib/performance/signed-reports");
 
     const { session, doc } = await seedSession();
     // جلسة أصدرت تقريرها غير الموقع وعُلّم اكتمال تقييمها، بلا تقرير موقع
@@ -82,14 +82,12 @@ describe("التقارير الموقعة: التمييز والنسخ والت�
     expect(missing.length).toBe(1);
     expect(missing[0].sessionId).toBe(session.id);
     expect(missing[0].evaluationCompletedAt).not.toBeNull();
-    expect(await missingSignedReportCount()).toBe(1);
 
     // بعد رفع التقرير الموقع تختفي من اللوحة
     const { storedFiles } = await import("@/db/schema");
     const [sf] = await db.insert(storedFiles).values({ originalName: "signed.pdf", mime: "application/pdf", size: 1, sha256: "z", storagePath: `signed-${session.id}` }).returning();
     await db.update(perfSessions).set({ signedReportFileId: sf.id }).where(eq(perfSessions.id, session.id));
     expect((await missingSignedReports()).length).toBe(0);
-    expect(await missingSignedReportCount()).toBe(0);
   });
 
   it("الحقول النصية الاختيارية موجودة ولا تُشترط", async () => {

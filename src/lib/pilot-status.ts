@@ -15,8 +15,6 @@ import {
 } from "@/db/schema";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { peopleBatchDependencies, type PeopleDependency } from "@/lib/imports/people-dependencies";
-import { getAiConfig } from "@/lib/ai/settings";
-import { testConnection } from "@/lib/ai/provider";
 import { feedbackSummaryCounts } from "@/lib/feedback/service";
 
 export type PilotStatus = {
@@ -38,7 +36,6 @@ export type PilotStatus = {
   d014Pending: boolean;
   groundPublished: boolean;
   upperFloorsPending: string[];
-  ai: { enabled: boolean; ok: boolean; local: boolean; model: string; detail: string };
   backup: { latestDaily: string | null; latestDailyAt: Date | null; latestWeekly: string | null; latestWeeklyAt: Date | null };
   feedback: { total: number; open: number; resolved: number; blocked: number };
 };
@@ -57,18 +54,6 @@ function latestFile(dir: string): { name: string; at: Date } | null {
   }
 }
 
-async function aiStatus(): Promise<PilotStatus["ai"]> {
-  const config = await getAiConfig();
-  if (!config.enabled) {
-    return { enabled: false, ok: false, local: true, model: config.ollamaModel, detail: "المساعد الذكي غير مفعّل — المنصة تعمل بالكامل بدونه" };
-  }
-  try {
-    const t = await testConnection(config);
-    return { enabled: true, ok: t.ok, local: t.local, model: t.model, detail: t.detail };
-  } catch {
-    return { enabled: true, ok: false, local: true, model: config.ollamaModel, detail: "تعذّر الاتصال بالخدمة المحلية — المنصة تعمل بدونها" };
-  }
-}
 
 /**
  * حالة التشغيل التجريبي محسوبة من الحالة الفعلية (قراءة فقط، لا كتابة).
@@ -167,7 +152,7 @@ export async function getPilotStatus(): Promise<PilotStatus> {
   const daily = latestFile(path.join(backupDir, "daily"));
   const weekly = latestFile(path.join(backupDir, "weekly"));
 
-  const [ai, feedback] = await Promise.all([aiStatus(), feedbackSummaryCounts()]);
+  const [ feedback] = await Promise.all([ feedbackSummaryCounts()]);
 
   return {
     fares: {
@@ -188,7 +173,6 @@ export async function getPilotStatus(): Promise<PilotStatus> {
     d014Pending: !!d014Model,
     groundPublished,
     upperFloorsPending,
-    ai,
     backup: {
       latestDaily: daily?.name ?? null,
       latestDailyAt: daily?.at ?? null,

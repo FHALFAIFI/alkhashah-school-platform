@@ -26,7 +26,6 @@ import {
   CompleteProgramForm, ResumeProgramForm,
 } from "./program-ui";
 import { EvidencePanel } from "@/components/evidence-panel";
-import { AskAssistant } from "@/components/assistant/ask-assistant";
 
 export const dynamic = "force-dynamic";
 
@@ -123,7 +122,6 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
             {isArchived && <Badge value="مؤرشف" />}
             <Badge value={lifecycle} />
             <Badge value={programStatusLabel(program.status)} />
-            {user.permissions.has("ai.use") && <AskAssistant type="program" id={id} label={`برنامج: ${orFallback(program.name)}`} />}
             <LinkButton href={`/plan/${id}/report`} variant="secondary">تقرير البرنامج</LinkButton>
           </div>
         }

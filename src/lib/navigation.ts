@@ -97,9 +97,6 @@ const PARENT_MAP: Readonly<Record<string, string>> = {
   "/performance/analytics": "/performance",
   "/performance/employees/[personId]": "/performance/analytics",
 
-  // المساعد الذكي
-  "/assistant/drafts": "/assistant",
-
   // الإدارة — لا توجد صفحة فهرس على `/admin`، فأقسامها تعود إلى جذر التطبيق مباشرةً
   // (حذف آخر مقطع وحده كان سينتج رابطاً إلى صفحة غير موجودة).
   "/admin/users": APP_ROOT,
@@ -109,7 +106,6 @@ const PARENT_MAP: Readonly<Record<string, string>> = {
   "/admin/cleanup": APP_ROOT,
   "/admin/backup": APP_ROOT,
   "/admin/templates": APP_ROOT,
-  "/admin/settings/ai": "/admin/settings",
   "/admin/feedback/[id]": "/admin/feedback",
 };
 

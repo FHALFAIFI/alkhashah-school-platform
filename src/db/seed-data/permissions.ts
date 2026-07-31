@@ -64,9 +64,6 @@ export const permissionsSeed: { key: string; nameAr: string; module: string }[] 
   { key: "admin.backup", nameAr: "إدارة النسخ الاحتياطي", module: "admin" },
   { key: "admin.integrations", nameAr: "إدارة التكاملات الاختيارية", module: "admin" },
 
-  { key: "ai.use", nameAr: "استخدام مساعد المدير الذكي", module: "ai" },
-  { key: "ai.manage", nameAr: "إدارة إعدادات الذكاء الاصطناعي", module: "ai" },
-
   { key: "feedback.create", nameAr: "إرسال ملاحظات التشغيل", module: "feedback" },
   { key: "feedback.manage", nameAr: "إدارة ومعالجة ملاحظات التشغيل", module: "feedback" },
 

@@ -1,32 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { aiMeetingSummaryAction, emailDocumentAction, type AiState, type EmailState } from "@/app/(app)/integrations-actions";
+import { emailDocumentAction, type EmailState } from "@/app/(app)/integrations-actions";
 
 /** لوحة المساعد الذكي — تظهر فقط عند تفعيل الذكاء الاصطناعي؛ مخرجاتها مسودات للمراجعة البشرية */
-export function AiMeetingAssistant({ meetingId }: { meetingId: string }) {
-  const [state, setState] = useState<AiState>(null);
-  const [pending, startTransition] = useTransition();
-  return (
-    <div className="rounded-xl border border-purple-200 bg-purple-50/50 p-4">
-      <h2 className="mb-2 font-bold text-purple-900">المساعد الذكي (محلي)</h2>
-      <p className="mb-2 text-xs text-purple-800">
-        يولد مسودة تلخيص ومقترح قرارات وتوصيات من المناقشات — مسودة للمراجعة تنسخها بنفسك، ولا يكتب المساعد في أي سجل رسمي.
-      </p>
-      <button
-        disabled={pending}
-        onClick={() => startTransition(async () => setState(await aiMeetingSummaryAction(meetingId)))}
-        className="rounded-lg bg-purple-700 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-      >
-        {pending ? "جارٍ التوليد…" : "توليد مسودة تلخيص"}
-      </button>
-      {state?.error && <div role="alert" className="mt-2 rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
-      {state?.draft && (
-        <div className="mt-3 whitespace-pre-wrap rounded-lg border border-purple-200 bg-white p-3 text-sm">{state.draft}</div>
-      )}
-    </div>
-  );
-}
 
 /** إرسال وثيقة بالبريد: مسودة M365 عند التفعيل، وإلا بديل يدوي واضح */
 export function EmailDocumentButton({

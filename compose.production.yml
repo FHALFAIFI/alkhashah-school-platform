@@ -1,6 +1,6 @@
 # مجمع الإنتاج للمنزل-المخبر (homelab) — التطبيق + PostgreSQL في شبكة Docker داخلية.
 # القواعد الأمنية: PostgreSQL غير منشور إطلاقاً، والتطبيق يرتبط بـ 127.0.0.1 فقط،
-# والوصول عن بُعد عبر Tailscale Serve على المضيف (لا Funnel). Ollama يبقى على المضيف
+# v2.3 (D-035): لا اعتماد على أي خدمة ذكاء اصطناعي — التطبيق يعمل كاملاً بدونها.
 # (Mac) أو خدمة اختيارية (Ubuntu) — انظر docs/DOCKER_HOMELAB_DEPLOYMENT.md.
 #
 # الاستخدام:
@@ -26,9 +26,6 @@ x-app-build: &app-build
     # TEMPORARY (principal LAN retest): when true, allows a non-Secure session cookie for plain-HTTP
     # requests on the trusted LAN. Default false — HTTPS (Tailscale) stays always-Secure. See .env.production.
     ALLOW_INSECURE_LAN_HTTP: ${ALLOW_INSECURE_LAN_HTTP:-false}
-    AI_ENABLED: ${AI_ENABLED:-false}
-    AI_PROVIDER: ${AI_PROVIDER:-ollama}
-    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     NODE_ENV: production
   logging: &logging
     driver: json-file
@@ -103,9 +100,6 @@ services:
     # principal retest, then remove it to return to localhost-only.
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3080}:3080"
-    # للوصول إلى Ollama على المضيف (Mac Apple Silicon أو Ubuntu بلا تسريع حاوية)
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - storage:/data/storage
       - backups:/data/backups

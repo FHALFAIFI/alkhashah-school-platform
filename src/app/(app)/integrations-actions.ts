@@ -4,33 +4,10 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { documents, meetings, committees } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
-import { aiEnabled } from "@/lib/ai/provider";
-import { draftMeetingSummary } from "@/lib/ai/assist";
 import { m365Enabled, createDraftEmail } from "@/lib/email/m365";
 import { readStoredFile } from "@/lib/storage";
 import { userFacingError } from "@/lib/user-error";
 
-export type AiState = { error?: string; draft?: string } | null;
-
-/** مسودة تلخيص اجتماع — مقترح نصي يراجعه الإنسان، لا يكتب في أي سجل */
-export async function aiMeetingSummaryAction(meetingId: string): Promise<AiState> {
-  const user = await requirePermission("committees.write");
-  if (!(await aiEnabled())) return { error: "الذكاء الاصطناعي معطل — يفعله المدير من إعدادات الذكاء الاصطناعي" };
-  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, meetingId));
-  if (!meeting) return { error: "الاجتماع غير موجود" };
-  const [committee] = await db.select().from(committees).where(eq(committees.id, meeting.committeeId));
-  try {
-    const draft = await draftMeetingSummary({
-      committeeName: committee.nameAr,
-      agenda: meeting.agenda ?? [],
-      discussion: meeting.discussion ?? "",
-      actorId: user.id,
-    });
-    return { draft };
-  } catch (e) {
-    return { error: userFacingError(e, "تعذر توليد المسودة") };
-  }
-}
 
 export type EmailState = { error?: string; webLink?: string | null; fallback?: boolean } | null;
 

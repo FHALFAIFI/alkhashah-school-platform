@@ -37,10 +37,3 @@ export async function missingSignedReports(): Promise<MissingSignedReport[]> {
   return rows;
 }
 
-export async function missingSignedReportCount(): Promise<number> {
-  const [row] = await db
-    .select({ c: sql<number>`count(*)::int` })
-    .from(perfSessions)
-    .where(and(isNull(perfSessions.signedReportFileId), isNotNull(perfSessions.reportDocId)));
-  return row?.c ?? 0;
-}
