@@ -84,17 +84,14 @@ test.describe("الجوال 390×844", () => {
 
   test("إنشاء ملاحظة على الجوال بلا تمرير أفقي", async ({ page }) => {
     await login(page);
-    // زر الملاحظة وزر المساعد لا يتداخلان
+    // v2.3 §19: زر الملاحظة في الشريط العلوي الثابت — لا زر عائم فوق المحتوى
     const fb = await page.getByTestId("feedback-open").boundingBox();
-    const ai = await page.getByRole("button", { name: "فتح مساعد المدير الذكي" }).boundingBox();
     expect(fb, "زر الملاحظة ظاهر").not.toBeNull();
-    expect(ai, "زر المساعد ظاهر (AI مفعّل في الاختبار)").not.toBeNull();
-    const overlap =
-      fb!.x < ai!.x + ai!.width &&
-      fb!.x + fb!.width > ai!.x &&
-      fb!.y < ai!.y + ai!.height &&
-      fb!.y + fb!.height > ai!.y;
-    expect(overlap, "زر الملاحظة وزر المساعد يجب ألا يتداخلا").toBe(false);
+    const header = await page.locator("header").first().boundingBox();
+    expect(header, "الشريط العلوي ظاهر").not.toBeNull();
+    // الزر داخل نطاق الشريط العلوي رأسياً (وليس عائماً أسفل الشاشة)
+    expect(fb!.y).toBeGreaterThanOrEqual(header!.y - 1);
+    expect(fb!.y + fb!.height).toBeLessThanOrEqual(header!.y + header!.height + 1);
 
     await submitFeedback(page);
 
