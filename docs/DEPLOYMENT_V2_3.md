@@ -106,7 +106,7 @@ screenshots, final verdict line) are appended at deployment. Available now:
   `7632ab8` B3 finance · `61d4457` B4+B5 building · `31dba1d` C1+C3 identity/exports ·
   `9332dec` C5+C6 analytics · `ce0945c` C4+C7 templates/cards · `a3827b7` D interface ·
   `d952f07` E AI removal · `31a741c` F rehearsal · `8f4bf29` F e2e green ·
-  final head = the commit carrying this section (v2.3 pilot checklist + D-035 residue).
+  `1df8326` F pilot checklist + §27 evidence + D-035 residue (image build commit).
 - **Migrations (production 23 → 27):** §1 table — `0023` stored_files acceptance ·
   `0024` finance invoice/updated_by · `0025` room_types + inspection_findings +
   maintenance lifecycle/history + D-036 mapping · `0026` D-034 permission labels.
@@ -158,7 +158,15 @@ screenshots, final verdict line) are appended at deployment. Available now:
       subsequent v2.3 pilot-checklist update re-verified via `pilot-retest.spec.ts`).
 - [x] §27 delivery evidence (pre-deployment portion, §5) + principal retest checklist
       (`/pilot` rewritten to v2.3.0 — 21 tasks).
-- [ ] Build & verify `madrasa-app:0.1.0-v2_3-rc` image; tag rollback image.
+- [x] **RC image built & verified** (2026-07-31): `madrasa-app:0.1.0-v2_3-rc` =
+      `sha256:877f2343dfb3197ff898ac244306039c37531f200dcc8bf24b17715d17268f0a`,
+      linux/arm64, built from `1df8326` via `Dockerfile.production`. Verified on a
+      disposable DB: image's migrate-only init applied exactly **27** migrations → **86**
+      tables (== rehearsal); app boots (`/api/health` ok/db-up, `/login` 200, auth gate
+      307); **sharp 0.35.3 arm64** + **postcss 8.5.24** native overrides present;
+      Playwright Chromium present (Arabic PDF); `src/lib/ai` + `src/app/api/ai` absent
+      (D-035). Disposable container + DB destroyed. Rollback image is tagged from the
+      running production tag at deployment time (current prod = `ab259dd8…`).
 - [ ] Fresh encrypted pre-deploy backup inside the prod network + checksum + restore verification.
 - [ ] Controlled Mac mini deployment (migrate-only init; db container never restarted) —
       **awaits explicit authorization**.
