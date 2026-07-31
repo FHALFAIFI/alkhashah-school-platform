@@ -152,7 +152,7 @@ screenshots, final verdict line) are appended at deployment. Available now:
   fifth-round change, each submitting through the real feedback channel; verified by
   `pilot-retest.spec.ts`.
 
-## 6) Remaining before verdict
+## 6) Checklist status
 
 - [x] Full Playwright suite green — **72/1skip/0fail** (§4; drift fixed spec-side; the
       subsequent v2.3 pilot-checklist update re-verified via `pilot-retest.spec.ts`).
@@ -167,7 +167,96 @@ screenshots, final verdict line) are appended at deployment. Available now:
       Playwright Chromium present (Arabic PDF); `src/lib/ai` + `src/app/api/ai` absent
       (D-035). Disposable container + DB destroyed. Rollback image is tagged from the
       running production tag at deployment time (current prod = `ab259dd8…`).
-- [ ] Fresh encrypted pre-deploy backup inside the prod network + checksum + restore verification.
-- [ ] Controlled Mac mini deployment (migrate-only init; db container never restarted) —
-      **awaits explicit authorization**.
-- [ ] STOP before: release tag, gold backup, host-PC migration (await principal acceptance).
+- [x] Fresh encrypted pre-deploy backup inside the prod network + checksum + restore verification (§7.2).
+- [x] Controlled Mac mini deployment executed 2026-07-31 under explicit owner authorization (§7).
+- [ ] STOP holds: no release tag, no gold backup, no host-PC migration (await principal acceptance).
+
+## 7) DEPLOYMENT EXECUTED — 2026-07-31 (authorized)
+
+### 7.1 Pre-flight
+
+- App `madrasa-prod-app-1` healthy on `ab259dd8…` (v2.2.1), db `madrasa-prod-db-1` healthy,
+  both `RestartCount 0`. Prod tag `madrasa-app:0.1.0` = `ab259dd8…` confirmed.
+- Read-only baseline captured with a single SQL file reused verbatim pre/post (23 counts +
+  12 fingerprints). Anchors matched recorded history: D-022 `4572c57060e20c4b0de4db52545a8e3f`,
+  issued-docs `f34e3f0f2dffa7a71108e594d9281ff0`. One live-data delta vs the §2 rehearsal
+  snapshot: `plan_budget_items` 4 → **2** (user-deletable records; documents/evidence/files
+  unchanged) — baseline for verification is the day-of capture, not the rehearsal.
+- Rollback image tagged **`madrasa-app:0.1.0-prev-v2_3-20260731` = `ab259dd8…`**.
+
+### 7.2 §27: Backup checksum + restore verification — PASS
+
+- Taken **inside the prod network** via the compose `init` service (passphrase via env only,
+  never on argv/echo): stamp **`20260731-112756`** →
+  `backups/predeploy/db-20260731-112756.dump.enc`
+  (sha256 `e1886ed609d07db6529418ed06522efedf6fa89bab096839d1181bb78c4d1b1e`) +
+  `storage-20260731-112756.tar.gz.enc`
+  (sha256 `5384ddf4743ef28441f5d18f8f1bbce696f965820cbbb7de8ae77f68dc13c593`) + SHA256SUMS.
+- Host checksum verify **OK**; decrypts cleanly; `pg_restore --list` **547 objects**;
+  storage tar **166 entries**.
+- **Test-restored** into isolated `madrasa_v23_predeploy_verify` (dev container):
+  the full 35-line baseline (all counts + all 12 fingerprints) **byte-identical to live
+  production**. Verify DB dropped; decrypted artifacts deleted.
+
+### 7.3 Migration + cutover
+
+- `madrasa-app:0.1.0` retagged to the verified RC (`877f2343…`); migrate-only init
+  (`npx tsx src/db/migrate.ts`) applied **23 → 27** («Migrations applied.», one line);
+  `up -d --no-deps app`. **db container never restarted**
+  (StartedAt `2026-07-29T15:01:06Z`, RestartCount 0 throughout).
+- Post-migration baseline diff — exactly the documented shape and nothing else:
+  ledger 23→27 · tables 83→86 · `fp_maintenance` changed (the D-036 status mapping, the
+  single documented data change). **All other counts and all 11 other fingerprints
+  byte-identical**, including D-022, issued-docs, doc snapshots, perf sessions/ratings,
+  stored-file sha256 digest, programs, closure history, rooms, geometry, and the
+  income/expense sums (7601/4699).
+- D-036 exact: status `معتمد:3`/`مغلق:2`; resolution `تم الإصلاح:2`/NULL:3; one history row
+  per converted record. D-037 `room_types` = 24. D-034 labels updated. New columns 100% NULL;
+  `inspection_findings` empty.
+
+### 7.4 Incident during smoke: PDF export 500 — root-caused and fixed forward
+
+- Authenticated read-only smoke found `/api/reports/export?format=pdf` returning **500**
+  (docx/csv fine). App log: `browserType.launch: Executable doesn't exist at
+  /ms-playwright/chromium_headless_shell-1228/…`.
+- **Root cause:** `Dockerfile.production` installed browsers with **unpinned**
+  `npx playwright@1 install` — it resolved to a Playwright newer than the lockfile's
+  **1.61.1** and downloaded browser build `-1234`, while the app's locked library expects
+  `-1228`. v2.2.1's image predates that Playwright release (build happened to match), and
+  the §6 RC verification checked the browser directory existed but not its build number —
+  both gaps now closed.
+- **Fix:** browsers are now installed from the app's own locked `node_modules`
+  (`COPY node_modules` first, then `npx playwright install --with-deps chromium`) so the
+  versions can never skew. Rebuilt as **`madrasa-app:0.1.0-v2_3-rc2` =
+  `sha256:7f5ff14a54f0a7046a319dd8c6429ecf8e4726ee139bbb3e488dfeaae4d49a5a`**; in-container
+  proof: `chromium.launch → page.pdf` prints `PDF-OK %PDF` (the same probe fails with the
+  exact production error on the superseded image). Invariants re-verified on rc2 (sharp
+  0.35.3 arm64, postcss 8.5.24, 27 migration files, `src/lib/ai` absent, browser `-1228`).
+- App container swapped to rc2 (app-only restart, no DB action — migrations were already
+  applied and verified). The broken first RC tag was **deleted** (digest `877f2343…` kept
+  here for the record) so it can never be deployed by accident.
+
+### 7.5 §27: Deployed image + final smoke
+
+- **Deployed image tag/digest: `madrasa-app:0.1.0` = `0.1.0-v2_3-rc2` =
+  `sha256:7f5ff14a54f0a7046a319dd8c6429ecf8e4726ee139bbb3e488dfeaae4d49a5a`** (verified on
+  the running container). Rollback: `0.1.0-prev-v2_3-20260731` = `ab259dd8…` retained.
+- Authenticated **read-only** smoke (real `admin` login via the form, no bypass; no business
+  writes — the temp credentials copy was deleted after): health ok/db-up · `/dashboard`
+  «لوحة المتابعة» · `/plan` · `/building/maintenance` (D-036 badges «معتمد»×3, «مغلق»×2) ·
+  `/building/facilities` («المرافق المطلوب توفيرها») · `/evidence` · `/reports` · `/budget` ·
+  `/committees` · `/pilot` **21 v2.3.0 retest tasks** · «إرسال ملاحظة» in the sticky header ·
+  **PDF export 200 `%PDF` 44,541 bytes** · DOCX 200 · CSV 200 · **0 console errors**.
+  «مواعيد قادمة (14 يوماً)» card correctly hidden (renders only when items exist in-window;
+  none in the live data today). Performance pages not smoked by sysadmin (D-013 exclusion) —
+  principal covers them via `/pilot`.
+
+### 7.6 Verdict (§27)
+
+**V2.3.0 DEPLOYED — READY FOR PRINCIPAL ACCEPTANCE TESTING**
+
+STOP holds: **no release tag, no gold backup, no host-PC migration** until the principal
+explicitly accepts. Rollback path: retag `0.1.0-prev-v2_3-20260731` → `0.1.0`, app-only
+restart. Note for rollback awareness: migrations are nullable-additive so the old image runs
+on ledger 27, but the D-036 status values (`معتمد`/`مغلق`) postdate the old UI's labels —
+rollback is functional but cosmetically degraded on «بلاغات الصيانة».

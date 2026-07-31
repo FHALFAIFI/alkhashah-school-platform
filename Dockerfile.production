@@ -34,11 +34,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
       fonts-noto-core fonts-noto-color-emoji \
   && rm -rf /var/lib/apt/lists/*
 
-# متصفح Playwright في مسار مشترك عالمي القراءة (يعمل للمستخدم غير الجذر)
-RUN npx --yes playwright@1 install --with-deps chromium \
-  && chmod -R a+rx /ms-playwright
-
 COPY --from=deps /app/node_modules ./node_modules
+
+# متصفح Playwright من نسخة node_modules المقفولة نفسها، في مسار مشترك عالمي القراءة.
+# لا تستخدم playwright@1 غير المثبّت: انحراف إصداره عن المكتبة المقفولة يحمّل بناء
+# متصفح مختلفاً فيفشل توليد PDF على الإنتاج (headless_shell المتوقع غير موجود).
+RUN npx playwright install --with-deps chromium \
+  && chmod -R a+rx /ms-playwright
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json

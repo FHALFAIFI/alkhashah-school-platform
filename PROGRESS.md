@@ -2,7 +2,36 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — v2.3.0 PHASES A–E IMPLEMENTED, ALL AUTOMATED GATES GREEN (2026-07-31) — packaging/deployment prep remaining
+## Latest checkpoint — v2.3.0 DEPLOYED to production (Mac mini) 2026-07-31 — READY FOR PRINCIPAL ACCEPTANCE TESTING
+
+- **DEPLOYED under explicit owner authorization.** Full record: `docs/DEPLOYMENT_V2_3.md` §7.
+  Running image **`madrasa-app:0.1.0` = `0.1.0-v2_3-rc2` = `sha256:7f5ff14a54f0…`** (digest
+  verified on the container). Migration **23 → 27**, tables 83 → 86. **db container never
+  restarted** (StartedAt 2026-07-29T15:01:06Z, RestartCount 0 throughout).
+- **Backup `20260731-112756`** (db+storage+SHA256SUMS, encrypted inside the prod network,
+  passphrase never echoed): checksums OK, 547 pg objects / 166 tar entries, **test-restored**
+  into an isolated DB where the full 35-line baseline (23 counts + 12 fingerprints) was
+  **byte-identical to live production**. Rollback image `0.1.0-prev-v2_3-20260731` (= ab259dd8).
+- **Data preserved:** post-migration diff was exactly {ledger 23→27, tables 83→86,
+  fp_maintenance changed by the documented D-036 mapping} and NOTHING else — D-022
+  `4572c570…` and issued-docs `f34e3f0f…` unchanged; income/expense sums 7601/4699 unchanged.
+  D-036 exact (معتمد:3/مغلق:2 + history rows), D-037 24 room types, D-034 labels, new columns
+  100% NULL. Live-data note: plan_budget_items was 2 at deploy time (4 in the §2 rehearsal —
+  user deletion in the interim; verified against the day-of baseline).
+- **Incident found in smoke and fixed forward:** PDF export 500 — unpinned `npx playwright@1`
+  in Dockerfile.production downloaded browser build -1234 while locked playwright 1.61.1
+  expects -1228. Fixed by installing browsers from the app's own node_modules; rebuilt as
+  rc2 (`7f5ff14a…`), in-container `PDF-OK %PDF` proof, broken first RC tag deleted
+  (digest 877f2343… recorded in docs). App-only swap; no DB action.
+- **Authenticated read-only smoke (real admin login, no bypass, no business writes):**
+  8 module pages render, `/pilot` shows the **21 v2.3.0 retest tasks**, D-036 badges in
+  «بلاغات الصيانة», «إرسال ملاحظة» in the header, **PDF 200 %PDF 44,541B / DOCX 200 / CSV
+  200**, 0 console errors. Performance pages = D-013 sysadmin exclusion → principal via /pilot.
+- **STOPPED:** no release tag, no gold backup, no host-PC migration until principal
+  acceptance. Rollback = retag prev image, app-only restart (functional on ledger 27;
+  cosmetically degraded on the mapped D-036 statuses).
+
+## Earlier checkpoint — v2.3.0 PHASES A–E IMPLEMENTED, ALL AUTOMATED GATES GREEN (2026-07-31) — packaging/deployment prep remaining
 - **Brief:** principal's 5th round, recorded verbatim in `docs/BRIEF_V2_3_0.md`; Phase A inventory +
   gap analysis in `docs/SCOPE_IMPACT_V2_3.md`; decisions **D-032…D-040**. Branch from `6ce990b`
   (deployed v2.2.1, production at migration 23). **Production untouched.**
