@@ -5,9 +5,14 @@
 > production migration 23). Decisions for this round: D-032+ in `docs/DECISIONS.md`.
 > This document = Phase A inventory (brief §25) + gap analysis + implementation mapping.
 
-Status: **Phase A COMPLETE (2026-07-31).** Decisions D-032…D-040 recorded in `docs/DECISIONS.md`.
-Implementation proceeds per brief §25: B (data/domain) → C (reports/templates) → D (interface) →
-E (simplification) → F (verification + controlled deployment).
+Status (2026-07-31): **Phases A–E IMPLEMENTED** — commits `5337b45` (A), `25d2c1d` (B1), `1148975`
+(B2), `7632ab8` (B3), `61d4457` (B4+B5), `31dba1d` (C1+C3), `9332dec` (C5+C6), `ce0945c` (C4+C7),
+`a3827b7` (D), `d952f07` (E). Migrations 0023–0026 (dev/test only; production at ledger 23).
+Gates at E: typecheck 0 · lint 0 · vitest 682 · production build ✓ (zero AI).
+**Phase F verification in progress** — Playwright suite, then clone rehearsal 23→27, encrypted
+backup + restore verification, controlled Mac mini deployment, §27 delivery evidence.
+Deliberately deferred: template-driven issuance wiring (`resolveTemplateForIssue` → generators,
+D-039 pt2) — doc-type vocabulary reconciled so all 29 types are editor-manageable now.
 
 ---
 
