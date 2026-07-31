@@ -2,7 +2,61 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — CORRECTIVE PATCH v2.2.1 DEPLOYED to production 2026-07-30 — CONDITIONALLY READY
+## Latest checkpoint — v2.3.0 PHASES A–E IMPLEMENTED on `scope-v2.3-principal-acceptance` (2026-07-31) — VERIFICATION IN PROGRESS
+- **Brief:** principal's 5th round, recorded verbatim in `docs/BRIEF_V2_3_0.md`; Phase A inventory +
+  gap analysis in `docs/SCOPE_IMPACT_V2_3.md`; decisions **D-032…D-040**. Branch from `6ce990b`
+  (deployed v2.2.1, production at migration 23). **Production untouched.**
+- **B1 dates (D-033, `25d2c1d`):** dual-calendar `DateField` (هجري أم القرى/ميلادي selector, Hijri
+  entry by day/month-name/year selects, one canonical Gregorian ISO value, dual line under field,
+  browser-remembered mode) wired through `Field type="date"` → all pickers upgraded at one point;
+  `lib/dates` gains Intl-probed inverse conversion + validation (16 unit tests incl. two full Hijri
+  years round-trip); `optionalIsoDate` zod across budget/evidence/tasks/performance/committees;
+  report date columns render dual on screen + CSV/XLSX.
+- **B2 uploads (D-032, `1148975`):** `stored_files` acceptance columns (migration **0023**);
+  `saveUploadedFile` decides from the uploader's DB role — principal auto-accepted («قبول تلقائي
+  بواسطة المدير»), others «قيد الاعتماد» pending manual «اعتماد يدوي بواسطة المدير»; scope
+  `reports` exempt; `CurrentUser.roleKeys`; principal queue on /evidence; 6 integration tests.
+- **B3 finance (`7632ab8`):** migration **0024** (income invoice number + updated_by both tables);
+  update actions with `record_versions` snapshot + قبل/بعد audit detail; `/budget/items/[id]`
+  drill-down (running-balance ledger, user attribution, edit/delete inline); clickable per-item
+  cards with «آخر عملية»; calc gains lastOperation/ledger/top-spenders/near-exhaustion lists.
+- **B4+B5 building (D-036/D-037, `61d4457`):** migration **0025** — `room_types` registry (24
+  system types + aliases; «مختبر علوم» now matches «معمل» rooms), `inspection_findings` (severity
+  from frozen snapshot, حرج ⇒ critical, target date/responsibility/close/one-click complaint),
+  maintenance lifecycle columns + append-only `maintenance_status_history` + documented legacy
+  status mapping (rehearse on clone!); `recordInspection()` unifies online+offline (fixes the
+  offline missing-snapshot hole); transparent readiness rewrite (لم يبدأ/جاهز/يحتاج معالجة/غير
+  جاهز + per-item why); transition machine مسودة→معتمد→تم الإرسال→تحت المعالجة→نتيجة→مغلق with
+  «لم يتم الإصلاح» closure requirements; `/building/maintenance/[id]` detail page.
+- **C (`31dba1d`, `9332dec`, `ce0945c`):** identity centralized (principalName/Title + logos via
+  admin UI — «حسين» nowhere in code) and wired into ALL 7 generators + Word; `/api/reports/export`
+  gains **pdf|docx** for all 54 registry reports (filters shown, page numbers, thead repeat, §7
+  filename); rules-based KPI analytics (`lib/performance/analytics`, threshold setting, min-sample
+  guard) + `/performance/analytics` + `/performance/employees/[personId]`; template registry
+  **14→29 doc types** (generator docTypes reconciled); `generateProgramCard` (§20, offline QR) +
+  `generateMaintenanceLetter` (§18, refuses drafts, linked via documentId).
+- **D (`a3827b7`):** «اعتماد وإقفال»→«اعتماد» everywhere incl. derived labels (D-034; migration
+  **0026** updates the two permissions.name_ar rows; history NOT rewritten); sketch 40dvh/50dvh +
+  ⤢ expand (viewBox math untouched); collapsible persistent `<Tutorial>` on 6 module pages with
+  current-workflow steps; «إرسال ملاحظة» moved into the sticky header; dashboard monitoring cards
+  (programs by lifecycle + delayed via Hijri conversion, complaints, findings, readiness %, cash/
+  remaining/warnings, pending files, incomplete evaluations per D-013) + 14-day upcoming list;
+  facilities renamed «المرافق المطلوب توفيرها أو تحسينها» (D-038).
+- **E (`d952f07`, D-035):** AI runtime fully deleted (~3,100 lines — lib/ai, api/ai, assistant
+  pages/components, AI settings, health checks incl. pilot-status per-render probe); env/compose/
+  playwright config cleaned; `ai_*` tables kept dormant; SWOT import preserved (verified AI-free);
+  dead perf functions removed; production build passes with zero AI references.
+- **Gates at E end:** typecheck 0 · lint 0 · **vitest 682** · production build ✓. Migrations
+  0023–0026 applied to `madrasa_test` ONLY — **production remains at ledger 23 (file 0022)**;
+  4 pending prod migrations, all additive except documented D-034 label UPDATEs + D-036 status
+  mapping (both rehearse-and-verify on clone first).
+- **REMAINING (Phase F):** full Playwright suite (running), fix any e2e drift from renames/UI
+  moves, PROGRESS/docs finalization, production-clone rehearsal 23→27 with counts+fingerprints,
+  encrypted backup + restore verification, controlled Mac mini deployment, delivery-evidence
+  report (§27), principal retest checklist. **No release tag, no gold backup, no host-PC
+  migration until principal acceptance.**
+
+## Earlier checkpoint — CORRECTIVE PATCH v2.2.1 DEPLOYED to production 2026-07-30 — CONDITIONALLY READY
 - **DEPLOYED.** Commits `e88add8` + `936c7c0` (+ docs `f946de8`), image `madrasa-app:0.1.0-v2_2_1-rc`
   `sha256:ab259dd83a3a…` (digest verified on the running container). Migration **22 → 23**, tables
   still 83. ~4 s app stop→start; **db container never restarted** (StartedAt 2026-07-29T15:01:06Z,
