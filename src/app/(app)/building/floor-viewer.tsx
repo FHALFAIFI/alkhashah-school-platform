@@ -65,6 +65,8 @@ export function FloorViewer({
   })();
 
   const [view, setView] = useState<ViewerView>(() => initialView(base));
+  // v2.3 §14: ارتفاع معتدل افتراضياً مع توسيع صريح عند الحاجة
+  const [expanded, setExpanded] = useState(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<
     | { type: "pan"; view: ViewerView; x: number; y: number }
@@ -171,6 +173,8 @@ export function FloorViewer({
     { label: "إبعاد", glyph: "−", onClick: () => setView((v) => zoomCentered(v, base, 1 / VIEWER_ZOOM_STEP)), testId: "viewer-zoom-out" },
     { label: "ملاءمة المخطط للشاشة", glyph: "⛶", onClick: () => setView(fitToContent(base, contentBBox, S)), testId: "viewer-fit" },
     { label: "إعادة ضبط العرض", glyph: "⟲", onClick: () => setView(initialView(base)), testId: "viewer-reset" },
+    // v2.3 §14: المخطط لا يهيمن على الصفحة — ارتفاع افتراضي معتدل مع زر توسيع صريح
+    { label: expanded ? "تصغير المخطط" : "توسيع المخطط", glyph: expanded ? "🗗" : "⤢", onClick: () => setExpanded((e) => !e), testId: "viewer-expand" },
   ];
 
   return (
@@ -203,7 +207,17 @@ export function FloorViewer({
         onLostPointerCapture={onPointerUp}
         onPointerLeave={onPointerLeave}
       >
-        <svg viewBox={viewBoxOf(view, base)} className="block h-auto w-full select-none" style={{ aspectRatio: `${width} / ${height}` }}>
+        {/*
+          ارتفاع المخطط (v2.3 §14): افتراضياً ~40dvh جوالاً و~50dvh حاسوباً فلا يهيمن على
+          الصفحة؛ التوسيع الصريح يرفعه إلى ~80dvh. المحتوى يتوسّط بالاحتواء (meet) —
+          viewBox يبقى آلية التقريب الوحيدة (v2.2.1 محفوظة).
+        */}
+        <svg
+          viewBox={viewBoxOf(view, base)}
+          preserveAspectRatio="xMidYMid meet"
+          className={`block w-full select-none ${expanded ? "max-h-[80dvh]" : "max-h-[40dvh] lg:max-h-[50dvh]"}`}
+          style={{ aspectRatio: `${width} / ${height}` }}
+        >
           {(geometry.contextShapes ?? []).map((c) => (
             <g key={c.key}>
               <rect x={tx(c.x)} y={ty(c.y)} width={c.w * S} height={c.h * S} fill="#e8e8e8" stroke="#cccccc" strokeDasharray="6 4" opacity={0.55} />

@@ -271,9 +271,9 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByText("معاينة نموذج المتابعة الأسبوعية")).toBeVisible();
     await expect(page.getByText("معاينة نموذج طلب التغيير")).toBeVisible();
 
-    // اعتماد البرنامج — الحالة تُعرض «معتمد ومقفل» وإعادة الفتح «إعادة فتح بسبب موثق»
-    await page.getByRole("button", { name: "اعتماد وإقفال", exact: true }).first().click();
-    await expect(page.getByText("معتمد ومقفل", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+    // اعتماد البرنامج (D-034) — الحالة تُعرض «معتمد» وإعادة الفتح «إعادة فتح بسبب موثق»
+    await page.getByRole("button", { name: "اعتماد", exact: true }).first().click();
+    await expect(page.getByText("معتمد", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("button", { name: "إعادة فتح بسبب موثق" })).toBeVisible();
 
     // §2/D-025: الشواهد معلوماتية فقط — الحالة الفعلية بلا هدف أو نسبة أو «متبقٍّ» أو حاجز إكمال.
@@ -463,9 +463,9 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "إضافة عضو" }).click();
     await expect(page.locator("tr", { hasText: "تجريبي ثانٍ مثال" }).getByText("مقرر", { exact: true })).toBeVisible({ timeout: 20_000 });
 
-    // اعتماد التشكيل — الحالة تُعرض «معتمدة ومقفلة» (قرار المصطلحات الموحّد)
-    await page.getByRole("button", { name: "اعتماد التشكيل وإقفاله" }).first().click();
-    await expect(page.getByText("معتمدة ومقفلة", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+    // اعتماد التشكيل (D-034) — الحالة تُعرض «معتمدة»
+    await page.getByRole("button", { name: "اعتماد التشكيل" }).first().click();
+    await expect(page.getByText("معتمدة", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
     // §4/v2.1 (F): توزيع المهام — تحميل المهام المعرّفة مسبقاً، إسناد لعضو، ثم توليد نموذج التكليف الذي
     // صار قائمتين مستقلتين: «أعضاء اللجنة» (بعمود «التوقيع») و«مهام اللجنة».
@@ -630,7 +630,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
 
     // إصدار التقرير ورفع الموقع ثم الإقفال النهائي
     await issueAndSignSessionReport(page);
-    await page.getByRole("button", { name: "اعتماد وإقفال التقييم النهائي" }).click();
+    await page.getByRole("button", { name: "اعتماد التقييم النهائي" }).click();
     await expect(page.getByText("مقفلة", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
     // الدورة مكتملة على صفحتها
@@ -817,8 +817,8 @@ test.describe("سيناريوهات سير العمل — 390×844", () => {
     await page.locator(`a[href="/plan/${state.programId}"]`).first().click();
     await page.waitForURL(`**/plan/${state.programId}`);
     await expect(page.getByLabel("مراحل سير العمل")).toBeVisible();
-    // البرنامج معتمد من السيناريو الثاني — الحالة «معتمد ومقفل» تظهر على الجوال دون تمرير أفقي
-    await expect(page.getByText("معتمد ومقفل", { exact: true }).first()).toBeVisible();
+    // البرنامج معتمد من السيناريو الثاني — الحالة «معتمد» تظهر على الجوال دون تمرير أفقي
+    await expect(page.getByText("معتمد", { exact: true }).first()).toBeVisible();
     await expectNoOverflow(page, "/plan/[id]");
     // شاشة تقرير البرنامج على الجوال: الإجراءات الأربعة مجمّعة دون تمرير أفقي
     await page.goto(`/plan/${state.programId}/report`);

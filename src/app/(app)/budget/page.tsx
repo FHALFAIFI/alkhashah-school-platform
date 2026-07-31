@@ -18,6 +18,7 @@ import {
   type ItemLine,
 } from "./budget-ui";
 import { Stat } from "./stat";
+import { Tutorial } from "@/components/tutorial";
 
 export const metadata = { title: "المالية المدرسية" };
 export const dynamic = "force-dynamic";
@@ -103,6 +104,18 @@ export default async function BudgetPage({
             <Badge value={activeYear.status} />
           </div>
         }
+      />
+
+      <Tutorial
+        id="budget"
+        title="سير العمل المالي"
+        steps={[
+          "أنشئ بنود الصرف وحدد المبلغ المعتمد لكل بند (اختياري).",
+          "سجّل الإيرادات والمصروفات بتاريخها ورقم فاتورتها ومرفقها — كل الحقول اختيارية.",
+          "انقر بطاقة البند لكامل تفاصيله: العمليات والرصيد الجاري وسجل التعديل.",
+          "تجاوز المخصص تنبيه معلوماتي فقط — لا يمنع الحفظ ولا يتطلب إقراراً.",
+          "الرصيد النقدي = الإيراد المستلم − المصروف، ومخصصات البنود مفهوم مستقل عنه.",
+        ]}
       />
 
       {/* لوحة الإيصال/الفاتورة للسجل المحدد — رفع مباشر أو ربط شاهد قائم */}

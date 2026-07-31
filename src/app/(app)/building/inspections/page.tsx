@@ -9,6 +9,7 @@ import { computeRoomReadiness } from "@/lib/building/readiness";
 import { statusLabel } from "@/lib/building/inspection-template-defs";
 import { orFallback } from "@/lib/format";
 import { ApproveTemplateButton } from "./inspections-ui";
+import { Tutorial } from "@/components/tutorial";
 
 export const metadata = { title: "الفحص والجاهزية" };
 export const dynamic = "force-dynamic";
@@ -55,6 +56,18 @@ export default async function InspectionsPage() {
             <LinkButton href="/building/offline">وضع الفحص دون اتصال</LinkButton>
           </div>
         }
+      />
+
+      <Tutorial
+        id="inspections"
+        title="سير عمل الفحص والجاهزية"
+        steps={[
+          "جهّز قوالب الفحص حسب نوع الغرفة من «قوالب الفحص» وفعّلها.",
+          "افتح صفحة الغرفة ونفّذ الفحص — القالب المطابق لنوعها يُحمَّل تلقائياً.",
+          "البنود الفاشلة تتحول «ملاحظات فحص» بخطورتها — حدد موعد المعالجة والمسؤول.",
+          "بند حرج فاشل يجعل الغرفة «غير جاهز» حتى معالجته — والصفحة تعرض السبب بنداً بنداً.",
+          "حوّل الملاحظة بلاغ صيانة عند الحاجة وتابعها حتى الإغلاق.",
+        ]}
       />
 
       <Card>

@@ -7,6 +7,7 @@ import { PageHeader, Card, Badge, Table, EmptyState } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { orFallback } from "@/lib/format";
 import { NewIssueForm } from "./maintenance-ui";
+import { Tutorial } from "@/components/tutorial";
 
 export const metadata = { title: "بلاغات الصيانة" };
 export const dynamic = "force-dynamic";
@@ -28,6 +29,17 @@ export default async function MaintenancePage() {
       <PageHeader
         title="بلاغات الصيانة"
         subtitle="دورة حياة رسمية: مسودة ← اعتماد ← إرسال للجهة المسؤولة ← معالجة ← نتيجة (تم الإصلاح / لم يتم الإصلاح) ← إغلاق — افتح البلاغ لمتابعته وتوليد خطابه"
+      />
+      <Tutorial
+        id="maintenance"
+        title="دورة حياة بلاغ الصيانة"
+        steps={[
+          "سجّل البلاغ (مسودة) بموقعه ووصفه وصوره، ثم «اعتماد البلاغ».",
+          "ولّد خطاب البلاغ الرسمي وسجّل إرساله للجهة المسؤولة بتاريخه.",
+          "تابع المعالجة وسجّل زيارة الصيانة والإجراء المتخذ.",
+          "سجّل النتيجة: «تم الإصلاح» أو «لم يتم الإصلاح» — الثانية تتطلب سبباً وتوصية وقرار تصعيد عند الإغلاق.",
+          "أغلق البلاغ — كل انتقال مسجَّل في سجل البلاغ الإلحاقي.",
+        ]}
       />
       {canWrite && (
         <Card>

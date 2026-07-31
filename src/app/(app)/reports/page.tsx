@@ -18,6 +18,7 @@ import {
 import { runReport } from "@/lib/reports/loaders";
 import { clampPage, clampPageSize } from "@/lib/reports/export-safety";
 import { ReportFilterBar } from "./report-filters";
+import { Tutorial } from "@/components/tutorial";
 
 export const metadata = { title: "مركز التقارير" };
 export const dynamic = "force-dynamic";
@@ -177,6 +178,17 @@ export default async function ReportsPage({
             <LinkButton href="/reports/executive" variant="secondary">إصدار التقرير التنفيذي</LinkButton>
           ) : undefined
         }
+      />
+
+      <Tutorial
+        id="reports"
+        title="توليد التقارير وتنزيلها"
+        steps={[
+          "اختر الفئة ثم التقرير — كل الحالة في الرابط فيمكن مشاركته.",
+          "رشّح بالبحث والتاريخ والحالة — المرشّحات الفعّالة تظهر داخل التقرير المولَّد.",
+          "نزّل PDF أو Word (وExcel للجداول) — الاسم يتضمن التقرير والمدرسة وتاريخ التوليد.",
+          "الوثائق الرسمية المرقّمة تُصدر من صفحات أقسامها وتبقى لقطاتها مجمّدة.",
+        ]}
       />
 
       <nav aria-label="فئات التقارير" className="flex flex-wrap gap-2 print:hidden">

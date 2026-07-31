@@ -13,6 +13,7 @@ import { dualDisplay } from "@/lib/dates";
 import { FollowupDueBadge } from "./followup-badge";
 import { AddProgramPanel } from "./program-create-ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
+import { Tutorial } from "@/components/tutorial";
 
 export const metadata = { title: "الخطة التشغيلية" };
 export const dynamic = "force-dynamic";
@@ -83,6 +84,20 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
           </>
         }
       />
+      <div className="mb-4">
+        <Tutorial
+          id="plan"
+          title="دورة حياة البرنامج — قيد التنفيذ، مكتمل، مغلق"
+          steps={[
+            "أنشئ البرنامج أو استورده من الخطة، ثم «اعتماد» يجمّد بياناته الأساسية.",
+            "تابع التنفيذ وحدّث نسبة الإنجاز من صفحة البرنامج — الشواهد داعمة للتوثيق وليست شرطاً.",
+            "عند انتهاء التنفيذ اختر «تعليم البرنامج كمكتمل» — يبقى قابلاً للتعديل والرجوع.",
+            "للإغلاق النهائي اختر «إقفال البرنامج نهائياً» — يصبح البرنامج للقراءة فقط مع بقاء العرض والطباعة.",
+            "«إعادة فتح البرنامج» تعيد المغلق إلى مكتمل، و«إعادة البرنامج للتنفيذ» تعيد المكتمل إلى قيد التنفيذ.",
+          ]}
+          note="لا تُشترط الشواهد ولا نسبة إنجاز معينة للاكتمال أو الإقفال — القرار للمدير."
+        />
+      </div>
       {canWrite && (
         <div className="mb-4">
           <AddProgramPanel />

@@ -20,7 +20,7 @@ export const permissionsSeed: { key: string; nameAr: string; module: string }[] 
   { key: "plan.read", nameAr: "عرض الخطة التشغيلية", module: "plan" },
   { key: "plan.write", nameAr: "إدارة الخطة التشغيلية", module: "plan" },
   { key: "plan.import", nameAr: "استيراد الخطة التشغيلية", module: "plan" },
-  { key: "plan.approve", nameAr: "اعتماد وإقفال البرامج", module: "plan" },
+  { key: "plan.approve", nameAr: "اعتماد البرامج", module: "plan" },
   { key: "plan.close_year", nameAr: "إقفال السنة وأرشفتها", module: "plan" },
   { key: "plan.override", nameAr: "إقفال البرنامج بتجاوز موثّق رغم النواقص", module: "plan" },
 
@@ -30,7 +30,7 @@ export const permissionsSeed: { key: string; nameAr: string; module: string }[] 
 
   { key: "performance.read", nameAr: "عرض وحدة الأداء الوظيفي", module: "performance" },
   { key: "performance.write", nameAr: "إدارة دورات وجلسات الأداء", module: "performance" },
-  { key: "performance.approve", nameAr: "اعتماد وإقفال سجلات الأداء", module: "performance" },
+  { key: "performance.approve", nameAr: "اعتماد سجلات الأداء", module: "performance" },
   { key: "performance.individual.read", nameAr: "الاطلاع على تفاصيل الأداء الفردي", module: "performance" },
   { key: "performance.models.manage", nameAr: "إدارة نماذج الأداء", module: "performance" },
 

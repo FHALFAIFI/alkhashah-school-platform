@@ -11,10 +11,10 @@ import {
 } from "@/lib/feedback/constants";
 
 /**
- * مرساة الملاحظات — زر عائم «إرسال ملاحظة» يظهر في كل الصفحات لمن يملك صلاحية feedback.create.
- * موضعه أسفل الجهة اليسرى (end) بعكس زر المساعد الذكي (start) فلا يتداخلان على الجوال،
- * ولا يغطي القائمة (أعلى الصفحة) ولا أزرار النماذج (ضمن المحتوى) ولا مناطق الأمان.
- * النموذج رأسي بالكامل وصالح للاستخدام على 390×844.
+ * «إرسال ملاحظة» (v2.3 §19) — زر مدمج في الشريط العلوي الثابت لا زر عائم:
+ * أيقونة بمسمى وصفي متاحة في كل الصفحات، لا تغطي المحتوى ولا أزرار المخطط ولا
+ * الجداول. النموذج المفتوح لوح جانبي (z-50) فوق كل شيء، رأسي بالكامل وصالح
+ * للاستخدام على 390×844.
  */
 export function FeedbackDock({ enabled }: { enabled: boolean }) {
   const pathname = usePathname();
@@ -70,21 +70,20 @@ export function FeedbackDock({ enabled }: { enabled: boolean }) {
 
   return (
     <>
-      {!open && (
-        <button
-          onClick={() => {
-            setDone(null);
-            setError(null);
-            setOpen(true);
-          }}
-          aria-label="إرسال ملاحظة عن هذه الصفحة"
-          data-testid="feedback-open"
-          className="no-print fixed bottom-[max(1rem,env(safe-area-inset-bottom))] end-4 z-30 flex min-h-12 items-center gap-2 rounded-full bg-amber-600 px-4 text-sm font-medium text-white shadow-lg hover:bg-amber-700"
-        >
-          <span aria-hidden>✎</span>
-          إرسال ملاحظة
-        </button>
-      )}
+      <button
+        onClick={() => {
+          setDone(null);
+          setError(null);
+          setOpen(true);
+        }}
+        aria-label="إرسال ملاحظة عن هذه الصفحة"
+        title="إرسال ملاحظة"
+        data-testid="feedback-open"
+        className="no-print flex min-h-11 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-sm font-medium text-amber-800 transition hover:bg-amber-100 lg:min-h-0"
+      >
+        <span aria-hidden>✎</span>
+        <span className="hidden sm:inline">إرسال ملاحظة</span>
+      </button>
 
       {open && (
         <div

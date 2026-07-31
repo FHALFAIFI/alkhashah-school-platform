@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { OfflineBanner } from "./offline-banner";
 import { BackNav } from "./back-nav";
+import { FeedbackDock } from "./feedback/feedback-dock";
 
 type NavItem = { href: string; label: string; permission?: string; icon: string };
 
@@ -49,7 +50,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: "المبنى المدرسي",
     items: [
       { href: "/building", label: "مخطط المبنى", permission: "building.read", icon: "⌂" },
-      { href: "/building/facilities", label: "قائمة المرافق", permission: "building.read", icon: "▦" },
+      { href: "/building/facilities", label: "المرافق المطلوب توفيرها", permission: "building.read", icon: "▦" },
       { href: "/building/assets", label: "العهدة والأصول", permission: "assets.read", icon: "▥" },
       { href: "/building/inspections", label: "الفحص والجاهزية", permission: "inspections.read", icon: "✓" },
       { href: "/building/maintenance", label: "الصيانة", permission: "maintenance.read", icon: "🛠" },
@@ -211,6 +212,8 @@ export function AppShell({
             {new Intl.DateTimeFormat("ar-SA-u-ca-islamic-umalqura", { dateStyle: "full" }).format(new Date())}
           </div>
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            {/* «إرسال ملاحظة» في الشريط العلوي (v2.3 §19) — لا زر عائم فوق المحتوى */}
+            {permSet.has("feedback.create") && <FeedbackDock enabled />}
             <span className="truncate text-sm font-medium text-gray-700">{displayName}</span>
             <form action={logoutAction}>
               <button className="min-h-11 rounded-lg border border-sand-200 px-3 text-sm text-gray-600 hover:bg-sand-100 lg:min-h-0 lg:py-1.5">

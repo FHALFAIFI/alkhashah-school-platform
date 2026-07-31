@@ -10,6 +10,7 @@ import { missingSignedReports } from "@/lib/performance/signed-reports";
 import { NewCycleForm } from "./performance-ui";
 import { orDash } from "@/lib/format";
 import { SectionReportsLink } from "@/components/section-reports-link";
+import { Tutorial } from "@/components/tutorial";
 
 export const metadata = { title: "دورات الأداء" };
 export const dynamic = "force-dynamic";
@@ -46,6 +47,18 @@ export default async function PerformancePage() {
             <LinkButton href="/performance/models" variant="secondary">نماذج الأداء</LinkButton>
           </>
         }
+      />
+
+      <Tutorial
+        id="performance"
+        title="سير عمل تقييم الأداء"
+        steps={[
+          "اختر المنسوب وأنشئ دورة تقييم — النموذج يُجمَّد داخل الدورة وقت إنشائها.",
+          "أنشئ الجلسات: تخطيط (لا تُحتسب في النتيجة)، ثم منتصف العام، ثم التقييم النهائي.",
+          "قيّم المؤشرات في كل جلسة — النتيجة تُحسب على الخادم من الأوزان تلقائياً.",
+          "أصدر تقرير الجلسة ثم اختر «اعتماد التقييم النهائي» لقفل الدورة.",
+          "التقارير الفردية من صفحة الجلسة، ولوحة الأداء العام تكشف مواطن الضعف على مستوى المجمع.",
+        ]}
       />
 
       {!canSeeIndividual && (

@@ -4,10 +4,11 @@ import { requireUser } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programs, people, evidenceItems } from "@/db/schema";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
-import { toHijriLong, toGregorianLong } from "@/lib/dates";
+import { toHijriLong, toGregorianLong, dualNumericCell } from "@/lib/dates";
 import { getWorkCenter, type WorkItem } from "@/lib/worklist";
 import { strategicPendingDecisions } from "@/lib/strategic-decisions";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { loadDashboardMetrics } from "@/lib/dashboard-metrics";
 
 export const metadata = { title: "مركز عمل مدير المدرسة" };
 export const dynamic = "force-dynamic";
@@ -81,7 +82,7 @@ export default async function DashboardPage() {
 
   // إحصاءات لوحة القيادة تستبعد السجلات الاصطناعية (مفعّل في التطوير/الإنتاج)
   const excluded = await getExcludedIdSets();
-  const [work, strategic, progCount, peopleCount, evidenceCount] = await Promise.all([
+  const [work, strategic, progCount, peopleCount, evidenceCount, metrics] = await Promise.all([
     getWorkCenter(user),
     strategicPendingDecisions(),
     db.select({ c: sql<number>`count(*)::int` }).from(programs).where(notSynthetic(programs.id, excluded.programs)),
@@ -91,6 +92,10 @@ export default async function DashboardPage() {
       .where(and(eq(people.active, true), notSynthetic(people.id, excluded.people)))
       .groupBy(people.category),
     db.select({ c: sql<number>`count(*)::int` }).from(evidenceItems).where(notSynthetic(evidenceItems.id, excluded.evidence)),
+    loadDashboardMetrics({
+      canSeeFinance: user.permissions.has("budget.read"),
+      canSeeIndividualPerf: user.permissions.has("performance.individual.read"),
+    }),
   ]);
 
   const teachers = peopleCount.find((p) => p.category === "معلم")?.c ?? 0;
@@ -124,6 +129,51 @@ export default async function DashboardPage() {
           </Link>
         }
       />
+
+      {/* لوحة المتابعة (v2.3 §13): مؤشرات حيّة كل بطاقة تقود إلى سجلاتها */}
+      <section>
+        <h2 className="mb-2 text-sm font-bold text-gray-600">لوحة المتابعة</h2>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+          {metrics.cards.map((c) => {
+            const toneCls =
+              c.tone === "bad"
+                ? "text-red-700"
+                : c.tone === "warn"
+                  ? "text-amber-700"
+                  : c.tone === "good"
+                    ? "text-emerald-700"
+                    : "text-brand-900";
+            return (
+              <Link
+                key={c.key}
+                href={c.href}
+                className="block rounded-xl border border-sand-200 bg-white p-3 transition hover:border-brand-300"
+              >
+                <div className="text-xs text-gray-500">{c.label}</div>
+                <div className={`mt-1 text-xl font-bold tabular-nums ${toneCls}`}>{c.value}</div>
+                {c.hint && <div className="mt-0.5 text-[11px] text-gray-400">{c.hint}</div>}
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* المواعيد القادمة (14 يوماً): بدايات ونهايات البرامج ومواعيد معالجة الملاحظات */}
+      {metrics.upcoming.length > 0 && (
+        <Card>
+          <h2 className="mb-2 text-sm font-bold text-gray-600">مواعيد قادمة (14 يوماً)</h2>
+          <ul className="divide-y divide-sand-100">
+            {metrics.upcoming.map((u, i) => (
+              <li key={i} className="py-1.5">
+                <Link href={u.href} className="flex flex-wrap items-center justify-between gap-2 hover:bg-sand-50">
+                  <span className="text-sm">{u.title}</span>
+                  <span className="text-xs text-gray-500 tabular-nums">{dualNumericCell(u.dateIso)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {/* القرارات الاستراتيجية المعلّقة أمام المدير — كل عنصر يربط بالسجل/الإجراء مباشرة */}
       {strategic.length > 0 && (

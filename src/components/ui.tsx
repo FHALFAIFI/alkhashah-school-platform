@@ -30,8 +30,6 @@ const badgeColors: Record<string, string> = {
   "مسودة": "bg-gray-100 text-gray-700",
   "معتمد": "bg-emerald-100 text-emerald-800",
   "معتمدة": "bg-emerald-100 text-emerald-800",
-  "معتمد ومقفل": "bg-emerald-100 text-emerald-800",
-  "معتمدة ومقفلة": "bg-emerald-100 text-emerald-800",
   "مقفل": "bg-slate-200 text-slate-700",
   "مقفلة": "bg-slate-200 text-slate-700",
   "مكتمل": "bg-emerald-100 text-emerald-800",

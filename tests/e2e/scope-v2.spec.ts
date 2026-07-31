@@ -28,7 +28,7 @@ test.describe("نطاق v2 — دخان الواجهة", () => {
   test("قائمة المرافق: إضافة مرفق ثم تعليم حالته عبر أزرار حقيقية", async ({ page }) => {
     await login(page);
     await page.goto("/building/facilities");
-    await expect(page.getByRole("heading", { name: "قائمة المرافق المطلوبة" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "المرافق المطلوب توفيرها أو تحسينها" })).toBeVisible();
 
     // إضافة مرفق مخصص عبر نموذج الفعل (form action)
     const name = `مرفق آلي ${Date.now()}`;

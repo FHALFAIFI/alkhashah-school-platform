@@ -160,7 +160,7 @@ export function CompleteSessionButton({ sessionId, isFinal, disabled }: { sessio
         }
         className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
       >
-        {isFinal ? "اعتماد وإقفال التقييم النهائي" : "اعتماد اكتمال الجلسة"}
+        {isFinal ? "اعتماد التقييم النهائي" : "اعتماد اكتمال الجلسة"}
       </button>
       {disabled && <p className="mt-1 text-xs text-amber-600">يتطلب إصدار التقرير أولاً</p>}
     </div>

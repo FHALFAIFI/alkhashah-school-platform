@@ -2,12 +2,12 @@ import { describe, it, expect } from "vitest";
 import { programStatusLabel, committeeStatusLabel, REOPEN_LABEL } from "@/lib/plan/status-labels";
 
 /**
- * قرار المصطلحات: إجراء «اعتماد وإقفال» يعرض الحالة «معتمد ومقفل»/«معتمدة ومقفلة»
+ * قرار المصطلحات (v2.3 §3, D-034): الفعل «اعتماد» والحالة «معتمد»/«معتمدة»
  * وإعادة الفتح «إعادة فتح بسبب موثق». دوال عرض فقط — لا تغيّر القيمة المخزَّنة.
  */
-describe("status-labels — تسميات العرض لإجراءات الاعتماد والإقفال", () => {
-  it("حالة البرنامج «معتمد» تُعرض «معتمد ومقفل»", () => {
-    expect(programStatusLabel("معتمد")).toBe("معتمد ومقفل");
+describe("status-labels — تسميات العرض لإجراءات الاعتماد (D-034)", () => {
+  it("حالة البرنامج «معتمد» تُعرض «معتمد» كما هي", () => {
+    expect(programStatusLabel("معتمد")).toBe("معتمد");
   });
 
   it("حالات البرنامج الأخرى تبقى كما هي (لا تعديل)", () => {
@@ -15,8 +15,8 @@ describe("status-labels — تسميات العرض لإجراءات الاعت�
     expect(programStatusLabel("مقفل")).toBe("مقفل");
   });
 
-  it("حالة اللجنة «معتمدة» تُعرض «معتمدة ومقفلة»", () => {
-    expect(committeeStatusLabel("معتمدة")).toBe("معتمدة ومقفلة");
+  it("حالة اللجنة «معتمدة» تُعرض «معتمدة» كما هي", () => {
+    expect(committeeStatusLabel("معتمدة")).toBe("معتمدة");
     expect(committeeStatusLabel("مسودة")).toBe("مسودة");
     expect(committeeStatusLabel("مقفلة")).toBe("مقفلة");
   });

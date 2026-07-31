@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { AppShell } from "@/components/app-shell";
 import { AssistantDock } from "@/components/assistant/assistant-dock";
-import { FeedbackDock } from "@/components/feedback/feedback-dock";
 import { PwaManager } from "@/components/pwa-manager";
 import { getAiConfig } from "@/lib/ai/settings";
 import { db } from "@/db";
@@ -31,7 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     >
       {children}
       {showAssistant && <AssistantDock csrfToken={user.csrfToken} />}
-      <FeedbackDock enabled={user.permissions.has("feedback.create")} />
+      {/* «إرسال ملاحظة» انتقل إلى الشريط العلوي داخل AppShell (v2.3 §19) */}
       <PwaManager />
     </AppShell>
   );

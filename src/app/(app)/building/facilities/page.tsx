@@ -5,7 +5,7 @@ import { facilityChecklist, facilityRoomLinks, rooms } from "@/db/schema";
 import { PageHeader, Card, EmptyState, LinkButton } from "@/components/ui";
 import { AddFacilityForm, FacilityRow, type FacilityView } from "./facilities-ui";
 
-export const metadata = { title: "قائمة المرافق" };
+export const metadata = { title: "المرافق المطلوب توفيرها أو تحسينها" };
 export const dynamic = "force-dynamic";
 
 export default async function FacilitiesPage() {
@@ -44,9 +44,14 @@ export default async function FacilitiesPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="قائمة المرافق المطلوبة"
-        subtitle="سير مبسّط: حدد المرافق المطلوبة، علّم كل مرفق موجود/غير موجود/غير مطلوب، واربط الموجود بغرفة فعلية. سجّل الأصول المهمة فقط — لا كل طاولة ومقعد."
-        actions={<LinkButton href="/building" variant="secondary">مخطط المبنى</LinkButton>}
+        title="المرافق المطلوب توفيرها أو تحسينها"
+        subtitle="لهذه القائمة استعمالان فقط (D-038): مرفق غير موجود ويلزم توفيره (مثل مصعد أو قاعة متعددة الأغراض)، أو مرفق موجود يحتاج تطويراً جوهرياً أو استبدالاً. أعطال الإصلاح اليومية ليست هنا — مكانها «بلاغات الصيانة»."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <LinkButton href="/building/maintenance" variant="secondary">بلاغات الصيانة</LinkButton>
+            <LinkButton href="/building" variant="secondary">مخطط المبنى</LinkButton>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-3 gap-3">

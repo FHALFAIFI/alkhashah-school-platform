@@ -58,7 +58,7 @@ export async function updateProgramExecutionAction(programId: string, _prev: Act
   return { success: "حُدّث تقدم البرنامج وحالته" };
 }
 
-/** اعتماد وإقفال حزمة البرنامج كاملة — المدير يعتمد الحزمة وليس كل مرفق على حدة */
+/** اعتماد حزمة البرنامج كاملة — المدير يعتمد الحزمة وليس كل مرفق على حدة (v2.3 §3: «اعتماد») */
 export async function approveProgramAction(programId: string): Promise<ActionState> {
   const user = await requirePermission("plan.approve");
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
@@ -76,10 +76,10 @@ export async function approveProgramAction(programId: string): Promise<ActionSta
     .update(programs)
     .set({ status: "معتمد", approvedBy: user.id, approvedAt: new Date(), version: program.version + 1 })
     .where(eq(programs.id, programId));
-  await audit({ actorId: user.id, action: "program.approved", entityType: "program", entityId: programId, summary: `اعتماد وإقفال برنامج «${program.name}»` });
+  await audit({ actorId: user.id, action: "program.approved", entityType: "program", entityId: programId, summary: `اعتماد برنامج «${program.name}»` });
   revalidatePath(`/plan/${programId}`);
   revalidatePath("/plan");
-  return { success: "تم الاعتماد والإقفال" };
+  return { success: "تم الاعتماد" };
 }
 
 /** إعادة فتح برنامج معتمد — سبب إلزامي وحفظ النسخة السابقة */
