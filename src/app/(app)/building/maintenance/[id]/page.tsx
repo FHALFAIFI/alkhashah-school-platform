@@ -51,6 +51,11 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
       : Promise.resolve(null),
   ]);
   const floor = room ? (await db.select().from(floors).where(eq(floors.id, room.floorId)))[0] : null;
+  // v2.4 §14ب: هوية الفحص المصدر — تاريخه يظهر مع الملاحظة على صفحة البلاغ
+  const { inspections } = await import("@/db/schema");
+  const sourceInspection = finding
+    ? ((await db.select().from(inspections).where(eq(inspections.id, finding.inspectionId)))[0] ?? null)
+    : null;
 
   const actorIds = [...new Set(history.map((h) => h.actorId).filter((x): x is string => !!x))];
   const actorRows = actorIds.length
@@ -75,8 +80,33 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
     "use server";
     const u = await requirePermission("reports.generate", "maintenance.read");
     const { generateMaintenanceLetter } = await import("@/lib/reports/maintenance-letter");
-    await generateMaintenanceLetter({ issueId: id, issuedBy: u.id });
+    try {
+      await generateMaintenanceLetter({ issueId: id, issuedBy: u.id });
+    } catch {
+      // سباق نادر (بلاغ عاد مسودة): الصفحة تعاد وتظهر حالة المسودة وشرحها بدل حد الخطأ
+    }
     revalidatePath(`/building/maintenance/${id}`);
+  }
+
+  // v2.4 §14د: اعتماد البلاغ وإصدار خطابه بخطوة واحدة — بدل إخفاء زر الخطاب بصمت للمسودة
+  async function approveAndIssue() {
+    "use server";
+    const u = await requirePermission("maintenance.write", "reports.generate");
+    const { transitionIssueAction } = await import("@/app/(app)/building/actions");
+    const fd = new FormData();
+    fd.set("issueId", id);
+    fd.set("toStatus", "معتمد");
+    const res = await transitionIssueAction(null, fd);
+    if (res?.error) return; // الصفحة تعاد وحالة البلاغ توضح السبب
+    const { generateMaintenanceLetter } = await import("@/lib/reports/maintenance-letter");
+    try {
+      await generateMaintenanceLetter({ issueId: id, issuedBy: u.id });
+    } catch {
+      // فشل التوليد لا يلغي الاعتماد — زر التوليد يبقى متاحاً بعد إعادة العرض
+    }
+    revalidatePath(`/building/maintenance/${id}`);
+    revalidatePath("/building/maintenance");
+    revalidatePath("/documents");
   }
 
   return (
@@ -141,12 +171,23 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
             <dd className="tabular-nums">{issue.closedAt ? dualNumericCell(issue.closedAt) : "—"}</dd>
           </dl>
           {finding && (
-            <p className="mt-2 text-xs text-gray-500">
-              أُنشئ من ملاحظة فحص: «{finding.label}» —{" "}
-              <a href={`/building/rooms/${finding.roomId}`} className="text-brand-700 underline">
-                فتح الغرفة
+            <div className="mt-2 rounded bg-sand-50 p-2 text-xs text-gray-600">
+              {/* v2.4 §14ب: هوية مصدر الفحص كاملة — البند وخطورته وتاريخ الفحص وحالة الملاحظة */}
+              <span className="font-medium">مصدر البلاغ — ملاحظة فحص:</span> «{finding.label}»
+              <span className="mx-1">·</span>الخطورة: <Badge value={finding.severity} />
+              {finding.critical && <span className="ms-1 text-red-700">(حرج)</span>}
+              <span className="mx-1">·</span>حالة الملاحظة: <Badge value={finding.status} />
+              {sourceInspection?.inspectionDate && (
+                <>
+                  <span className="mx-1">·</span>فحص بتاريخ{" "}
+                  <span className="tabular-nums">{dualNumericCell(sourceInspection.inspectionDate)}</span>
+                </>
+              )}
+              <span className="mx-1">·</span>
+              <a href={`/building/rooms/${finding.roomId}#findings`} className="text-brand-700 underline">
+                فتح الغرفة والملاحظات
               </a>
-            </p>
+            </div>
           )}
         </Card>
 
@@ -157,13 +198,27 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
           ) : (
             <p className="text-sm text-gray-400">المتابعة لصاحب صلاحية الصيانة</p>
           )}
+          {/* v2.4 §14د: المسودة تشرح لماذا الخطاب غير متاح وتعرض الاعتماد والإصدار بخطوة واحدة */}
+          {issue.status === "مسودة" && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm text-amber-900">
+                خطاب البلاغ الرسمي غير متاح الآن لأن البلاغ ما زال <strong>مسودة</strong> — يُعتمد
+                البلاغ أولاً ثم يصدر الخطاب برقم وثيقة ورمز تحقق.
+              </p>
+              {user.permissions.has("maintenance.write") && user.permissions.has("reports.generate") && (
+                <form action={approveAndIssue} className="mt-2">
+                  <SubmitButton>اعتماد البلاغ وإصدار التقرير</SubmitButton>
+                </form>
+              )}
+            </div>
+          )}
           {/* خطاب البلاغ الرسمي (v2.3 §18): يُولَّد بعد الاعتماد ويُرسل للجهة المسؤولة */}
           {user.permissions.has("reports.generate") && issue.status !== "مسودة" && (
             <form action={issueLetter} className="mt-3 border-t border-sand-100 pt-3">
               <SubmitButton variant="secondary">توليد خطاب البلاغ الرسمي (PDF)</SubmitButton>
               <p className="mt-1 text-xs text-gray-400">
-                خطاب برقم وثيقة ورمز تحقق ولقطة مجمّدة — يتضمن الموقع والوصف والصور وقسمي
-                المتابعة والنتيجة النهائية.
+                خطاب برقم وثيقة ورمز تحقق ولقطة مجمّدة — يتضمن الموقع والوصف ومصدر الفحص والمبلِّغ
+                واعتماد المدير والصور وقسمي المتابعة والنتيجة النهائية.
               </p>
             </form>
           )}
@@ -175,6 +230,15 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
                   {" — "}
                   <a href={`/api/files/${letterDoc.pdfFileId}`} className="text-brand-700 underline">
                     تنزيل PDF
+                  </a>
+                  {" — "}
+                  <a
+                    href={`/api/files/${letterDoc.pdfFileId}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-brand-700 underline"
+                  >
+                    طباعة تقرير الصيانة
                   </a>
                 </>
               )}

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
@@ -514,7 +514,7 @@ const inspectionSchema = z.object({
   notes: z.string().optional(),
 });
 
-export async function submitInspectionAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+export async function submitInspectionAction(_prev: InspectionSubmitState, formData: FormData): Promise<InspectionSubmitState> {
   const user = await requirePermission("inspections.write");
   const parsed = inspectionSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "بيانات الفحص ناقصة" };
@@ -532,7 +532,7 @@ export async function submitInspectionAction(_prev: ActionState, formData: FormD
   }));
 
   // نقطة التسجيل الموحّدة (v2.3 §16): تجميد لقطة القالب + إنشاء ملاحظات للبنود الفاشلة
-  await recordInspection({
+  const recorded = await recordInspection({
     roomId: parsed.data.roomId,
     template,
     results,
@@ -542,8 +542,21 @@ export async function submitInspectionAction(_prev: ActionState, formData: FormD
   await audit({ actorId: user.id, action: "inspection.submitted", entityType: "room", entityId: parsed.data.roomId, summary: `فحص ${orFallback(room.nameAr)}` });
   revalidatePath("/building/inspections");
   revalidatePath(`/building/rooms/${parsed.data.roomId}`);
-  return { success: "سجل الفحص" };
+  // v2.4 §14: عرض تحويل الملاحظات إلى بلاغات فور الحفظ — لا بحث يدوي عن الزر
+  if (recorded.inspectionId && recorded.findingsCount > 0) {
+    return {
+      success: `سُجل الفحص — ${recorded.findingsCount} ملاحظة تحتاج معالجة`,
+      inspectionId: recorded.inspectionId,
+      findingsCount: recorded.findingsCount,
+    };
+  }
+  return { success: "سجل الفحص — كل البنود سليمة" };
 }
+
+/** v2.4 §14: حالة إرسال الفحص — تحمل عرض تحويل الملاحظات إلى بلاغات */
+export type InspectionSubmitState =
+  | ({ inspectionId?: string; findingsCount?: number } & NonNullable<ActionState>)
+  | null;
 
 // ————————————————— ملاحظات الفحص (v2.3 §16) —————————————————
 
@@ -583,13 +596,42 @@ export async function closeFindingAction(_prev: ActionState, formData: FormData)
   return { success: "أُغلقت الملاحظة" };
 }
 
-/** إنشاء بلاغ صيانة من ملاحظة فحص — يرث الغرفة والوصف والأولوية من الخطورة (§16 خطوة 14) */
-export async function createIssueFromFindingAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const user = await requirePermission("inspections.write", "maintenance.write");
-  const findingId = String(formData.get("findingId") ?? "");
-  const [finding] = await db.select().from(inspectionFindings).where(eq(inspectionFindings.id, findingId));
-  if (!finding) return { error: "الملاحظة غير موجودة" };
-  if (finding.maintenanceIssueId) return { error: "أُنشئ بلاغ لهذه الملاحظة مسبقاً" };
+/**
+ * v2.4 §14هـ: فحص الازدواجية قبل إنشاء بلاغ من ملاحظة — هل يوجد بلاغ مفتوح لنفس البند
+ * في نفس الغرفة (عبر ملاحظة أخرى)؟ يعاد البلاغ القائم بدل إنشاء نسخة مكررة.
+ */
+async function findOpenDuplicateIssue(finding: {
+  id: string;
+  roomId: string;
+  itemKey: string;
+}): Promise<{ id: string; code: string; status: string } | null> {
+  const siblings = await db
+    .select({ issueId: inspectionFindings.maintenanceIssueId })
+    .from(inspectionFindings)
+    .where(
+      and(
+        eq(inspectionFindings.roomId, finding.roomId),
+        eq(inspectionFindings.itemKey, finding.itemKey),
+        isNotNull(inspectionFindings.maintenanceIssueId),
+        ne(inspectionFindings.id, finding.id),
+      ),
+    );
+  const ids = siblings.map((s) => s.issueId).filter(Boolean) as string[];
+  if (ids.length === 0) return null;
+  const issues = await db
+    .select({ id: maintenanceIssues.id, code: maintenanceIssues.code, status: maintenanceIssues.status })
+    .from(maintenanceIssues)
+    .where(inArray(maintenanceIssues.id, ids));
+  // للازدواجية: المسودة أيضاً تمنع (بلاغ قائم لم يُعتمد بعد) — بخلاف isOpenIssueStatus
+  // الخاصة بلوحات «البلاغات المفتوحة»؛ «مغلق» وحدها تسمح بإعادة الإبلاغ عن البند
+  return issues.find((i) => i.status !== "مغلق") ?? null;
+}
+
+/** إنشاء بلاغ واحد من ملاحظة (نواة مشتركة للمسار المفرد والجماعي) — بلا فحص ازدواجية */
+async function createIssueFromFindingCore(
+  finding: typeof inspectionFindings.$inferSelect,
+  actorId: string,
+): Promise<{ id: string; code: string }> {
   const priority = finding.severity === "حرج" || finding.severity === "عالٍ" ? "عالية" : finding.severity === "متوسط" ? "متوسطة" : "منخفضة";
   const code = await nextMaintenanceCode();
   const [issue] = await db
@@ -602,15 +644,74 @@ export async function createIssueFromFindingAction(_prev: ActionState, formData:
       priority,
       status: "مسودة",
       inspectionFindingId: finding.id,
-      reportedBy: user.id,
+      reportedBy: actorId,
     })
     .returning();
-  await db.insert(maintenanceStatusHistory).values({ issueId: issue.id, fromStatus: null, toStatus: "مسودة", actorId: user.id, note: `أُنشئ من ملاحظة فحص «${finding.label}»` });
-  await db.update(inspectionFindings).set({ maintenanceIssueId: issue.id }).where(eq(inspectionFindings.id, findingId));
-  await audit({ actorId: user.id, action: "maintenance.created_from_finding", entityType: "maintenance", entityId: issue.id, summary: `بلاغ ${code} من ملاحظة فحص «${finding.label}»` });
+  await db.insert(maintenanceStatusHistory).values({ issueId: issue.id, fromStatus: null, toStatus: "مسودة", actorId, note: `أُنشئ من ملاحظة فحص «${finding.label}»` });
+  await db.update(inspectionFindings).set({ maintenanceIssueId: issue.id }).where(eq(inspectionFindings.id, finding.id));
+  await audit({ actorId, action: "maintenance.created_from_finding", entityType: "maintenance", entityId: issue.id, summary: `بلاغ ${code} من ملاحظة فحص «${finding.label}»` });
+  return { id: issue.id, code };
+}
+
+/** إنشاء بلاغ صيانة من ملاحظة فحص — يرث الغرفة والوصف والأولوية من الخطورة (§16 خطوة 14) */
+export async function createIssueFromFindingAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("inspections.write", "maintenance.write");
+  const findingId = String(formData.get("findingId") ?? "");
+  const [finding] = await db.select().from(inspectionFindings).where(eq(inspectionFindings.id, findingId));
+  if (!finding) return { error: "الملاحظة غير موجودة" };
+  if (finding.maintenanceIssueId) return { error: "أُنشئ بلاغ لهذه الملاحظة مسبقاً" };
+  // v2.4 §14هـ: لا بلاغ مكرر لبند مفتوح في نفس الغرفة — يُفتح البلاغ القائم بدلاً منه
+  const duplicate = await findOpenDuplicateIssue(finding);
+  if (duplicate) {
+    return {
+      error: `يوجد بلاغ مفتوح لنفس البند في هذه الغرفة (${duplicate.code} — ${duplicate.status}) — افتحه من «بلاغات الصيانة» بدل إنشاء بلاغ مكرر`,
+    };
+  }
+  const issue = await createIssueFromFindingCore(finding, user.id);
   revalidatePath(`/building/rooms/${finding.roomId}`);
   revalidatePath("/building/maintenance");
-  return { success: `أُنشئ البلاغ ${code}` };
+  return { success: `أُنشئ البلاغ ${issue.code}` };
+}
+
+/**
+ * v2.4 §14أ: إنشاء بلاغات لكل ملاحظات فحص واحد دفعة واحدة — يُعرض فور حفظ الفحص.
+ * يتجاوز الملاحظات المرتبطة ببلاغ مسبقاً والمكررة لبلاغ مفتوح، ويعيد ملخصاً صادقاً.
+ */
+export async function createIssuesFromInspectionAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("inspections.write", "maintenance.write");
+  const inspectionId = String(formData.get("inspectionId") ?? "");
+  if (!inspectionId) return { error: "الفحص غير محدد" };
+  const findings = await db
+    .select()
+    .from(inspectionFindings)
+    .where(and(eq(inspectionFindings.inspectionId, inspectionId), eq(inspectionFindings.status, "يحتاج معالجة")));
+  if (findings.length === 0) return { error: "لا ملاحظات مفتوحة لهذا الفحص" };
+
+  const created: string[] = [];
+  let alreadyLinked = 0;
+  const duplicates: string[] = [];
+  for (const finding of findings) {
+    if (finding.maintenanceIssueId) {
+      alreadyLinked++;
+      continue;
+    }
+    const duplicate = await findOpenDuplicateIssue(finding);
+    if (duplicate) {
+      duplicates.push(duplicate.code);
+      continue;
+    }
+    const issue = await createIssueFromFindingCore(finding, user.id);
+    created.push(issue.code);
+  }
+  const roomId = findings[0].roomId;
+  revalidatePath(`/building/rooms/${roomId}`);
+  revalidatePath("/building/maintenance");
+  const parts: string[] = [];
+  if (created.length) parts.push(`أُنشئ ${created.length} بلاغاً (${created.join("، ")})`);
+  if (alreadyLinked) parts.push(`${alreadyLinked} ملاحظة مرتبطة ببلاغ مسبقاً`);
+  if (duplicates.length) parts.push(`تُجوّزت ${duplicates.length} ملاحظة لوجود بلاغ مفتوح لنفس البند (${[...new Set(duplicates)].join("، ")})`);
+  if (created.length === 0) return { error: parts.join(" — ") || "لم يُنشأ أي بلاغ" };
+  return { success: parts.join(" — ") };
 }
 
 /** تجاوز الجاهزية — سبب إلزامي */

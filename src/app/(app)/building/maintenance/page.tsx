@@ -53,7 +53,7 @@ export default async function MaintenancePage() {
       {issues.length === 0 ? (
         <EmptyState title="لا بلاغات صيانة" />
       ) : (
-        <Table headers={["الرمز", "البلاغ", "الموقع", "المكلف بالإصلاح", "الأولوية", "الحالة", "النتيجة", ""]}>
+        <Table headers={["الرمز", "البلاغ", "المصدر", "الموقع", "المكلف بالإصلاح", "الأولوية", "الحالة", "النتيجة", ""]}>
           {issues.map((i) => (
             <tr key={i.id} id={`issue-${i.code}`} className="scroll-mt-20">
               <td className="px-3 py-2 tabular-nums">
@@ -67,6 +67,8 @@ export default async function MaintenancePage() {
                 </Link>
                 {i.description && <p className="text-xs text-gray-400">{i.description}</p>}
               </td>
+              {/* v2.4 §14ب: مصدر البلاغ ظاهر في القائمة — ملاحظة فحص أم بلاغ مباشر */}
+              <td className="px-3 py-2 text-xs">{i.inspectionFindingId ? "ملاحظة فحص" : "بلاغ مباشر"}</td>
               <td className="px-3 py-2 text-xs">{i.roomId ? orFallback(roomName.get(i.roomId), "—") : "—"}</td>
               <td className="px-3 py-2 text-xs">{i.ownerPersonId ? orFallback(personName.get(i.ownerPersonId), "—") : "—"}</td>
               <td className="px-3 py-2"><Badge value={i.priority} /></td>

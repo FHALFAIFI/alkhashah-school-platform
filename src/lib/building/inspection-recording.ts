@@ -39,7 +39,7 @@ export async function recordInspection(opts: {
   photos?: string[];
   clientOpId?: string;
   inspectionDate?: Date;
-}): Promise<{ inspectionId: string | null }> {
+}): Promise<{ inspectionId: string | null; findingsCount: number }> {
   const inserted = await db
     .insert(inspections)
     .values({
@@ -58,7 +58,7 @@ export async function recordInspection(opts: {
     .onConflictDoNothing(opts.clientOpId ? { target: inspections.clientOpId } : undefined)
     .returning({ id: inspections.id });
 
-  if (inserted.length === 0) return { inspectionId: null }; // مزامن مسبقاً — لا تكرار
+  if (inserted.length === 0) return { inspectionId: null, findingsCount: 0 }; // مزامن مسبقاً — لا تكرار
 
   const inspectionId = inserted[0].id;
   const rich = richTemplateItems(opts.template);
@@ -83,5 +83,5 @@ export async function recordInspection(opts: {
       }),
     );
   }
-  return { inspectionId };
+  return { inspectionId, findingsCount: failed.length };
 }

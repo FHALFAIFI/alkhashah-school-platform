@@ -10,7 +10,9 @@ import {
   updateFindingAction,
   closeFindingAction,
   createIssueFromFindingAction,
+  createIssuesFromInspectionAction,
   type ActionState,
+  type InspectionSubmitState,
 } from "../../actions";
 import { Field, SubmitButton } from "@/components/ui";
 
@@ -115,20 +117,38 @@ export function RoomIssueForm({ roomId, people }: { roomId: string; people: { id
 export function InspectionRunForm({
   roomId,
   templates,
+  canCreateIssues,
 }: {
   roomId: string;
   templates: { id: string; nameAr: string; items: { key: string; label: string; required: boolean }[] }[];
+  /** يملك صلاحية إنشاء بلاغات الصيانة — يظهر له عرض التحويل الفوري (v2.4 §14) */
+  canCreateIssues: boolean;
 }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(submitInspectionAction, null);
+  const [state, formAction] = useActionState<InspectionSubmitState, FormData>(submitInspectionAction, null);
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
   const [open, setOpen] = useState(false);
+  const [offerDismissed, setOfferDismissed] = useState(false);
   const template = templates.find((t) => t.id === templateId);
+
+  // v2.4 §14أ: عرض إنشاء البلاغات فور حفظ فحص فيه ملاحظات — يبقى ظاهراً حتى بعد إغلاق النموذج
+  const offer =
+    !offerDismissed && state?.inspectionId && (state.findingsCount ?? 0) > 0 ? (
+      <ConvertFindingsOffer
+        inspectionId={state.inspectionId}
+        findingsCount={state.findingsCount ?? 0}
+        canCreateIssues={canCreateIssues}
+        onDismiss={() => setOfferDismissed(true)}
+      />
+    ) : null;
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="mb-3 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
-        تنفيذ فحص جديد
-      </button>
+      <div>
+        {offer}
+        <button onClick={() => setOpen(true)} className="mb-3 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
+          تنفيذ فحص جديد
+        </button>
+      </div>
     );
   }
 
@@ -136,6 +156,7 @@ export function InspectionRunForm({
     <form action={formAction} className="mb-4 space-y-3 rounded-lg bg-sand-50 p-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      {offer}
       <input type="hidden" name="roomId" value={roomId} />
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">قالب الفحص</label>
@@ -213,6 +234,53 @@ export function ReadinessOverrideForm({ roomId }: { roomId: string }) {
  * التحكم في ملاحظة فحص مفتوحة (v2.3 §16): تحديد موعد المعالجة والمسؤولية،
  * أو إغلاقها بعد المعالجة، أو تحويلها بلاغ صيانة يتابَع من وحدة البلاغات.
  */
+/**
+ * v2.4 §14أ: عرض تحويل ملاحظات الفحص إلى بلاغات فور الحفظ —
+ * «إنشاء بلاغات لكل الملاحظات» (مع تجاوز المكرر تلقائياً)، أو مراجعة الملاحظات
+ * وتحويل المختار منها من جدولها، أو التأجيل.
+ */
+function ConvertFindingsOffer({
+  inspectionId,
+  findingsCount,
+  canCreateIssues,
+  onDismiss,
+}: {
+  inspectionId: string;
+  findingsCount: number;
+  canCreateIssues: boolean;
+  onDismiss: () => void;
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(createIssuesFromInspectionAction, null);
+  const router = useRouter();
+  useEffect(() => {
+    if (state?.success) router.refresh();
+  }, [state?.success, router]);
+  return (
+    <div role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+      <p className="text-sm font-medium text-amber-900">
+        تم تسجيل {findingsCount} {findingsCount === 1 ? "ملاحظة تحتاج" : "ملاحظات تحتاج"} معالجة.
+        {canCreateIssues && " هل تريد إنشاء بلاغات الصيانة الآن؟"}
+      </p>
+      {state?.error && <div role="alert" className="mt-2 rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="mt-2 rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {canCreateIssues && !state?.success && (
+          <form action={formAction}>
+            <input type="hidden" name="inspectionId" value={inspectionId} />
+            <SubmitButton variant="secondary">إنشاء بلاغات لكل الملاحظات</SubmitButton>
+          </form>
+        )}
+        <a href="#findings" className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100">
+          مراجعة الملاحظات وتحويل المختار منها
+        </a>
+        <button type="button" onClick={onDismiss} className="px-2 py-1.5 text-sm text-gray-500 hover:underline">
+          لاحقاً
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function FindingControls({
   findingId,
   hasIssue,

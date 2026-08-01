@@ -1,7 +1,7 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { maintenanceIssues, rooms, floors, assets, documents, storedFiles } from "@/db/schema";
+import { maintenanceIssues, inspectionFindings, inspections, rooms, floors, assets, documents, storedFiles, users } from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { getOfficialHeader } from "@/lib/document-header";
 import { issueDocument } from "@/lib/documents";
@@ -24,6 +24,19 @@ export async function generateMaintenanceLetter(opts: { issueId: string; issuedB
   const room = issue.roomId ? (await db.select().from(rooms).where(eq(rooms.id, issue.roomId)))[0] ?? null : null;
   const floor = room ? (await db.select().from(floors).where(eq(floors.id, room.floorId)))[0] ?? null : null;
   const asset = issue.assetId ? (await db.select().from(assets).where(eq(assets.id, issue.assetId)))[0] ?? null : null;
+  // v2.4 §14: مصدر البلاغ من الفحص — الملاحظة وخطورتها وتاريخ الفحص تظهر في الخطاب
+  const finding = issue.inspectionFindingId
+    ? ((await db.select().from(inspectionFindings).where(eq(inspectionFindings.id, issue.inspectionFindingId)))[0] ?? null)
+    : null;
+  const inspection = finding
+    ? ((await db.select().from(inspections).where(eq(inspections.id, finding.inspectionId)))[0] ?? null)
+    : null;
+  const [reporter] = issue.reportedBy
+    ? await db.select({ name: users.displayName }).from(users).where(eq(users.id, issue.reportedBy))
+    : [];
+  const [approver] = issue.approvedBy
+    ? await db.select({ name: users.displayName }).from(users).where(eq(users.id, issue.approvedBy))
+    : [];
 
   const esc = (v: string | null | undefined) => escapeHtml(orFallback(v, "—"));
   const now = new Date();
@@ -67,7 +80,21 @@ export async function generateMaintenanceLetter(opts: { issueId: string; issuedB
       ${row("الموقع", location || null)}
       ${row("وصف المشكلة", issue.description)}
       ${row("الأولوية", issue.priority)}
-      ${row("الإجراء المطلوب", issue.actionTaken ?? "الكشف والمعالجة وإفادتنا بالنتيجة")}
+      ${
+        finding
+          ? row(
+              "مصدر البلاغ",
+              `ملاحظة فحص: «${finding.label}»${inspection?.inspectionDate ? ` — فحص بتاريخ ${dualNumericCell(inspection.inspectionDate)}` : ""}`,
+            )
+          : row("مصدر البلاغ", "بلاغ مباشر")
+      }
+      ${finding ? row("أثر السلامة", finding.critical ? "حرج — يمس سلامة مستخدمي المبنى" : `درجة الخطورة: ${finding.severity}`) : ""}
+      ${row("الإجراء المطلوب", "الكشف والمعالجة وإفادتنا بالنتيجة")}
+      ${row("المبلِّغ", reporter?.name ?? null)}
+      ${row(
+        "اعتماد المدير",
+        issue.approvedAt ? `${approver?.name ?? "—"} — ${toGregorianNumeric(issue.approvedAt)}م` : null,
+      )}
       ${row("تاريخ الإرسال", issue.sentAt ? dualNumericCell(issue.sentAt) : null)}
       ${row("للتواصل", identityHeader.resolved.schoolName)}
     </table>

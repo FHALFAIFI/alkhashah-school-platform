@@ -211,11 +211,16 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
       {/* ملاحظات الفحص المفتوحة (v2.3 §16): متابعة كل بند فاشل حتى الإغلاق أو تحويله بلاغ صيانة */}
       {roomFindings.length > 0 && (
         <Card>
-          <h2 className="mb-3 font-bold text-brand-900">
+          <h2 id="findings" className="mb-3 scroll-mt-20 font-bold text-brand-900">
             ملاحظات الفحص ({openFindings.length} تحتاج معالجة من {roomFindings.length})
           </h2>
           <Table headers={["البند", "الخطورة", "الملاحظة", "الموعد المستهدف", "الحالة", "بلاغ الصيانة", ""]}>
-            {roomFindings.map((f) => (
+            {roomFindings.map((f) => {
+              // v2.4 §14ب: حالة البلاغ المرتبط تظهر مباشرة على صف الملاحظة
+              const linkedIssue = f.maintenanceIssueId
+                ? openIssues.find((i) => i.id === f.maintenanceIssueId) ?? null
+                : null;
+              return (
               <tr key={f.id}>
                 <td className="px-3 py-2 text-sm font-medium">
                   {f.label}
@@ -227,9 +232,12 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
                 <td className="px-3 py-2"><Badge value={f.status} /></td>
                 <td className="px-3 py-2 text-xs">
                   {f.maintenanceIssueId ? (
-                    <a href={`/building/maintenance/${f.maintenanceIssueId}`} className="text-brand-700 underline">
-                      فتح البلاغ
-                    </a>
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <a href={`/building/maintenance/${f.maintenanceIssueId}`} className="text-brand-700 underline">
+                        فتح البلاغ
+                      </a>
+                      {linkedIssue && <Badge value={linkedIssue.status} />}
+                    </span>
                   ) : (
                     "—"
                   )}
@@ -240,7 +248,8 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </Table>
         </Card>
       )}
@@ -251,6 +260,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
           <InspectionRunForm
             roomId={id}
             templates={matchingTemplates.map((t) => ({ id: t.id, nameAr: t.nameAr, items: t.items }))}
+            canCreateIssues={canReport}
           />
         )}
         {matchingTemplates.length === 0 && (
