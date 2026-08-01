@@ -44,6 +44,7 @@ import { amountOrNull, toMinor, fromMinor } from "@/lib/finance/calc";
 import { isoWeekKey, NO_WEEKLY_UPDATE_LABEL } from "@/lib/plan/followup";
 import { programLifecycle } from "@/lib/plan/lifecycle";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
+import { hijriTextToIso } from "@/lib/dates";
 import { type ReportFilters, type ReportRow, reportByKey, isSortableColumn } from "./catalog";
 import { clampPage, clampPageSize, MAX_EXPORT_ROWS } from "./export-safety";
 
@@ -171,7 +172,63 @@ async function loadClosureHistory(filters: ReportFilters): Promise<ReportRow[]> 
   return rows.map((r) => ({ ...r, at: isoDate(r.at) }));
 }
 
-async function loadProgramsByDomain(): Promise<ReportRow[]> {
+/**
+ * v2.4 §8-9: الصفوف التفصيلية للبرامج مجمعةً بمفتاح (المجال أو المسؤول) — أسماء البرامج
+ * لا أعداد فقط. لكل برنامج: الحالة الاعتمادية ودورة الحياة وحالة التنفيذ والتقدم
+ * والتواريخ المخططة وعدد الشواهد ومؤشر التأخر. الإجمالي يبقى في تقرير الملخص المرافق.
+ */
+async function detailedProgramRows(filters: ReportFilters, groupBy: "domain" | "owner"): Promise<ReportRow[]> {
+  const excluded = await getExcludedIdSets();
+  const rows = await db
+    .select()
+    .from(programs)
+    .where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)))
+    .orderBy(asc(programs.seq));
+  const evidence = await programsEvidenceSummary(rows.map((p) => p.id));
+  const today = new Date().toISOString().slice(0, 10);
+
+  let out = rows.map((p) => {
+    const groupKey =
+      groupBy === "domain"
+        ? (p.domain ?? "").trim() || "بدون تصنيف"
+        : (p.ownerPosition ?? "").trim() || "بدون مسؤول";
+    const endIso = hijriTextToIso(p.hijriEnd);
+    return {
+      group: groupKey,
+      seq: p.seq,
+      name: p.name,
+      other: groupBy === "domain" ? (p.ownerPosition ?? "").trim() || "بدون مسؤول" : (p.domain ?? "").trim() || "بدون تصنيف",
+      approval: p.status,
+      lifecycle: programLifecycle(p),
+      executionStatus: p.executionStatus,
+      progress: p.progress,
+      hijriStart: p.hijriStart,
+      hijriEnd: p.hijriEnd,
+      evidenceCount: evidence.get(p.id)?.count ?? 0,
+      delayed: endIso !== null && endIso < today && !p.completedAt && !p.closedAt ? "متأخر عن نهايته" : "",
+    };
+  });
+  if (filters.status) out = out.filter((r) => r.approval === filters.status);
+  if (filters.search) {
+    const term = filters.search;
+    out = out.filter((r) => String(r.name ?? "").includes(term) || r.group.includes(term) || r.other.includes(term));
+  }
+  // التجميع: ترتيب ثابت بالمجموعة ثم تسلسل البرنامج — كل برامج المجموعة متجاورة
+  return out.sort((a, b) => a.group.localeCompare(b.group, "ar") || a.seq - b.seq);
+}
+
+async function loadProgramsByDomain(filters: ReportFilters): Promise<ReportRow[]> {
+  const rows = await detailedProgramRows(filters, "domain");
+  return rows.map(({ group, other, ...rest }) => ({ domain: group, owner: other, ...rest }));
+}
+
+async function loadProgramsByOwner(filters: ReportFilters): Promise<ReportRow[]> {
+  const rows = await detailedProgramRows(filters, "owner");
+  return rows.map(({ group, other, ...rest }) => ({ owner: group, domain: other, ...rest }));
+}
+
+/** ملخص الأعداد حسب المجال (كان `programs-by-domain` قبل v2.4) — الإجمالي يبقى متاحاً */
+async function loadProgramsByDomainSummary(): Promise<ReportRow[]> {
   const excluded = await getExcludedIdSets();
   const rows = await db.select().from(programs).where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)));
   const byDomain = new Map<string, { count: number; progressSum: number; closed: number }>();
@@ -191,7 +248,8 @@ async function loadProgramsByDomain(): Promise<ReportRow[]> {
   }));
 }
 
-async function loadProgramsByOwner(): Promise<ReportRow[]> {
+/** ملخص الأعداد حسب المسؤول (كان `programs-by-owner` قبل v2.4) */
+async function loadProgramsByOwnerSummary(): Promise<ReportRow[]> {
   const excluded = await getExcludedIdSets();
   const rows = await db.select().from(programs).where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)));
   const byOwner = new Map<string, { count: number; progressSum: number }>();
@@ -1135,7 +1193,9 @@ const LOADERS: Record<string, (f: ReportFilters) => Promise<ReportRow[]>> = {
   "programs-reopened": (f) => loadPrograms(f, "reopened"),
   "program-closure-history": loadClosureHistory,
   "programs-by-domain": loadProgramsByDomain,
+  "programs-by-domain-summary": loadProgramsByDomainSummary,
   "programs-by-owner": loadProgramsByOwner,
+  "programs-by-owner-summary": loadProgramsByOwnerSummary,
   "programs-without-evidence": loadProgramsWithoutEvidence,
 
   "evidence-register": loadEvidenceRegister,

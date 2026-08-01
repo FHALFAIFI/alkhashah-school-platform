@@ -21,10 +21,9 @@ import {
   rooms,
 } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth/session";
-import { todayIso } from "@/lib/dates";
+import { hijriTextToIso, todayIso } from "@/lib/dates";
 import { getExcludedIdSets, notSynthetic, type SyntheticIdSets } from "@/lib/synthetic";
 import { orFallback } from "@/lib/format";
-import { hijriTextToIso } from "@/lib/dashboard-metrics";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
 
 /**

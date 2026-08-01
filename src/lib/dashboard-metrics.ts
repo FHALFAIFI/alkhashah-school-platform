@@ -18,7 +18,7 @@ import { computeRoomReadiness } from "@/lib/building/readiness";
 import { isOpenIssueStatus } from "@/lib/building/maintenance-lifecycle";
 import { getSchoolFinance } from "@/lib/finance/service";
 import { FILE_PENDING } from "@/lib/auth/roles";
-import { hijriToIso, todayIso } from "@/lib/dates";
+import { hijriTextToIso, todayIso } from "@/lib/dates";
 
 /**
  * مؤشرات لوحة المتابعة (v2.3 §13) — أرقام حيّة كل واحد منها يقود إلى سجلاته:
@@ -41,14 +41,6 @@ export type DashboardMetrics = {
   cards: MonitoringCard[];
   upcoming: UpcomingItem[];
 };
-
-/** تحويل نص هجري رسمي «1448/3/10» إلى ISO — يعيد null لأي نص لا يُفسَّر */
-export function hijriTextToIso(text: string | null): string | null {
-  if (!text) return null;
-  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(text.trim());
-  if (!m) return null;
-  return hijriToIso({ year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) });
-}
 
 export async function loadDashboardMetrics(opts: {
   canSeeFinance: boolean;

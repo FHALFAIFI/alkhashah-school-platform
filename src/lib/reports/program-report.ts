@@ -14,6 +14,7 @@ import { issueDocument } from "@/lib/documents";
 import { saveUploadedFile, readStoredFile } from "@/lib/storage";
 import { getSetting } from "@/lib/settings";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
+import { programLifecycle } from "@/lib/plan/lifecycle";
 import { escapeHtml as esc } from "@/lib/html-escape";
 
 async function brandingDataUri(settingKey: string): Promise<string | null> {
@@ -82,8 +83,13 @@ export async function generateProgramReport(opts: {
       .filter(([, v]) => v)
       .map(([k, v]) => `<tr><th style="width:22%">${esc(k)}</th><td>${esc(v!)}</td></tr>`)
       .join("")}
-    <tr><th>الحالة</th><td>${esc(program.status)} — نسبة الإنجاز ${program.progress}٪</td></tr>
+    <tr><th>الرقم التسلسلي</th><td>${program.seq}</td></tr>
+    <tr><th>اعتماد المدير</th><td>${esc(program.status)}${program.approvedAt ? ` — بتاريخ ${esc(toGregorianNumeric(program.approvedAt))}م` : ""}</td></tr>
+    <tr><th>دورة الحياة</th><td>${esc(programLifecycle(program))}${program.completedAt ? ` — وُثّق الاكتمال ${esc(toGregorianNumeric(program.completedAt))}م` : ""}${program.closedAt ? ` — أُقفل ${esc(toGregorianNumeric(program.closedAt))}م` : ""}</td></tr>
+    <tr><th>نسبة الإنجاز</th><td>${program.progress}٪</td></tr>
     <tr><th>حالة التنفيذ</th><td>${esc(program.executionStatus)}</td></tr>
+    ${program.completionNote ? `<tr><th>ملاحظة الاكتمال</th><td>${esc(program.completionNote)}</td></tr>` : ""}
+    ${program.closureNote ? `<tr><th>ملاحظة الإقفال</th><td>${esc(program.closureNote)}</td></tr>` : ""}
     <tr><th>الميزانية المعتمدة</th><td>${allocatedText}</td></tr>
     <tr><th>المصروف</th><td>${spentText}</td></tr>
     <tr><th>المتبقي</th><td>${remainingText}</td></tr>

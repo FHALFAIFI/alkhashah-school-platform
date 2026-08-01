@@ -80,6 +80,9 @@ function statusOptionsFor(reportKey: string): string[] {
       return ["مسودة", "مكتملة", "مقفلة"];
     case "plan-followups":
       return ["في المسار", "متأخر", "متوقف مؤقتاً", "مكتمل", "لم يتم التحديث هذا الأسبوع"];
+    case "programs-by-domain":
+    case "programs-by-owner":
+      return ["مسودة", "معتمد", "مقفل"];
     case "plan-followup-log":
       return ["في المسار", "متأخر", "متوقف مؤقتاً", "مكتمل"];
     case "improvement-plans":

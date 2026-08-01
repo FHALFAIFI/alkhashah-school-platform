@@ -21,6 +21,7 @@ export const dynamic = "force-dynamic";
 export default async function PlanPage({ searchParams }: { searchParams: Promise<{ حالة?: string }> }) {
   const user = await requirePermission("plan.read");
   const canWrite = user.permissions.has("plan.write");
+  const canGenerate = user.permissions.has("reports.generate");
   // مرشّح سير العمل ثلاثي الحالات: «قيد التنفيذ» | «مكتمل» | «مغلق» — بلا قيمة = الكل
   const stateFilter = (await searchParams)["حالة"];
   const years = await db.select().from(planYears).orderBy(asc(planYears.key));
@@ -156,7 +157,15 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
                   {p.status === "معتمد" && !p.completedAt && isFollowupDue(p.lastReviewAt) && <FollowupDueBadge />}
                 </span>
               </td>
-              <td className="px-3 py-2"><LinkButton href={`/plan/${p.id}`} variant="secondary">فتح</LinkButton></td>
+              <td className="px-3 py-2">
+                <span className="inline-flex flex-wrap gap-1">
+                  <LinkButton href={`/plan/${p.id}`} variant="secondary">فتح</LinkButton>
+                  {/* v2.4 §10: وصول مباشر لبطاقة البرنامج وتقريره من القائمة */}
+                  {canGenerate && (
+                    <LinkButton href={`/plan/${p.id}/report`} variant="secondary">البطاقة والتقرير</LinkButton>
+                  )}
+                </span>
+              </td>
             </tr>
           ))}
         </Table>

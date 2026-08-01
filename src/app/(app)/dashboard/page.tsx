@@ -3,12 +3,19 @@ import { eq, and, sql } from "drizzle-orm";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/db";
 import { programs, people, evidenceItems } from "@/db/schema";
-import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
+import { PageHeader, Card, Badge, EmptyState, ProgressBar } from "@/components/ui";
 import { toHijriLong, toGregorianLong, dualNumericCell } from "@/lib/dates";
-import { getWorkCenter, type WorkItem } from "@/lib/worklist";
+import {
+  getWorkCenter,
+  getPlanApprovalQueue,
+  type WorkItem,
+  type ApprovalQueueProgram,
+} from "@/lib/worklist";
+import { ApproveProgramButton } from "@/app/(app)/plan/[id]/program-ui";
 import { strategicPendingDecisions } from "@/lib/strategic-decisions";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { loadDashboardMetrics } from "@/lib/dashboard-metrics";
+import { orFallback, orDash } from "@/lib/format";
 
 export const metadata = { title: "مركز عمل مدير المدرسة" };
 export const dynamic = "force-dynamic";
@@ -76,14 +83,146 @@ function WorkSection({
   );
 }
 
-export default async function DashboardPage() {
+/** صف برنامج في طابور الاعتماد — بيانات الحالة الحقيقية مع فتح مباشر واعتماد مضمّن للمسودات */
+function QueueProgramRow({ p, canApproveInline }: { p: ApprovalQueueProgram; canApproveInline: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 py-2">
+      <div className="min-w-0 flex-1 basis-64">
+        <Link href={`/plan/${p.id}`} className="break-words text-sm font-medium text-brand-700 hover:underline">
+          {p.seq}. {orFallback(p.name)}
+        </Link>
+        <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-gray-500">
+          <span>{orDash(p.domain)}</span>
+          <span>المسؤول: {orDash(p.owner)}</span>
+          {p.since && <span className="tabular-nums">منذ: {dualNumericCell(p.since)}</span>}
+          <span>الشواهد: {p.evidenceCount}</span>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {p.delayed && <Badge value="متجاوز نهايته المخططة" />}
+        <ProgressBar value={p.progress} />
+        {canApproveInline ? (
+          <ApproveProgramButton programId={p.id} />
+        ) : (
+          <Link
+            href={`/plan/${p.id}`}
+            className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800 hover:bg-brand-50"
+          >
+            راجع وأقفل
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * v2.4 §11: «بانتظار اعتماد المدير» — ثلاث قوائم من حالات سير العمل الحقيقية:
+ * مسودات جديدة، اكتمال موثق بانتظار الإقفال، وطلبات تعديل قيد الاعتماد.
+ * الاعتماد المضمّن للمسودات يستخدم إجراء الاعتماد المدقَّق نفسه؛ الإقفال والإرجاع
+ * بملاحظة يتمان من صفحة البرنامج (يتطلبان مراجعة وسبباً موثقاً). لا اعتماد جماعياً —
+ * كل برنامج يُراجع منفرداً.
+ */
+function ApprovalQueueSection({
+  queue,
+  activeTab,
+}: {
+  queue: NonNullable<Awaited<ReturnType<typeof getPlanApprovalQueue>>>;
+  activeTab?: string;
+}) {
+  const tabs = [
+    { key: "جديد", label: "برامج جديدة بانتظار الاعتماد", count: queue.drafts.length },
+    { key: "مكتمل", label: "اكتمال موثق بانتظار الإقفال", count: queue.completed.length },
+    { key: "تعديلات", label: "طلبات تعديل", count: queue.changeRequests.length },
+  ] as const;
+  const active = tabs.some((t) => t.key === activeTab) ? (activeTab as (typeof tabs)[number]["key"]) : "جديد";
+  const total = tabs.reduce((s, t) => s + t.count, 0);
+
+  return (
+    <section>
+      <Card>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold text-brand-900">بانتظار اعتماد المدير</h2>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${total ? "bg-brand-100 text-brand-800" : "bg-sand-100 text-gray-400"}`}>
+            {total}
+          </span>
+        </div>
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {tabs.map((t) => (
+            <Link
+              key={t.key}
+              href={t.key === "جديد" ? "/dashboard" : `/dashboard?اعتماد=${t.key}`}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                active === t.key
+                  ? "border-brand-600 bg-brand-600 text-white"
+                  : "border-sand-200 text-gray-600 hover:bg-sand-50"
+              }`}
+            >
+              {t.label} ({t.count})
+            </Link>
+          ))}
+        </div>
+        {active === "جديد" &&
+          (queue.drafts.length === 0 ? (
+            <p className="py-3 text-sm text-gray-400">لا برامج جديدة بانتظار الاعتماد</p>
+          ) : (
+            <div className="divide-y divide-sand-100">
+              {queue.drafts.map((p) => (
+                <QueueProgramRow key={p.id} p={p} canApproveInline />
+              ))}
+            </div>
+          ))}
+        {active === "مكتمل" &&
+          (queue.completed.length === 0 ? (
+            <p className="py-3 text-sm text-gray-400">لا برامج مكتملة بانتظار الإقفال</p>
+          ) : (
+            <div className="divide-y divide-sand-100">
+              {queue.completed.map((p) => (
+                <QueueProgramRow key={p.id} p={p} canApproveInline={false} />
+              ))}
+            </div>
+          ))}
+        {active === "تعديلات" &&
+          (queue.changeRequests.length === 0 ? (
+            <p className="py-3 text-sm text-gray-400">لا طلبات تعديل قيد الاعتماد</p>
+          ) : (
+            <div className="divide-y divide-sand-100">
+              {queue.changeRequests.map((cr) => (
+                <Link
+                  key={cr.id}
+                  href={`/plan/${cr.programId}#change-requests`}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-2 transition hover:border-brand-200 hover:bg-sand-50"
+                >
+                  <span className="min-w-0 break-words text-sm font-medium text-gray-800">
+                    طلب تعديل «{orFallback(cr.fieldLabel)}» — {cr.seq}. {orFallback(cr.programName)}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-700">
+                    <span aria-hidden>←</span>
+                    اعتمد التعديل أو ارفضه
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ))}
+      </Card>
+    </section>
+  );
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ اعتماد?: string }>;
+}) {
   const user = await requireUser();
   const today = new Date();
+  const approvalTabParam = (await searchParams)["اعتماد"];
 
   // إحصاءات لوحة القيادة تستبعد السجلات الاصطناعية (مفعّل في التطوير/الإنتاج)
   const excluded = await getExcludedIdSets();
-  const [work, strategic, progCount, peopleCount, evidenceCount, metrics] = await Promise.all([
+  const [work, queue, strategic, progCount, peopleCount, evidenceCount, metrics] = await Promise.all([
     getWorkCenter(user),
+    getPlanApprovalQueue(user, excluded),
     strategicPendingDecisions(),
     db.select({ c: sql<number>`count(*)::int` }).from(programs).where(notSynthetic(programs.id, excluded.programs)),
     db
@@ -129,6 +268,9 @@ export default async function DashboardPage() {
           </Link>
         }
       />
+
+      {/* v2.4 §11: طابور «بانتظار اعتماد المدير» — من حالات سير العمل الحقيقية حصراً */}
+      {queue && <ApprovalQueueSection queue={queue} activeTab={approvalTabParam} />}
 
       {/* لوحة المتابعة (v2.3 §13): مؤشرات حيّة كل بطاقة تقود إلى سجلاتها */}
       <section>

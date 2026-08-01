@@ -80,6 +80,14 @@ export function dualDisplay(
     : { primary: greg, secondary: hijri };
 }
 
+/** تحويل نص هجري رسمي «1448/3/10» إلى ISO — يعيد null لأي نص لا يُفسَّر */
+export function hijriTextToIso(text: string | null): string | null {
+  if (!text) return null;
+  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(text.trim());
+  if (!m) return null;
+  return hijriToIso({ year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) });
+}
+
 export function todayIso(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;

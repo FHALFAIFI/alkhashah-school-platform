@@ -122,7 +122,10 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
             {isArchived && <Badge value="مؤرشف" />}
             <Badge value={lifecycle} />
             <Badge value={programStatusLabel(program.status)} />
-            <LinkButton href={`/plan/${id}/report`} variant="secondary">تقرير البرنامج</LinkButton>
+            {/* v2.4 §10: نقطة وصول ظاهرة للطباعة — التقرير وبطاقة البرنامج من صفحة واحدة */}
+            {user.permissions.has("reports.generate") && (
+              <LinkButton href={`/plan/${id}/report`} variant="secondary">طباعة بطاقة البرنامج والتقرير</LinkButton>
+            )}
           </div>
         }
       />
