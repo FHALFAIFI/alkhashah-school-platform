@@ -43,7 +43,7 @@ export type DashboardMetrics = {
 };
 
 /** تحويل نص هجري رسمي «1448/3/10» إلى ISO — يعيد null لأي نص لا يُفسَّر */
-function hijriTextToIso(text: string | null): string | null {
+export function hijriTextToIso(text: string | null): string | null {
   if (!text) return null;
   const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(text.trim());
   if (!m) return null;

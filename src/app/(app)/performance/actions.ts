@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
@@ -16,6 +16,12 @@ import { saveUploadedFile } from "@/lib/storage";
 import { getSetting } from "@/lib/settings";
 import { sessionResult, validRating } from "@/lib/performance/scoring";
 import { snapshotAwaitingFaresCells } from "@/lib/performance/d014";
+import {
+  isLastActiveApprovedForAudience,
+  linkedSummaryAr,
+  modelInUse,
+  modelLinkedRecords,
+} from "@/lib/performance/model-admin";
 import { numOrNull } from "@/lib/format";
 import { userFacingError } from "@/lib/user-error";
 import { optionalIsoDate } from "@/lib/dates-zod";
@@ -83,13 +89,127 @@ export async function addIndicatorAction(modelId: string, _prev: ActionState, fo
 }
 
 export async function deleteIndicatorAction(indicatorId: string): Promise<void> {
-  await requirePermission("performance.models.manage");
+  const user = await requirePermission("performance.models.manage");
   const [ind] = await db.select().from(perfIndicators).where(eq(perfIndicators.id, indicatorId));
   if (!ind) return;
   const [model] = await db.select().from(perfModels).where(eq(perfModels.id, ind.modelId));
   if (!model || model.status === "معتمد") return;
   await db.delete(perfIndicators).where(eq(perfIndicators.id, indicatorId));
+  await audit({
+    actorId: user.id,
+    action: "perf_indicator.deleted",
+    entityType: "perf_model",
+    entityId: ind.modelId,
+    summary: `حذف مؤشر «${ind.nameAr}» من نموذج «${model.nameAr}»`,
+    detail: { before: { nameAr: ind.nameAr, weight: ind.weight, sortOrder: ind.sortOrder } },
+  });
   revalidatePath(`/performance/models/${ind.modelId}`);
+}
+
+// ————————————————— أرشفة النماذج وحذفها (v2.4 §6) —————————————————
+
+/**
+ * أرشفة نموذج: المسار الافتراضي للنموذج المستخدم — يختفي من اختيار الدورات الجديدة
+ * وتبقى كل تقييماته وتقاريره التاريخية سليمة (اللقطة المجمدة في كل دورة).
+ */
+export async function archiveModelAction(modelId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("performance.models.manage");
+  const [model] = await db.select().from(perfModels).where(eq(perfModels.id, modelId));
+  if (!model) return { error: "النموذج غير موجود" };
+  if (model.archivedAt) return { success: "النموذج مؤرشف مسبقاً" };
+  if (await isLastActiveApprovedForAudience(model)) {
+    return { error: `لا يمكن أرشفة آخر نموذج معتمد نشط لفئة «${model.audience}» — اعتمد نموذجاً بديلاً أولاً` };
+  }
+  const reason = String(formData.get("reason") ?? "").trim();
+  const counts = await modelLinkedRecords(modelId);
+  await db
+    .update(perfModels)
+    .set({ archivedAt: new Date(), archivedBy: user.id, archivedReason: reason || null })
+    .where(eq(perfModels.id, modelId));
+  await audit({
+    actorId: user.id,
+    action: "perf_model.archived",
+    entityType: "perf_model",
+    entityId: modelId,
+    summary: `أرشفة نموذج «${model.nameAr}»${reason ? ` — ${reason}` : ""}`,
+    detail: { linkedRecords: counts, linkedSummary: linkedSummaryAr(counts) },
+  });
+  revalidatePath("/performance/models");
+  revalidatePath(`/performance/models/${modelId}`);
+  revalidatePath("/performance");
+  return { success: "أُرشف النموذج — تقييماته وتقاريره التاريخية باقية كما هي" };
+}
+
+export async function restoreModelAction(modelId: string): Promise<ActionState> {
+  const user = await requirePermission("performance.models.manage");
+  const [model] = await db.select().from(perfModels).where(eq(perfModels.id, modelId));
+  if (!model) return { error: "النموذج غير موجود" };
+  if (!model.archivedAt) return { success: "النموذج غير مؤرشف" };
+  await db
+    .update(perfModels)
+    .set({ archivedAt: null, archivedBy: null, archivedReason: null })
+    .where(eq(perfModels.id, modelId));
+  await audit({
+    actorId: user.id,
+    action: "perf_model.restored",
+    entityType: "perf_model",
+    entityId: modelId,
+    summary: `استعادة نموذج «${model.nameAr}» من الأرشيف`,
+  });
+  revalidatePath("/performance/models");
+  revalidatePath(`/performance/models/${modelId}`);
+  revalidatePath("/performance");
+  return { success: "استُعيد النموذج" };
+}
+
+/**
+ * حذف نهائي — للنماذج غير المستخدمة فقط (لا دورات مرتبطة). النموذج المستخدم يؤرشف ولا
+ * يحذف (الحذف التتابعي للبيانات التقييمية خارج نطاق هذا الإصدار عمداً). النماذج الرسمية
+ * لا تحذف نهائياً — مصدرها ملف الوزارة وتقارير الجاهزية تستند إليها (D-014).
+ */
+export async function deleteModelAction(modelId: string): Promise<ActionState> {
+  const user = await requirePermission("performance.models.manage");
+  const [model] = await db.select().from(perfModels).where(eq(perfModels.id, modelId));
+  if (!model) return { error: "النموذج غير موجود" };
+  if (model.official) return { error: "النماذج الرسمية لا تحذف نهائياً — استخدم «أرشفة النموذج»" };
+  const counts = await modelLinkedRecords(modelId);
+  if (modelInUse(counts)) {
+    return {
+      error: `يرتبط بالنموذج ${linkedSummaryAr(counts)} — الحذف النهائي غير متاح حفاظاً على السجل التاريخي، استخدم «أرشفة النموذج»`,
+    };
+  }
+  if (await isLastActiveApprovedForAudience(model)) {
+    return { error: `لا يمكن حذف آخر نموذج معتمد نشط لفئة «${model.audience}» — اعتمد نموذجاً بديلاً أولاً` };
+  }
+  const indicators = await db.select().from(perfIndicators).where(eq(perfIndicators.modelId, modelId));
+  await snapshotRecord({
+    entityType: "perf_model",
+    entityId: modelId,
+    action: "updated",
+    snapshot: { model, indicators },
+    reason: "لقطة قبل الحذف النهائي لنموذج غير مستخدم",
+    actorId: user.id,
+  });
+  try {
+    // المؤشرات تحذف تتابعياً؛ قيد المفتاح الأجنبي من perf_cycles يمنع أي سباق مع إنشاء دورة
+    await db.delete(perfModels).where(eq(perfModels.id, modelId));
+  } catch {
+    return { error: "تعذر الحذف — ارتبطت بالنموذج دورة تقييم أثناء العملية، استخدم «أرشفة النموذج»" };
+  }
+  await audit({
+    actorId: user.id,
+    action: "perf_model.deleted",
+    entityType: "perf_model",
+    entityId: modelId,
+    summary: `حذف نهائي لنموذج «${model.nameAr}» (${model.status}) — غير مرتبط بأي تقييم`,
+    detail: {
+      before: { key: model.key, nameAr: model.nameAr, status: model.status, audience: model.audience, indicators: counts.indicators },
+      linkedRecords: counts,
+    },
+  });
+  revalidatePath("/performance/models");
+  revalidatePath("/performance");
+  return { success: `حُذف النموذج «${model.nameAr}» نهائياً` };
 }
 
 /** اعتماد نموذج — مجموع الأوزان يجب أن يساوي 100٪ تماماً */
@@ -155,6 +275,7 @@ export async function createCycleAction(_prev: ActionState, formData: FormData):
   const [model] = await db.select().from(perfModels).where(eq(perfModels.id, parsed.data.modelId));
   if (!model) return { error: "النموذج غير موجود" };
   if (model.status !== "معتمد") return { error: "النموذج غير معتمد — يعتمد المدير النموذج أولاً" };
+  if (model.archivedAt) return { error: "النموذج مؤرشف — استعده من صفحة النماذج أو اختر نموذجاً آخر" };
   // D-014 (الاختيار اليدوي): عدم تطابق فئة النموذج مع فئة الدورة يسمح به فقط عندما
   // لا يوجد أي نموذج معتمد مطابق للفئة (مثال: كل النماذج الرسمية «معلم» والشخص «موظف»).
   // لا يخترع النظام نموذجاً — الاختيار اليدوي مسؤولية المدير ويوثق في سجل التدقيق.
@@ -163,7 +284,7 @@ export async function createCycleAction(_prev: ActionState, formData: FormData):
     const matching = await db
       .select({ id: perfModels.id })
       .from(perfModels)
-      .where(and(eq(perfModels.audience, parsed.data.cycleType), eq(perfModels.status, "معتمد")));
+      .where(and(eq(perfModels.audience, parsed.data.cycleType), eq(perfModels.status, "معتمد"), isNull(perfModels.archivedAt)));
     if (matching.length > 0) return { error: `النموذج مخصص لفئة «${model.audience}»` };
     audienceMismatch = true;
   }

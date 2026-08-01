@@ -40,7 +40,10 @@ import {
 } from "@/db/schema";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { getSchoolFinance } from "@/lib/finance/service";
-import { amountOrNull } from "@/lib/finance/calc";
+import { amountOrNull, toMinor, fromMinor } from "@/lib/finance/calc";
+import { isoWeekKey, NO_WEEKLY_UPDATE_LABEL } from "@/lib/plan/followup";
+import { programLifecycle } from "@/lib/plan/lifecycle";
+import { programsEvidenceSummary } from "@/lib/plan/program-service";
 import { type ReportFilters, type ReportRow, reportByKey, isSortableColumn } from "./catalog";
 import { clampPage, clampPageSize, MAX_EXPORT_ROWS } from "./export-safety";
 
@@ -311,8 +314,46 @@ async function loadIncomeRegister(filters: ReportFilters): Promise<ReportRow[]> 
     }));
 }
 
+/**
+ * v2.4 §4: المتبقي من مخصص البند بعد كل مصروف — تراكمي بترتيب زمني حتمي داخل كل بند
+ * (التاريخ ثم وقت الإدخال ثم المعرف). `null` للمصروف بلا بند أو لبند بلا مخصص.
+ */
+function expenseRemainingAfter(
+  lines: { id: string; allocated: number | null }[],
+  expenses: { id: string; amount: string | null; financialItemId: string | null; archivedAt: Date | null; expenseDate: string | null; createdAt: Date | null }[],
+): Map<string, number | null> {
+  const allocationByItem = new Map(lines.map((l) => [l.id, l.allocated]));
+  const spentMinorByItem = new Map<string, number>();
+  const result = new Map<string, number | null>();
+  const sorted = expenses
+    .filter((r) => !r.archivedAt)
+    .slice()
+    .sort((a, b) => {
+      const aKey = a.expenseDate ?? "";
+      const bKey = b.expenseDate ?? "";
+      if (aKey !== bKey) return aKey.localeCompare(bKey);
+      const aT = a.createdAt?.getTime() ?? 0;
+      const bT = b.createdAt?.getTime() ?? 0;
+      if (aT !== bT) return aT - bT;
+      return a.id.localeCompare(b.id);
+    });
+  for (const r of sorted) {
+    if (!r.financialItemId) {
+      result.set(r.id, null);
+      continue;
+    }
+    const allocated = allocationByItem.get(r.financialItemId) ?? null;
+    const cur = spentMinorByItem.get(r.financialItemId) ?? 0;
+    const next = cur + toMinor(amountOrNull(r.amount) ?? 0);
+    spentMinorByItem.set(r.financialItemId, next);
+    result.set(r.id, allocated === null ? null : fromMinor(toMinor(allocated) - next));
+  }
+  return result;
+}
+
 async function loadExpenseRegister(filters: ReportFilters): Promise<ReportRow[]> {
   const f = await financeData();
+  const remainingAfter = expenseRemainingAfter(f.lines, f.expenses);
   return f.expenses
     .filter((r) => !r.archivedAt)
     .filter((r) => inDateRange(r.expenseDate, filters))
@@ -325,6 +366,7 @@ async function loadExpenseRegister(filters: ReportFilters): Promise<ReportRow[]>
       paymentReference: r.paymentReference,
       supplier: r.supplier,
       hasInvoice: r.hasInvoice ? "نعم" : "لا",
+      remainingAfter: remainingAfter.get(r.id) ?? null,
     }));
 }
 
@@ -356,6 +398,7 @@ async function loadOverBudget(): Promise<ReportRow[]> {
 /** الإيرادات والمصروفات في سجل موحّد — أساس تقارير الفواتير وكل العمليات */
 async function unifiedOperations(filters: ReportFilters) {
   const f = await financeData();
+  const remainingAfter = expenseRemainingAfter(f.lines, f.expenses);
   const income = f.income
     .filter((r) => !r.archivedAt && r.status !== "ملغى")
     .map((r) => ({
@@ -366,6 +409,7 @@ async function unifiedOperations(filters: ReportFilters) {
       reference: r.source,
       description: r.purpose ?? r.source,
       hasInvoice: r.hasInvoice,
+      remainingAfter: null as number | null,
     }));
   const expenses = f.expenses
     .filter((r) => !r.archivedAt)
@@ -377,6 +421,7 @@ async function unifiedOperations(filters: ReportFilters) {
       reference: r.paymentReference,
       description: r.notes ?? r.supplier,
       hasInvoice: r.hasInvoice,
+      remainingAfter: remainingAfter.get(r.id) ?? null,
     }));
   return [...income, ...expenses]
     .filter((r) => inDateRange(r.date, filters))
@@ -832,7 +877,71 @@ async function loadPlanKpis(filters: ReportFilters): Promise<ReportRow[]> {
   }));
 }
 
+/**
+ * v2.4 §7: تقرير حالة الأسبوع الحالي — صف لكل برنامج معتمد في السنة النشطة، بلقطة الأسبوع
+ * المحفوظة أو «لم يتم التحديث هذا الأسبوع»، ومحورا التنفيذ والإقفال منفصلان. غياب التحديث
+ * لا يُعرَض اكتمالاً أبداً.
+ */
 async function loadPlanFollowups(filters: ReportFilters): Promise<ReportRow[]> {
+  const excluded = await getExcludedIdSets();
+  const week = isoWeekKey();
+  const years = await db.select().from(planYears).orderBy(asc(planYears.key));
+  const activeYear = years.find((y) => y.status === "نشطة") ?? years[0];
+  if (!activeYear) return [];
+  const programRows = (
+    await db
+      .select()
+      .from(programs)
+      .where(
+        and(
+          eq(programs.planYearId, activeYear.id),
+          notSynthetic(programs.id, excluded.programs),
+          isNull(programs.archivedAt),
+        ),
+      )
+      .orderBy(asc(programs.seq))
+  ).filter((p) => p.status === "معتمد");
+  const ids = programRows.map((p) => p.id);
+  const weekFollowups = ids.length
+    ? await db
+        .select()
+        .from(programFollowups)
+        .where(and(inArray(programFollowups.programId, ids), eq(programFollowups.weekKey, week)))
+    : [];
+  const byProgram = new Map(weekFollowups.map((f) => [f.programId, f]));
+  const evidence = await programsEvidenceSummary(ids);
+
+  let rows = programRows.map((p) => {
+    const f = byProgram.get(p.id);
+    return {
+      seq: p.seq,
+      programName: p.name,
+      domain: p.domain,
+      owner: p.ownerPosition ?? "",
+      weekStatus: f?.executionStatus ?? NO_WEEKLY_UPDATE_LABEL,
+      weekProgress: f ? f.progressSnapshot : null,
+      lifecycle: programLifecycle(p),
+      currentProgress: p.progress,
+      lastFollowup: p.lastReviewAt ? isoDate(p.lastReviewAt) : null,
+      evidenceCount: evidence.get(p.id)?.count ?? 0,
+      note: f?.note ?? "",
+    };
+  });
+  if (filters.status) rows = rows.filter((r) => r.weekStatus === filters.status);
+  if (filters.search) {
+    const term = filters.search;
+    rows = rows.filter(
+      (r) =>
+        String(r.programName ?? "").includes(term) ||
+        String(r.domain ?? "").includes(term) ||
+        String(r.owner ?? "").includes(term),
+    );
+  }
+  return rows;
+}
+
+/** السجل التاريخي الكامل للمتابعات الأسبوعية (كان `plan-followups` قبل v2.4) */
+async function loadPlanFollowupLog(filters: ReportFilters): Promise<ReportRow[]> {
   const excluded = await getExcludedIdSets();
   const where: (SQL | undefined)[] = [
     notSynthetic(programFollowups.id, excluded.followups),
@@ -846,7 +955,7 @@ async function loadPlanFollowups(filters: ReportFilters): Promise<ReportRow[]> {
     .from(programFollowups)
     .innerJoin(programs, eq(programs.id, programFollowups.programId))
     .where(where.filter(Boolean).length ? and(...where) : undefined)
-    .orderBy(desc(programFollowups.createdAt));
+    .orderBy(desc(programFollowups.weekKey), desc(programFollowups.createdAt));
   return rows.map(({ f, programName }) => ({
     weekKey: f.weekKey,
     programName,
@@ -1068,6 +1177,7 @@ const LOADERS: Record<string, (f: ReportFilters) => Promise<ReportRow[]>> = {
 
   "plan-kpis": loadPlanKpis,
   "plan-followups": loadPlanFollowups,
+  "plan-followup-log": loadPlanFollowupLog,
   "action-tasks": loadActionTasks,
   "calendar-events": loadCalendarEvents,
 

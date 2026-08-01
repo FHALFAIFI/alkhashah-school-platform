@@ -79,6 +79,8 @@ export async function approveProgramAction(programId: string): Promise<ActionSta
   await audit({ actorId: user.id, action: "program.approved", entityType: "program", entityId: programId, summary: `اعتماد برنامج «${program.name}»` });
   revalidatePath(`/plan/${programId}`);
   revalidatePath("/plan");
+  // v2.4 §11: طابور الاعتماد على الصفحة الرئيسة يتحدث فور الاعتماد
+  revalidatePath("/dashboard");
   return { success: "تم الاعتماد" };
 }
 
@@ -135,6 +137,7 @@ export async function archiveProgramAction(programId: string, _prev: ActionState
   revalidatePath(`/plan/${programId}`);
   revalidatePath("/plan/classifications");
   revalidatePath("/plan/followup");
+  revalidatePath("/dashboard");
   return { success: "أُرشف البرنامج وأُخفي من الاستخدام — يمكن استرجاعه لاحقاً" };
 }
 
@@ -160,6 +163,7 @@ export async function unarchiveProgramAction(programId: string): Promise<ActionS
   revalidatePath(`/plan/${programId}`);
   revalidatePath("/plan/classifications");
   revalidatePath("/plan/followup");
+  revalidatePath("/dashboard");
   return { success: "استُرجع البرنامج" };
 }
 
@@ -567,6 +571,7 @@ export async function decideChangeRequestAction(requestId: string, decision: "م
     });
   }
   revalidatePath(`/plan/${req.programId}`);
+  revalidatePath("/dashboard");
   return null;
 }
 
@@ -576,7 +581,11 @@ const followupSchema = z.object({
   // نص المتابعة اختياري (تصحيحات v2.1 §H) — يُخزَّن "" عند الفراغ (العمود NOT NULL).
   note: z.string().trim().optional(),
   executionStatus: z.enum(FOLLOWUP_STATUSES, { message: "حالة التنفيذ غير صحيحة" }),
-  progress: z.coerce.number().int().min(0, "النسبة بين 0 و100").max(100, "النسبة بين 0 و100").optional(),
+  // v2.4: الحقل الفارغ يعني «أبق التقدم كما هو» — z.coerce وحدها تحول "" إلى 0 فتصفر التقدم بصمت
+  progress: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.number().int().min(0, "النسبة بين 0 و100").max(100, "النسبة بين 0 و100").optional(),
+  ),
 });
 
 export async function submitFollowupAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -606,12 +615,13 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
     })
     .onConflictDoUpdate({
       target: [programFollowups.programId, programFollowups.weekKey],
+      // v2.4: لا يُعاد ضبط createdAt عند تعديل سجل الأسبوع — إعادة ضبطه كانت تجعل أسبوعاً
+      // قديماً معدلاً يتقدم على الأسبوع الحالي في الترتيب الزمني
       set: {
         note,
         executionStatus: parsed.data.executionStatus,
         progressSnapshot: progress,
         createdBy: user.id,
-        createdAt: now,
       },
     });
   await db

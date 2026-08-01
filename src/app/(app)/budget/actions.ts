@@ -418,8 +418,24 @@ export async function deleteIncomeAction(incomeId: string): Promise<ActionState>
   const user = await requirePermission("budget.write");
   const [row] = await db.select().from(budgetIncome).where(eq(budgetIncome.id, incomeId));
   if (!row) return { error: "الإيراد غير موجود" };
+  // v2.4: لقطة كاملة قبل الحذف النهائي — الحذف يزيل الصف فعلاً ولقطة النسخ هي أثره الوحيد
+  await snapshotRecord({
+    entityType: "budget_income",
+    entityId: incomeId,
+    action: "updated",
+    snapshot: row,
+    reason: "لقطة قبل الحذف النهائي",
+    actorId: user.id,
+  });
   await db.delete(budgetIncome).where(eq(budgetIncome.id, incomeId));
-  await audit({ actorId: user.id, action: "budget.income_deleted", entityType: "budget_income", entityId: incomeId, summary: `حذف إيراد «${row.source}»` });
+  await audit({
+    actorId: user.id,
+    action: "budget.income_deleted",
+    entityType: "budget_income",
+    entityId: incomeId,
+    summary: `حذف إيراد «${row.source}»`,
+    detail: { before: { status: row.status, mapped: incomeAuditView(row) } },
+  });
   revalidatePath("/budget");
   return { success: "حُذف الإيراد" };
 }
@@ -430,8 +446,24 @@ export async function deleteExpenseAction(expenseId: string): Promise<ActionStat
   if (!row) return { error: "المصروف غير موجود" };
   // الحذف مسموح للمصروف؛ الشواهد المرتبطة تبقى في المكتبة (لا حذف تعاقبي للشواهد).
   // «المنفَق» لكل بند مجموع حيّ من المصروفات، فحذف مصروف يعيد حساب بنده فقط تلقائياً (B4).
+  // v2.4: لقطة كاملة قبل الحذف النهائي
+  await snapshotRecord({
+    entityType: "budget_expense",
+    entityId: expenseId,
+    action: "updated",
+    snapshot: row,
+    reason: "لقطة قبل الحذف النهائي",
+    actorId: user.id,
+  });
   await db.delete(budgetExpenses).where(eq(budgetExpenses.id, expenseId));
-  await audit({ actorId: user.id, action: "budget.expense_deleted", entityType: "budget_expense", entityId: expenseId, summary: `حذف مصروف ${row.amount ?? ""}`.trim() });
+  await audit({
+    actorId: user.id,
+    action: "budget.expense_deleted",
+    entityType: "budget_expense",
+    entityId: expenseId,
+    summary: `حذف مصروف ${row.amount ?? ""}`.trim(),
+    detail: { before: { status: "مصروف", mapped: expenseAuditView(row) } },
+  });
   revalidatePath("/budget");
   return { success: "حُذف المصروف" };
 }

@@ -4,9 +4,14 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { perfModels, perfIndicators } from "@/db/schema";
 import { PageHeader, Card, Badge, Table } from "@/components/ui";
-import { IndicatorForm, DeleteIndicatorButton, ApproveModelButton, ReopenModelForm } from "../models-ui";
+import {
+  IndicatorForm, DeleteIndicatorButton, ApproveModelButton, ReopenModelForm,
+  ArchiveModelForm, RestoreModelButton, DeleteModelButton,
+} from "../models-ui";
 import { orFallback } from "@/lib/format";
+import { dualNumericCell } from "@/lib/dates";
 import { isAwaitingFaresIndicator, AWAITING_FARES_LABEL } from "@/lib/performance/d014";
+import { modelLinkedRecords, modelInUse } from "@/lib/performance/model-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -15,11 +20,14 @@ export default async function ModelPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const [model] = await db.select().from(perfModels).where(eq(perfModels.id, id));
   if (!model) notFound();
-  const indicators = await db
-    .select()
-    .from(perfIndicators)
-    .where(eq(perfIndicators.modelId, id))
-    .orderBy(asc(perfIndicators.sortOrder));
+  const [indicators, linked] = await Promise.all([
+    db
+      .select()
+      .from(perfIndicators)
+      .where(eq(perfIndicators.modelId, id))
+      .orderBy(asc(perfIndicators.sortOrder)),
+    modelLinkedRecords(id),
+  ]);
   const total = indicators.reduce((s, i) => s + Number(i.weight), 0);
   const isDraft = model.status !== "معتمد";
   const awaiting = (nameAr: string, weight: number | string) =>
@@ -31,8 +39,25 @@ export default async function ModelPage({ params }: { params: Promise<{ id: stri
       <PageHeader
         title={orFallback(model.nameAr)}
         subtitle={`${model.audience} — ${model.official ? "نموذج رسمي (لا تعدل أسماء المؤشرات أو الأوزان بعد النقل)" : "نموذج داخلي"}`}
-        actions={<Badge value={model.status} />}
+        actions={
+          <span className="flex items-center gap-2">
+            {model.archivedAt && <Badge value="مؤرشف" />}
+            <Badge value={model.status} />
+          </span>
+        }
       />
+      {model.archivedAt && (
+        <Card className="border-amber-200 bg-amber-50">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-amber-900">
+              النموذج مؤرشف منذ {dualNumericCell(model.archivedAt)}
+              {model.archivedReason ? ` — السبب: ${model.archivedReason}` : ""}. لا يظهر في اختيار
+              الدورات الجديدة، وتقاريره التاريخية تعرض من اللقطة المجمدة في كل دورة.
+            </p>
+            <RestoreModelButton modelId={id} />
+          </div>
+        </Card>
+      )}
       {hasAwaiting && (
         <Card className="border-amber-300 bg-amber-50">
           <p className="text-sm text-amber-900">
@@ -81,6 +106,31 @@ export default async function ModelPage({ params }: { params: Promise<{ id: stri
             <ApproveModelButton modelId={id} disabled={total !== 100 || indicators.length === 0} total={total} />
           ) : (
             <ReopenModelForm modelId={id} />
+          )}
+        </div>
+      </Card>
+
+      {/* إدارة النموذج (v2.4 §6): أرشفة/استعادة دائماً؛ الحذف النهائي لغير المستخدم فقط */}
+      <Card className="border-sand-200">
+        <h2 className="mb-2 font-bold text-brand-900">إدارة النموذج</h2>
+        <p className="mb-3 text-sm text-gray-600">
+          السجلات المرتبطة: {linked.employees} موظف، {linked.cycles} دورة تقييم، {linked.sessions} جلسة،{" "}
+          {linked.ratings} تقدير، {linked.evidenceLinks} شاهد، {linked.documents} تقرير مُصدَر.
+        </p>
+        {modelInUse(linked) ? (
+          <p className="mb-3 rounded bg-sand-50 p-2 text-xs text-gray-600">
+            النموذج مرتبط بتقييمات — الحذف النهائي غير متاح حفاظاً على السجل التاريخي؛ الأرشفة تخفيه من
+            الاستخدام الجديد دون المساس بأي بيانات.
+          </p>
+        ) : (
+          <p className="mb-3 rounded bg-sand-50 p-2 text-xs text-gray-600">
+            النموذج غير مرتبط بأي تقييم — يمكن أرشفته أو حذفه نهائياً مع مؤشراته.
+          </p>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {!model.archivedAt ? <ArchiveModelForm modelId={id} modelName={orFallback(model.nameAr)} /> : <RestoreModelButton modelId={id} />}
+          {!modelInUse(linked) && !model.official && (
+            <DeleteModelButton modelId={id} modelName={orFallback(model.nameAr)} />
           )}
         </div>
       </Card>

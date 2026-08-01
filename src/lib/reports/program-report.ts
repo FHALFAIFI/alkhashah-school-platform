@@ -44,7 +44,8 @@ export async function generateProgramReport(opts: {
     .select()
     .from(programFollowups)
     .where(eq(programFollowups.programId, opts.programId))
-    .orderBy(desc(programFollowups.createdAt))
+    // الترتيب بمفتاح الأسبوع لا بوقت الإنشاء — تعديل سجل أسبوع قديم لا يقدمه على الأحدث (v2.4)
+    .orderBy(desc(programFollowups.weekKey))
     .limit(12);
   const spent = expenses.reduce((s, e) => s + num(e.amount), 0);
   // «الميزانية المعتمدة» من programs.budget (اختيارية، null-safe)؛ «المتبقي» محايد («—») بلا مخصص.

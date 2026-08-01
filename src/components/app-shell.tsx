@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { OfflineBanner } from "./offline-banner";
 import { BackNav } from "./back-nav";
@@ -10,8 +10,13 @@ import { FeedbackDock } from "./feedback/feedback-dock";
 
 type NavItem = { href: string; label: string; permission?: string; icon: string };
 
-const NAV: { section: string; items: NavItem[] }[] = [
+// مفاتيح تذكّر حالة الشريط الجانبي في المتصفح — التذكّر تحسين تدريجي فقط
+const SIDEBAR_SCROLL_KEY = "madrasa-sidebar-scroll-v1";
+const navSectionKey = (id: string) => `madrasa-nav-section-${id}-v1`;
+
+const NAV: { id: string; section: string; items: NavItem[] }[] = [
   {
+    id: "general",
     section: "عام",
     items: [
       { href: "/dashboard", label: "مركز عمل مدير المدرسة", icon: "◧" },
@@ -21,6 +26,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    id: "plan",
     section: "الخطة التشغيلية",
     items: [
       { href: "/plan", label: "البرامج والمبادرات", permission: "plan.read", icon: "▤" },
@@ -32,6 +38,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    id: "performance",
     section: "الأداء الوظيفي",
     items: [
       { href: "/performance", label: "دورات الأداء", permission: "performance.read", icon: "◉" },
@@ -39,6 +46,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    id: "committees",
     section: "اللجان والمجالس",
     items: [
       { href: "/committees", label: "اللجان والفرق", permission: "committees.read", icon: "◫" },
@@ -46,6 +54,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    id: "building",
     section: "المبنى المدرسي",
     items: [
       { href: "/building", label: "مخطط المبنى", permission: "building.read", icon: "⌂" },
@@ -56,6 +65,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    id: "people",
     section: "الأشخاص والتقارير",
     items: [
       { href: "/people", label: "سجل المعلمين والموظفين", permission: "people.read", icon: "☺" },
@@ -65,6 +75,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    id: "admin",
     section: "الإدارة",
     items: [
       { href: "/imports", label: "الاستيراد", permission: "imports.read", icon: "⇪" },
@@ -94,6 +105,8 @@ export function AppShell({
   const [open, setOpen] = useState(false);
   const [lastPath, setLastPath] = useState(pathname);
   const permSet = new Set(permissions);
+  const asideRef = useRef<HTMLElement | null>(null);
+  const scrollFrame = useRef(0);
 
   // إغلاق القائمة عند التنقل بين الصفحات (تعديل حالة أثناء التصيير — النمط الموصى به)
   if (lastPath !== pathname) {
@@ -116,6 +129,43 @@ export function AppShell({
     };
   }, [open]);
 
+  // استرجاع حالة الشريط الجانبي بعد الترطيب — تعديل DOM عبر ref لا setState (استقرار الترطيب D-029):
+  // إغلاق الأقسام التي طواها المستخدم (ما عدا قسم الصفحة الحالية)، ثم استرجاع موضع التمرير،
+  // ثم أدنى تمرير لازم لإظهار العنصر النشط إن كان خارج النطاق المرئي.
+  useEffect(() => {
+    const aside = asideRef.current;
+    if (!aside) return;
+    try {
+      for (const details of aside.querySelectorAll<HTMLDetailsElement>("details[data-nav-section]")) {
+        if (
+          window.localStorage.getItem(navSectionKey(details.dataset.navSection ?? "")) === "closed" &&
+          !details.querySelector('[aria-current="page"]')
+        ) {
+          details.open = false;
+        }
+      }
+      const saved = Number(window.sessionStorage.getItem(SIDEBAR_SCROLL_KEY));
+      if (Number.isFinite(saved) && saved > 0) aside.scrollTop = saved;
+    } catch {
+      // التذكّر تحسين فقط
+    }
+    const active = aside.querySelector('[aria-current="page"]');
+    if (active) {
+      const a = active.getBoundingClientRect();
+      const b = aside.getBoundingClientRect();
+      if (a.top < b.top || a.bottom > b.bottom) active.scrollIntoView({ block: "nearest" });
+    }
+    // مرة واحدة عند التحميل فقط — التنقل داخل التطبيق يحافظ على الموضع لأن الغلاف لا يعاد تركيبه
+  }, []);
+
+  // عند التنقل: إبقاء قسم الصفحة الحالية مفتوحاً حتى لا يختفي العنصر النشط داخل قسم مطوي
+  useEffect(() => {
+    const details = asideRef.current
+      ?.querySelector('[aria-current="page"]')
+      ?.closest("details");
+    if (details && !details.open) details.open = true;
+  }, [pathname]);
+
   const nav = NAV.map((s) => ({
     ...s,
     items: s.items.filter((i) => !i.permission || permSet.has(i.permission)),
@@ -134,16 +184,28 @@ export function AppShell({
 
       {/* الشريط الجانبي — يلتصق بالحافة اليمنى في الاتجاه العربي وينزلق خارج الشاشة عند الإغلاق */}
       <aside
+        ref={asideRef}
         role="navigation"
         aria-label="القائمة الرئيسية"
-        className={`no-print fixed inset-y-0 start-0 z-50 flex w-[min(86vw,360px)] transform flex-col overflow-y-auto overscroll-contain bg-brand-900 text-white transition-transform duration-200 lg:static lg:z-auto lg:w-64 lg:translate-x-0 ${
+        className={`no-print fixed inset-y-0 start-0 z-50 flex w-[min(86vw,360px)] transform flex-col overflow-y-auto overscroll-contain bg-brand-900 text-white transition-transform duration-200 lg:sticky lg:top-0 lg:h-dvh lg:z-auto lg:w-64 lg:translate-x-0 ${
           open ? "translate-x-0" : "translate-x-full lg:translate-x-0"
         }`}
         style={{
           paddingTop: "env(safe-area-inset-top)",
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
-        aria-hidden={!open ? undefined : undefined}
+        onScroll={(e) => {
+          // حفظ موضع التمرير للاسترجاع بعد إعادة التحميل — مخنوق بإطار رسم واحد
+          const top = e.currentTarget.scrollTop;
+          cancelAnimationFrame(scrollFrame.current);
+          scrollFrame.current = requestAnimationFrame(() => {
+            try {
+              window.sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(top));
+            } catch {
+              // التذكّر تحسين فقط
+            }
+          });
+        }}
       >
         <div className="border-b border-brand-800 p-4">
           <div className="flex items-start justify-between gap-2">
@@ -165,8 +227,25 @@ export function AppShell({
         </div>
         <nav className="flex-1 p-3">
           {nav.map((section) => (
-            <div key={section.section} className="mb-4">
-              <div className="mb-1 px-2 text-xs font-medium text-brand-300">{section.section}</div>
+            // أقسام قابلة للطي بعنصر <details> أصلي (يعمل بلوحة المفاتيح وبلا JavaScript)،
+            // مفتوحة افتراضياً حتى لا يختفي أي رابط؛ طيّ المستخدم يُتذكّر لكل قسم
+            <details
+              key={section.id}
+              data-nav-section={section.id}
+              open
+              className="group/nav mb-4"
+              onToggle={(e) => {
+                try {
+                  window.localStorage.setItem(navSectionKey(section.id), e.currentTarget.open ? "open" : "closed");
+                } catch {
+                  // التذكّر تحسين فقط
+                }
+              }}
+            >
+              <summary className="mb-1 flex min-h-11 cursor-pointer select-none items-center gap-1 rounded-lg px-2 text-xs font-medium text-brand-300 hover:bg-brand-800 lg:min-h-0 lg:py-1">
+                <span aria-hidden className="text-[10px] transition group-open/nav:rotate-90">◂</span>
+                {section.section}
+              </summary>
               {section.items.map((item) => {
                 const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
                 return (
@@ -174,7 +253,8 @@ export function AppShell({
                     key={item.href}
                     href={item.href}
                     onClick={() => setOpen(false)}
-                    className={`mb-0.5 flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 text-sm transition lg:min-h-0 lg:py-1.5 ${
+                    aria-current={active ? "page" : undefined}
+                    className={`mb-0.5 flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 text-sm transition focus-visible:outline-2 focus-visible:outline-white lg:min-h-0 lg:py-1.5 ${
                       active ? "bg-brand-600 font-medium text-white" : "text-brand-100 hover:bg-brand-800"
                     }`}
                   >
@@ -186,7 +266,7 @@ export function AppShell({
                   </Link>
                 );
               })}
-            </div>
+            </details>
           ))}
         </nav>
       </aside>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { perfCycles, perfModels, people } from "@/db/schema";
@@ -23,7 +23,8 @@ export default async function PerformancePage() {
   const excluded = await getExcludedIdSets();
   const [cycles, models, persons, faresBatchId, missingSigned] = await Promise.all([
     db.select().from(perfCycles).where(notSynthetic(perfCycles.id, excluded.perfCycles)).orderBy(desc(perfCycles.createdAt)),
-    db.select().from(perfModels).where(eq(perfModels.status, "معتمد")),
+    // النماذج المؤرشفة تختفي من اختيار الدورات الجديدة (v2.4) — التاريخية تبقى عبر اللقطة المجمدة
+    db.select().from(perfModels).where(and(eq(perfModels.status, "معتمد"), isNull(perfModels.archivedAt))),
     db.select().from(people).where(and(eq(people.active, true), notSynthetic(people.id, excluded.people))).orderBy(asc(people.fullName)),
     faresPreviewBatchId(),
     canSeeIndividual ? missingSignedReports() : Promise.resolve([]),

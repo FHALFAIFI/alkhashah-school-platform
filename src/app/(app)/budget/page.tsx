@@ -6,6 +6,7 @@ import { planYears } from "@/db/schema";
 import { formatMoney, orDash, orFallback } from "@/lib/format";
 import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
 import { getSchoolFinance } from "@/lib/finance/service";
+import { NEAR_EXHAUSTION_PERCENT } from "@/lib/finance/calc";
 import { evidenceForEntity } from "@/lib/evidence";
 import { EvidencePanel } from "@/components/evidence-panel";
 import {
@@ -166,6 +167,20 @@ export default async function BudgetPage({
             value={String(summary.overAllocationCount)}
             tone={summary.overAllocationCount > 0 ? "bad" : "good"}
             href="/reports?category=finance&report=over-budget"
+          />
+          {/* v2.4 §4: مؤشرا الاقتراب من الاستنفاد والعمليات بلا مبلغ كانا يُحسبان دون عرض */}
+          <Stat
+            label="بنود قاربت الاستنفاد"
+            value={String(summary.nearExhaustionCount)}
+            tone={summary.nearExhaustionCount > 0 ? "warn" : "good"}
+            hint={`بلغت ${NEAR_EXHAUSTION_PERCENT}٪ من مخصصها دون تجاوزه`}
+            href="/reports?category=finance&report=item-allocations"
+          />
+          <Stat
+            label="عمليات بلا مبلغ مُدخل"
+            value={String(summary.missingAmountCount)}
+            tone={summary.missingAmountCount > 0 ? "warn" : "good"}
+            hint="نقص ظاهر لا يختفي خلف صفر"
           />
           <Stat
             label="الإيراد المتوقع"

@@ -35,6 +35,13 @@ export const perfModels = pgTable("perf_models", {
   approvedBy: uuid("approved_by").references(() => users.id),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * v2.4: أرشفة النموذج (الافتراضي للنماذج المستخدمة) — النموذج المؤرشف يختفي من اختيار
+   * الدورات الجديدة وتبقى دوراته وتقاريره التاريخية سليمة (اللقطة المجمدة في perf_cycles).
+   */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  archivedBy: uuid("archived_by").references(() => users.id),
+  archivedReason: text("archived_reason"),
 });
 
 export const perfIndicators = pgTable(

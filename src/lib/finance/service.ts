@@ -206,6 +206,8 @@ export async function getItemFinanceDetail(
   const ledger = ledgerWithRunningBalance(
     income.map((r) => toIncomeRecord(r, r.hasInvoice)),
     expenses.map((r) => toExpenseRecord(r, r.hasInvoice)),
+    // v2.4 §4: تمرير مخصص البند يفعّل عمودي «المتبقي قبل/بعد» لكل مصروف في الدفتر
+    { allocated: line.allocated },
   );
 
   const userIds = [

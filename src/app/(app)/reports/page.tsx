@@ -78,6 +78,10 @@ function statusOptionsFor(reportKey: string): string[] {
     case "perf-evaluations":
     case "perf-incomplete":
       return ["مسودة", "مكتملة", "مقفلة"];
+    case "plan-followups":
+      return ["في المسار", "متأخر", "متوقف مؤقتاً", "مكتمل", "لم يتم التحديث هذا الأسبوع"];
+    case "plan-followup-log":
+      return ["في المسار", "متأخر", "متوقف مؤقتاً", "مكتمل"];
     case "improvement-plans":
       return ["مقترحة", "معتمدة", "منفذة"];
     default:

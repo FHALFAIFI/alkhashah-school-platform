@@ -6,6 +6,7 @@ import { perfModels, perfIndicators } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton } from "@/components/ui";
 import { NewModelForm } from "./models-ui";
 import { orFallback } from "@/lib/format";
+import { dualNumericCell } from "@/lib/dates";
 
 export const metadata = { title: "نماذج الأداء" };
 export const dynamic = "force-dynamic";
@@ -13,6 +14,8 @@ export const dynamic = "force-dynamic";
 export default async function ModelsPage() {
   await requirePermission("performance.models.manage");
   const models = await db.select().from(perfModels).orderBy(asc(perfModels.createdAt));
+  const activeModels = models.filter((m) => !m.archivedAt);
+  const archivedModels = models.filter((m) => m.archivedAt);
   const indicators = await db.select().from(perfIndicators);
   const countByModel = new Map<string, { count: number; total: number }>();
   for (const i of indicators) {
@@ -45,9 +48,9 @@ export default async function ModelsPage() {
         </Card>
       )}
 
-      {models.length > 0 && (
+      {activeModels.length > 0 && (
         <Table headers={["النموذج", "الفئة", "النوع", "المؤشرات", "مجموع الأوزان", "الحالة", ""]}>
-          {models.map((m) => {
+          {activeModels.map((m) => {
             const c = countByModel.get(m.id) ?? { count: 0, total: 0 };
             return (
               <tr key={m.id}>
@@ -64,6 +67,30 @@ export default async function ModelsPage() {
             );
           })}
         </Table>
+      )}
+
+      {/* مرشح الأرشيف (v2.4 §6): النماذج المؤرشفة تبقى قابلة للبحث والاستعادة */}
+      {archivedModels.length > 0 && (
+        <details className="rounded-xl border border-sand-200 bg-sand-50/50">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-700">
+            النماذج المؤرشفة ({archivedModels.length})
+          </summary>
+          <div className="px-4 pb-4">
+            <Table headers={["النموذج", "الفئة", "تاريخ الأرشفة", "السبب", ""]}>
+              {archivedModels.map((m) => (
+                <tr key={m.id}>
+                  <td className="px-3 py-2 font-medium">
+                    <Link href={`/performance/models/${m.id}`} className="text-brand-700 hover:underline">{orFallback(m.nameAr)}</Link>
+                  </td>
+                  <td className="px-3 py-2"><Badge value={m.audience} /></td>
+                  <td className="px-3 py-2 text-xs tabular-nums">{m.archivedAt ? dualNumericCell(m.archivedAt) : "—"}</td>
+                  <td className="px-3 py-2 text-xs text-gray-500">{m.archivedReason ?? "—"}</td>
+                  <td className="px-3 py-2"><LinkButton href={`/performance/models/${m.id}`} variant="secondary">فتح</LinkButton></td>
+                </tr>
+              ))}
+            </Table>
+          </div>
+        </details>
       )}
 
       <Card>

@@ -33,11 +33,29 @@ export function amountOrNull(value: string | number | null | undefined): number 
   return Number.isFinite(n) ? n : null;
 }
 
-/** مجموع null-safe: القيم الفارغة تُتجاهل ولا تُحوَّل إلى صفر */
+/*
+ * v2.4 §4: حساب عشري آمن — المبالغ بالريال تُحوَّل داخلياً إلى هللات صحيحة قبل أي جمع أو
+ * طرح، فلا تتسرب أخطاء الفاصلة العائمة (0.1 + 0.2 ≠ 0.3) إلى أي رصيد معروض أو مطبوع.
+ * الواجهة الخارجية للدوال تبقى بالريال كما هي.
+ */
+/** ريال → هللات صحيحة (تقريب نصفي) */
+export function toMinor(amount: number): number {
+  return Math.round(amount * 100);
+}
+/** هللات → ريال */
+export function fromMinor(minor: number): number {
+  return minor / 100;
+}
+/** فرق دقيق بين مبلغين بالريال */
+export function moneySubtract(a: number, b: number): number {
+  return fromMinor(toMinor(a) - toMinor(b));
+}
+
+/** مجموع null-safe بدقة الهللة: القيم الفارغة تُتجاهل ولا تُحوَّل إلى صفر */
 function sum(values: (number | null)[]): number {
-  let total = 0;
-  for (const v of values) if (v !== null) total += v;
-  return total;
+  let totalMinor = 0;
+  for (const v of values) if (v !== null) totalMinor += toMinor(v);
+  return fromMinor(totalMinor);
 }
 
 /** حالات الإيراد المعتمدة */
@@ -157,7 +175,7 @@ export function financialItemLines(
       const itemIncome = sum(incomeByItem.get(item.id) ?? []);
       const itemExpenses = sum(expensesByItem.get(item.id) ?? []);
       const hasAllocation = item.allocated !== null;
-      const remaining = hasAllocation ? (item.allocated as number) - itemExpenses : null;
+      const remaining = hasAllocation ? moneySubtract(item.allocated as number, itemExpenses) : null;
       const spentPercent =
         hasAllocation && (item.allocated as number) > 0
           ? Math.round((itemExpenses / (item.allocated as number)) * 100)
@@ -240,7 +258,7 @@ export function summarizeSchoolFinance(
     totalIncome,
     totalExpectedIncome: sum(expectedIncome.map((r) => r.amount)),
     totalExpenses,
-    cashBalance: totalIncome - totalExpenses,
+    cashBalance: moneySubtract(totalIncome, totalExpenses),
     totalAllocated,
     totalRemaining,
     operationCount: operations.length,
@@ -268,7 +286,9 @@ export function overrunWarning(opts: {
 }): { willOverrun: boolean; overrunBy: number; remainingAfter: number | null } {
   // بلا مخصص مُدخل لا يوجد تجاوز يُقاس
   if (opts.allocated === null) return { willOverrun: false, overrunBy: 0, remainingAfter: null };
-  const remainingAfter = opts.allocated - opts.spentSoFar - (opts.newAmount ?? 0);
+  const remainingAfter = fromMinor(
+    toMinor(opts.allocated) - toMinor(opts.spentSoFar) - toMinor(opts.newAmount ?? 0),
+  );
   return {
     willOverrun: remainingAfter < 0,
     overrunBy: remainingAfter < 0 ? Math.abs(remainingAfter) : 0,
@@ -287,31 +307,67 @@ export type LedgerLine = {
   amount: number | null;
   /** الرصيد الجاري بعد هذه العملية: الإيراد المستلم يضيف والمصروف يخصم */
   runningBalance: number;
+  /**
+   * v2.4 §4: المتبقي من مخصص البند قبل هذه العملية وبعدها — للمصروفات فقط
+   * (الإيراد لا يغير المتبقي من المخصص). `null` حين لا مخصص للبند أو للإيراد.
+   */
+  remainingBefore: number | null;
+  remainingAfter: number | null;
 };
+
+/** مقارنة حتمية للعمليات: التاريخ ثم وقت الإدخال ثم المعرف — لا يتأرجح ترتيب اليوم الواحد */
+function compareOperations(a: { r: FinanceRecord }, b: { r: FinanceRecord }): number {
+  const byDate = operationSortKey(a.r).localeCompare(operationSortKey(b.r));
+  if (byDate !== 0) return byDate;
+  const aT = a.r.createdAt?.getTime() ?? 0;
+  const bT = b.r.createdAt?.getTime() ?? 0;
+  if (aT !== bT) return aT - bT;
+  return a.r.id.localeCompare(b.r.id);
+}
 
 /**
  * دفتر عمليات مُدمج بترتيب زمني تصاعدي مع رصيد جارٍ.
  * الإيراد المحتسب في الرصيد هو «مستلم» فقط — «متوقع» يظهر في الدفتر دون أثر على
  * الرصيد (تمييزاً لا إخفاءً)، و«ملغى» لا يظهر. المؤرشف خارج الدفتر.
+ * عند تمرير مخصص البند يُحسب لكل مصروف المتبقي من المخصص قبل العملية وبعدها.
  */
-export function ledgerWithRunningBalance(income: FinanceRecord[], expenses: FinanceRecord[]): LedgerLine[] {
+export function ledgerWithRunningBalance(
+  income: FinanceRecord[],
+  expenses: FinanceRecord[],
+  opts?: { allocated?: number | null },
+): LedgerLine[] {
+  const allocated = opts?.allocated ?? null;
   const rows: { r: FinanceRecord; kind: "إيراد" | "مصروف" }[] = [
     ...income.filter((r) => isActive(r) && r.status !== INCOME_CANCELLED).map((r) => ({ r, kind: "إيراد" as const })),
     ...expenses.filter(isActive).map((r) => ({ r, kind: "مصروف" as const })),
   ];
-  rows.sort((a, b) => operationSortKey(a.r).localeCompare(operationSortKey(b.r)));
-  let balance = 0;
+  rows.sort(compareOperations);
+  let balanceMinor = 0;
+  let spentMinor = 0;
   return rows.map(({ r, kind }) => {
+    let remainingBefore: number | null = null;
+    let remainingAfter: number | null = null;
+    if (kind === "مصروف" && allocated !== null) {
+      remainingBefore = fromMinor(toMinor(allocated) - spentMinor);
+    }
     if (r.amount !== null) {
-      if (kind === "إيراد" && isReceived(r)) balance += r.amount;
-      if (kind === "مصروف") balance -= r.amount;
+      if (kind === "إيراد" && isReceived(r)) balanceMinor += toMinor(r.amount);
+      if (kind === "مصروف") {
+        balanceMinor -= toMinor(r.amount);
+        spentMinor += toMinor(r.amount);
+      }
+    }
+    if (kind === "مصروف" && allocated !== null) {
+      remainingAfter = fromMinor(toMinor(allocated) - spentMinor);
     }
     return {
       id: r.id,
       kind,
       date: operationSortKey(r) || null,
       amount: r.amount,
-      runningBalance: balance,
+      runningBalance: fromMinor(balanceMinor),
+      remainingBefore,
+      remainingAfter,
     };
   });
 }
@@ -356,17 +412,17 @@ export function recentOperations(
 
 /** مجموع شهري لرسم الاتجاه — المفتاح «YYYY-MM»، والعمليات بلا تاريخ تُستثنى بوضوح */
 export function monthlyTotals(records: FinanceRecord[]): { month: string; total: number; count: number }[] {
-  const byMonth = new Map<string, { total: number; count: number }>();
+  const byMonth = new Map<string, { totalMinor: number; count: number }>();
   for (const r of records) {
     if (!isActive(r) || !r.date) continue;
     const month = r.date.slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) continue; // تاريخ مشوّه لا يُفسَّر ولا يُسقط الحساب
-    const cur = byMonth.get(month) ?? { total: 0, count: 0 };
-    if (r.amount !== null) cur.total += r.amount;
+    const cur = byMonth.get(month) ?? { totalMinor: 0, count: 0 };
+    if (r.amount !== null) cur.totalMinor += toMinor(r.amount);
     cur.count += 1;
     byMonth.set(month, cur);
   }
   return [...byMonth.entries()]
-    .map(([month, v]) => ({ month, ...v }))
+    .map(([month, v]) => ({ month, total: fromMinor(v.totalMinor), count: v.count }))
     .sort((a, b) => a.month.localeCompare(b.month));
 }

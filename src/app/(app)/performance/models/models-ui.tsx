@@ -3,6 +3,7 @@
 import { useActionState, useState, useTransition } from "react";
 import {
   createModelAction, addIndicatorAction, deleteIndicatorAction, approveModelAction, reopenModelAction,
+  archiveModelAction, restoreModelAction, deleteModelAction,
   type ActionState,
 } from "../actions";
 import { Field, SubmitButton } from "@/components/ui";
@@ -83,6 +84,79 @@ export function ApproveModelButton({ modelId, disabled, total }: { modelId: stri
         اعتماد النموذج
       </button>
       {disabled && <p className="mt-1 text-xs text-amber-600">مجموع الأوزان {total}٪ — يجب 100٪ تماماً</p>}
+    </div>
+  );
+}
+
+/** أرشفة النموذج — المسار الافتراضي للنموذج المستخدم؛ لا تمس التقييمات التاريخية (v2.4 §6) */
+export function ArchiveModelForm({ modelId, modelName }: { modelId: string; modelName: string }) {
+  const [state, formAction] = useActionState<ActionState, FormData>(archiveModelAction.bind(null, modelId), null);
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="w-full rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <input
+        name="reason"
+        placeholder="سبب الأرشفة (اختياري)"
+        className="min-w-52 flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+      />
+      <SubmitButton
+        variant="secondary"
+        confirmText={`هل تريد أرشفة نموذج «${modelName}»؟ يختفي النموذج من اختيار الدورات الجديدة وتبقى كل تقييماته وتقاريره التاريخية سليمة، ويمكن استعادته لاحقاً.`}
+      >
+        أرشفة النموذج
+      </SubmitButton>
+    </form>
+  );
+}
+
+export function RestoreModelButton({ modelId }: { modelId: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  return (
+    <div className="flex items-center gap-2">
+      {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
+      <button
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            const res = await restoreModelAction(modelId);
+            if (res?.error) setError(res.error);
+          })
+        }
+        className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800 hover:bg-brand-50 disabled:opacity-50"
+      >
+        استعادة النموذج
+      </button>
+    </div>
+  );
+}
+
+/** حذف نهائي — متاح فقط للنموذج غير المرتبط بأي تقييم؛ التأكيد صريح ولا تراجع بعده */
+export function DeleteModelButton({ modelId, modelName }: { modelId: string; modelName: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  return (
+    <div className="text-end">
+      {error && <div role="alert" className="mb-1 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
+      <button
+        disabled={pending}
+        onClick={() => {
+          if (
+            !window.confirm(
+              `هل تريد حذف نموذج الأداء الوظيفي «${modelName}» نهائياً؟\nلا يرتبط بالنموذج أي تقييم، وسيحذف مع مؤشراته، ولا يمكن التراجع عن العملية.`,
+            )
+          )
+            return;
+          startTransition(async () => {
+            const res = await deleteModelAction(modelId);
+            if (res?.error) setError(res.error);
+          });
+        }}
+        className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+      >
+        حذف النموذج
+      </button>
     </div>
   );
 }

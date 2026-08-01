@@ -24,6 +24,8 @@ import type { CurrentUser } from "@/lib/auth/session";
 import { todayIso } from "@/lib/dates";
 import { getExcludedIdSets, notSynthetic, type SyntheticIdSets } from "@/lib/synthetic";
 import { orFallback } from "@/lib/format";
+import { hijriTextToIso } from "@/lib/dashboard-metrics";
+import { programsEvidenceSummary } from "@/lib/plan/program-service";
 
 /**
  * قوائم عمل المدير — تجميع كل ما يحتاج إجراء عبر الوحدات في مكان واحد.
@@ -170,9 +172,131 @@ async function importItems(user: CurrentUser): Promise<{ review: WorkItem[]; app
   return { review, approve };
 }
 
+/**
+ * v2.4 §11: طابور «بانتظار اعتماد المدير» على الصفحة الرئيسة — من حالات سير العمل
+ * الحقيقية حصراً (لا أعلام واجهة): المسودات بانتظار الاعتماد، والمكتمل الموثق بانتظار
+ * الإقفال، وطلبات التعديل قيد الاعتماد.
+ */
+export type ApprovalQueueProgram = {
+  id: string;
+  seq: number;
+  name: string | null;
+  domain: string | null;
+  owner: string | null;
+  progress: number;
+  executionStatus: string;
+  evidenceCount: number;
+  /** تاريخ الدخول في هذه الحالة (ISO) */
+  since: string | null;
+  /** متجاوز نهايته الهجرية المخططة */
+  delayed: boolean;
+};
+
+export type PlanApprovalQueue = {
+  /** برامج جديدة (مسودة) بانتظار الاعتماد */
+  drafts: ApprovalQueueProgram[];
+  /** برامج وُثّق اكتمالها بانتظار مراجعة المدير وإقفالها */
+  completed: ApprovalQueueProgram[];
+  /** طلبات تعديل قيد الاعتماد */
+  changeRequests: { id: string; programId: string; seq: number; programName: string | null; fieldLabel: string | null; since: string | null }[];
+};
+
+export async function getPlanApprovalQueue(
+  user: CurrentUser,
+  exOpt?: SyntheticIdSets,
+): Promise<PlanApprovalQueue | null> {
+  if (!user.permissions.has("plan.approve")) return null;
+  const ex = exOpt ?? (await getExcludedIdSets());
+  const today = todayIso();
+
+  const allPrograms = await db
+    .select()
+    .from(programs)
+    .where(and(notSynthetic(programs.id, ex.programs), isNull(programs.archivedAt)))
+    .orderBy(asc(programs.seq));
+  const drafts = allPrograms.filter((p) => p.status === "مسودة");
+  const completed = allPrograms.filter((p) => p.status === "معتمد" && p.completedAt && !p.closedAt);
+
+  const evidence = await programsEvidenceSummary([...drafts, ...completed].map((p) => p.id));
+  const toRow = (p: (typeof allPrograms)[number], since: Date | null): ApprovalQueueProgram => {
+    const endIso = hijriTextToIso(p.hijriEnd);
+    return {
+      id: p.id,
+      seq: p.seq,
+      name: p.name,
+      domain: p.domain,
+      owner: p.ownerPosition,
+      progress: p.progress,
+      executionStatus: p.executionStatus,
+      evidenceCount: evidence.get(p.id)?.count ?? 0,
+      since: since ? since.toISOString().slice(0, 10) : null,
+      delayed: endIso !== null && endIso < today && !p.completedAt,
+    };
+  };
+
+  const crs = await db
+    .select({
+      id: programChangeRequests.id,
+      programId: programChangeRequests.programId,
+      fieldLabel: programChangeRequests.fieldLabel,
+      createdAt: programChangeRequests.createdAt,
+      programName: programs.name,
+      seq: programs.seq,
+    })
+    .from(programChangeRequests)
+    .innerJoin(programs, eq(programChangeRequests.programId, programs.id))
+    .where(
+      and(
+        eq(programChangeRequests.status, "قيد الاعتماد"),
+        notSynthetic(programs.id, ex.programs),
+        isNull(programs.archivedAt),
+        isNull(programs.closedAt),
+      ),
+    )
+    .orderBy(desc(programChangeRequests.createdAt));
+
+  return {
+    drafts: drafts.map((p) => toRow(p, p.createdAt)),
+    completed: completed.map((p) => toRow(p, p.completedAt)),
+    changeRequests: crs.map((cr) => ({
+      id: cr.id,
+      programId: cr.programId,
+      seq: cr.seq,
+      programName: cr.programName,
+      fieldLabel: cr.fieldLabel,
+      since: cr.createdAt ? cr.createdAt.toISOString().slice(0, 10) : null,
+    })),
+  };
+}
+
 async function planItems(user: CurrentUser, ex: SyntheticIdSets): Promise<{ approve: WorkItem[] }> {
   if (!user.permissions.has("plan.read")) return { approve: [] };
   const approve: WorkItem[] = [];
+
+  if (user.permissions.has("plan.approve")) {
+    // v2.4 §11: مسودات البرامج والمكتمل الموثق يدخلان قائمة «بانتظار الاعتماد» أيضاً
+    const queue = await getPlanApprovalQueue(user, ex);
+    for (const p of queue?.drafts ?? []) {
+      approve.push({
+        title: `برنامج جديد: ${p.seq}. ${orFallback(p.name)}`,
+        detail: p.domain ?? undefined,
+        status: "مسودة",
+        href: `/plan/${p.id}`,
+        action: "راجع البرنامج واعتمده",
+        urgent: true,
+      });
+    }
+    for (const p of queue?.completed ?? []) {
+      approve.push({
+        title: `اكتمال موثق: ${p.seq}. ${orFallback(p.name)}`,
+        detail: p.domain ?? undefined,
+        status: "مكتمل",
+        href: `/plan/${p.id}`,
+        action: "راجع الاكتمال وأقفل البرنامج أو أعده للتنفيذ",
+        urgent: true,
+      });
+    }
+  }
 
   if (user.permissions.has("plan.approve")) {
     const crs = await db

@@ -169,6 +169,15 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
                   <span className={`tabular-nums ${(selected.remaining ?? 0) < 0 ? "text-red-600" : "text-emerald-700"}`}>
                     {money(selected.remaining)}
                   </span>
+                  {/* v2.4 §4: المتبقي بعد حفظ هذا المبلغ — يظهر مباشرة أثناء الإدخال */}
+                  {warning.remainingAfter !== null && parsedAmount !== null && (
+                    <>
+                      {" "}— المتبقي بعد الحفظ:{" "}
+                      <span className={`font-medium tabular-nums ${warning.remainingAfter < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                        {money(warning.remainingAfter)}
+                      </span>
+                    </>
+                  )}
                 </>
               ) : (
                 <>لا يوجد مخصص لهذا البند — يمكن تعيينه من «بنود الصرف».</>
@@ -187,7 +196,8 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
             <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3">
               <p className="text-sm text-amber-900">
                 سيؤدي تسجيل هذه العملية إلى تجاوز المبلغ المخصص بمقدار{" "}
-                <span className="font-medium tabular-nums">{money(warning.overrunBy)}</span> ريال.
+                <span className="font-medium tabular-nums">{money(warning.overrunBy)}</span> ريال — يصبح
+                المتبقي <span className="font-medium tabular-nums">{money(warning.remainingAfter)}</span>.
               </p>
               <p className="mt-1 text-xs text-amber-700">التسجيل مسموح — هذا تنبيه فقط ولا يتطلب أي إقرار.</p>
             </div>

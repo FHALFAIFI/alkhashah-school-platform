@@ -86,18 +86,34 @@ export default async function FinancialItemDetailPage({
         <Stat label="قيمة آخر عملية" value={lastOp && lastOp.amount !== null ? formatMoney(lastOp.amount) : "—"} />
       </div>
 
-      {/* الدفتر المُدمج بالرصيد الجاري */}
+      {/* الدفتر المُدمج بالرصيد الجاري + المتبقي من المخصص قبل/بعد كل مصروف (v2.4 §4) */}
       <Card className="mb-4">
         <h2 className="mb-2 text-sm font-bold text-brand-900">دفتر عمليات البند (بالرصيد الجاري)</h2>
         {ledger.length === 0 ? (
           <EmptyState title="لا عمليات على هذا البند بعد" hint="تُسجَّل العمليات من لوحة المالية مع اختيار هذا البند" />
         ) : (
-          <Table headers={["التاريخ", "النوع", "المبلغ", "الرصيد الجاري"]}>
+          <Table
+            headers={
+              line.hasAllocation
+                ? ["التاريخ", "النوع", "المتبقي قبل العملية", "المبلغ", "المتبقي بعد العملية", "الرصيد النقدي الجاري"]
+                : ["التاريخ", "النوع", "المبلغ", "الرصيد النقدي الجاري"]
+            }
+          >
             {ledger.map((l) => (
               <tr key={`${l.kind}-${l.id}`}>
                 <td className="px-3 py-2 text-xs tabular-nums">{l.date ? dualNumericCell(l.date) : "—"}</td>
                 <td className="px-3 py-2"><Badge value={l.kind} /></td>
+                {line.hasAllocation && (
+                  <td className="px-3 py-2 tabular-nums text-gray-500">
+                    {l.remainingBefore === null ? "—" : formatMoney(l.remainingBefore)}
+                  </td>
+                )}
                 <td className="px-3 py-2 tabular-nums">{l.amount === null ? "—" : formatMoney(l.amount)}</td>
+                {line.hasAllocation && (
+                  <td className={`px-3 py-2 tabular-nums ${l.remainingAfter !== null && l.remainingAfter < 0 ? "text-red-700" : ""}`}>
+                    {l.remainingAfter === null ? "—" : formatMoney(l.remainingAfter)}
+                  </td>
+                )}
                 <td className={`px-3 py-2 tabular-nums ${l.runningBalance < 0 ? "text-red-700" : ""}`}>{formatMoney(l.runningBalance)}</td>
               </tr>
             ))}
