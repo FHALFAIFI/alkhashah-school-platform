@@ -2,7 +2,50 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — v2.3.0 DEPLOYED to production (Mac mini) 2026-07-31 — READY FOR PRINCIPAL ACCEPTANCE TESTING
+## Latest checkpoint — v2.4.0 IMPLEMENTED + REHEARSED (2026-08-02) — READY FOR CONTROLLED DEPLOYMENT (awaiting owner authorization)
+
+- **Round-6 post-acceptance corrective release** on branch `scope-v2.4-post-acceptance`
+  (base `b47558c` = deployed v2.3.0). Brief `docs/BRIEF_V2_4_0.md` (source package
+  `fathers-app-review-2026-08-01.zip` verified byte-identical to HEAD before work);
+  change map + root causes `docs/SCOPE_IMPACT_V2_4.md`; decisions **D-041…D-045**;
+  full delivery report **`docs/DELIVERY_V2_4.md`** (verdict: READY). **Production
+  untouched** — still v2.3.0 at ledger 27, containers never restarted.
+- **P0 fixes:** budget remaining everywhere + per-expense «المتبقي قبل/بعد» + halala-exact
+  math (D-043) + snapshot-before-hard-delete; weekly follow-up made truthful (D-042 —
+  week-snapshot page/report, «لم يتم التحديث هذا الأسبوع», createdAt no longer reset, empty
+  progress no longer zeroes); sidebar sticky-scroll + retention + collapsible sections
+  (root cause `lg:static` in min-h-dvh flex — no migration); eval-form archive/delete
+  (D-041, migration **0027**).
+- **P1:** homepage queue «بانتظار اعتماد المدير» (3 real-state tabs, inline audited approve);
+  by-owner/by-domain program reports with NAMES (+ *-summary aggregates); program card
+  access points + enriched report; committee task status (migration **0028**) +
+  «سجل المجالس واللجان التفصيلي» (docType committee_registry, member-per-row) + un-merged
+  registry reports; employee/school detailed performance documents (docTypes
+  employee_performance_report / overall_performance_report) + cycle selector page;
+  inspection→maintenance offer/dedup/bidirectional links + completed «بلاغ صيانة» letter
+  + one-step «اعتماد البلاغ وإصدار التقرير» (D-045).
+- **P2:** page numbers on every PDF; Word identity via getWordHeader in all docx routes +
+  IBM Plex font; /documents labels from central registry. **Security hardening (D-044):**
+  performance PDFs now require `performance.individual.read` to download and are hidden
+  from /documents without it (closed a pre-existing session-report gap).
+- **Gates:** typecheck 0 · lint 0 · **vitest 738** · build ✓ · **Playwright 76/1skip/0fail**
+  (e2e drift fixed spec-side for renamed report button, regrouping follow-up rows, exact
+  «اعتماد البلاغ»; two real UI gaps found by e2e fixed app-side: silent delete success →
+  redirect, duplicated restore button). `/pilot` rewritten to **21 v2.4 tasks** (draft key v3).
+- **Clone rehearsal PASS (2026-08-02):** read-only prod dump (ledger 27/86 tables,
+  anchors D-022 `4572c570…` + issued-docs `f34e3f0f…` matched) → migrations applied twice:
+  **only diff ledger 27→29**, all 30 counts + 7 fingerprints byte-identical, new columns
+  100% NULL, idempotent. **RC image `madrasa-app:0.1.0-v2_4-rc` = `2f69c724c625…`**:
+  migrate-only init 29/86 on fresh DB, AI absent, Chromium **-1228** (PDF probe
+  `PDF-OK %PDF-`), sharp/postcss overrides, boots on the migrated clone (health ok/db-up,
+  login 200, gate 307). Clone + disposable DBs dropped, dump deleted.
+- **Rollback:** additive-nullable migrations — v2.3 image runs unchanged on ledger 29;
+  app-only retag, **no DB action** (procedure in DELIVERY_V2_4 §9).
+- **STOPPED:** deployment, release tag, gold backup, host-PC migration all await explicit
+  owner authorization + principal acceptance (encrypted pre-deploy backup + restore
+  verification happens at deploy time inside the prod network, as v2.2/v2.3).
+
+## Earlier checkpoint — v2.3.0 DEPLOYED to production (Mac mini) 2026-07-31 — READY FOR PRINCIPAL ACCEPTANCE TESTING
 
 - **DEPLOYED under explicit owner authorization.** Full record: `docs/DEPLOYMENT_V2_3.md` §7.
   Running image **`madrasa-app:0.1.0` = `0.1.0-v2_3-rc2` = `sha256:7f5ff14a54f0…`** (digest

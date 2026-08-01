@@ -314,7 +314,8 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.selectOption(`#fu-status-${state.programId}`, "في المسار");
     const fuCard = page.locator("div.rounded-xl", { hasText: plan.prog1 });
     await fuCard.getByRole("button", { name: "تسجيل المتابعة" }).click();
-    await expect(page.getByText("سجلت المتابعة الأسبوعية")).toBeVisible({ timeout: 20_000 });
+    // v2.4: بعد التسجيل ينتقل البرنامج لمجموعته الصادقة («في المسار») ويظهر سجل الأسبوع نفسه
+    await expect(page.getByText(fuNote)).toBeVisible({ timeout: 20_000 });
 
     // سجل المتابعة يظهر على صفحة البرنامج
     await page.locator(`a[href="/plan/${state.programId}"]`).first().click();
@@ -712,7 +713,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.waitForURL(/\/building\/maintenance\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 
     // مسودة ← معتمد (زر مباشر بلا نموذج)
-    await page.getByRole("button", { name: "اعتماد البلاغ" }).click();
+    await page.getByRole("button", { name: "اعتماد البلاغ", exact: true }).click();
     await expect(page.getByText("انتقل البلاغ إلى «معتمد»")).toBeVisible({ timeout: 20_000 });
 
     // معتمد ← تم الإرسال — نموذج بجهة مستلمة إلزامية (التاريخ يفترض اليوم إن تُرك)
@@ -736,7 +737,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.getByRole("button", { name: "إغلاق البلاغ" }).click();
     await expect(page.locator("span.rounded-full", { hasText: "مغلق" }).first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("button", { name: "إغلاق البلاغ" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "اعتماد البلاغ" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "اعتماد البلاغ", exact: true })).toHaveCount(0);
 
     // تقرير المبنى: الإجراءات المجمّعة (طباعة/تنزيل Word/تنزيل Excel/فتح مسودة بريد) دون تمرير أفقي
     await page.goto("/building/report");
@@ -826,7 +827,8 @@ test.describe("سيناريوهات سير العمل — 390×844", () => {
     await page.selectOption(`#fu-status-${state.programId}`, "في المسار");
     const card = page.locator("div.rounded-xl", { hasText: state.programName! });
     await card.getByRole("button", { name: "تسجيل المتابعة" }).click();
-    await expect(page.getByText("سجلت المتابعة الأسبوعية")).toBeVisible({ timeout: 20_000 });
+    // v2.4: يظهر سجل الأسبوع المحفوظ (البطاقة تنتقل لمجموعتها الصادقة)
+    await expect(page.getByText(note)).toBeVisible({ timeout: 20_000 });
     await expectNoOverflow(page, "/plan/followup بعد التسجيل");
   });
 

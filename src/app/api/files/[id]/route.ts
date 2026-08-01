@@ -34,6 +34,26 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   const { file, data } = result;
 
+  // v2.4 §16 (D-013): ملف PDF لوثيقة أداء فردية لا يُنزَّل إلا بصلاحية الأداء الفردي —
+  // كان تقرير الجلسة الموقع متاحاً لكل حامل files.download رغم حساسيته
+  if (file.mime === "application/pdf") {
+    const { db } = await import("@/db");
+    const { documents } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const { PERFORMANCE_SENSITIVE_DOC_TYPES } = await import("@/lib/templates/schema");
+    const [doc] = await db
+      .select({ docType: documents.docType })
+      .from(documents)
+      .where(eq(documents.pdfFileId, file.id));
+    if (
+      doc &&
+      (PERFORMANCE_SENSITIVE_DOC_TYPES as readonly string[]).includes(doc.docType) &&
+      !user.permissions.has("performance.individual.read")
+    ) {
+      return NextResponse.json({ error: "وثيقة أداء فردية — تتطلب صلاحية الاطلاع على الأداء الفردي" }, { status: 403 });
+    }
+  }
+
   // الملفات الحساسة (التوقيع/الختم) تتطلب صلاحية إضافية وتدقق
   if (file.sensitive) {
     if (!user.permissions.has("branding.use") && !user.permissions.has("admin.settings")) {

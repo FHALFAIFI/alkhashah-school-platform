@@ -164,6 +164,26 @@ describe("§11.5.B — التفويض على حدود الخادم (وحدات �
     }
   });
 
+  it("v2.4: إجراءات نماذج الأداء الجديدة تُرفض بلا performance.models.manage", async () => {
+    permissions = new Set(["performance.read"]);
+    const { archiveModelAction, restoreModelAction, deleteModelAction } = await import("@/app/(app)/performance/actions");
+    await expect(archiveModelAction(crypto.randomUUID(), null, fd({}))).rejects.toThrow();
+    await expect(restoreModelAction(crypto.randomUUID())).rejects.toThrow();
+    await expect(deleteModelAction(crypto.randomUUID())).rejects.toThrow();
+  });
+
+  it("v2.4: حالة مهام اللجان تُرفض بلا committees.write", async () => {
+    permissions = new Set(["committees.read"]);
+    const { setCommitteeTaskStatusAction } = await import("@/app/(app)/committees/task-actions");
+    await expect(setCommitteeTaskStatusAction(crypto.randomUUID(), "منجزة")).rejects.toThrow();
+  });
+
+  it("v2.4: التحويل الجماعي لملاحظات الفحص يُرفض بلا maintenance.write", async () => {
+    permissions = new Set(["inspections.write"]);
+    const { createIssuesFromInspectionAction } = await import("@/app/(app)/building/actions");
+    await expect(createIssuesFromInspectionAction(null, fd({ inspectionId: crypto.randomUUID() }))).rejects.toThrow();
+  });
+
   it("الأداء الفردي مقيَّد بصلاحيته الخاصة (D-013)", async () => {
     const route = await import("@/app/api/export/perf-session-docx/[id]/route");
     expect(typeof route.GET).toBe("function");

@@ -86,7 +86,7 @@ test("الدورة الكاملة: إنشاء ← اكتمال ← إقفال (�
   // الشواهد تبقى معروضة للاطلاع والسجل كامل
   await expect(page.getByRole("heading", { name: "شواهد البرنامج" })).toBeVisible();
   // تقرير البرنامج ما يزال متاحاً (عرض/طباعة/تصدير)
-  await expect(page.getByRole("link", { name: "تقرير البرنامج" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "طباعة بطاقة البرنامج والتقرير" })).toBeVisible();
 
   // 4) القوائم: يختفي من الجدول التشغيلي ويظهر في «البرامج المغلقة» ومرشّح «مغلق»
   await page.goto("/plan");

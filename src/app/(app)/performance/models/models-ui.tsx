@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   createModelAction, addIndicatorAction, deleteIndicatorAction, approveModelAction, reopenModelAction,
   archiveModelAction, restoreModelAction, deleteModelAction,
@@ -136,6 +137,7 @@ export function RestoreModelButton({ modelId }: { modelId: string }) {
 export function DeleteModelButton({ modelId, modelName }: { modelId: string; modelName: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
   return (
     <div className="text-end">
       {error && <div role="alert" className="mb-1 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
@@ -151,6 +153,8 @@ export function DeleteModelButton({ modelId, modelName }: { modelId: string; mod
           startTransition(async () => {
             const res = await deleteModelAction(modelId);
             if (res?.error) setError(res.error);
+            // بعد الحذف صفحة النموذج لم تعد موجودة — العودة لقائمة النماذج (لا نجاح صامت)
+            else router.push("/performance/models");
           });
         }}
         className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"

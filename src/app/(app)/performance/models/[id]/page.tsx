@@ -128,7 +128,12 @@ export default async function ModelPage({ params }: { params: Promise<{ id: stri
           </p>
         )}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {!model.archivedAt ? <ArchiveModelForm modelId={id} modelName={orFallback(model.nameAr)} /> : <RestoreModelButton modelId={id} />}
+          {/* زر الاستعادة في لافتة الأرشفة أعلى الصفحة — لا يُكرر هنا */}
+          {!model.archivedAt ? (
+            <ArchiveModelForm modelId={id} modelName={orFallback(model.nameAr)} />
+          ) : (
+            <p className="text-xs text-gray-500">النموذج مؤرشف — الاستعادة من اللافتة أعلى الصفحة.</p>
+          )}
           {!modelInUse(linked) && !model.official && (
             <DeleteModelButton modelId={id} modelName={orFallback(model.nameAr)} />
           )}

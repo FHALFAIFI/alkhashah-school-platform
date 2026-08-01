@@ -6,7 +6,7 @@ import { PageHeader, Table, EmptyState } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { EmailDocumentButton } from "@/components/integrations-ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
-import { DOC_TYPE_LABELS, type TemplateDocType } from "@/lib/templates/schema";
+import { DOC_TYPE_LABELS, PERFORMANCE_SENSITIVE_DOC_TYPES, type TemplateDocType } from "@/lib/templates/schema";
 
 export const metadata = { title: "الوثائق الصادرة" };
 export const dynamic = "force-dynamic";
@@ -23,9 +23,15 @@ function docTypeLabel(docType: string): string {
 }
 
 export default async function DocumentsPage() {
-  await requirePermission("documents.read");
+  const user = await requirePermission("documents.read");
   const excluded = await getExcludedIdSets();
-  const docs = await db.select().from(documents).where(notSynthetic(documents.id, excluded.documents)).orderBy(desc(documents.issuedAt));
+  const allDocs = await db.select().from(documents).where(notSynthetic(documents.id, excluded.documents)).orderBy(desc(documents.issuedAt));
+  // v2.4 §16 (D-013): وثائق الأداء الفردية (عناوينها تحمل أسماء وبياناتها حساسة) تُخفى
+  // عمّن لا يملك صلاحية الأداء الفردي — التنزيل محمي أيضاً في مسار الملفات
+  const canSeePerf = user.permissions.has("performance.individual.read");
+  const docs = canSeePerf
+    ? allDocs
+    : allDocs.filter((d) => !(PERFORMANCE_SENSITIVE_DOC_TYPES as readonly string[]).includes(d.docType));
   return (
     <div>
       <PageHeader title="الوثائق الصادرة" subtitle="لكل وثيقة رقم فريد ورمز تحقق ولقطة ثابتة لا تتغير" actions={<SectionReportsLink category="documents" />}

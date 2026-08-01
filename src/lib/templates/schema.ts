@@ -56,6 +56,17 @@ export const TEMPLATE_DOC_TYPES = [
 ] as const;
 export type TemplateDocType = (typeof TEMPLATE_DOC_TYPES)[number];
 
+/**
+ * v2.4 §16 (D-013): أنواع الوثائق الحاملة لبيانات أداء فردية حساسة — عرضها وتنزيلها
+ * يتطلبان صلاحية الاطلاع على الأداء الفردي إضافة إلى صلاحيات الوثائق/التنزيل العامة.
+ */
+export const PERFORMANCE_SENSITIVE_DOC_TYPES: readonly TemplateDocType[] = [
+  "performance_report",
+  "employee_performance_report",
+  "overall_performance_report",
+  "final_evaluation_report",
+] as const;
+
 /** التسمية العربية لكل نوع — تُعرض في «إدارة القوالب» */
 export const DOC_TYPE_LABELS: Record<TemplateDocType, string> = {
   program_report: "تقرير برنامج (بطاقة التنفيذ)",

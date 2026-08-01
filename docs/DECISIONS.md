@@ -521,3 +521,61 @@ system ships with a neutral placeholder slot; the approved emblem is loaded by t
 unofficial reproduction of government branding is bundled in git. Fonts: PDF keeps the embedded
 IBM Plex Sans Arabic; the two advertised-but-uninstalled template fonts are either installed
 locally or removed from the allowlist; Word switches from "Arial" to the same Arabic-capable font.
+
+## D-041 — Evaluation-form lifecycle: archive by default, hard delete only when unused (2026-08-02)
+
+v2.4 brief §6. `perf_models` gains additive `archived_at/by/reason` (migration 0027). A form
+linked to any cycle is **never hard-deleted** — archive is the only path (cycles carry a frozen
+`modelSnapshot`, so historical reports keep rendering). Unused forms (zero cycles) hard-delete
+after explicit confirmation with a pre-delete `record_versions` snapshot; the cycles→models FK
+(no action) makes the check race-safe at the DB. Official ministry forms are additionally
+excluded from hard delete (their keys feed D-014 readiness checks) — archive only. Neither
+archive nor delete may hide the **last active approved form of an audience** (would silently
+re-open the D-014 mismatch path). Archived forms disappear from new-cycle selection and the
+D-014 matching query, stay searchable under an archive filter, and are restorable. The brief's
+optional privileged cascade-delete of used forms (§6-D) is deliberately NOT implemented: it is
+absent from the §24 acceptance criteria and production holds real evaluation data.
+
+## D-042 — Weekly follow-up reports the week's snapshot, never current mutable state (2026-08-02)
+
+v2.4 brief §7. Root cause of "all programs complete": the page rendered live
+`programs.execution_status` (which `completeProgramAction` sets to «مكتمل»), the form
+pre-selected that sticky value, and edited old weeks outranked the current week because the
+upsert reset `created_at`. Fixes keep the domain vocabulary untouched: the page/report render
+the **selected ISO week's `program_followups` snapshot** (falling back to the explicit label
+«لم يتم التحديث هذا الأسبوع» — absence of an update is never displayed as completion); rows
+group by a truthful axis separation (weekly execution vs documented completion vs principal
+closure); `created_at` is no longer rewritten on week-row edits and ordering keys on
+`week_key`; an empty progress field means "keep" (the zod coerce turned "" into 0). Historical
+week snapshots are immutable from the page (only the current week is writable).
+
+## D-043 — Monetary arithmetic in integer halalas inside finance/calc (2026-08-02)
+
+v2.4 brief §4. All sums, remainders, and running balances inside `src/lib/finance/calc.ts`
+convert to integer minor units (`toMinor`/`fromMinor`) before adding/subtracting, eliminating
+IEEE-754 drift (0.1+0.2). The external API stays in SAR numbers, `numeric` columns unchanged
+— no migration. The item ledger gains allocation-based `remainingBefore/After` per expense
+(income does not consume allocation) plus a deterministic date→createdAt→id ordering.
+
+## D-044 — D-013 extends to issued performance documents (2026-08-02)
+
+v2.4 brief §16. Issued PDFs of performance doc types (`performance_report`,
+`employee_performance_report`, `overall_performance_report`, `final_evaluation_report`) were
+downloadable with `files.download` alone and listed with names in /documents — a pre-existing
+gap that the two new v2.4 reports would have widened. Now `/api/files/[id]` refuses these PDFs
+without `performance.individual.read`, and /documents hides those rows for users lacking it
+(sysadmin keeps documents.read but not individual performance data). The set is defined once
+(`PERFORMANCE_SENSITIVE_DOC_TYPES` in the template registry).
+
+## D-045 — Inspection→maintenance conversion: offer on save, duplicates blocked until closure (2026-08-02)
+
+v2.4 brief §14. Saving an inspection with failing items immediately offers conversion
+(create-all / review-and-pick / later); bulk conversion skips already-linked findings and
+duplicates. Duplicate rule: a new complaint for the same room+item is blocked while ANY
+non-«مغلق» complaint exists for that item — deliberately stricter than `isOpenIssueStatus`
+(drafts also block, they are complaints-in-waiting); only closure re-opens reporting. The
+official letter now carries the inspection source, safety impact from the finding's severity,
+the reporter, the principal approval, and a fixed «الإجراء المطلوب» decoupled from the
+contractor's `actionTaken` (previously one field served both roles). Committee task execution
+state is a nullable closed list («لم تبدأ/قيد التنفيذ/منجزة», migration 0028) — NULL renders
+«—», never an assumed completion.
