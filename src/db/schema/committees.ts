@@ -87,6 +87,11 @@ export const committeeTaskAssignments = pgTable(
     assignedMemberId: uuid("assigned_member_id").references(() => committeeMembers.id, { onDelete: "set null" }),
     /** ملاحظات عند الحاجة */
     notes: text("notes"),
+    /**
+     * v2.4 §12: حالة تنفيذ المهمة (لم تبدأ | قيد التنفيذ | منجزة) — اختيارية؛
+     * NULL = لم تُحدَّد بعد وتُعرض «—» في السجلات والتقارير، لا «منجزة» مفترضة.
+     */
+    status: text("status"),
     sortOrder: integer("sort_order").notNull().default(0),
     /** مستبعدة من التوزيع الحالي دون حذف — يمكن إعادتها */
     excluded: boolean("excluded").notNull().default(false),

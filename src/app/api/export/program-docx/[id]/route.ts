@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { programs, programDeliverables } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/session";
 import { buildWordReport } from "@/lib/reports/word-export";
+import { getWordHeader } from "@/lib/document-header";
 import { audit } from "@/lib/audit";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
@@ -29,6 +30,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   const now = new Date();
   const buf = await buildWordReport({
+    // v2.4 §15: الهوية الرسمية المركزية بدل السطر الثابت الاحتياطي
+    header: await getWordHeader(),
     title: `تقرير برنامج: ${program.name}`,
     meta: [
       ["تاريخ الإصدار", `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`],

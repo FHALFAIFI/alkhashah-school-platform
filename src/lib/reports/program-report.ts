@@ -191,7 +191,7 @@ export async function generateProgramReport(opts: {
     stampDataUri,
     identity: identityHeader,
   });
-  const pdf = await htmlToPdf(finalHtml);
+  const pdf = await htmlToPdf(finalHtml, { pageNumbers: true });
   const pdfFile = await saveUploadedFile({
     originalName: `${doc.docNumber}.pdf`,
     mime: "application/pdf",

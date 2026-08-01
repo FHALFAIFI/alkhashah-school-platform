@@ -86,7 +86,7 @@ export async function generateBuildingReport(opts: { issuedBy: string }) {
   const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, identity: identityHeader });
   const doc = await issueDocument({ docType: "building_report", title, entityType: "building", htmlSnapshot: preliminaryHtml, withSignature: false, withStamp: false, issuedBy: opts.issuedBy });
   const finalHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, docNumber: doc.docNumber, verificationCode: doc.verificationCode, identity: identityHeader });
-  const pdf = await htmlToPdf(finalHtml);
+  const pdf = await htmlToPdf(finalHtml, { pageNumbers: true });
   const pdfFile = await saveUploadedFile({ originalName: `${doc.docNumber}.pdf`, mime: "application/pdf", data: pdf, scope: "reports", uploadedBy: opts.issuedBy });
   await db.update(documents).set({ htmlSnapshot: finalHtml, pdfFileId: pdfFile.id }).where(eq(documents.id, doc.id));
   return { docId: doc.id, docNumber: doc.docNumber, pdfFileId: pdfFile.id };

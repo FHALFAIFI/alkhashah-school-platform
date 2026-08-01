@@ -6,6 +6,7 @@ import {
   addCommitteeTaskAction,
   updateCommitteeTaskAction,
   assignCommitteeTaskAction,
+  setCommitteeTaskStatusAction,
   toggleCommitteeTaskExcludedAction,
   moveCommitteeTaskAction,
   deleteCommitteeTaskAction,
@@ -13,11 +14,14 @@ import {
 } from "../task-actions";
 import { SubmitButton } from "@/components/ui";
 import { orFallback } from "@/lib/format";
+import { COMMITTEE_TASK_STATUSES } from "@/lib/committees/task-status";
 
 type TaskRow = {
   id: string;
   title: string;
   notes: string | null;
+  /** v2.4 §12: حالة التنفيذ — null = لم تُحدَّد */
+  status: string | null;
   excluded: boolean;
   assignedMemberId: string | null;
   memberName: string | null;
@@ -148,6 +152,19 @@ function TaskItem({
               <option value="">— بلا إسناد —</option>
               {members.map((m) => (
                 <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+              ))}
+            </select>
+            {/* v2.4 §12: حالة تنفيذ المهمة — تظهر في السجل التفصيلي وتقارير اللجان */}
+            <select
+              defaultValue={task.status ?? ""}
+              onChange={(e) => onRun(() => setCommitteeTaskStatusAction(task.id, e.target.value))}
+              disabled={pending}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+              aria-label="حالة تنفيذ المهمة"
+            >
+              <option value="">— بلا حالة —</option>
+              {COMMITTEE_TASK_STATUSES.map((s) => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
             <button type="button" disabled={pending || first} onClick={() => onRun(() => moveCommitteeTaskAction(task.id, "up"))} className="rounded border border-sand-200 px-2 py-1 text-xs disabled:opacity-40" aria-label="أعلى">▲</button>

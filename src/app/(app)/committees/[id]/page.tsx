@@ -53,6 +53,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
       id: t.id,
       title: t.title,
       notes: t.notes,
+      status: t.status,
       excluded: t.excluded,
       assignedMemberId: t.assignedMemberId,
       memberName: mem ? personName.get(mem.personId) ?? null : null,

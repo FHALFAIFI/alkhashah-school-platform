@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { buildWordReport } from "@/lib/reports/word-export";
+import { getWordHeader } from "@/lib/document-header";
 import { collectBuildingReportData } from "@/lib/reports/building-report";
 import { audit } from "@/lib/audit";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
@@ -16,6 +17,8 @@ export async function GET() {
   const { flrs, rms, asts, insp, maint, floorName, roomName } = await collectBuildingReportData();
   const now = new Date();
   const buf = await buildWordReport({
+    // v2.4 §15: الهوية الرسمية المركزية بدل السطر الثابت الاحتياطي
+    header: await getWordHeader(),
     title: "تقرير المبنى المدرسي (مجمع البنين)",
     meta: [
       ["تاريخ الإصدار", `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`],

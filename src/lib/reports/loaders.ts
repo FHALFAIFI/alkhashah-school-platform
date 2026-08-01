@@ -624,18 +624,67 @@ async function loadCommitteeRegister(filters: ReportFilters): Promise<ReportRow[
   }));
 }
 
+/**
+ * v2.4 §12: صف مستقل لكل عضو — لا خلايا مدموجة. يضم دور العضو ومهامه المسندة وحالة كل
+ * مهمة وفترة العضوية ونوع اللجنة وحالتها.
+ */
 async function loadCommitteeMembers(filters: ReportFilters): Promise<ReportRow[]> {
   const where: (SQL | undefined)[] = [];
   if (filters.personId) where.push(eq(committeeMembers.personId, filters.personId));
   const rows = await db
-    .select({ committeeName: committees.nameAr, personName: people.fullName, role: committeeMembers.role })
+    .select({
+      memberId: committeeMembers.id,
+      committeeName: committees.nameAr,
+      committeeKind: committees.kind,
+      committeeStatus: committees.status,
+      personName: people.fullName,
+      role: committeeMembers.role,
+      position: committeeMembers.position,
+      effectiveFrom: committeeMembers.effectiveFrom,
+      effectiveTo: committeeMembers.effectiveTo,
+    })
     .from(committeeMembers)
     .innerJoin(committees, eq(committeeMembers.committeeId, committees.id))
     .leftJoin(people, eq(committeeMembers.personId, people.id))
     .where(where.length ? and(...where) : undefined);
-  return rows.filter(
-    (r) => !filters.search || (r.committeeName ?? "").includes(filters.search) || (r.personName ?? "").includes(filters.search),
-  );
+
+  const tasks = await db
+    .select({
+      assignedMemberId: committeeTaskAssignments.assignedMemberId,
+      title: committeeTaskAssignments.title,
+      status: committeeTaskAssignments.status,
+      excluded: committeeTaskAssignments.excluded,
+    })
+    .from(committeeTaskAssignments);
+  const tasksByMember = new Map<string, string[]>();
+  const statusByMember = new Map<string, string[]>();
+  for (const t of tasks) {
+    if (!t.assignedMemberId || t.excluded) continue;
+    const list = tasksByMember.get(t.assignedMemberId) ?? [];
+    list.push(t.title);
+    tasksByMember.set(t.assignedMemberId, list);
+    const statuses = statusByMember.get(t.assignedMemberId) ?? [];
+    statuses.push(t.status ?? "—");
+    statusByMember.set(t.assignedMemberId, statuses);
+  }
+
+  return rows
+    .filter(
+      (r) => !filters.search || (r.committeeName ?? "").includes(filters.search) || (r.personName ?? "").includes(filters.search),
+    )
+    .map((r) => ({
+      committeeName: r.committeeName,
+      kind: r.committeeKind,
+      committeeStatus: r.committeeStatus,
+      personName: r.personName,
+      role: r.role,
+      position: r.position,
+      membership: r.effectiveTo
+        ? `${isoDate(r.effectiveFrom) ?? "—"} ← ${isoDate(r.effectiveTo)}`
+        : "عضوية قائمة",
+      tasks: (tasksByMember.get(r.memberId) ?? []).join("؛ ") || "—",
+      taskStatuses: (statusByMember.get(r.memberId) ?? []).join("؛ ") || "—",
+    }));
 }
 
 async function loadCommitteeTasks(filters: ReportFilters): Promise<ReportRow[]> {
@@ -643,7 +692,10 @@ async function loadCommitteeTasks(filters: ReportFilters): Promise<ReportRow[]> 
     .select({
       committeeName: committees.nameAr,
       personName: people.fullName,
+      role: committeeMembers.role,
       taskText: committeeTaskAssignments.title,
+      status: committeeTaskAssignments.status,
+      notes: committeeTaskAssignments.notes,
       excluded: committeeTaskAssignments.excluded,
     })
     .from(committeeTaskAssignments)
@@ -653,7 +705,14 @@ async function loadCommitteeTasks(filters: ReportFilters): Promise<ReportRow[]> 
   return rows
     .filter((r) => !r.excluded)
     .filter((r) => !filters.search || (r.taskText ?? "").includes(filters.search) || (r.personName ?? "").includes(filters.search))
-    .map((r) => ({ committeeName: r.committeeName, personName: r.personName, taskText: r.taskText }));
+    .map((r) => ({
+      committeeName: r.committeeName,
+      personName: r.personName,
+      role: r.role,
+      taskText: r.taskText,
+      status: r.status ?? "—",
+      notes: r.notes,
+    }));
 }
 
 async function loadCommitteesWithoutMeetings(): Promise<ReportRow[]> {
@@ -837,22 +896,35 @@ async function loadEmployeeMissingData(filters: ReportFilters): Promise<ReportRo
     .filter((r) => r.missing.length > 0);
 }
 
+/** v2.4 §12: صف مستقل لكل عضوية (موظف × لجنة × دور) — لا دمج للجان في خلية واحدة */
 async function loadEmployeeCommittees(filters: ReportFilters): Promise<ReportRow[]> {
   const rows = await db
-    .select({ personId: committeeMembers.personId, fullName: people.fullName, committeeName: committees.nameAr })
+    .select({
+      personId: committeeMembers.personId,
+      fullName: people.fullName,
+      committeeName: committees.nameAr,
+      kind: committees.kind,
+      role: committeeMembers.role,
+      effectiveTo: committeeMembers.effectiveTo,
+    })
     .from(committeeMembers)
     .innerJoin(committees, eq(committeeMembers.committeeId, committees.id))
     .leftJoin(people, eq(committeeMembers.personId, people.id));
-  const byPerson = new Map<string, { fullName: string | null; names: string[] }>();
+  const countByPerson = new Map<string, number>();
   for (const r of rows) {
-    if (!r.personId) continue;
-    const cur = byPerson.get(r.personId) ?? { fullName: r.fullName, names: [] };
-    if (r.committeeName) cur.names.push(r.committeeName);
-    byPerson.set(r.personId, cur);
+    if (r.personId && !r.effectiveTo) countByPerson.set(r.personId, (countByPerson.get(r.personId) ?? 0) + 1);
   }
-  return [...byPerson.values()]
-    .filter((v) => !filters.search || (v.fullName ?? "").includes(filters.search))
-    .map((v) => ({ fullName: v.fullName, committeeCount: v.names.length, committees: v.names.join("، ") }));
+  return rows
+    .filter((r) => !filters.search || (r.fullName ?? "").includes(filters.search) || (r.committeeName ?? "").includes(filters.search))
+    .sort((a, b) => (a.fullName ?? "").localeCompare(b.fullName ?? "", "ar"))
+    .map((r) => ({
+      fullName: r.fullName,
+      committeeName: r.committeeName,
+      kind: r.kind,
+      role: r.role,
+      membership: r.effectiveTo ? `انتهت ${isoDate(r.effectiveTo)}` : "قائمة",
+      committeeCount: r.personId ? (countByPerson.get(r.personId) ?? 0) : 0,
+    }));
 }
 
 /* ────────────────────────── المخاطر والتقييم الخارجي ──────────────────────── */

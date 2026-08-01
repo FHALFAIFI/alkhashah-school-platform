@@ -197,6 +197,13 @@
       "when": 1785604620835,
       "tag": "0027_tiny_harpoon",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785606443494,
+      "tag": "0028_blue_kulan_gath",
+      "breakpoints": true
     }
   ]
 }

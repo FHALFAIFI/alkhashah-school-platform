@@ -9,6 +9,8 @@ import { committeeStatusLabel } from "@/lib/plan/status-labels";
 import { committedEmployeeCount, faresPreviewBatchId } from "@/lib/committees/prerequisites";
 import { FormCommitteeButton, NewPlcForm } from "./committees-ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
+import { SubmitButton } from "@/components/ui";
+import { revalidatePath } from "next/cache";
 
 export const metadata = { title: "اللجان والفرق" };
 export const dynamic = "force-dynamic";
@@ -43,6 +45,17 @@ export default async function CommitteesPage() {
 
   const formedTemplateIds = new Set(all.filter((c) => c.status !== "مقفلة").map((c) => c.templateId));
   const unformed = templates.filter((t) => !formedTemplateIds.has(t.id) && t.active);
+  const canGenerate = user.permissions.has("reports.generate");
+
+  // v2.4 §12: إصدار «سجل المجالس واللجان التفصيلي» — قسم مستقل لكل لجنة بأعضائها صفاً صفاً
+  async function issueRegistry() {
+    "use server";
+    const u = await requirePermission("reports.generate", "committees.read");
+    const { generateCommitteeRegistry } = await import("@/lib/reports/committee-report");
+    await generateCommitteeRegistry({ issuedBy: u.id });
+    revalidatePath("/committees");
+    revalidatePath("/documents");
+  }
 
   return (
     <div className="space-y-6">
@@ -52,6 +65,11 @@ export default async function CommitteesPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             <SectionReportsLink category="committees" />
+            {canGenerate && all.length > 0 && (
+              <form action={issueRegistry}>
+                <SubmitButton variant="secondary">إصدار السجل التفصيلي (PDF)</SubmitButton>
+              </form>
+            )}
             <LinkButton href="/committees/templates" variant="secondary">عرض القوالب</LinkButton>
             <LinkButton href="/committees/task-templates" variant="secondary">قوالب المهام</LinkButton>
             <LinkButton href="/committees/meeting-types" variant="secondary">أنواع الاجتماعات</LinkButton>

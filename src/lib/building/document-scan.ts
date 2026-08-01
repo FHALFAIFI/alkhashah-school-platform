@@ -68,7 +68,7 @@ export async function buildScanPdf(pageDataUrls: string[], title: string): Promi
   const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
     <style>@page{size:A4;margin:6mm} html,body{margin:0;padding:0} img{display:block}</style>
     <title>${title}</title></head><body>${pages}</body></html>`;
-  return htmlToPdf(html);
+  return htmlToPdf(html, { pageNumbers: true });
 }
 
 /**

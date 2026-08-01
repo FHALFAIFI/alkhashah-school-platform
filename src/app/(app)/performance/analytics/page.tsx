@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
-import { PageHeader, Card, Badge, Table, EmptyState, ProgressBar } from "@/components/ui";
+import { PageHeader, Card, Badge, Table, EmptyState, ProgressBar, SubmitButton } from "@/components/ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
 import {
   loadOverallAnalytics,
@@ -16,16 +17,36 @@ export const dynamic = "force-dynamic";
  * ولا تُعرض رؤية بعينة أقل من الحد الأدنى المعلن.
  */
 export default async function PerformanceAnalyticsPage() {
-  await requirePermission("performance.read", "performance.individual.read");
+  const user = await requirePermission("performance.read", "performance.individual.read");
   const { analytics, threshold } = await loadOverallAnalytics();
   const a = analytics;
+  const canGenerate = user.permissions.has("reports.generate");
+
+  // v2.4 §13: «تقرير الأداء الوظيفي التفصيلي للمدرسة» — وثيقة رسمية مرقمة بملحق أسماء
+  async function issueOverallReport() {
+    "use server";
+    const u = await requirePermission("reports.generate", "performance.individual.read");
+    const { generateOverallPerformanceReport } = await import("@/lib/reports/performance-reports");
+    await generateOverallPerformanceReport({ issuedBy: u.id });
+    revalidatePath("/performance/analytics");
+    revalidatePath("/documents");
+  }
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="لوحة الأداء العام"
         subtitle={`رؤى حسابية شفافة — عتبة الضعف ${threshold}٪ (قابلة للضبط من الإعدادات)، وأدنى عينة للرؤية ${MIN_INSIGHT_SAMPLE} تقييمات`}
-        actions={<SectionReportsLink category="performance" />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <SectionReportsLink category="performance" />
+            {canGenerate && (
+              <form action={issueOverallReport}>
+                <SubmitButton variant="secondary">إصدار تقرير المدرسة التفصيلي (PDF)</SubmitButton>
+              </form>
+            )}
+          </div>
+        }
       />
 
       {/* حالات التقييم */}

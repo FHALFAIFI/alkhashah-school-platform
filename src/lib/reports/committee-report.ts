@@ -1,7 +1,20 @@
 import "server-only";
 import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { committees, committeeMembers, meetings, meetingOutcomes, actionTasks, people, planYears, meetingTypes, meetingAttachments } from "@/db/schema";
+import {
+  committees,
+  committeeMembers,
+  committeeTaskAssignments,
+  committeeImpacts,
+  meetings,
+  meetingOutcomes,
+  actionTasks,
+  people,
+  planYears,
+  meetingTypes,
+  meetingAttachments,
+  documents as documentsTable,
+} from "@/db/schema";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
 import { getOfficialHeader } from "@/lib/document-header";
 import { issueDocument } from "@/lib/documents";
@@ -9,23 +22,42 @@ import { saveUploadedFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
 import { orFallback, orDash } from "@/lib/format";
 import { escapeHtml as esc } from "@/lib/html-escape";
+import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 
 /**
- * تقرير اللجنة الرسمي: التشكيل والأعضاء (تسجيل عضوية فقط — لا حضور ولا غياب ولا نصاب)
- * والاجتماعات ونتائجها (قرارات/توصيات/ملاحظات) والإجراءات المرتبطة. يوقعه الرئيس والمقرر.
+ * تقرير اللجنة الرسمي («بطاقة لجنة / مجلس»): التشكيل والأعضاء (تسجيل عضوية فقط — لا حضور
+ * ولا غياب ولا نصاب) وتوزيع المهام بحالتها (v2.4 §12) والاجتماعات ونتائجها
+ * (قرارات/توصيات/ملاحظات) والإجراءات المرتبطة والنتائج والأثر التاريخية إن وُجدت.
+ * يوقعه الرئيس والمقرر.
  */
-export async function generateCommitteeReport(opts: { committeeId: string; issuedBy: string }) {
-  const [c] = await db.select().from(committees).where(eq(committees.id, opts.committeeId));
+
+/** بناء جسم تقرير لجنة واحدة — يعاد استعماله في تقرير اللجنة المفرد وفي السجل التفصيلي */
+async function buildCommitteeBody(committeeId: string): Promise<{ c: typeof committees.$inferSelect; body: string }> {
+  const [c] = await db.select().from(committees).where(eq(committees.id, committeeId));
   if (!c) throw new Error("اللجنة غير موجودة");
-  const [members, ms, [year]] = await Promise.all([
+  const [members, ms, [year], taskRows, impactRows] = await Promise.all([
     db
-      .select({ role: committeeMembers.role, position: committeeMembers.position, sortOrder: committeeMembers.sortOrder, name: people.fullName })
+      .select({
+        id: committeeMembers.id,
+        role: committeeMembers.role,
+        position: committeeMembers.position,
+        sortOrder: committeeMembers.sortOrder,
+        effectiveTo: committeeMembers.effectiveTo,
+        name: people.fullName,
+      })
       .from(committeeMembers)
       .innerJoin(people, eq(committeeMembers.personId, people.id))
-      .where(eq(committeeMembers.committeeId, opts.committeeId))
+      .where(eq(committeeMembers.committeeId, committeeId))
       .orderBy(asc(committeeMembers.sortOrder)),
-    db.select().from(meetings).where(eq(meetings.committeeId, opts.committeeId)).orderBy(asc(meetings.seq)),
+    db.select().from(meetings).where(eq(meetings.committeeId, committeeId)).orderBy(asc(meetings.seq)),
     db.select().from(planYears).where(eq(planYears.id, c.planYearId)),
+    db
+      .select()
+      .from(committeeTaskAssignments)
+      .where(eq(committeeTaskAssignments.committeeId, committeeId))
+      .orderBy(asc(committeeTaskAssignments.sortOrder)),
+    // النتائج والأثر: جدول تاريخي (أُزيل مساره الكتابي في v2.1 §G3) — يُعرض فقط إن وُجدت صفوف
+    db.select().from(committeeImpacts).where(eq(committeeImpacts.committeeId, committeeId)),
   ]);
   const meetingIds = ms.map((m) => m.id);
   const outcomes = meetingIds.length
@@ -34,6 +66,14 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
   const attachments = meetingIds.length
     ? await db.select().from(meetingAttachments).where(inArray(meetingAttachments.meetingId, meetingIds)).orderBy(asc(meetingAttachments.createdAt))
     : [];
+  const minutesDocIds = ms.map((m) => m.minutesDocId).filter(Boolean) as string[];
+  const minutesDocs = minutesDocIds.length
+    ? await db
+        .select({ id: documentsTable.id, docNumber: documentsTable.docNumber })
+        .from(documentsTable)
+        .where(inArray(documentsTable.id, minutesDocIds))
+    : [];
+  const minutesNumberById = new Map(minutesDocs.map((d) => [d.id, d.docNumber]));
   const allTypes = await db.select().from(meetingTypes);
   const typeName = new Map(allTypes.map((t) => [t.id, t.nameAr]));
   const taskIds = outcomes.map((o) => o.taskId).filter(Boolean) as string[];
@@ -51,28 +91,62 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
     arr.push(a);
     attByMeeting.set(a.meetingId, arr);
   }
-
-  const now = new Date();
-  const issuedAtText = `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`;
+  // v2.4 §12: مهام كل عضو بحالتها — كل عضو صف مستقل، لا خلايا مدموجة
+  const activeTasks = taskRows.filter((t) => !t.excluded);
+  const tasksByMember = new Map<string, { title: string; status: string | null }[]>();
+  for (const t of activeTasks) {
+    if (!t.assignedMemberId) continue;
+    const arr = tasksByMember.get(t.assignedMemberId) ?? [];
+    arr.push({ title: t.title, status: t.status });
+    tasksByMember.set(t.assignedMemberId, arr);
+  }
+  const memberById = new Map(members.map((m) => [m.id, m]));
 
   let body = `
-  <h2>بيانات اللجنة</h2>
+  <h2>البيانات الأساسية</h2>
   <table>
     <tr><th style="width:22%">الاسم</th><td>${esc(orFallback(c.nameAr))}</td></tr>
     <tr><th>النوع</th><td>${esc(c.kind)}</td></tr>
     <tr><th>السنة</th><td>${esc(year?.nameAr ?? "—")}</td></tr>
     <tr><th>الحالة</th><td>${esc(c.status)}</td></tr>
+    <tr><th>تاريخ التشكيل</th><td>${esc(toGregorianNumeric(c.createdAt))}م</td></tr>
+    ${c.approvedAt ? `<tr><th>تاريخ الاعتماد</th><td>${esc(toGregorianNumeric(c.approvedAt))}م</td></tr>` : ""}
+    ${c.closedAt ? `<tr><th>تاريخ الإقفال</th><td>${esc(toGregorianNumeric(c.closedAt))}م</td></tr>` : ""}
     ${c.goal ? `<tr><th>الهدف</th><td>${esc(c.goal)}</td></tr>` : ""}
+    ${Array.isArray(c.duties) && c.duties.length > 0 ? `<tr><th>الاختصاصات</th><td>${(c.duties as string[]).map((d) => esc(d)).join("؛ ")}</td></tr>` : ""}
     ${c.objectives ? `<tr><th>الأهداف</th><td>${esc(c.objectives)}</td></tr>` : ""}
     ${c.outputs ? `<tr><th>المخرجات</th><td>${esc(c.outputs)}</td></tr>` : ""}
   </table>
 
-  <h2>الأعضاء (تسجيل التشكيل — لا حضور ولا غياب)</h2>
+  <h2>الأعضاء والتكليفات (كل عضو في صف مستقل — تسجيل تشكيل لا حضور)</h2>
   <table>
-    <tr><th>م</th><th>الاسم</th><th>الصفة</th><th>العمل في اللجنة</th></tr>
-    ${members.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(orFallback(m.name))}</td><td>${esc(orDash(m.position))}</td><td>${esc(orDash(m.role))}</td></tr>`).join("")}
-  </table>
+    <tr><th>م</th><th>الاسم</th><th>الصفة</th><th>العمل في اللجنة</th><th>المهام المسندة</th><th>حالة المهام</th></tr>
+    ${members
+      .map((m, i) => {
+        const mTasks = tasksByMember.get(m.id) ?? [];
+        const taskText = mTasks.length ? mTasks.map((t) => esc(t.title)).join("؛ ") : "—";
+        const statusText = mTasks.length ? mTasks.map((t) => esc(t.status ?? "—")).join("؛ ") : "—";
+        const nameCell = `${esc(orFallback(m.name))}${m.effectiveTo ? " (عضوية منتهية)" : ""}`;
+        return `<tr><td>${i + 1}</td><td>${nameCell}</td><td>${esc(orDash(m.position))}</td><td>${esc(orDash(m.role))}</td><td>${taskText}</td><td>${statusText}</td></tr>`;
+      })
+      .join("")}
+  </table>`;
 
+  if (activeTasks.length > 0) {
+    body += `
+  <h2>توزيع المهام وتنفيذها (${activeTasks.length})</h2>
+  <table>
+    <tr><th>م</th><th>المهمة</th><th>المكلَّف</th><th>حالة التنفيذ</th><th>ملاحظات</th></tr>
+    ${activeTasks
+      .map((t, i) => {
+        const mem = t.assignedMemberId ? memberById.get(t.assignedMemberId) : undefined;
+        return `<tr><td>${i + 1}</td><td>${esc(t.title)}</td><td>${esc(orDash(mem?.name ?? null))}</td><td>${esc(t.status ?? "—")}</td><td>${esc(orDash(t.notes))}</td></tr>`;
+      })
+      .join("")}
+  </table>`;
+  }
+
+  body += `
   <h2>الاجتماعات ونتائجها (${ms.length})</h2>`;
 
   for (const m of ms) {
@@ -80,9 +154,10 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
     const os = outcomesByMeeting.get(m.id) ?? [];
     const atts = attByMeeting.get(m.id) ?? [];
     const mType = m.typeId ? typeName.get(m.typeId) ?? "" : "";
+    const minutesNo = m.minutesDocId ? minutesNumberById.get(m.minutesDocId) : null;
     body += `
     <div style="page-break-inside:avoid; margin-bottom:12px;">
-      <h3>الاجتماع ${m.seq}: ${esc(orFallback(m.title, `الاجتماع ${m.seq}`))}${mType ? ` — نوع: ${esc(mType)}` : ""} — ${dateText} — ${esc(m.status)}</h3>
+      <h3>الاجتماع ${m.seq}: ${esc(orFallback(m.title, `الاجتماع ${m.seq}`))}${mType ? ` — نوع: ${esc(mType)}` : ""} — ${dateText} — ${esc(m.status)}${minutesNo ? ` — محضر رقم ${esc(minutesNo)}` : ""}${m.signedMinutesFileId ? " — محضر موقع مستلم" : ""}</h3>
       <table>
         <tr><th>النوع</th><th>النص</th><th>الإجراء المرتبط</th></tr>
         ${os
@@ -105,26 +180,55 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
     </div>`;
   }
 
+  if (impactRows.length > 0) {
+    body += `
+  <h2>النتائج والأثر (سجل تاريخي)</h2>
+  <table>
+    <tr><th>النتيجة</th><th>الأثر</th><th>طريقة القياس</th></tr>
+    ${impactRows.map((r) => `<tr><td>${esc(orDash(r.result))}</td><td>${esc(orDash(r.impact))}</td><td>${esc(orDash(r.measurement))}</td></tr>`).join("")}
+  </table>`;
+  }
+
   const chair = members.find((m) => m.role === "رئيس" || m.role === "قائد");
   const secretary = members.find((m) => m.role === "مقرر");
   body += `<p style="margin-top:16px">يُعتمد التقرير بتوقيع ${chair ? `الرئيس (${esc(orFallback(chair.name))})` : "الرئيس"} و${secretary ? `المقرر (${esc(orFallback(secretary.name))})` : "المقرر"} عند الحاجة — التوقيع ليس شرطاً إلزامياً لهذا التقرير.</p>`;
 
-  const title = `تقرير اللجنة: ${orFallback(c.nameAr)}`;
+  return { c, body };
+}
+
+/** إصدار وثيقة نهائية: لقطة أولية → رقم وثيقة → PDF بترقيم صفحات → حفظ */
+async function issueCommitteeDocument(opts: {
+  docType: "committee_report" | "committee_registry";
+  title: string;
+  entityType: string;
+  entityId?: string;
+  body: string;
+  issuedBy: string;
+}) {
+  const now = new Date();
+  const issuedAtText = `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`;
   // الترويسة الرسمية المركزية (v2.3 §8): الهوية والشعارات من الإعدادات
   const identityHeader = await getOfficialHeader();
-  const preliminaryHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, identity: identityHeader });
+  const preliminaryHtml = officialPageHtml({ title: opts.title, bodyHtml: opts.body, issuedAtText, identity: identityHeader });
   const doc = await issueDocument({
-    docType: "committee_report",
-    title,
-    entityType: "committee",
-    entityId: c.id,
+    docType: opts.docType,
+    title: opts.title,
+    entityType: opts.entityType,
+    entityId: opts.entityId,
     htmlSnapshot: preliminaryHtml,
     withSignature: false,
     withStamp: false,
     issuedBy: opts.issuedBy,
   });
-  const finalHtml = officialPageHtml({ title, bodyHtml: body, issuedAtText, docNumber: doc.docNumber, verificationCode: doc.verificationCode, identity: identityHeader });
-  const pdf = await htmlToPdf(finalHtml);
+  const finalHtml = officialPageHtml({
+    title: opts.title,
+    bodyHtml: opts.body,
+    issuedAtText,
+    docNumber: doc.docNumber,
+    verificationCode: doc.verificationCode,
+    identity: identityHeader,
+  });
+  const pdf = await htmlToPdf(finalHtml, { pageNumbers: true });
   const pdfFile = await saveUploadedFile({
     originalName: `${doc.docNumber}.pdf`,
     mime: "application/pdf",
@@ -132,7 +236,51 @@ export async function generateCommitteeReport(opts: { committeeId: string; issue
     scope: "reports",
     uploadedBy: opts.issuedBy,
   });
-  const { documents } = await import("@/db/schema");
-  await db.update(documents).set({ htmlSnapshot: finalHtml, pdfFileId: pdfFile.id }).where(eq(documents.id, doc.id));
+  await db.update(documentsTable).set({ htmlSnapshot: finalHtml, pdfFileId: pdfFile.id }).where(eq(documentsTable.id, doc.id));
   return { docId: doc.id, docNumber: doc.docNumber, pdfFileId: pdfFile.id };
+}
+
+export async function generateCommitteeReport(opts: { committeeId: string; issuedBy: string }) {
+  const { c, body } = await buildCommitteeBody(opts.committeeId);
+  return issueCommitteeDocument({
+    docType: "committee_report",
+    title: `تقرير اللجنة: ${orFallback(c.nameAr)}`,
+    entityType: "committee",
+    entityId: c.id,
+    body,
+    issuedBy: opts.issuedBy,
+  });
+}
+
+/**
+ * v2.4 §12: «سجل المجالس واللجان التفصيلي» — وثيقة واحدة بقسم مستقل لكل لجنة/مجلس
+ * (البيانات الأساسية، الأعضاء والتكليفات صفاً صفاً، توزيع المهام بحالتها، الاجتماعات
+ * والمحاضر، القرارات والتوصيات، النتائج والأثر التاريخية). تحل محل العرض العددي المدموج.
+ */
+export async function generateCommitteeRegistry(opts: { issuedBy: string; planYearId?: string }) {
+  const excluded = await getExcludedIdSets();
+  const all = await db
+    .select({ id: committees.id, nameAr: committees.nameAr, kind: committees.kind, planYearId: committees.planYearId })
+    .from(committees)
+    .where(notSynthetic(committees.id, excluded.committees))
+    .orderBy(asc(committees.createdAt));
+  const scoped = opts.planYearId ? all.filter((c) => c.planYearId === opts.planYearId) : all;
+  if (scoped.length === 0) throw new Error("لا لجان مسجلة لإصدار السجل");
+
+  let body = "";
+  for (const [i, cRow] of scoped.entries()) {
+    const { body: committeeBody } = await buildCommitteeBody(cRow.id);
+    body += `
+    ${i > 0 ? `<div style="page-break-before:always"></div>` : ""}
+    <h2 style="border:none; background:#f2f0eb; padding:6px 10px; border-radius:6px;">${i + 1}. ${esc(cRow.kind)}: ${esc(orFallback(cRow.nameAr))}</h2>
+    ${committeeBody}`;
+  }
+
+  return issueCommitteeDocument({
+    docType: "committee_registry",
+    title: "سجل المجالس واللجان التفصيلي",
+    entityType: "committee_registry",
+    body,
+    issuedBy: opts.issuedBy,
+  });
 }

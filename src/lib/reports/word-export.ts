@@ -89,7 +89,8 @@ export async function buildWordReport(opts: {
   const doc = new Document({
     styles: {
       default: {
-        document: { run: { font: "Arial", size: 22, rightToLeft: true } },
+        // D-040: خط عربي مطابق لخط PDF المضمن — وورد يستبدل تلقائياً إن لم يكن مثبتاً
+        document: { run: { font: "IBM Plex Sans Arabic", size: 22, rightToLeft: true } },
       },
     },
     sections: [{ properties: {}, children }],

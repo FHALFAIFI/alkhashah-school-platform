@@ -22,7 +22,8 @@ describe("سجل الأقسام والأعمدة", () => {
   it("كل نوع وثيقة له تعريف أعمدة (ولو فارغاً)", () => {
     expect(allDocTypesHaveColumnDefinitions()).toBe(true);
     // v2.3 §9: القائمة موسّعة لتغطي كامل نموذج التسليم + توفيق مفردات المولدات
-    expect(TEMPLATE_DOC_TYPES.length).toBe(29);
+    // v2.4 §12: +committee_registry (سجل المجالس واللجان التفصيلي)
+    expect(TEMPLATE_DOC_TYPES.length).toBe(30);
   });
 
   it("الخطاب الرسمي بلا جدول — قائمة أعمدة فارغة لا خيارات وهمية", () => {

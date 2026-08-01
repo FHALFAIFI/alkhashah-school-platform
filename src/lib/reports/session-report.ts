@@ -163,7 +163,7 @@ export async function generateSessionReport(opts: {
     verificationCode: doc.verificationCode,
     identity: identityHeader,
   });
-  const pdf = await htmlToPdf(finalHtml);
+  const pdf = await htmlToPdf(finalHtml, { pageNumbers: true });
   const pdfFile = await saveUploadedFile({
     originalName: `${doc.docNumber}.pdf`,
     mime: "application/pdf",

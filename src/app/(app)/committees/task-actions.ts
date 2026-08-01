@@ -113,6 +113,28 @@ export async function assignCommitteeTaskAction(taskId: string, memberId: string
   return null;
 }
 
+/** v2.4 §12: تحديد حالة تنفيذ المهمة (فارغ = إلغاء التحديد) — تظهر في السجل التفصيلي والتقارير */
+export async function setCommitteeTaskStatusAction(taskId: string, status: string): Promise<ActionState> {
+  const user = await requirePermission("committees.write");
+  const committeeId = await taskCommitteeId(taskId);
+  if (!committeeId) return { error: "المهمة غير موجودة" };
+  const { isCommitteeTaskStatus } = await import("@/lib/committees/task-status");
+  if (status && !isCommitteeTaskStatus(status)) return { error: "حالة المهمة غير صحيحة" };
+  await db
+    .update(committeeTaskAssignments)
+    .set({ status: status || null, updatedAt: new Date() })
+    .where(eq(committeeTaskAssignments.id, taskId));
+  await audit({
+    actorId: user.id,
+    action: "committee.task_status_set",
+    entityType: "committee",
+    entityId: committeeId,
+    summary: status ? `حالة المهمة: ${status}` : "إلغاء تحديد حالة المهمة",
+  });
+  revalidatePath(`/committees/${committeeId}`);
+  return null;
+}
+
 export async function toggleCommitteeTaskExcludedAction(taskId: string, excluded: boolean): Promise<ActionState> {
   const user = await requirePermission("committees.write");
   const committeeId = await taskCommitteeId(taskId);

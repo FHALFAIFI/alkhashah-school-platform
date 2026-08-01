@@ -6,17 +6,21 @@ import { PageHeader, Table, EmptyState } from "@/components/ui";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { EmailDocumentButton } from "@/components/integrations-ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
+import { DOC_TYPE_LABELS, type TemplateDocType } from "@/lib/templates/schema";
 
 export const metadata = { title: "الوثائق الصادرة" };
 export const dynamic = "force-dynamic";
 
-const TYPE_LABELS: Record<string, string> = {
-  program_report: "تقرير برنامج",
-  meeting_minutes: "محضر اجتماع",
-  performance_report: "تقرير أداء",
-  executive_report: "تقرير تنفيذي",
+/**
+ * v2.4 §15: التسميات من سجل أنواع الوثائق المركزي — لا قائمة موازية ناقصة تعرض
+ * مفاتيح إنجليزية خاماً. الأنواع التاريخية غير المسجلة تحتفظ بتسمية محلية.
+ */
+const LEGACY_TYPE_LABELS: Record<string, string> = {
   committee_formation: "قرار تشكيل",
 };
+function docTypeLabel(docType: string): string {
+  return DOC_TYPE_LABELS[docType as TemplateDocType] ?? LEGACY_TYPE_LABELS[docType] ?? docType;
+}
 
 export default async function DocumentsPage() {
   await requirePermission("documents.read");
@@ -33,7 +37,7 @@ export default async function DocumentsPage() {
           {docs.map((d) => (
             <tr key={d.id}>
               <td className="px-3 py-2 font-medium tabular-nums">{d.docNumber}</td>
-              <td className="px-3 py-2 text-xs">{TYPE_LABELS[d.docType] ?? d.docType}</td>
+              <td className="px-3 py-2 text-xs">{docTypeLabel(d.docType)}</td>
               <td className="px-3 py-2">{d.title}</td>
               <td className="px-3 py-2 tabular-nums">{d.verificationCode}</td>
               <td className="px-3 py-2 text-xs tabular-nums">

@@ -26,6 +26,25 @@ async function fileToDataUri(fileId: string | null): Promise<string | null> {
   }
 }
 
+/** v2.4 §15: ترويسة وورد من الهوية المركزية نفسها — تستدعيها كل مسارات تصدير DOCX */
+export async function getWordHeader(): Promise<{
+  orgLines: string[];
+  principalName?: string;
+  principalTitle?: string;
+  academicYear?: string;
+  footerNote?: string;
+}> {
+  const identity = await getDocumentIdentity();
+  const resolved = resolveHeader(identity);
+  return {
+    orgLines: resolved.orgLines,
+    principalName: resolved.principalName || undefined,
+    principalTitle: resolved.principalTitle || undefined,
+    academicYear: resolved.academicYear || undefined,
+    footerNote: resolved.footerNote || undefined,
+  };
+}
+
 export async function getOfficialHeader(opts?: {
   toggles?: Partial<IdentityToggles>;
   overrides?: Partial<DocumentIdentity>;

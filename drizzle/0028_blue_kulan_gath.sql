@@ -1,0 +1,1 @@
+ALTER TABLE "committee_task_assignments" ADD COLUMN "status" text;

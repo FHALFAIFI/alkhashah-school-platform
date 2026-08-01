@@ -152,6 +152,13 @@ export const DOC_COLUMNS: Record<TemplateDocType, readonly ColumnDef[]> = {
     { key: "status", label: "الحالة" },
     { key: "outcomes", label: "القرارات" },
   ],
+  committee_registry: [
+    { key: "committee", label: "اللجنة/المجلس" },
+    { key: "member", label: "العضو" },
+    { key: "role", label: "الدور" },
+    { key: "tasks", label: "المهام المسندة" },
+    { key: "taskStatus", label: "حالة المهام" },
+  ],
   meeting_minutes: [
     { key: "topic", label: "الموضوع" },
     { key: "outcome", label: "القرار أو التوصية" },
