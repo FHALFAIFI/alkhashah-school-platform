@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   loadCommitteeTasksAction,
@@ -57,20 +57,29 @@ export function TaskDistribution({
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const router = useRouter();
+  const wantsRefresh = useRef(false);
 
   function run(fn: () => Promise<ActionState>) {
     start(async () => {
       try {
         const res = await fn();
         setMsg(res?.error ?? res?.success ?? null);
-        // D-049: الصفحة تُحدَّث من العميل بعد استقرار النتيجة — الإجراء لا يُبطل مسارها
-        if (!res?.error) router.refresh();
+        if (!res?.error) wantsRefresh.current = true;
       } catch {
         // لا يبقى الانتقال معلّقاً أبداً: انقطاع الطلب كان يترك كل القوائم معطّلة حتى إعادة التحميل
         setMsg("تعذّر إكمال العملية — أعد المحاولة");
       }
     });
   }
+
+  // D-049: التحديث **بعد** انتهاء الانتقال لا داخله. `router.refresh()` داخل الانتقال يُبقي
+  // `pending` مرفوعاً، فتظل كل قوائم الحالة معطّلة رغم نجاح الحفظ — والمدير أمامه 31 مهمة.
+  useEffect(() => {
+    if (!pending && wantsRefresh.current) {
+      wantsRefresh.current = false;
+      router.refresh();
+    }
+  }, [pending, router]);
 
   return (
     <div className="space-y-3">

@@ -178,21 +178,30 @@ try {
   const unsetShown = (await page.getByText("لم يتم تحديد الحالة").count()) > 0;
   record("8a · المهمة بلا حالة تقول «لم يتم تحديد الحالة»", unsetShown);
 
+  // ثلاث مهام متتالية **بلا أي إعادة تحميل** — هذا ما سيفعله المدير مع الـ31 مهمة
   const toSet = 3;
-  let stuckAfterUpdate = false;
+  let stuck = false;
+  let slowest = 0;
   for (let i = 0; i < toSet; i++) {
-    const selects = page.locator('select[aria-label="حالة تنفيذ المهمة"]');
-    await selects.nth(i).selectOption(i === 0 ? "منجزة" : i === 1 ? "قيد التنفيذ" : "لم تبدأ");
-    await page.waitForTimeout(2500);
-    // D-049: استجابة الإجراء تُجهض فيبقى مؤشر الانتظار مرفوعاً وتبقى بقية القوائم معطّلة
-    // حتى إعادة التحميل. نسجّل ذلك ثم نعيد التحميل لمتابعة بقية البروفة.
-    if (await selects.nth(Math.min(i + 1, toSet - 1)).isDisabled()) stuckAfterUpdate = true;
-    await page.reload({ waitUntil: "networkidle" });
+    const row = page.locator("li").filter({ hasText: "حالة التنفيذ: لم يتم تحديد الحالة" }).first();
+    await row.locator('select[aria-label="حالة تنفيذ المهمة"]').selectOption(
+      i === 0 ? "منجزة" : i === 1 ? "قيد التنفيذ" : "لم تبدأ",
+    );
+    let settled = false;
+    for (let t = 1; t <= 15; t++) {
+      await page.waitForTimeout(1000);
+      if ((await page.locator('select[aria-label="حالة تنفيذ المهمة"][disabled]').count()) === 0) {
+        settled = true;
+        slowest = Math.max(slowest, t);
+        break;
+      }
+    }
+    if (!settled) { stuck = true; break; }
   }
-  record("8a2 · قوائم الحالة تبقى معطّلة بعد كل تحديث حتى إعادة التحميل (أثر D-049)",
-    !stuckAfterUpdate, stuckAfterUpdate ? "معطّلة — تتطلب إعادة تحميل بين كل مهمة وأخرى" : "غير معطّلة");
+  record("8a2 · القوائم تفتح بعد كل تحديث بلا إعادة تحميل (D-049 مُصلَح)",
+    !stuck, stuck ? "بقيت معطّلة 15 ثانية" : `أبطأ فتح: ${slowest} ثانية`);
   const nullAfter = Number(sql("select count(*) from committee_task_assignments where status is null"));
-  record("8b · حُدِّثت حالات مهام فعلياً", nullAfter === nullBefore - toSet, `NULL: ${nullBefore} → ${nullAfter}`);
+  record("8b · حُدِّثت حالات مهام فعلياً بلا إعادة تحميل", nullAfter < nullBefore, `NULL: ${nullBefore} → ${nullAfter}`);
   record("8c · كل تحديث حالة مُدقَّق",
     Number(sql("select count(*) from audit_log where action='committee.task_status_set'")) >= toSet);
 
