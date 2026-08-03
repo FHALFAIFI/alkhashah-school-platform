@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
+import { releaseIdentity } from "@/lib/release";
 
 /**
  * فحص صحة التطبيق (لفحوصات صحة الحاوية والمراقبة). لا يتطلب مصادقة، ولا يكشف أسراراً —
@@ -9,11 +10,19 @@ import { db } from "@/db";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const version = process.env.APP_VERSION ?? process.env.npm_package_version ?? "unknown";
+  // v2.4.1 §8: الرقم من مصدر الإصدار الواحد لا من متغير بيئة قد ينحرف عن الشيفرة المنشورة
+  const { version, commit, environment } = releaseIdentity();
   try {
     await db.execute(sql`select 1`);
-    return NextResponse.json({ status: "ok", db: "up", version, time: new Date().toISOString() });
+    return NextResponse.json({
+      status: "ok",
+      db: "up",
+      version,
+      commit,
+      environment,
+      time: new Date().toISOString(),
+    });
   } catch {
-    return NextResponse.json({ status: "degraded", db: "down", version }, { status: 503 });
+    return NextResponse.json({ status: "degraded", db: "down", version, commit, environment }, { status: 503 });
   }
 }

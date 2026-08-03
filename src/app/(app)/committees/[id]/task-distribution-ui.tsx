@@ -14,7 +14,13 @@ import {
 } from "../task-actions";
 import { SubmitButton } from "@/components/ui";
 import { orFallback } from "@/lib/format";
-import { COMMITTEE_TASK_STATUSES } from "@/lib/committees/task-status";
+import {
+  COMMITTEE_TASK_STATUSES,
+  TASK_STATUS_UNSET_LABEL,
+  COMMITTEE_NO_TASKS_LABEL,
+  ADD_TASK_CTA,
+  taskStatusLabel,
+} from "@/lib/committees/task-status";
 
 type TaskRow = {
   id: string;
@@ -77,7 +83,18 @@ export function TaskDistribution({
       )}
 
       {tasks.length === 0 ? (
-        <p className="text-sm text-gray-400">لا مهام بعد — حمّل المهام المعرّفة مسبقاً لنوع اللجنة أو أضف مهمة يدوياً.</p>
+        /* v2.4.1 §6.3: حالة فارغة موجَّهة بإجراء ظاهر — لا جدول فارغ بلا تفسير */
+        <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/60 p-4 text-center">
+          <p className="text-sm font-medium text-amber-900">{COMMITTEE_NO_TASKS_LABEL}</p>
+          <p className="mt-1 text-xs text-amber-800">
+            المهام تظهر في سجل اللجان التفصيلي وفي تقرير اللجنة — لجنة بلا مهام تظهر فارغة هناك.
+          </p>
+          {canWrite && (
+            <p className="mt-2 text-xs text-amber-900">
+              استعمل «{ADD_TASK_CTA}» أدناه، أو حمّل المهام المعرّفة مسبقاً لنوع اللجنة.
+            </p>
+          )}
+        </div>
       ) : (
         <ol className="space-y-2">
           {tasks.map((t, i) => (
@@ -137,7 +154,14 @@ function TaskItem({
           </span>
           {task.notes && <p className="mt-0.5 text-xs text-gray-500">ملاحظات: {task.notes}</p>}
           <p className="mt-0.5 text-xs text-gray-500">
-            العضو المكلف: {task.memberName ?? "—"}{task.memberRole ? ` (${task.memberRole})` : ""}
+            العضو المكلف: {task.memberName ?? "بلا إسناد"}{task.memberRole ? ` (${task.memberRole})` : ""}
+          </p>
+          {/* v2.4.1 §6.1: الحالة ظاهرة على الصف نفسه — لا تُقرأ من القائمة المنسدلة وحدها */}
+          <p className="mt-0.5 text-xs">
+            <span className="text-gray-500">حالة التنفيذ: </span>
+            <span className={task.status ? "text-gray-800" : "text-amber-700"}>
+              {taskStatusLabel(task.status)}
+            </span>
           </p>
         </div>
         {canWrite && (
@@ -162,7 +186,7 @@ function TaskItem({
               className="rounded border border-gray-300 bg-white px-2 py-1 text-xs"
               aria-label="حالة تنفيذ المهمة"
             >
-              <option value="">— بلا حالة —</option>
+              <option value="">{TASK_STATUS_UNSET_LABEL}</option>
               {COMMITTEE_TASK_STATUSES.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}

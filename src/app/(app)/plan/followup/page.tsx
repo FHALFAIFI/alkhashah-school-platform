@@ -16,6 +16,7 @@ import {
   NO_WEEKLY_UPDATE_LABEL,
   type WeeklyGroup,
 } from "@/lib/plan/followup";
+import { isProgramInconsistent, NEEDS_REVIEW_LABEL } from "@/lib/plan/consistency";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
 import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
@@ -197,6 +198,20 @@ export default async function FollowupPage({
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
                         <span>الحالة الجارية:</span>
                         <Badge value={p.executionStatus} />
+                        {/* v2.4.1 §5.5: سجل مصدر متناقض لا يُقدَّم كاكتمال نظيف */}
+                        {isProgramInconsistent({
+                          executionStatus: p.executionStatus,
+                          progress: p.progress,
+                          completedAt: p.completedAt,
+                          status: p.status,
+                        }) && (
+                          <Link
+                            href="/plan/consistency"
+                            className="rounded-full bg-red-50 px-2 py-0.5 text-red-800 hover:underline"
+                          >
+                            {NEEDS_REVIEW_LABEL}
+                          </Link>
+                        )}
                         <span className="text-gray-400">·</span>
                         <span>التقدم الحالي:</span>
                         <span className="tabular-nums">{p.progress}٪</span>

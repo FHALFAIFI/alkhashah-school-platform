@@ -579,3 +579,49 @@ the reporter, the principal approval, and a fixed «الإجراء المطلو�
 contractor's `actionTaken` (previously one field served both roles). Committee task execution
 state is a nullable closed list («لم تبدأ/قيد التنفيذ/منجزة», migration 0028) — NULL renders
 «—», never an assumed completion.
+
+## D-046 — `financial_items` is the sole source of truth for budget allocation; `plan_budget_items` is plan-year reference (2026-08-03)
+
+v2.4.1 brief §4.6. The production symptom "remaining balance is invisible" traced to
+`financial_items.allocated_amount IS NULL` on both live items, while `plan_budget_items`
+holds 2500/2500 — inviting the assumption that the two registries should be reconciled.
+They must not be. `financial_items` are **permanent, cross-year school payment areas**
+managed centrally (v2.2 §B2); `plan_budget_items` are **plan-year budget lines imported
+verbatim from the official operational plan** and kept for historical reference. The
+architecture already names the authority: `finance/calc.ts` is "مصدر الحقيقة الوحيد" and
+attributes spend by `financialItemId` alone — the legacy text «البند» column is explicitly
+excluded from calculation. Confirmed by call graph: every live surface (`/budget`, item
+detail, dashboard metrics, template records, report loaders) reads `getSchoolFinance`.
+
+Therefore v2.4.1 **does not copy, merge, or infer** allocations across the registries —
+doing so would fabricate a financial figure the principal never entered. Instead the UI
+explains the distinction and offers an explicit, audited allocation action.
+
+**Root cause of the false confidence:** `src/lib/budget/service.ts::getBudgetOverview` — the
+pre-v2.2 computation path that reads `plan_budget_items` and matches spend by the *text*
+column — has **zero application callers** but is still exercised by
+`tests/integration/budget.test.ts` with seeded allocations. It therefore passed green while
+the live path returned `null` remaining in production. The module is retained (its `num`
+helper is still used by `program-report.ts`) but is now non-authoritative by decision, and
+v2.4.1 adds allocation-state tests against the **live** `finance/calc` path
+(`tests/unit/finance-allocation.test.ts`). Retiring the dead path is deferred — it is
+behaviour-neutral cleanup outside a corrective release.
+
+## D-047 — Legacy state contradictions are detected, never auto-corrected (2026-08-03)
+
+v2.4.1 brief §5/§6. Production holds four approved programs marked «مكتمل», three of them
+at `progress = 0` with no `completed_at`, plus 31 committee task assignments with
+`status = NULL`. Both are legacy-data conditions that v2.4's write-path fixes (D-042,
+migration 0028) correctly stopped producing but could not retroactively repair.
+
+The platform **detects and explains; the principal decides**. `lib/plan/consistency.ts`
+implements rules A–E as a pure validator and returns findings with a review prompt — it
+never proposes a value, because "did اليوم الوطني actually finish?" is an operational fact
+the system does not hold. The correction form deliberately ships **no preselected
+«مكتمل»** (an empty "choose the correct status…" option) so a careless save cannot
+reproduce the contradiction, requires a mandatory reason, snapshots the prior row to
+`record_versions`, and never touches approval or closure — those keep their own audited
+actions. Correcting a closed record additionally requires `plan.override`. Bulk correction
+is restricted to two homogeneous operations with preview, count, explicit confirmation and
+a single audit record; there is deliberately **no "fix everything" button**. No migration
+guesses any business value — per §10 the 31 NULL statuses stay NULL until someone sets them.

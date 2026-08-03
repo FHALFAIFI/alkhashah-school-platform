@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
@@ -56,6 +56,161 @@ export async function updateProgramExecutionAction(programId: string, _prev: Act
   revalidatePath("/plan");
   revalidatePath("/plan/followup");
   return { success: "حُدّث تقدم البرنامج وحالته" };
+}
+
+/* ── تصحيح تناقض حالات البرامج (v2.4.1 §5.3/§5.4) ──────────────────────────
+ * سجلات قديمة تحمل «مكتمل» مع تقدم 0٪ وبلا تاريخ اكتمال. النظام **يكشف ولا يخمّن**:
+ * القيم كلها من إدخال المدير الصريح، ولا شيء يُملأ تلقائياً، ولا تُمسّ حالة الاعتماد أو
+ * الإقفال إلا باختيار صريح عبر إجراءاتها الخاصة.
+ */
+
+/** «مكتمل» غير مُنتقاة مسبقاً في الواجهة — والمخطط لا يفترض قيمة افتراضية أصلاً */
+const correctionSchema = z.object({
+  executionStatus: z.enum(FOLLOWUP_STATUSES, { message: "حالة التنفيذ غير صحيحة" }),
+  progress: z.coerce.number().int().min(0, "النسبة بين 0 و100").max(100, "النسبة بين 0 و100"),
+  /** «keep» يبقي التاريخ · «clear» يمسحه · تاريخ ISO يضبطه */
+  completedAt: z.string().trim().optional(),
+  note: z.string().trim().min(1, "اذكر سبب التصحيح — يُحفظ في سجل التدقيق").max(1000),
+});
+
+/**
+ * تصحيح حالة برنامج واحد بقرار صريح من المدير.
+ *
+ * لا يغيّر `status` ولا `approvedAt` ولا `closedAt` إطلاقاً — الاعتماد والإقفال لهما
+ * إجراءاتهما المدقَّقة. تصحيح سجل مغلق نهائياً يتطلب صلاحية التجاوز (`plan.override`)
+ * لأنه مساس بسجل أقفله المدير.
+ */
+export async function correctProgramConsistencyAction(
+  programId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const user = await requirePermission("plan.write");
+  const parsed = correctionSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const d = parsed.data;
+
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+  if ((program.closedAt || program.status === "مقفل") && !user.permissions.has("plan.override")) {
+    return { error: "البرنامج مقفل — تصحيح سجل مقفل يتطلب صلاحية التجاوز" };
+  }
+
+  const before = {
+    executionStatus: program.executionStatus,
+    progress: program.progress,
+    completedAt: program.completedAt?.toISOString() ?? null,
+  };
+
+  // التاريخ: إبقاء / مسح / ضبط صريح — لا اشتقاق تلقائي من الحالة
+  let completedAt = program.completedAt;
+  if (d.completedAt === "clear") completedAt = null;
+  else if (d.completedAt && d.completedAt !== "keep") {
+    const parsedDate = new Date(d.completedAt);
+    if (Number.isNaN(parsedDate.getTime())) return { error: "تاريخ الاكتمال غير صحيح" };
+    completedAt = parsedDate;
+  }
+
+  await snapshotRecord({
+    entityType: "program",
+    entityId: programId,
+    action: "updated",
+    snapshot: program,
+    reason: `تصحيح تناقض حالة: ${d.note}`,
+    actorId: user.id,
+  });
+  await db
+    .update(programs)
+    .set({
+      executionStatus: d.executionStatus,
+      progress: d.progress,
+      completedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(programs.id, programId));
+
+  await audit({
+    actorId: user.id,
+    action: "program.consistency_corrected",
+    entityType: "program",
+    entityId: programId,
+    summary: `تصحيح حالة «${orFallback(program.name)}» — ${before.executionStatus}/${before.progress}٪ ← ${d.executionStatus}/${d.progress}٪`,
+    detail: {
+      before,
+      after: { executionStatus: d.executionStatus, progress: d.progress, completedAt: completedAt?.toISOString() ?? null },
+      note: d.note,
+    },
+  });
+  revalidatePath("/plan/consistency");
+  revalidatePath("/plan/followup");
+  revalidatePath(`/plan/${programId}`);
+  revalidatePath("/plan");
+  return { success: "صُحّحت حالة البرنامج" };
+}
+
+/** العمليات الجماعية المسموحة — متجانسة وآمنة فقط، بلا «أصلح كل شيء» */
+const BULK_OPERATIONS = {
+  resetToNotStarted: "إعادة الحالة إلى «لم يبدأ»",
+  clearCompletionDate: "مسح تاريخ الاكتمال",
+} as const;
+export type BulkOperation = keyof typeof BULK_OPERATIONS;
+
+const bulkSchema = z.object({
+  operation: z.enum(["resetToNotStarted", "clearCompletionDate"], { message: "العملية غير معروفة" }),
+  programIds: z.string().min(1, "اختر برنامجاً واحداً على الأقل"),
+  note: z.string().trim().min(1, "اذكر سبب التصحيح الجماعي").max(1000),
+  confirm: z.string().optional(),
+});
+
+/**
+ * تصحيح جماعي محدود (§5.4) — عمليتان متجانستان فقط، بمعاينة وعدد وتأكيد صريح وسجل تدقيق.
+ * لا يوجد إجراء «أصلح كل التناقضات» بنقرة واحدة بالتصميم.
+ */
+export async function bulkCorrectProgramsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.write");
+  const parsed = bulkSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const d = parsed.data;
+  if (d.confirm !== "1") return { error: "أكّد العملية الجماعية قبل التنفيذ" };
+
+  const ids = d.programIds.split(",").map((s) => s.trim()).filter(Boolean);
+  if (ids.length === 0) return { error: "اختر برنامجاً واحداً على الأقل" };
+
+  const rows = await db.select().from(programs).where(inArray(programs.id, ids));
+  if (rows.length === 0) return { error: "لم يُعثر على البرامج المختارة" };
+
+  const blocked = rows.filter((p) => (p.closedAt || p.status === "مقفل") && !user.permissions.has("plan.override"));
+  if (blocked.length > 0) return { error: `${blocked.length} برنامج مقفل ضمن الاختيار — يتطلب صلاحية التجاوز` };
+
+  let changed = 0;
+  for (const p of rows) {
+    const patch =
+      d.operation === "resetToNotStarted"
+        ? { executionStatus: "لم يبدأ", progress: 0, completedAt: null }
+        : { completedAt: null };
+    await snapshotRecord({
+      entityType: "program",
+      entityId: p.id,
+      action: "updated",
+      snapshot: p,
+      reason: `تصحيح جماعي (${BULK_OPERATIONS[d.operation]}): ${d.note}`,
+      actorId: user.id,
+    });
+    await db.update(programs).set({ ...patch, updatedAt: new Date() }).where(eq(programs.id, p.id));
+    changed += 1;
+  }
+
+  await audit({
+    actorId: user.id,
+    action: "program.consistency_bulk_corrected",
+    entityType: "program",
+    summary: `تصحيح جماعي: ${BULK_OPERATIONS[d.operation]} — ${changed} برنامج`,
+    detail: { operation: d.operation, programIds: ids, count: changed, note: d.note },
+  });
+  revalidatePath("/plan/consistency");
+  revalidatePath("/plan/followup");
+  revalidatePath("/plan");
+  return { success: `صُحِّح ${changed} برنامج` };
 }
 
 /** اعتماد حزمة البرنامج كاملة — المدير يعتمد الحزمة وليس كل مرفق على حدة (v2.3 §3: «اعتماد») */

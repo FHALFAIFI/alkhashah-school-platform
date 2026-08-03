@@ -30,6 +30,8 @@ const NAV: { id: string; section: string; items: NavItem[] }[] = [
     section: "الخطة التشغيلية",
     items: [
       { href: "/plan", label: "البرامج والمبادرات", permission: "plan.read", icon: "▤" },
+      // v2.4.1 §5.2: مراجعة الحالات المتناقضة — مدخل ظاهر لا مسار مخفي
+      { href: "/plan/consistency", label: "مراجعة حالات البرامج", permission: "plan.read", icon: "⚖" },
       { href: "/plan/kpis", label: "مؤشرات الأداء", permission: "plan.read", icon: "◔" },
       { href: "/plan/risks", label: "سجل المخاطر", permission: "plan.read", icon: "⚠" },
       { href: "/plan/swot", label: "التحليل الرباعي", permission: "plan.read", icon: "◫" },
@@ -94,11 +96,14 @@ export function AppShell({
   displayName,
   permissions,
   unreadCount,
+  releaseLabel,
   children,
 }: {
   displayName: string;
   permissions: string[];
   unreadCount: number;
+  /** نص «الإصدار x.y.z» — يُمرَّر من الخادم فلا يُقرأ `process.env` في مكوّن عميل */
+  releaseLabel: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -269,6 +274,10 @@ export function AppShell({
             </details>
           ))}
         </nav>
+        {/* v2.4.1 §8: علامة الإصدار — يقرأها المدير والدعم فوراً بلا كشف أي سر */}
+        <div className="mt-auto border-t border-brand-800 px-3 py-2 text-center text-[11px] text-brand-200/80">
+          {releaseLabel}
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

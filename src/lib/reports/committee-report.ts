@@ -23,6 +23,7 @@ import { toHijriNumeric, toGregorianNumeric } from "@/lib/dates";
 import { orFallback, orDash } from "@/lib/format";
 import { escapeHtml as esc } from "@/lib/html-escape";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { taskStatusLabel, COMMITTEE_NO_TASKS_LABEL } from "@/lib/committees/task-status";
 
 /**
  * تقرير اللجنة الرسمي («بطاقة لجنة / مجلس»): التشكيل والأعضاء (تسجيل عضوية فقط — لا حضور
@@ -124,8 +125,11 @@ async function buildCommitteeBody(committeeId: string): Promise<{ c: typeof comm
     ${members
       .map((m, i) => {
         const mTasks = tasksByMember.get(m.id) ?? [];
-        const taskText = mTasks.length ? mTasks.map((t) => esc(t.title)).join("؛ ") : "—";
-        const statusText = mTasks.length ? mTasks.map((t) => esc(t.status ?? "—")).join("؛ ") : "—";
+        // v2.4.1 §6.4: «لا مهام مسندة» و«لم يتم تحديد الحالة» نصّان مختلفان — لا «—» لكليهما
+        const taskText = mTasks.length ? mTasks.map((t) => esc(t.title)).join("؛ ") : "لا مهام مسندة";
+        const statusText = mTasks.length
+          ? mTasks.map((t) => esc(taskStatusLabel(t.status))).join("؛ ")
+          : "لا مهام مسندة";
         const nameCell = `${esc(orFallback(m.name))}${m.effectiveTo ? " (عضوية منتهية)" : ""}`;
         return `<tr><td>${i + 1}</td><td>${nameCell}</td><td>${esc(orDash(m.position))}</td><td>${esc(orDash(m.role))}</td><td>${taskText}</td><td>${statusText}</td></tr>`;
       })
@@ -140,10 +144,15 @@ async function buildCommitteeBody(committeeId: string): Promise<{ c: typeof comm
     ${activeTasks
       .map((t, i) => {
         const mem = t.assignedMemberId ? memberById.get(t.assignedMemberId) : undefined;
-        return `<tr><td>${i + 1}</td><td>${esc(t.title)}</td><td>${esc(orDash(mem?.name ?? null))}</td><td>${esc(t.status ?? "—")}</td><td>${esc(orDash(t.notes))}</td></tr>`;
+        return `<tr><td>${i + 1}</td><td>${esc(t.title)}</td><td>${esc(orDash(mem?.name ?? null))}</td><td>${esc(taskStatusLabel(t.status))}</td><td>${esc(orDash(t.notes))}</td></tr>`;
       })
       .join("")}
   </table>`;
+  } else {
+    // §6.4: قسم فارغ مُعنون صراحةً — الجدول الفارغ بلا شرح هو ما قُرئ سابقاً كنقص في التقرير
+    body += `
+  <h2>توزيع المهام وتنفيذها</h2>
+  <p>${esc(COMMITTEE_NO_TASKS_LABEL)} — تُضاف المهام من صفحة اللجنة في المنصة.</p>`;
   }
 
   body += `

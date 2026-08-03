@@ -20,6 +20,8 @@
  *   النصي القديم مرجع تاريخي لا يدخل الحساب.
  */
 
+import { allocationState, type AllocationState } from "./allocation";
+
 /** الحد الذي يُعدّ عنده البند «قارب على استنفاد مخصصه» */
 export const NEAR_EXHAUSTION_PERCENT = 90;
 
@@ -114,6 +116,11 @@ export type FinancialItemLine = {
   archived: boolean;
   /** هل للبند مخصص مُدخل؟ عند false يُعرض المتبقي و«٪» بحالة محايدة «—» */
   hasAllocation: boolean;
+  /**
+   * تصنيف المخصص الصريح (v2.4.1 §4): غير محدد / صفر / موجب. `hasAllocation` يبقى
+   * للتوافق، لكن السطوح تستعمل هذه الحالة لتفريق «لا مخصص» عن «مخصص صفر».
+   */
+  allocationState: AllocationState;
   allocated: number | null;
   income: number;
   expenses: number;
@@ -122,6 +129,8 @@ export type FinancialItemLine = {
   /** نسبة الإنفاق من المخصص؛ `null` حين لا مخصص */
   spentPercent: number | null;
   overspent: boolean;
+  /** صرفٌ على بند مخصصه صفر — حالة تستحق تحذيراً مستقلاً عن «لا مخصص» (§4.2) */
+  zeroAllocationSpending: boolean;
   /** بلغ أو تجاوز عتبة الاقتراب من استنفاد المخصص */
   nearExhaustion: boolean;
   operationCount: number;
@@ -175,6 +184,7 @@ export function financialItemLines(
       const itemIncome = sum(incomeByItem.get(item.id) ?? []);
       const itemExpenses = sum(expensesByItem.get(item.id) ?? []);
       const hasAllocation = item.allocated !== null;
+      const state = allocationState(item.allocated);
       const remaining = hasAllocation ? moneySubtract(item.allocated as number, itemExpenses) : null;
       const spentPercent =
         hasAllocation && (item.allocated as number) > 0
@@ -187,12 +197,14 @@ export function financialItemLines(
         sortOrder: item.sortOrder,
         archived: item.archivedAt !== null,
         hasAllocation,
+        allocationState: state,
         allocated: item.allocated,
         income: itemIncome,
         expenses: itemExpenses,
         remaining,
         spentPercent,
         overspent: remaining !== null && remaining < 0,
+        zeroAllocationSpending: state === "zero" && itemExpenses > 0,
         nearExhaustion: spentPercent !== null && spentPercent >= NEAR_EXHAUSTION_PERCENT,
         operationCount: countByItem.get(item.id) ?? 0,
         lastOperation: lastByItem.get(item.id)?.op ?? null,

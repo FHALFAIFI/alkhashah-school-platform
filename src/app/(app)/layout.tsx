@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { AppShell } from "@/components/app-shell";
+import { releaseLabel } from "@/lib/release";
 import { PwaManager } from "@/components/pwa-manager";
 import { db } from "@/db";
 import { notifications } from "@/db/schema";
@@ -20,6 +21,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       displayName={user.displayName}
       permissions={[...user.permissions]}
       unreadCount={unread.length}
+      releaseLabel={releaseLabel()}
     >
       {children}
       {/* «إرسال ملاحظة» انتقل إلى الشريط العلوي داخل AppShell (v2.3 §19) */}

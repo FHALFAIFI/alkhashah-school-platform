@@ -58,6 +58,8 @@ const MATRIX: Record<string, { category: CategoryKey } | { na: string }> = {
   "/plan/[id]": { category: "plan" },
   "/plan/[id]/report": { na: "تقرير برنامج مولَّد — مخرج للصفحة الأب" },
   "/plan/classifications": { category: "plan" },
+  // v2.4.1 §5.2: شاشة تصحيح تشغيلية — مخرجها تصحيح السجلات، والتقارير تقرأ النتيجة
+  "/plan/consistency": { na: "شاشة مراجعة وتصحيح حالات — لا تقرير مستقل لها" },
   "/plan/followup": { category: "plan" },
   "/plan/kpis": { category: "plan" },
   "/plan/risks": { category: "risks" },

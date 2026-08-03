@@ -7,6 +7,13 @@ import { formatMoney, orDash, orFallback } from "@/lib/format";
 import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
 import { getSchoolFinance } from "@/lib/finance/service";
 import { NEAR_EXHAUSTION_PERCENT } from "@/lib/finance/calc";
+import {
+  ALLOCATION_NONE_HINT,
+  ALLOCATION_NONE_VALUE,
+  REMAINING_UNAVAILABLE,
+  ZERO_ALLOCATION_WARNING,
+} from "@/lib/finance/allocation";
+import { SetAllocationForm } from "./allocation-ui";
 import { evidenceForEntity } from "@/lib/evidence";
 import { EvidencePanel } from "@/components/evidence-panel";
 import {
@@ -196,23 +203,26 @@ export default async function BudgetPage({
           <h2 className="mb-3 text-sm font-bold text-gray-600">بطاقات البنود — انقر البطاقة لكامل التفاصيل</h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {liveLines.map((l) => (
-              <Link
+              // البطاقة غلاف عادي لا رابط: زر «تحديد المخصص» نموذجٌ لا يصح تعشيشه داخل رابط
+              <div
                 key={l.id}
-                href={`/budget/items/${l.id}`}
-                className="block rounded-xl border border-sand-200 bg-white p-4 transition hover:border-brand-300 hover:shadow-sm"
+                className="rounded-xl border border-sand-200 bg-white p-4 transition hover:border-brand-300 hover:shadow-sm"
               >
+              <Link href={`/budget/items/${l.id}`} className="block">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="font-bold text-brand-900">{orFallback(l.name, "بند بدون اسم")}</span>
                   {l.overspent ? <Badge value="تجاوز" /> : l.nearExhaustion ? <Badge value="قارب الاستنفاد" /> : null}
                 </div>
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                   <dt className="text-gray-500">المبلغ المعتمد</dt>
-                  <dd className="tabular-nums">{l.hasAllocation ? formatMoney(l.allocated) : "—"}</dd>
+                  <dd className="tabular-nums">
+                    {l.hasAllocation ? formatMoney(l.allocated) : ALLOCATION_NONE_VALUE}
+                  </dd>
                   <dt className="text-gray-500">المصروف</dt>
                   <dd className="tabular-nums">{formatMoney(l.expenses)}</dd>
                   <dt className="text-gray-500">المتبقي</dt>
                   <dd className={`tabular-nums ${l.overspent ? "text-red-700" : ""}`}>
-                    {l.remaining === null ? "—" : formatMoney(l.remaining)}
+                    {l.remaining === null ? ALLOCATION_NONE_VALUE : formatMoney(l.remaining)}
                   </dd>
                   <dt className="text-gray-500">نسبة الاستخدام</dt>
                   <dd className="tabular-nums">{l.spentPercent === null ? "—" : `${l.spentPercent}٪`}</dd>
@@ -227,6 +237,29 @@ export default async function BudgetPage({
                   </dd>
                 </dl>
               </Link>
+              {/* v2.4.1 §4.1/§4.2: الحالة تُشرح على البطاقة نفسها والإجراء المصحّح بجوارها */}
+              {l.allocationState === "none" && (
+                <div className="mt-3 border-t border-sand-200 pt-3">
+                  <p className="text-[11px] text-amber-800">{ALLOCATION_NONE_HINT} — {REMAINING_UNAVAILABLE}</p>
+                  {canWrite && (
+                    <div className="mt-2">
+                      <SetAllocationForm
+                        itemId={l.id}
+                        itemName={orFallback(l.name, "بند بدون اسم")}
+                        currentAllocation={l.allocated}
+                        spent={l.expenses}
+                        compact
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+              {l.zeroAllocationSpending && (
+                <p className="mt-3 border-t border-sand-200 pt-3 text-[11px] text-red-800">
+                  {ZERO_ALLOCATION_WARNING}
+                </p>
+              )}
+              </div>
             ))}
           </div>
         </section>

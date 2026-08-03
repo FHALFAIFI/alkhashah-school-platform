@@ -10,6 +10,7 @@ import { audit } from "@/lib/audit";
 import { orFallback } from "@/lib/format";
 // ملف `"use server"` لا يُصدِّر إلا دوال async — الثوابت تعيش في وحدة عادية
 import { ITEM_COLORS } from "@/lib/finance/colors";
+import { allocationBelowSpentWarning } from "@/lib/finance/allocation";
 
 /**
  * إدارة بنود الصرف المدرسية والعمليات المالية (v2.2 §B).
@@ -19,7 +20,12 @@ import { ITEM_COLORS } from "@/lib/finance/colors";
  * التدقيق. وحين تُدخَل قيمة يُتحقق من صيغتها.
  */
 
-export type ActionState = { error?: string; success?: string } | null;
+export type ActionState = {
+  error?: string;
+  success?: string;
+  /** يطلب الإجراء تأكيداً صريحاً قبل التنفيذ (خفض المخصص تحت المصروف — §4.5) */
+  needsConfirmation?: boolean;
+} | null;
 
 
 /** مبلغ اختياري: الفارغ يبقى null، والمُدخَل يجب أن يكون عدداً صحيح الصيغة غير سالب */
@@ -97,6 +103,83 @@ export async function updateFinancialItemAction(itemId: string, _prev: ActionSta
   });
   revalidatePath("/budget");
   return { success: "حُفظ البند" };
+}
+
+/** تحديد/تصحيح المخصص وحده — مع ملاحظة اختيارية وتأكيد صريح عند النزول تحت المصروف */
+const allocationSchema = z.object({
+  allocatedAmount: optionalAmount,
+  note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional(),
+  /** «1» حين أكّد المستخدم صراحةً خفض المخصص إلى ما دون المصروف الفعلي */
+  confirmBelowSpent: z.string().optional(),
+});
+
+/** مجموع المصروف الجاري المنسوب لبند — لحظة التغيير (يدخل سجل التدقيق) */
+async function spentForItem(itemId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<string | null>`coalesce(sum(${budgetExpenses.amount}), 0)` })
+    .from(budgetExpenses)
+    .where(and(eq(budgetExpenses.financialItemId, itemId), isNull(budgetExpenses.archivedAt)));
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * تحديد مخصص البند أو تصحيحه (v2.4.1 §4.5) — الإجراء المصحّح لجذر شكوى «المتبقي غير ظاهر».
+ *
+ * منفصل عن `updateFinancialItemAction` عمداً: هذا إجراء مالي مُوجَّه لا يمس الاسم ولا اللون
+ * ولا الملاحظات، ويسجّل في التدقيق المخصص القديم والجديد **والمصروف وقت التغيير** حتى
+ * يكون القرار قابلاً للمراجعة لاحقاً. خفض المخصص تحت المصروف مسموح (لا نطبّع الأرقام)
+ * لكنه يتطلب تأكيداً صريحاً حتى لا يحدث بالخطأ.
+ */
+export async function setItemAllocationAction(
+  itemId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const user = await requirePermission("budget.write");
+  const parsed = allocationSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const d = parsed.data;
+
+  const [item] = await db.select().from(financialItems).where(eq(financialItems.id, itemId));
+  if (!item) return { error: "البند غير موجود" };
+
+  const previous = item.allocatedAmount === null ? null : Number(item.allocatedAmount);
+  const proposed = d.allocatedAmount === undefined ? null : d.allocatedAmount;
+  const spent = await spentForItem(itemId);
+
+  // خفض المخصص تحت المصروف: مسموح بعد تأكيد صريح — البند يصبح متجاوزاً ولا يُطبَّع رقمه
+  if (proposed !== null && proposed < spent && d.confirmBelowSpent !== "1") {
+    return { error: `${allocationBelowSpentWarning(proposed, spent)} — أكّد المتابعة لحفظ هذه القيمة`, needsConfirmation: true };
+  }
+
+  await db
+    .update(financialItems)
+    .set({ allocatedAmount: proposed === null ? null : String(proposed), updatedAt: new Date() })
+    .where(eq(financialItems.id, itemId));
+
+  await audit({
+    actorId: user.id,
+    action: "finance.item_allocation_set",
+    entityType: "financial_item",
+    entityId: itemId,
+    summary: `تحديد مخصص «${orFallback(item.nameAr, "بند بدون اسم")}» — من ${previous ?? "غير محدد"} إلى ${proposed ?? "غير محدد"}`,
+    detail: {
+      previousAllocation: previous,
+      newAllocation: proposed,
+      spentAtChange: spent,
+      remainingAfter: proposed === null ? null : proposed - spent,
+      note: d.note || null,
+      confirmedBelowSpent: d.confirmBelowSpent === "1",
+    },
+  });
+  revalidatePath("/budget");
+  revalidatePath(`/budget/items/${itemId}`);
+  return {
+    success:
+      proposed === null
+        ? "أُزيل المخصص — لن يُحتسب متبقٍ لهذا البند"
+        : `حُفظ المخصص — المتبقي الآن: ${proposed - spent} ريال`,
+  };
 }
 
 /**

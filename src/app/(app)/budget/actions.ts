@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { budgetIncome, budgetExpenses, planBudgetItems, programs, programActivities, people, planYears, evidenceItems, financialItems } from "@/db/schema";
@@ -12,6 +12,26 @@ import { linkEvidence } from "@/lib/evidence";
 import { userFacingError } from "@/lib/user-error";
 import { optionalIsoDate } from "@/lib/dates-zod";
 import { snapshotRecord } from "@/lib/versioning";
+import { expenseSavedMessage } from "@/lib/finance/allocation";
+import { formatMoney } from "@/lib/format";
+
+/**
+ * المتبقي من مخصص البند بعد حفظ العملية (v2.4.1 §4.7) — يُقرأ بعد الإدراج فيشمل الصف الجديد.
+ * `null` حين لا بند مختار أو البند بلا مخصص: عندها لا متبقٍ يُحتسب ولا يُختلق صفر.
+ */
+async function remainingAfterExpense(financialItemId: string | null | undefined): Promise<number | null> {
+  if (!financialItemId) return null;
+  const [item] = await db
+    .select({ allocated: financialItems.allocatedAmount })
+    .from(financialItems)
+    .where(eq(financialItems.id, financialItemId));
+  if (!item || item.allocated === null) return null;
+  const [row] = await db
+    .select({ total: sql<string | null>`coalesce(sum(${budgetExpenses.amount}), 0)` })
+    .from(budgetExpenses)
+    .where(and(eq(budgetExpenses.financialItemId, financialItemId), isNull(budgetExpenses.archivedAt)));
+  return Number(item.allocated) - Number(row?.total ?? 0);
+}
 
 /**
  * مبلغ اختياري (قاعدة v2.1 §H): الحقل الفارغ يُخزَّن null، وإن أُدخلت قيمة وجب أن تكون عدداً
@@ -252,7 +272,9 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
 
   revalidatePath("/budget");
   // القيم المالية لا تُغيَّر صامتاً. تجاوز المخصص لا يمنع الحفظ ولا يتطلب إقراراً (§B7).
-  return { success: "أُضيف المصروف" };
+  // v2.4.1 §4.7: نتيجة الحفظ تُقرأ في مكانها — المتبقي بعد العملية، أو سبب تعذّر احتسابه.
+  const remaining = await remainingAfterExpense(d.financialItemId);
+  return { success: expenseSavedMessage(remaining, remaining === null ? undefined : formatMoney(remaining)) };
 }
 
 /** قيم العرض للمقارنة قبل/بعد — مفاتيح عربية تُعرض في سجل التدقيق كما هي */

@@ -8,7 +8,14 @@ import { BackButton } from "@/components/back-button";
 import { formatMoney, orDash, orFallback } from "@/lib/format";
 import { dualNumericCell } from "@/lib/dates";
 import { getItemFinanceDetail } from "@/lib/finance/service";
+import {
+  ALLOCATION_NONE_HINT,
+  ALLOCATION_NONE_VALUE,
+  REMAINING_UNAVAILABLE,
+  ZERO_ALLOCATION_WARNING,
+} from "@/lib/finance/allocation";
 import { Stat } from "../../stat";
+import { SetAllocationForm } from "../../allocation-ui";
 import { EditIncomeForm, EditExpenseForm, DeleteOperationButton } from "./item-detail-ui";
 
 export const metadata = { title: "تفصيل بند مالي" };
@@ -62,19 +69,71 @@ export default async function FinancialItemDetailPage({
         title={orFallback(line.name, "بند بدون اسم")}
         subtitle="تفصيل كامل لعمليات البند — الأرقام من مصدر الحساب الموحّد نفسه المستعمل في اللوحة والتقارير"
         actions={
-          line.overspent ? (
-            <Badge value="تجاوز" />
-          ) : line.nearExhaustion ? (
-            <Badge value="قارب الاستنفاد" />
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            {line.overspent ? (
+              <Badge value="تجاوز" />
+            ) : line.nearExhaustion ? (
+              <Badge value="قارب الاستنفاد" />
+            ) : null}
+            {/* تصحيح المخصص متاح دائماً للمخوَّل — لا يقتصر على حالة «لا مخصص» (§4.5) */}
+            {canWrite && line.allocationState !== "none" && (
+              <SetAllocationForm
+                itemId={id}
+                itemName={orFallback(line.name, "بند بدون اسم")}
+                currentAllocation={line.allocated}
+                spent={line.expenses}
+                compact
+              />
+            )}
+          </div>
         }
       />
 
+      {/* v2.4.1 §4.1: البند بلا مخصص لا يعرض «—» مجرداً — يشرح السبب ويقدّم الإجراء المصحّح */}
+      {line.allocationState === "none" && (
+        <Card className="mb-4 border-amber-300 bg-amber-50">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-amber-900">{ALLOCATION_NONE_HINT}</p>
+              <p className="mt-1 text-xs text-amber-800">
+                المصروف مسجَّل ومحسوب ({formatMoney(line.expenses)})، لكن {REMAINING_UNAVAILABLE}. مخصصات
+                «بنود الميزانية» في الخطة التشغيلية سجلٌّ سنوي منفصل ولا تُنقل تلقائياً إلى بنود الصرف
+                المدرسية — حدّد المخصص هنا ليظهر المتبقي في البطاقة والدفتر والتقارير.
+              </p>
+            </div>
+            {canWrite && (
+              <SetAllocationForm
+                itemId={id}
+                itemName={orFallback(line.name, "بند بدون اسم")}
+                currentAllocation={line.allocated}
+                spent={line.expenses}
+              />
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* §4.2: الصرف على بند مخصصه صفر حالة مستقلة عن «لا مخصص» */}
+      {line.zeroAllocationSpending && (
+        <Card className="mb-4 border-red-300 bg-red-50">
+          <p className="text-sm font-medium text-red-900">{ZERO_ALLOCATION_WARNING}</p>
+        </Card>
+      )}
+
       {/* بطاقة البند الكاملة (§6): المعتمد/المصروف/المتبقي/النسبة/العمليات/آخر عملية */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="المبلغ المعتمد" value={line.hasAllocation ? formatMoney(line.allocated as number) : "—"} hint={line.hasAllocation ? undefined : "لا مخصص مُدخل"} />
+        <Stat
+          label="المبلغ المعتمد"
+          value={line.hasAllocation ? formatMoney(line.allocated as number) : ALLOCATION_NONE_VALUE}
+          hint={line.hasAllocation ? undefined : ALLOCATION_NONE_HINT}
+        />
         <Stat label="المصروف" value={formatMoney(line.expenses)} />
-        <Stat label="المتبقي" value={line.remaining === null ? "—" : formatMoney(line.remaining)} tone={line.overspent ? "bad" : line.nearExhaustion ? "warn" : "good"} />
+        <Stat
+          label="المتبقي"
+          value={line.remaining === null ? ALLOCATION_NONE_VALUE : formatMoney(line.remaining)}
+          hint={line.remaining === null ? REMAINING_UNAVAILABLE : undefined}
+          tone={line.overspent ? "bad" : line.nearExhaustion ? "warn" : "good"}
+        />
         <Stat label="نسبة الاستخدام" value={usagePercent} />
         <Stat label="عدد العمليات" value={String(line.operationCount)} />
         <Stat label="الإيراد المنسوب للبند" value={formatMoney(line.income)} />
@@ -89,6 +148,13 @@ export default async function FinancialItemDetailPage({
       {/* الدفتر المُدمج بالرصيد الجاري + المتبقي من المخصص قبل/بعد كل مصروف (v2.4 §4) */}
       <Card className="mb-4">
         <h2 className="mb-2 text-sm font-bold text-brand-900">دفتر عمليات البند (بالرصيد الجاري)</h2>
+        {/* v2.4.1 §4.1: اختفاء عمودَي «المتبقي قبل/بعد» يُشرح بدل أن يحدث صامتاً */}
+        {line.allocationState === "none" && ledger.length > 0 && (
+          <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            عمودا «المتبقي قبل العملية» و«المتبقي بعد العملية» لا يظهران لأن {ALLOCATION_NONE_HINT} —
+            الرصيد النقدي الجاري يظهر كما هو.
+          </p>
+        )}
         {ledger.length === 0 ? (
           <EmptyState title="لا عمليات على هذا البند بعد" hint="تُسجَّل العمليات من لوحة المالية مع اختيار هذا البند" />
         ) : (
