@@ -625,3 +625,28 @@ actions. Correcting a closed record additionally requires `plan.override`. Bulk 
 is restricted to two homogeneous operations with preview, count, explicit confirmation and
 a single audit record; there is deliberately **no "fix everything" button**. No migration
 guesses any business value — per §10 the 31 NULL statuses stay NULL until someone sets them.
+
+## D-048 — Individual performance results are gated by `performance.individual.read` on every surface, reports included (2026-08-03)
+
+v2.4.1 Phase F, §5 (reports — "unauthorized performance report access"). D-013 keeps
+individual performance detail with the principal, and the seeded `sysadmin` role is
+explicitly denied `performance.individual.read` (`src/db/seed-data/permissions.ts`). v2.4
+closed the same hole for issued PDFs (D-044). The reports centre was still open: the
+`perf-evaluations` report carries a `sessionResult` column — the numeric evaluation result
+of a **named** employee — while declaring only `permission: "performance.read"`, which
+`sysadmin` holds. A sysadmin could therefore read, and CSV/Excel/PDF-export, every
+employee's score through the normal reports UI.
+
+The gap was invisible to page-level review because the surface is data-driven: the catalog
+entry *is* the authorization. Fixed by raising `perf-evaluations` to
+`performance.individual.read`; the reports page filters the card and
+`/api/reports/export` re-checks `def.permission` server-side, so hiding is not the control.
+The three remaining performance reports (`perf-planning-sessions`, `perf-incomplete`,
+`perf-evidence-counts`) stay on `performance.read`: they list person, stage, status and an
+evidence count — operational tracking the sysadmin needs — and carry no result.
+
+The rule is now enforced structurally rather than by inspection:
+`tests/unit/discoverability.test.ts` fails any report that pairs a named person with a
+result-bearing column (`sessionResult`/`resultPercent`/`score`/`finalScore`/`rating`)
+unless it declares `performance.individual.read`. A future report cannot reopen this by
+copying an existing definition.

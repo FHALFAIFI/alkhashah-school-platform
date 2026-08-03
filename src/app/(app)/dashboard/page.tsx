@@ -162,7 +162,13 @@ function ApprovalQueueSection({
             </Link>
           ))}
         </div>
-        {active === "جديد" &&
+        {/* v2.4.1 §1: القسم لا يختفي حين يخلو الطابور — حالة فارغة صريحة تؤكد أن لا شيء ينتظر */}
+        {total === 0 && (
+          <p className="rounded-lg bg-sand-50 px-3 py-3 text-sm text-gray-500">
+            لا توجد برامج بانتظار الاعتماد حاليا — يظهر هنا كل برنامج جديد أو مكتمل بانتظار الإقفال أو طلب تعديل فور وروده.
+          </p>
+        )}
+        {total > 0 && active === "جديد" &&
           (queue.drafts.length === 0 ? (
             <p className="py-3 text-sm text-gray-400">لا برامج جديدة بانتظار الاعتماد</p>
           ) : (
@@ -172,7 +178,7 @@ function ApprovalQueueSection({
               ))}
             </div>
           ))}
-        {active === "مكتمل" &&
+        {total > 0 && active === "مكتمل" &&
           (queue.completed.length === 0 ? (
             <p className="py-3 text-sm text-gray-400">لا برامج مكتملة بانتظار الإقفال</p>
           ) : (
@@ -182,7 +188,7 @@ function ApprovalQueueSection({
               ))}
             </div>
           ))}
-        {active === "تعديلات" &&
+        {total > 0 && active === "تعديلات" &&
           (queue.changeRequests.length === 0 ? (
             <p className="py-3 text-sm text-gray-400">لا طلبات تعديل قيد الاعتماد</p>
           ) : (

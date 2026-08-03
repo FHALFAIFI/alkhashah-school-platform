@@ -25,6 +25,19 @@ import { allocationState, type AllocationState } from "./allocation";
 /** الحد الذي يُعدّ عنده البند «قارب على استنفاد مخصصه» */
 export const NEAR_EXHAUSTION_PERCENT = 90;
 
+/**
+ * أقصى مبلغ مقبول بالريال (v2.4.1 §5).
+ *
+ * عمود `numeric` بلا دقة محددة يقبل أعداداً بلا سقف عملي، فقيمة واحدة عبثية (10^30) تفسد
+ * كل المجاميع والنسب والتقارير. السقف هنا حرس مدخلات لا قاعدة عمل: 10^12 ريال أكبر بمراحل
+ * من أي ميزانية مدرسة، وفي الوقت نفسه يبقى ضربه في 100 (تحويل الهللات) عدداً صحيحاً دقيقاً
+ * تماماً في `Number` — فلا تفقد حسابات الهللة دقّتها عند الحدود.
+ */
+export const MAX_MONEY_AMOUNT = 1_000_000_000_000;
+
+/** رسالة تجاوز السقف — موحّدة في كل نماذج المبالغ */
+export const MAX_MONEY_MESSAGE = "المبلغ أكبر من الحد المسموح";
+
 /** تحويل قيمة مُدخلة إلى عدد منتهٍ أو `null` — لا NaN ولا صفر مُختلق أبداً */
 export function amountOrNull(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined) return null;

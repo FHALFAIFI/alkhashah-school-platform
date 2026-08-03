@@ -106,7 +106,8 @@ export default async function EmployeeKpiPage({
         actions={
           canGenerate && selected ? (
             <form action={issueReport}>
-              <SubmitButton variant="secondary">إصدار التقرير التفصيلي (PDF)</SubmitButton>
+              {/* v2.4.1 §1: التسمية التي يطلبها المدير حرفياً — لا «إصدار التقرير» العامّ */}
+              <SubmitButton variant="secondary">تقرير تفصيلي للموظف</SubmitButton>
             </form>
           ) : undefined
         }

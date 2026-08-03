@@ -8,7 +8,8 @@ import { OfflineBanner } from "./offline-banner";
 import { BackNav } from "./back-nav";
 import { FeedbackDock } from "./feedback/feedback-dock";
 
-type NavItem = { href: string; label: string; permission?: string; icon: string };
+/** `desc` سطر شرح قصير أسفل العنوان — للمداخل التي لا يكفي اسمها وحده لفهم وظيفتها */
+type NavItem = { href: string; label: string; permission?: string; icon: string; desc?: string };
 
 // مفاتيح تذكّر حالة الشريط الجانبي في المتصفح — التذكّر تحسين تدريجي فقط
 const SIDEBAR_SCROLL_KEY = "madrasa-sidebar-scroll-v1";
@@ -30,8 +31,14 @@ const NAV: { id: string; section: string; items: NavItem[] }[] = [
     section: "الخطة التشغيلية",
     items: [
       { href: "/plan", label: "البرامج والمبادرات", permission: "plan.read", icon: "▤" },
-      // v2.4.1 §5.2: مراجعة الحالات المتناقضة — مدخل ظاهر لا مسار مخفي
-      { href: "/plan/consistency", label: "مراجعة حالات البرامج", permission: "plan.read", icon: "⚖" },
+      // v2.4.1 §5.2: مراجعة الحالات المتناقضة — مدخل ظاهر لا مسار مخفي، بوصف يشرح وظيفته
+      {
+        href: "/plan/consistency",
+        label: "مراجعة حالات برامج الخطة",
+        desc: "مراجعة البرامج ذات الحالات أو نسب الإنجاز غير المتوافقة",
+        permission: "plan.read",
+        icon: "⚖",
+      },
       { href: "/plan/kpis", label: "مؤشرات الأداء", permission: "plan.read", icon: "◔" },
       { href: "/plan/risks", label: "سجل المخاطر", permission: "plan.read", icon: "⚠" },
       { href: "/plan/swot", label: "التحليل الرباعي", permission: "plan.read", icon: "◫" },
@@ -259,14 +266,22 @@ export function AppShell({
                     href={item.href}
                     onClick={() => setOpen(false)}
                     aria-current={active ? "page" : undefined}
-                    className={`mb-0.5 flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 text-sm transition focus-visible:outline-2 focus-visible:outline-white lg:min-h-0 lg:py-1.5 ${
+                    className={`mb-0.5 flex min-h-11 items-start gap-2 rounded-lg px-2 py-2 text-sm transition focus-visible:outline-2 focus-visible:outline-white lg:min-h-0 lg:py-1.5 ${
                       active ? "bg-brand-600 font-medium text-white" : "text-brand-100 hover:bg-brand-800"
                     }`}
                   >
-                    <span aria-hidden className="w-5 shrink-0 text-center text-xs opacity-70">{item.icon}</span>
-                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    <span aria-hidden className="w-5 shrink-0 pt-0.5 text-center text-xs opacity-70">{item.icon}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{item.label}</span>
+                      {/* الوصف يلتف على سطرين ولا يُقصّ — الاسم وحده لا يشرح وظيفة المدخل */}
+                      {item.desc && (
+                        <span className={`mt-0.5 block text-[10px] leading-snug ${active ? "text-brand-50/90" : "text-brand-300"}`}>
+                          {item.desc}
+                        </span>
+                      )}
+                    </span>
                     {item.href === "/notifications" && unreadCount > 0 && (
-                      <span className="rounded-full bg-red-500 px-1.5 text-xs tabular-nums">{unreadCount}</span>
+                      <span className="mt-0.5 rounded-full bg-red-500 px-1.5 text-xs tabular-nums">{unreadCount}</span>
                     )}
                   </Link>
                 );

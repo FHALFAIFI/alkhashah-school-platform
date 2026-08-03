@@ -42,7 +42,8 @@ export default async function PerformanceAnalyticsPage() {
             <SectionReportsLink category="performance" />
             {canGenerate && (
               <form action={issueOverallReport}>
-                <SubmitButton variant="secondary">إصدار تقرير المدرسة التفصيلي (PDF)</SubmitButton>
+                {/* v2.4.1 §1: التسمية التي يطلبها المدير حرفياً */}
+                <SubmitButton variant="secondary">تقرير تفصيلي للمدرسة</SubmitButton>
               </form>
             )}
           </div>
@@ -151,9 +152,12 @@ export default async function PerformanceAnalyticsPage() {
         </Card>
       </div>
 
-      {/* من يحتاج متابعة */}
-      <Card>
+      {/* من يحتاج متابعة — هدف رابط «تقرير تفصيلي للموظف» من جذر قسم الأداء (§1) */}
+      <Card id="needs-followup">
         <h2 className="mb-2 font-bold text-brand-900">منسوبون يحتاجون متابعة ({a.needsFollowUp.length})</h2>
+        <p className="mb-2 text-xs text-gray-500">
+          افتح «التقرير التفصيلي» لأي منسوب ثم اضغط «تقرير تفصيلي للموظف» لإصدار وثيقته المرقّمة.
+        </p>
         {a.needsFollowUp.length === 0 ? (
           <p className="text-sm text-gray-400">لا أحد دون العتبة حالياً</p>
         ) : (

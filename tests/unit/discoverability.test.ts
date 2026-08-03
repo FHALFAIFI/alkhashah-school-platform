@@ -1,0 +1,165 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { REPORTS, REPORT_CATEGORIES } from "@/lib/reports/catalog";
+import { MAX_MONEY_AMOUNT, toMinor, moneySubtract } from "@/lib/finance/calc";
+import {
+  ALLOCATION_NONE_VALUE,
+  ALLOCATION_NONE_HINT,
+  REMAINING_UNAVAILABLE,
+  SET_ALLOCATION_CTA,
+} from "@/lib/finance/allocation";
+import { NEEDS_REVIEW_LABEL } from "@/lib/plan/consistency";
+import { TASK_STATUS_UNSET_LABEL, COMMITTEE_NO_TASKS_LABEL } from "@/lib/committees/task-status";
+import { NO_WEEKLY_UPDATE_LABEL } from "@/lib/plan/followup";
+import { releaseLabel } from "@/lib/release";
+
+/**
+ * v2.4.1 §1 — the discoverability contract.
+ *
+ * The v2.4.0 post-deployment complaint was not "the feature is broken" but "I cannot find
+ * it". These assertions pin the exact Arabic wording the principal asked for, at the exact
+ * place they asked for it, so a later refactor cannot quietly rename an entry point back
+ * into obscurity. Source-scanning (rather than rendering) keeps them cheap and stable —
+ * the browser-level proof that the text is actually *visible* lives in `zz-v241.spec.ts`.
+ */
+
+const root = process.cwd();
+const read = (rel: string) => readFileSync(path.join(root, rel), "utf8");
+
+describe("§1 — مداخل ظاهرة بأسمائها المطلوبة", () => {
+  it("القائمة الجانبية تحمل «مراجعة حالات برامج الخطة» مع وصفها", () => {
+    const shell = read("src/components/app-shell.tsx");
+    expect(shell).toContain('href: "/plan/consistency"');
+    expect(shell).toContain('label: "مراجعة حالات برامج الخطة"');
+    expect(shell).toContain('desc: "مراجعة البرامج ذات الحالات أو نسب الإنجاز غير المتوافقة"');
+    // الوصف يُصيَّر فعلياً لا يُعرَّف فقط
+    expect(shell).toContain("{item.desc}");
+  });
+
+  it("«طباعة بطاقة البرنامج» ظاهر من صفحة البرنامج ومن قائمة البرامج معاً", () => {
+    expect(read("src/app/(app)/plan/[id]/page.tsx")).toContain(">طباعة بطاقة البرنامج<");
+    expect(read("src/app/(app)/plan/page.tsx")).toContain(">طباعة بطاقة البرنامج<");
+  });
+
+  it("الصفحة الرئيسة تعرض حالة فارغة صريحة لطابور الاعتماد بدل إخفاء القسم", () => {
+    const dashboard = read("src/app/(app)/dashboard/page.tsx");
+    expect(dashboard).toContain("بانتظار اعتماد المدير");
+    expect(dashboard).toContain("لا توجد برامج بانتظار الاعتماد حاليا");
+  });
+
+  it("تقريرا الأداء التفصيليان يحملان التسميتين المطلوبتين حرفياً", () => {
+    expect(read("src/app/(app)/performance/employees/[personId]/page.tsx")).toContain(">تقرير تفصيلي للموظف<");
+    expect(read("src/app/(app)/performance/analytics/page.tsx")).toContain(">تقرير تفصيلي للمدرسة<");
+    // ومعلنان من جذر قسم الأداء لا داخل صفحة فرعية فقط
+    const index = read("src/app/(app)/performance/page.tsx");
+    expect(index).toContain("تقارير الأداء التفصيلية");
+    expect(index).toContain(">تقرير تفصيلي للمدرسة<");
+    expect(index).toContain(">تقرير تفصيلي للموظف<");
+  });
+
+  it("قائمة نماذج الأداء تعلن مكان «حذف النموذج» و«أرشفة النموذج»", () => {
+    const models = read("src/app/(app)/performance/models/page.tsx");
+    expect(models).toContain("«حذف النموذج»");
+    expect(models).toContain("«أرشفة النموذج»");
+  });
+
+  it("جدول بنود الصرف لا يعرض «—» مجرّداً لبند بلا مخصص", () => {
+    const budget = read("src/app/(app)/budget/page.tsx");
+    expect(budget).toContain("ALLOCATION_NONE_VALUE");
+    expect(budget).toContain("REMAINING_UNAVAILABLE");
+    expect(budget).toContain("SET_ALLOCATION_CTA");
+    // الصف نفسه يحمل الإجراء المصحّح لا البطاقة وحدها
+    expect(budget).toMatch(/liveLines\.map[\s\S]*SetAllocationForm/);
+  });
+});
+
+describe("§1 — تمييز تقريري اللجان", () => {
+  it("«سجل اللجان العام» و«سجل المجالس واللجان التفصيلي» اسمان متمايزان في نفس الفئة", () => {
+    const committees = REPORTS.filter((r) => r.category === "committees").map((r) => r.label);
+    expect(committees).toContain("سجل اللجان العام");
+    expect(committees).toContain("سجل المجالس واللجان التفصيلي");
+    expect(new Set(committees).size).toBe(committees.length);
+  });
+
+  it("وصف التقرير التفصيلي يوصي به لمن يحتاج الأعضاء والأدوار والمهام وحالاتها", () => {
+    const detailed = REPORTS.find((r) => r.key === "committee-members")!;
+    expect(detailed.description).toContain("الموصى به");
+    const general = REPORTS.find((r) => r.key === "committee-register")!;
+    expect(general.description).toContain("سجل المجالس واللجان التفصيلي");
+  });
+
+  it("تقريرا البرامج بالاسم موجودان ويعرضان عمود اسم البرنامج", () => {
+    for (const key of ["programs-by-owner", "programs-by-domain"]) {
+      const report = REPORTS.find((r) => r.key === key)!;
+      expect(report.columns.some((c) => c.label === "البرنامج")).toBe(true);
+    }
+  });
+
+  it("كل فئة تقارير لها تسمية فريدة", () => {
+    const labels = REPORT_CATEGORIES.map((c) => c.label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+});
+
+describe("§1 — النصوص الموحّدة التي يقرأها المدير", () => {
+  it("نصوص حالة المخصص ثابتة", () => {
+    expect(ALLOCATION_NONE_VALUE).toBe("غير محدد");
+    expect(ALLOCATION_NONE_HINT).toBe("لم يتم تحديد مخصص لهذا البند");
+    expect(REMAINING_UNAVAILABLE).toBe("لا يمكن احتسابه قبل تحديد المخصص");
+    expect(SET_ALLOCATION_CTA).toBe("تحديد المخصص");
+  });
+
+  it("نصوص المراجعة والمهام والمتابعة ثابتة", () => {
+    expect(NEEDS_REVIEW_LABEL).toBe("حالة البرنامج تحتاج مراجعة");
+    expect(TASK_STATUS_UNSET_LABEL).toBe("لم يتم تحديد الحالة");
+    expect(COMMITTEE_NO_TASKS_LABEL).toBe("لم تتم إضافة مهام لهذه اللجنة");
+    expect(NO_WEEKLY_UPDATE_LABEL).toBe("لم يتم التحديث هذا الأسبوع");
+  });
+
+  it("علامة الإصدار تقول «الإصدار 2.4.1»", () => {
+    expect(releaseLabel()).toBe("الإصدار 2.4.1");
+  });
+});
+
+describe("§5 (D-048) — تفاصيل الأداء الفردي لا تُتاح من مركز التقارير بصلاحية عامة", () => {
+  /**
+   * D-013 يمنع «مسؤول النظام» من تفاصيل الأداء الفردي، وD-044 أغلق وثائق الأداء المُصدَرة.
+   * أي تقرير يعرض **نتيجة** موظف مسمّى يجب أن يُعلن الصلاحية نفسها، وإلا فُتح من مركز
+   * التقارير ما أُغلق في الصفحات — وهو باب جانبي لا يظهر في مراجعة الصفحات وحدها.
+   */
+  const INDIVIDUAL_RESULT_COLUMNS = ["sessionResult", "resultPercent", "score", "finalScore", "rating"];
+
+  it("كل تقرير يعرض نتيجة أداء فردية يتطلب performance.individual.read", () => {
+    const leaking = REPORTS.filter(
+      (r) =>
+        r.columns.some((c) => INDIVIDUAL_RESULT_COLUMNS.includes(c.key)) &&
+        r.columns.some((c) => c.key === "personName") &&
+        r.permission !== "performance.individual.read",
+    );
+    expect(leaking.map((r) => r.key)).toEqual([]);
+  });
+
+  it("تقرير «التقييمات» تحديداً مقيَّد بالصلاحية الفردية", () => {
+    const evaluations = REPORTS.find((r) => r.key === "perf-evaluations")!;
+    expect(evaluations.permission).toBe("performance.individual.read");
+  });
+
+  it("«مسؤول النظام» لا يملك الصلاحية الفردية أصلاً — الحرمان فعلي لا نظري", () => {
+    const seed = read("src/db/seed-data/permissions.ts");
+    expect(seed).toContain('k !== "performance.individual.read"');
+  });
+});
+
+describe("§5 — سقف المبالغ يحافظ على دقة الهللة", () => {
+  it("ضرب السقف في 100 يبقى عدداً صحيحاً دقيقاً في Number", () => {
+    expect(Number.isSafeInteger(toMinor(MAX_MONEY_AMOUNT))).toBe(true);
+    expect(toMinor(MAX_MONEY_AMOUNT)).toBe(MAX_MONEY_AMOUNT * 100);
+  });
+
+  it("الطرح عند الحدود وفي الحالة الكلاسيكية دقيق", () => {
+    expect(moneySubtract(0.3, 0.1)).toBe(0.2);
+    expect(moneySubtract(100.1, 0.2)).toBe(99.9);
+    expect(moneySubtract(MAX_MONEY_AMOUNT, 0.01)).toBe(MAX_MONEY_AMOUNT - 0.01);
+  });
+});

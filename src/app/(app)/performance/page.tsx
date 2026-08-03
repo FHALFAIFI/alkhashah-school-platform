@@ -50,6 +50,25 @@ export default async function PerformancePage() {
         }
       />
 
+      {/* v2.4.1 §1: التقريران التفصيليان يُعلَنان من جذر القسم — لا يُكتشفان بالصدفة داخل صفحة فرعية */}
+      {canSeeIndividual && (
+        <Card>
+          <h2 className="mb-1 text-sm font-bold text-brand-900">تقارير الأداء التفصيلية</h2>
+          <p className="mb-3 text-xs text-gray-500">
+            وثيقتان رسميتان مرقّمتان تُصدَران بصلاحية «إصدار التقارير» مع «الاطلاع على الأداء الفردي» — بيانات الأداء
+            الفردي لا تُتاح لغير المخوَّل (D-013).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <LinkButton href="/performance/analytics" variant="secondary">تقرير تفصيلي للمدرسة</LinkButton>
+            <LinkButton href="/performance/analytics#needs-followup" variant="secondary">تقرير تفصيلي للموظف</LinkButton>
+          </div>
+          <p className="mt-2 text-[11px] text-gray-400">
+            «تقرير تفصيلي للمدرسة» يُصدَر من لوحة الأداء العام. «تقرير تفصيلي للموظف» يُصدَر من صفحة المنسوب — افتحها من
+            سجل الدورات أدناه أو من قائمة المتابعة في لوحة الأداء العام.
+          </p>
+        </Card>
+      )}
+
       <Tutorial
         id="performance"
         title="سير عمل تقييم الأداء"

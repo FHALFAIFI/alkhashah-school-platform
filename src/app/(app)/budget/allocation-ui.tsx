@@ -14,6 +14,7 @@ import { Field } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { setItemAllocationAction, type ActionState } from "./finance-actions";
 import { ALLOCATION_NONE_VALUE, SET_ALLOCATION_CTA } from "@/lib/finance/allocation";
+import { moneySubtract } from "@/lib/finance/calc";
 
 export function SetAllocationForm({
   itemId,
@@ -53,7 +54,8 @@ export function SetAllocationForm({
   // المتبقي الناتج يُحسب حيّاً أثناء الكتابة — الرقم الذي سيراه بعد الحفظ
   const proposedNum = proposed.trim() === "" ? null : Number(proposed);
   const validProposed = proposedNum !== null && Number.isFinite(proposedNum);
-  const resultingRemaining = validProposed ? proposedNum - spent : null;
+  // حساب الهللة نفسه المستعمل على الخادم — فلا يختلف رقم المعاينة عن الرقم المحفوظ
+  const resultingRemaining = validProposed ? moneySubtract(proposedNum, spent) : null;
   const belowSpent = validProposed && proposedNum < spent;
 
   if (!open) {

@@ -13,6 +13,7 @@ import { userFacingError } from "@/lib/user-error";
 import { optionalIsoDate } from "@/lib/dates-zod";
 import { snapshotRecord } from "@/lib/versioning";
 import { expenseSavedMessage } from "@/lib/finance/allocation";
+import { MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE, moneySubtract } from "@/lib/finance/calc";
 import { formatMoney } from "@/lib/format";
 
 /**
@@ -30,7 +31,8 @@ async function remainingAfterExpense(financialItemId: string | null | undefined)
     .select({ total: sql<string | null>`coalesce(sum(${budgetExpenses.amount}), 0)` })
     .from(budgetExpenses)
     .where(and(eq(budgetExpenses.financialItemId, financialItemId), isNull(budgetExpenses.archivedAt)));
-  return Number(item.allocated) - Number(row?.total ?? 0);
+  // حساب الهللة الدقيق (D-043) — الطرح العشري الخام يسرّب 0.30000000000000004 إلى الرسالة
+  return moneySubtract(Number(item.allocated), Number(row?.total ?? 0));
 }
 
 /**
@@ -39,7 +41,8 @@ async function remainingAfterExpense(financialItemId: string | null | undefined)
  */
 const optionalPositiveAmount = z.preprocess(
   (v) => (v === "" || v === null || v === undefined ? undefined : v),
-  z.coerce.number().positive("المبلغ يجب أن يكون موجباً").optional(),
+  // السقف الأعلى (v2.4.1 §5): عمود `numeric` بلا سقف يقبل قيمة عبثية تفسد كل المجاميع والنسب
+  z.coerce.number().positive("المبلغ يجب أن يكون موجباً").max(MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE).optional(),
 );
 
 export type ActionState = { error?: string; success?: string } | null;

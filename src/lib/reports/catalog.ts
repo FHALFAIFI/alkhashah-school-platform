@@ -412,8 +412,12 @@ export const REPORTS: readonly ReportDefinition[] = [
     key: "perf-evaluations",
     category: "performance",
     label: "التقييمات",
-    description: "جلسات التقييم المنتصفية والنهائية وحالاتها",
-    permission: "performance.read",
+    description:
+      "جلسات التقييم المنتصفية والنهائية وحالاتها ونتائجها — يتطلب صلاحية الاطلاع على الأداء الفردي (D-013)",
+    // v2.4.1 §5 (D-048): يحمل عمود «النتيجة» لكل موظف مسمّى، وهو تفصيل أداء فردي.
+    // كان معلَناً بـ`performance.read` وحدها التي يملكها «مسؤول النظام»، فكان يفتح من
+    // مركز التقارير ما أغلقه D-013 على صفحة المنسوب وما أغلقه D-044 على وثائق الأداء.
+    permission: "performance.individual.read",
     columns: [col("personName", "الموظف"), col("cycleType", "الدورة"), col("stage", "المرحلة"), col("status", "الحالة"), col("sessionResult", "النتيجة"), col("completedAt", "تاريخ الاكتمال", "date")],
     filters: ["search", "status", "person", "dateRange"],
   },
@@ -440,8 +444,10 @@ export const REPORTS: readonly ReportDefinition[] = [
   {
     key: "committee-register",
     category: "committees",
-    label: "سجل اللجان والمجالس",
-    description: "كل اللجان مع نوعها وحالتها وعدد أعضائها واجتماعاتها",
+    // v2.4.1 §1: تسمية تميّزه صراحةً عن «سجل المجالس واللجان التفصيلي» — هذا عام بالأعداد
+    label: "سجل اللجان العام",
+    description:
+      "سطر واحد لكل لجنة: نوعها وحالتها وعدد أعضائها واجتماعاتها — أعداد لا أسماء. للأعضاء وأدوارهم ومهامهم وحالة كل مهمة استخدم «سجل المجالس واللجان التفصيلي»",
     permission: "committees.read",
     columns: [col("nameAr", "اللجنة"), col("kind", "النوع"), col("status", "الحالة"), col("memberCount", "الأعضاء", "number"), col("meetingCount", "الاجتماعات", "number")],
     filters: ["search", "status"],
@@ -450,7 +456,8 @@ export const REPORTS: readonly ReportDefinition[] = [
     key: "committee-members",
     category: "committees",
     label: "سجل المجالس واللجان التفصيلي",
-    description: "صف مستقل لكل عضو: دوره ومهامه المسندة وحالة كل مهمة وفترة عضويته ونوع اللجنة وحالتها (v2.4)",
+    description:
+      "الموصى به حين تحتاج الأعضاء وأدوارهم ومهامهم وحالاتها: صف مستقل لكل عضو بدوره ومهامه المسندة وحالة كل مهمة وفترة عضويته ونوع اللجنة وحالتها (v2.4)",
     permission: "committees.read",
     columns: [
       col("committeeName", "اللجنة/المجلس"),

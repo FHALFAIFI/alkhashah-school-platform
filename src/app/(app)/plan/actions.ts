@@ -15,6 +15,7 @@ import { snapshotRecord } from "@/lib/versioning";
 import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
 import { PROGRAM_LIFECYCLE, LIFECYCLE_ACTIONS } from "@/lib/plan/lifecycle";
 import { notifyAll, notifyUser } from "@/lib/notify";
+import { isUuid } from "@/lib/validation";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -90,6 +91,8 @@ export async function correctProgramConsistencyAction(
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const d = parsed.data;
 
+  // معرّف مُلفَّق غير صالح يوقف الطلب برسالة عربية بدل «invalid input syntax for type uuid»
+  if (!isUuid(programId)) return { error: "البرنامج غير موجود" };
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
   if ((program.closedAt || program.status === "مقفل") && !user.permissions.has("plan.override")) {
@@ -106,8 +109,12 @@ export async function correctProgramConsistencyAction(
   let completedAt = program.completedAt;
   if (d.completedAt === "clear") completedAt = null;
   else if (d.completedAt && d.completedAt !== "keep") {
-    const parsedDate = new Date(d.completedAt);
+    // صيغة YYYY-MM-DD حصراً + مدى واقعي: تاريخ اكتمال في سنة 9999 يفسد كل ترتيب وتقرير
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.completedAt)) return { error: "تاريخ الاكتمال غير صحيح" };
+    const parsedDate = new Date(`${d.completedAt}T00:00:00.000Z`);
     if (Number.isNaN(parsedDate.getTime())) return { error: "تاريخ الاكتمال غير صحيح" };
+    const year = parsedDate.getUTCFullYear();
+    if (year < 2000 || year > 2100) return { error: "تاريخ الاكتمال خارج المدى المقبول" };
     completedAt = parsedDate;
   }
 
@@ -148,6 +155,12 @@ export async function correctProgramConsistencyAction(
   return { success: "صُحّحت حالة البرنامج" };
 }
 
+/**
+ * سقف الدفعة الواحدة في التصحيح الجماعي (v2.4.1 §5) — الشاشة تعرض عشرات البرامج لا آلافاً،
+ * فالسقف يمنع دفعة مُلفَّقة ضخمة من تحويل «تصحيح مراجَع» إلى كتابة جماعية غير مقروءة.
+ */
+const BULK_MAX_PROGRAMS = 200;
+
 /** العمليات الجماعية المسموحة — متجانسة وآمنة فقط، بلا «أصلح كل شيء» */
 const BULK_OPERATIONS = {
   resetToNotStarted: "إعادة الحالة إلى «لم يبدأ»",
@@ -173,11 +186,21 @@ export async function bulkCorrectProgramsAction(_prev: ActionState, formData: Fo
   const d = parsed.data;
   if (d.confirm !== "1") return { error: "أكّد العملية الجماعية قبل التنفيذ" };
 
-  const ids = d.programIds.split(",").map((s) => s.trim()).filter(Boolean);
+  // معرّفات مُطهَّرة: UUID صالح فقط، بلا تكرار، وبسقف يمنع دفعة ضخمة مُلفَّقة (v2.4.1 §5)
+  const ids = [...new Set(d.programIds.split(",").map((s) => s.trim()).filter((s) => isUuid(s)))];
   if (ids.length === 0) return { error: "اختر برنامجاً واحداً على الأقل" };
+  if (ids.length > BULK_MAX_PROGRAMS) return { error: `التصحيح الجماعي محدود بـ ${BULK_MAX_PROGRAMS} برنامجاً في المرة الواحدة` };
 
-  const rows = await db.select().from(programs).where(inArray(programs.id, ids));
+  // نطاق العملية = ما تعرضه شاشة المراجعة نفسها: سجلات حيّة غير مؤرشفة. معرّف مُلفَّق
+  // لبرنامج مؤرشف (لا يظهر في الشاشة ولا يقبل التصحيح) لا يمرّ لمجرد وروده في النموذج.
+  const rows = await db
+    .select()
+    .from(programs)
+    .where(and(inArray(programs.id, ids), isNull(programs.archivedAt)));
   if (rows.length === 0) return { error: "لم يُعثر على البرامج المختارة" };
+  if (rows.length !== ids.length) {
+    return { error: `${ids.length - rows.length} من البرامج المختارة غير موجود أو مؤرشف — حدّث الصفحة وأعد الاختيار` };
+  }
 
   const blocked = rows.filter((p) => (p.closedAt || p.status === "مقفل") && !user.permissions.has("plan.override"));
   if (blocked.length > 0) return { error: `${blocked.length} برنامج مقفل ضمن الاختيار — يتطلب صلاحية التجاوز` };

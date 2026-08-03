@@ -409,7 +409,8 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await exForm.locator('input[name="category"]').fill(`تصنيف ${TAG}`);
     await exForm.locator('input[name="paymentReference"]').fill(`INV-${TAG}`);
     await exForm.getByRole("button", { name: "حفظ المصروف" }).click();
-    await expect(page.getByText(/أُضيف المصروف|سُجّل المصروف/)).toBeVisible({ timeout: 20_000 });
+    // v2.4.1 §4.7: رسالة الحفظ صارت تحمل نتيجة العملية («المتبقي بعد العملية» أو سبب تعذّره)
+    await expect(page.getByText(/تم حفظ المصروف/)).toBeVisible({ timeout: 20_000 });
     // B1: رقم الفاتورة ظاهر في جدول المصروفات (كان يُخزَّن ولا يُعرض سابقاً)
     const exRow = page.locator("tr", { hasText: `INV-${TAG}` });
     await expect(exRow).toBeVisible({ timeout: 20_000 });

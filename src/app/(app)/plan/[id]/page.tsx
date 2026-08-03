@@ -124,7 +124,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
             <Badge value={programStatusLabel(program.status)} />
             {/* v2.4 §10: نقطة وصول ظاهرة للطباعة — التقرير وبطاقة البرنامج من صفحة واحدة */}
             {user.permissions.has("reports.generate") && (
-              <LinkButton href={`/plan/${id}/report`} variant="secondary">طباعة بطاقة البرنامج والتقرير</LinkButton>
+              <LinkButton href={`/plan/${id}/report`} variant="secondary">طباعة بطاقة البرنامج</LinkButton>
             )}
           </div>
         }

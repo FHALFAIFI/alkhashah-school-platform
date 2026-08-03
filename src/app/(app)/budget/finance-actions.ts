@@ -11,6 +11,9 @@ import { orFallback } from "@/lib/format";
 // ملف `"use server"` لا يُصدِّر إلا دوال async — الثوابت تعيش في وحدة عادية
 import { ITEM_COLORS } from "@/lib/finance/colors";
 import { allocationBelowSpentWarning } from "@/lib/finance/allocation";
+import { MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE, moneySubtract } from "@/lib/finance/calc";
+import { isUuid } from "@/lib/validation";
+import { formatMoney } from "@/lib/format";
 
 /**
  * إدارة بنود الصرف المدرسية والعمليات المالية (v2.2 §B).
@@ -28,10 +31,17 @@ export type ActionState = {
 } | null;
 
 
-/** مبلغ اختياري: الفارغ يبقى null، والمُدخَل يجب أن يكون عدداً صحيح الصيغة غير سالب */
+/**
+ * مبلغ اختياري: الفارغ يبقى null، والمُدخَل يجب أن يكون عدداً صحيح الصيغة غير سالب
+ * ودون السقف الأعلى (v2.4.1 §5 — عمود `numeric` بلا سقف يقبل قيمة عبثية تفسد كل المجاميع).
+ */
 const optionalAmount = z.preprocess(
   (v) => (v === "" || v === null || v === undefined ? undefined : v),
-  z.coerce.number({ message: "المبلغ غير صحيح" }).nonnegative("المبلغ لا يكون سالباً").optional(),
+  z.coerce
+    .number({ message: "المبلغ غير صحيح" })
+    .nonnegative("المبلغ لا يكون سالباً")
+    .max(MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE)
+    .optional(),
 );
 
 const itemSchema = z.object({
@@ -76,6 +86,7 @@ export async function createFinancialItemAction(_prev: ActionState, formData: Fo
 /** تعديل اسم البند أو مخصصه أو لونه */
 export async function updateFinancialItemAction(itemId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("budget.write");
+  if (!isUuid(itemId)) return { error: "البند غير موجود" };
   const parsed = itemSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const d = parsed.data;
@@ -83,11 +94,24 @@ export async function updateFinancialItemAction(itemId: string, _prev: ActionSta
   const [existing] = await db.select().from(financialItems).where(eq(financialItems.id, itemId));
   if (!existing) return { error: "البند غير موجود" };
 
+  // v2.4.1 §5: نموذج تعديل البند العام لا يكون طريقاً جانبياً حول حارس «المخصص أقل من
+  // المصروف» — إن غيّر المخصص فعلياً خضع للتأكيد الصريح نفسه وسجّل المصروف وقت التغيير.
+  const previousAllocation = existing.allocatedAmount === null ? null : Number(existing.allocatedAmount);
+  const proposedAllocation = d.allocatedAmount === undefined ? null : d.allocatedAmount;
+  const allocationChanged = previousAllocation !== proposedAllocation;
+  const spent = allocationChanged ? await spentForItem(itemId) : 0;
+  if (allocationChanged && proposedAllocation !== null && proposedAllocation < spent && formData.get("confirmBelowSpent") !== "1") {
+    return {
+      error: `${allocationBelowSpentWarning(formatMoney(proposedAllocation), formatMoney(spent))} — أكّد المتابعة لحفظ هذه القيمة`,
+      needsConfirmation: true,
+    };
+  }
+
   await db
     .update(financialItems)
     .set({
       nameAr: d.nameAr || null,
-      allocatedAmount: d.allocatedAmount === undefined ? null : String(d.allocatedAmount),
+      allocatedAmount: proposedAllocation === null ? null : String(proposedAllocation),
       color: d.color || null,
       notes: d.notes || null,
       updatedAt: new Date(),
@@ -100,8 +124,18 @@ export async function updateFinancialItemAction(itemId: string, _prev: ActionSta
     entityType: "financial_item",
     entityId: itemId,
     summary: `تعديل بند «${orFallback(d.nameAr, "بند بدون اسم")}» — المخصص ${d.allocatedAmount ?? "—"}`,
+    detail: allocationChanged
+      ? {
+          previousAllocation,
+          newAllocation: proposedAllocation,
+          spentAtChange: spent,
+          remainingAfter: proposedAllocation === null ? null : moneySubtract(proposedAllocation, spent),
+          confirmedBelowSpent: formData.get("confirmBelowSpent") === "1",
+        }
+      : undefined,
   });
   revalidatePath("/budget");
+  revalidatePath(`/budget/items/${itemId}`);
   return { success: "حُفظ البند" };
 }
 
@@ -140,6 +174,8 @@ export async function setItemAllocationAction(
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const d = parsed.data;
 
+  // معرّف مُلفَّق يُردّ برسالة عربية قبل أن يصل إلى استعلام على عمود uuid (v2.4.1 §5)
+  if (!isUuid(itemId)) return { error: "البند غير موجود" };
   const [item] = await db.select().from(financialItems).where(eq(financialItems.id, itemId));
   if (!item) return { error: "البند غير موجود" };
 
@@ -149,7 +185,10 @@ export async function setItemAllocationAction(
 
   // خفض المخصص تحت المصروف: مسموح بعد تأكيد صريح — البند يصبح متجاوزاً ولا يُطبَّع رقمه
   if (proposed !== null && proposed < spent && d.confirmBelowSpent !== "1") {
-    return { error: `${allocationBelowSpentWarning(proposed, spent)} — أكّد المتابعة لحفظ هذه القيمة`, needsConfirmation: true };
+    return {
+      error: `${allocationBelowSpentWarning(formatMoney(proposed), formatMoney(spent))} — أكّد المتابعة لحفظ هذه القيمة`,
+      needsConfirmation: true,
+    };
   }
 
   await db
@@ -167,7 +206,8 @@ export async function setItemAllocationAction(
       previousAllocation: previous,
       newAllocation: proposed,
       spentAtChange: spent,
-      remainingAfter: proposed === null ? null : proposed - spent,
+      // حساب الهللة الدقيق (D-043) — لا طرح عشري خام يسرّب 0.30000000000000004
+      remainingAfter: proposed === null ? null : moneySubtract(proposed, spent),
       note: d.note || null,
       confirmedBelowSpent: d.confirmBelowSpent === "1",
     },
@@ -178,7 +218,7 @@ export async function setItemAllocationAction(
     success:
       proposed === null
         ? "أُزيل المخصص — لن يُحتسب متبقٍ لهذا البند"
-        : `حُفظ المخصص — المتبقي الآن: ${proposed - spent} ريال`,
+        : `حُفظ المخصص — المتبقي الآن: ${formatMoney(moneySubtract(proposed, spent))} ريال`,
   };
 }
 
@@ -188,6 +228,7 @@ export async function setItemAllocationAction(
  */
 export async function archiveFinancialItemAction(itemId: string): Promise<ActionState> {
   const user = await requirePermission("budget.write");
+  if (!isUuid(itemId)) return { error: "البند غير موجود" };
   const [item] = await db.select().from(financialItems).where(eq(financialItems.id, itemId));
   if (!item) return { error: "البند غير موجود" };
   if (item.archivedAt) return { success: "البند مؤرشف مسبقاً" };
@@ -210,6 +251,7 @@ export async function archiveFinancialItemAction(itemId: string): Promise<Action
 /** استعادة بند مؤرشف */
 export async function restoreFinancialItemAction(itemId: string): Promise<ActionState> {
   const user = await requirePermission("budget.write");
+  if (!isUuid(itemId)) return { error: "البند غير موجود" };
   const [item] = await db.select().from(financialItems).where(eq(financialItems.id, itemId));
   if (!item) return { error: "البند غير موجود" };
   if (!item.archivedAt) return { success: "البند غير مؤرشف" };
@@ -232,6 +274,7 @@ export async function restoreFinancialItemAction(itemId: string): Promise<Action
 /** تحريك بند لأعلى/أسفل في ترتيب العرض — تبديل ترتيب مع الجار المباشر */
 export async function reorderFinancialItemAction(itemId: string, direction: "up" | "down"): Promise<ActionState> {
   const user = await requirePermission("budget.write");
+  if (!isUuid(itemId)) return { error: "البند غير موجود" };
   const all = await db.select().from(financialItems).orderBy(financialItems.sortOrder, financialItems.createdAt);
   const index = all.findIndex((i) => i.id === itemId);
   if (index === -1) return { error: "البند غير موجود" };
@@ -300,6 +343,7 @@ export async function createDefaultFinancialItemsAction(): Promise<ActionState> 
  */
 export async function archiveIncomeAction(incomeId: string): Promise<ActionState> {
   const user = await requirePermission("budget.write");
+  if (!isUuid(incomeId)) return { error: "السجل غير موجود" };
   const [row] = await db.select().from(budgetIncome).where(eq(budgetIncome.id, incomeId));
   if (!row) return { error: "الإيراد غير موجود" };
   if (row.archivedAt) return { success: "الإيراد مؤرشف مسبقاً" };
@@ -314,6 +358,7 @@ export async function archiveIncomeAction(incomeId: string): Promise<ActionState
 
 export async function restoreIncomeAction(incomeId: string): Promise<ActionState> {
   const user = await requirePermission("budget.write");
+  if (!isUuid(incomeId)) return { error: "السجل غير موجود" };
   const [row] = await db.select().from(budgetIncome).where(eq(budgetIncome.id, incomeId));
   if (!row) return { error: "الإيراد غير موجود" };
   if (!row.archivedAt) return { success: "الإيراد غير مؤرشف" };
@@ -325,6 +370,7 @@ export async function restoreIncomeAction(incomeId: string): Promise<ActionState
 
 export async function archiveExpenseAction(expenseId: string): Promise<ActionState> {
   const user = await requirePermission("budget.write");
+  if (!isUuid(expenseId)) return { error: "السجل غير موجود" };
   const [row] = await db.select().from(budgetExpenses).where(eq(budgetExpenses.id, expenseId));
   if (!row) return { error: "المصروف غير موجود" };
   if (row.archivedAt) return { success: "المصروف مؤرشف مسبقاً" };
@@ -339,6 +385,7 @@ export async function archiveExpenseAction(expenseId: string): Promise<ActionSta
 
 export async function restoreExpenseAction(expenseId: string): Promise<ActionState> {
   const user = await requirePermission("budget.write");
+  if (!isUuid(expenseId)) return { error: "السجل غير موجود" };
   const [row] = await db.select().from(budgetExpenses).where(eq(budgetExpenses.id, expenseId));
   if (!row) return { error: "المصروف غير موجود" };
   if (!row.archivedAt) return { success: "المصروف غير مؤرشف" };

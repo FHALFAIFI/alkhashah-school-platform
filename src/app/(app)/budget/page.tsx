@@ -11,6 +11,7 @@ import {
   ALLOCATION_NONE_HINT,
   ALLOCATION_NONE_VALUE,
   REMAINING_UNAVAILABLE,
+  SET_ALLOCATION_CTA,
   ZERO_ALLOCATION_WARNING,
 } from "@/lib/finance/allocation";
 import { SetAllocationForm } from "./allocation-ui";
@@ -66,6 +67,8 @@ export default async function BudgetPage({
 
   const liveLines = lines.filter((l) => !l.archived);
   const archivedLines = lines.filter((l) => l.archived);
+  // البنود الحيّة بلا مخصص — تُعلن نصاً قبل الجدول (§1) بدل أن يُكتشف «غير محدد» صفاً صفاً
+  const unallocatedLines = liveLines.filter((l) => l.allocationState === "none");
 
   // نموذج البنود لواجهة الإدخال — الأرقام محسوبة على الخادم ومُمرَّرة كما هي
   const itemOptions: ItemLine[] = liveLines.map((l) => ({
@@ -276,6 +279,13 @@ export default async function BudgetPage({
             </div>
           )}
         </div>
+        {/* v2.4.1 §1: البنود بلا مخصص تُعلن قبل الجدول ومعها الإجراء المصحّح — لا اكتشاف بالصدفة */}
+        {unallocatedLines.length > 0 && (
+          <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {unallocatedLines.length} من بنود الصرف بلا مخصص ({unallocatedLines.map((l) => orFallback(l.name, "بند بدون اسم")).join("، ")}):
+            {" "}{ALLOCATION_NONE_HINT} — {REMAINING_UNAVAILABLE}. استخدم «{SET_ALLOCATION_CTA}» في صف البند أو بطاقته.
+          </p>
+        )}
         {liveLines.length === 0 ? (
           <EmptyState
             title="لا توجد بنود صرف بعد"
@@ -290,16 +300,42 @@ export default async function BudgetPage({
                     {orFallback(l.name, "بند بدون اسم")}
                   </Link>
                 </td>
-                <td className="px-3 py-2 tabular-nums">{formatMoney(l.allocated)}</td>
+                {/* v2.4.1 §1: الجدول لا يعرض «—» مجرّداً — يقول «غير محدد» ويشرح سبب تعذّر الاحتساب */}
+                <td className="px-3 py-2 tabular-nums">
+                  {l.hasAllocation ? (
+                    formatMoney(l.allocated)
+                  ) : (
+                    <span className="whitespace-nowrap text-amber-800">{ALLOCATION_NONE_VALUE}</span>
+                  )}
+                </td>
                 <td className="px-3 py-2 tabular-nums">{formatMoney(l.income)}</td>
                 <td className="px-3 py-2 tabular-nums">{formatMoney(l.expenses)}</td>
-                <td className={`px-3 py-2 tabular-nums ${l.overspent ? "text-red-700" : ""}`}>{formatMoney(l.remaining)}</td>
+                <td className={`px-3 py-2 tabular-nums ${l.overspent ? "text-red-700" : ""}`}>
+                  {l.remaining === null ? (
+                    <span className="text-xs text-amber-800">{REMAINING_UNAVAILABLE}</span>
+                  ) : (
+                    formatMoney(l.remaining)
+                  )}
+                </td>
                 <td className="px-3 py-2 tabular-nums">{l.spentPercent === null ? "—" : `${l.spentPercent}٪`}</td>
                 <td className="px-3 py-2 tabular-nums">{l.operationCount}</td>
                 <td className="px-3 py-2">
                   {l.overspent ? <Badge value="تجاوز" /> : l.nearExhaustion ? <Badge value="قارب الاستنفاد" /> : null}
                 </td>
-                <td className="px-3 py-2">{canWrite && <ItemRowActions id={l.id} archived={false} />}</td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap items-start gap-1">
+                    {canWrite && l.allocationState === "none" && (
+                      <SetAllocationForm
+                        itemId={l.id}
+                        itemName={orFallback(l.name, "بند بدون اسم")}
+                        currentAllocation={l.allocated}
+                        spent={l.expenses}
+                        compact
+                      />
+                    )}
+                    {canWrite && <ItemRowActions id={l.id} archived={false} />}
+                  </div>
+                </td>
               </tr>
             ))}
           </Table>

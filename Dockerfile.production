@@ -59,6 +59,12 @@ USER madrasa
 
 ENV STORAGE_DIR=/data/storage
 ENV BACKUP_DIR=/data/backups
+
+# هوية الإصدار (v2.4.1 §8): الالتزام يُحقن وقت البناء فتُعرِّف الصورة نفسها في /api/health
+# بلا اعتماد على متغيّر بيئة يُنسى عند النشر. لا يحمل سراً — سبع خانات من تجزئة git.
+ARG RELEASE_COMMIT=unknown
+ENV RELEASE_COMMIT=${RELEASE_COMMIT}
+
 EXPOSE 3080
 
 # فحص صحة الحاوية عبر نقطة /api/health

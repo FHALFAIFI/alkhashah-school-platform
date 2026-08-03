@@ -162,7 +162,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
                   <LinkButton href={`/plan/${p.id}`} variant="secondary">فتح</LinkButton>
                   {/* v2.4 §10: وصول مباشر لبطاقة البرنامج وتقريره من القائمة */}
                   {canGenerate && (
-                    <LinkButton href={`/plan/${p.id}/report`} variant="secondary">البطاقة والتقرير</LinkButton>
+                    <LinkButton href={`/plan/${p.id}/report`} variant="secondary">طباعة بطاقة البرنامج</LinkButton>
                   )}
                 </span>
               </td>

@@ -10,6 +10,7 @@ import {
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { seedCommitteeTaskTemplates, activeTaskTemplatesFor } from "@/lib/committees/task-templates";
+import { isUuid } from "@/lib/validation";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -31,6 +32,7 @@ async function nextAssignmentOrder(committeeId: string): Promise<number> {
 /** تحميل المهام المعرّفة مسبقاً لنوع اللجنة إلى توزيعها (بلا تكرار المحمّل سابقاً). */
 export async function loadCommitteeTasksAction(committeeId: string): Promise<ActionState> {
   const user = await requirePermission("committees.write");
+  if (!isUuid(committeeId)) return { error: "اللجنة غير موجودة" };
   const [c] = await db.select().from(committees).where(eq(committees.id, committeeId));
   if (!c) return { error: "اللجنة غير موجودة" };
   if (c.status === "مقفلة") return { error: "اللجنة مقفلة — لا تعديل" };
@@ -62,6 +64,7 @@ export async function addCommitteeTaskAction(committeeId: string, _prev: ActionS
   const user = await requirePermission("committees.write");
   const parsed = taskSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
+  if (!isUuid(committeeId)) return { error: "اللجنة غير موجودة" };
   const [c] = await db.select({ status: committees.status }).from(committees).where(eq(committees.id, committeeId));
   if (!c) return { error: "اللجنة غير موجودة" };
   if (c.status === "مقفلة") return { error: "اللجنة مقفلة — لا تعديل" };
@@ -76,7 +79,12 @@ export async function addCommitteeTaskAction(committeeId: string, _prev: ActionS
   return { success: "أُضيفت المهمة" };
 }
 
+/**
+ * لجنة المهمة — بوابة كل إجراءات المهام. معرّف مُلفَّق غير صالح يُردّ هنا (v2.4.1 §5) بدل أن
+ * يصل إلى استعلام على عمود uuid فيرمي Postgres خطأ صيغة يظهر كعطل خادم.
+ */
 async function taskCommitteeId(taskId: string): Promise<string | null> {
+  if (!isUuid(taskId)) return null;
   const [t] = await db.select({ committeeId: committeeTaskAssignments.committeeId }).from(committeeTaskAssignments).where(eq(committeeTaskAssignments.id, taskId));
   return t?.committeeId ?? null;
 }
@@ -103,6 +111,7 @@ export async function assignCommitteeTaskAction(taskId: string, memberId: string
   if (!committeeId) return { error: "المهمة غير موجودة" };
   let assigned: string | null = null;
   if (memberId) {
+    if (!isUuid(memberId)) return { error: "العضو غير موجود في هذه اللجنة" };
     const [m] = await db.select({ id: committeeMembers.id }).from(committeeMembers).where(and(eq(committeeMembers.id, memberId), eq(committeeMembers.committeeId, committeeId)));
     if (!m) return { error: "العضو غير موجود في هذه اللجنة" };
     assigned = m.id;
@@ -157,6 +166,7 @@ export async function deleteCommitteeTaskAction(taskId: string): Promise<ActionS
 
 export async function moveCommitteeTaskAction(taskId: string, direction: "up" | "down"): Promise<ActionState> {
   const user = await requirePermission("committees.write");
+  if (!isUuid(taskId)) return { error: "المهمة غير موجودة" };
   const [task] = await db.select().from(committeeTaskAssignments).where(eq(committeeTaskAssignments.id, taskId));
   if (!task) return { error: "المهمة غير موجودة" };
   const siblings = await db

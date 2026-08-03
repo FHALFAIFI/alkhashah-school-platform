@@ -22,8 +22,21 @@ export function PageHeader({
   );
 }
 
-export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-sand-200 bg-white p-4 ${className}`}>{children}</div>;
+export function Card({
+  children,
+  className = "",
+  id,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  /** هدف رابط داخلي (#id) حين تُقصد البطاقة مباشرةً من صفحة أخرى */
+  id?: string;
+}) {
+  return (
+    <div id={id} className={`rounded-xl border border-sand-200 bg-white p-4 ${id ? "scroll-mt-20 " : ""}${className}`}>
+      {children}
+    </div>
+  );
 }
 
 const badgeColors: Record<string, string> = {

@@ -40,8 +40,11 @@ export const SET_ALLOCATION_CTA = "تحديد المخصص";
 /** تحذير الصرف على بند مخصصه صفر */
 export const ZERO_ALLOCATION_WARNING = "يوجد صرف على بند مخصصه صفر — كل مبلغ مصروف يُعدّ تجاوزاً";
 
-/** تنبيه خفض المخصص إلى ما دون المصروف الفعلي (يتطلب تأكيداً صريحاً) */
-export function allocationBelowSpentWarning(proposed: number, spent: number): string {
+/**
+ * تنبيه خفض المخصص إلى ما دون المصروف الفعلي (يتطلب تأكيداً صريحاً).
+ * القيم تُمرَّر منسَّقة مسبقاً (`formatMoney`) حتى يقرأ المدير رقماً مجمَّعاً لا رقماً خاماً.
+ */
+export function allocationBelowSpentWarning(proposed: number | string, spent: number | string): string {
   return `المخصص المقترح (${proposed}) أقل من المصروف الفعلي (${spent}) — سيصبح البند متجاوزاً فور الحفظ`;
 }
 
