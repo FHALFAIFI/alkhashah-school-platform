@@ -8,10 +8,10 @@
   principal a visible, audited workflow for the three production DATA preconditions the v2.4
   investigation identified, and fabricates no value on their behalf. Full record:
   **`docs/DELIVERY_V2_4_1.md`**.
-  - Branch `scope-v2.4.1-data-correction`, head **`bdbd02a`** (base `c5d13f8` = v2.4.0).
+  - Branch `scope-v2.4.1-data-correction`, head **`a8e1cf3`** (base `c5d13f8` = v2.4.0).
   - RC image **`madrasa-app:0.1.0-v2_4_1-rc`** =
-    `sha256:a7550df8434baab39ff34dbadb70ea58cdd598018841834ab15294662a887354`
-    (`RELEASE_COMMIT=bdbd02a`, chromium-1228, no `src/lib/ai`, 29 migration files).
+    `sha256:b2f9b613fd07cd55dd7d4db05d0462ada26a6faec095009fead15be40698f1ce`
+    (`RELEASE_COMMIT=a8e1cf3`, chromium-1228, no `src/lib/ai`, 29 migration files).
   - **No migration.** Ledger stays **29**, tables **86** — verified unchanged on the clone
     before and after the rehearsal. Rollback is app-only, **no DB action** (rehearsed).
   - Gates: typecheck 0 · lint 0 · **vitest 806/806** · **Playwright 92 passed / 1 standing

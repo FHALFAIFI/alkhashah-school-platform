@@ -213,11 +213,13 @@ and the 2 NULL allocations stay as they are until the principal sets them.
 
 ## 12) RC image
 
-**`madrasa-app:0.1.0-v2_4_1-rc` = `sha256:a7550df8434baab39ff34dbadb70ea58cdd598018841834ab15294662a887354`**
-(linux/arm64, `Dockerfile.production`, `RELEASE_COMMIT=bdbd02a`).
+**`madrasa-app:0.1.0-v2_4_1-rc` = `sha256:b2f9b613fd07cd55dd7d4db05d0462ada26a6faec095009fead15be40698f1ce`**
+(linux/arm64, `Dockerfile.production`, `RELEASE_COMMIT=a8e1cf3`). Commits after `a8e1cf3` on this branch
+are documentation only — `git diff a8e1cf3..HEAD --stat` touches no source file, so the
+image is the tree that ships.
 
-Verified: `/api/health` → `{"status":"ok","db":"up","version":"2.4.1","commit":"bdbd02a","environment":"production"}`;
-in-container Chromium probe → `PDF-OK %PDF-`; Playwright browser build **chromium-1228**
+Verified: `/api/health` → `{"status":"ok","db":"up","version":"2.4.1","commit":"a8e1cf3","environment":"production"}`;
+in-container Chromium probe → `PDF-OK`; Playwright browser build **chromium-1228**
 matching the locked 1.61.1 (the v2.3 PDF-500 invariant holds); **29** migration files;
 `src/lib/ai` absent (D-035); boots against the clone with no migration and no AI dependency.
 

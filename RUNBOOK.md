@@ -7,8 +7,8 @@
 | البند | القيمة |
 | --- | --- |
 | الإصدار | **v2.4.1** — بروفة كاملة على نسخة من الإنتاج (`docs/DELIVERY_V2_4_1.md`) |
-| الالتزام | `bdbd02a` على `scope-v2.4.1-data-correction` |
-| صورة المرشَّح | `madrasa-app:0.1.0-v2_4_1-rc` = `sha256:a7550df8434b…` |
+| الالتزام | `a8e1cf3` على `scope-v2.4.1-data-correction` |
+| صورة المرشَّح | `madrasa-app:0.1.0-v2_4_1-rc` = `sha256:b2f9b613fd07…` |
 | سجل الهجرات | **29** (بلا تغيير) · الجداول **86** |
 | التراجع | تبديل صورة فقط — **لا إجراء على قاعدة البيانات** (مُثبَت بالبروفة) |
 | الوسم | `v2.4.1` **لم يُنشأ بعد** — يُنشأ عند النشر كما في v2.2/v2.3 |
@@ -36,7 +36,7 @@
 | 2026-07-30 | v2.2.1 | — | `ab259dd8` | 23 |
 | 2026-07-31 | v2.3.0 | `b47558c` | `7f5ff14a` | 27 |
 | **2026-08-03** | **v2.4.0** | **`da8db16`** | **`2f69c724`** | **29** |
-| _(مرشَّح)_ | v2.4.1 | `bdbd02a` | `a7550df8` | 29 (بلا هجرة) |
+| _(مرشَّح)_ | v2.4.1 | `a8e1cf3` | `b2f9b613` | 29 (بلا هجرة) |
 
 ### التراجع السريع (بلا أي إجراء على القاعدة)
 
@@ -109,7 +109,7 @@ docker tag madrasa-app:0.1.0-v2_4_1-rc madrasa-app:0.1.0
 docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod   up -d --no-deps --force-recreate app
 
 # 4) تحقّق
-curl -s http://127.0.0.1:3080/api/health   # version=2.4.1 · commit=bdbd02a
+curl -s http://127.0.0.1:3080/api/health   # version=2.4.1 · commit=a8e1cf3
 docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc   "select count(*) from drizzle.__drizzle_migrations"   # يجب أن يبقى 29
 ```
 التراجع: أعد وسم `madrasa-app:0.1.0-prev-v2_4_1-<التاريخ>` إلى `madrasa-app:0.1.0` وأعد
