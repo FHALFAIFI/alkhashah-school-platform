@@ -45,13 +45,14 @@ export function CorrectProgramForm({
 }) {
   const [open, setOpen] = useState(false);
   const [seenSuccess, setSeenSuccess] = useState<string | undefined>(undefined);
-  const [state, formAction] = useActionState<ActionState, FormData>(
+  const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     correctProgramConsistencyAction.bind(null, programId),
     null,
   );
   useRefreshOnSuccess(state);
-  // طيّ النموذج بعد النجاح — تعديل حالة أثناء التصيير لا داخل تأثير
-  if (state?.success && state.success !== seenSuccess) {
+  // طيّ النموذج بعد **اكتمال** الانتقال — تفكيكه لحظة وصول النتيجة يُجهض تدفّق الاستجابة
+  // (انظر components/form-reset). تعديل الحالة أثناء التصيير لا داخل تأثير.
+  if (state?.success && !isPending && state.success !== seenSuccess) {
     setSeenSuccess(state.success);
     setOpen(false);
   }

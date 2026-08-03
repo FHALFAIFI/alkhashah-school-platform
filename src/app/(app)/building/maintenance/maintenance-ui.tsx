@@ -78,7 +78,7 @@ export function IssueWorkflowControl({
   status: string;
   resolution: string | null;
 }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(transitionIssueAction, null);
+  const [state, formAction, isPending] = useActionState<ActionState, FormData>(transitionIssueAction, null);
   const router = useRouter();
   // بعد نجاح الانتقال: تحديث فوري للعرض — لا شاشة قديمة تحتاج تحديثاً يدوياً
   useEffect(() => {
@@ -89,8 +89,9 @@ export function IssueWorkflowControl({
   if (allowed.length === 0) return null;
 
   return (
-    // إعادة التركيب عند النجاح تطوي نموذج الانتقال المفتوح (نمط key المعتمد في المشروع)
-    <div key={state?.success ?? "init"}>
+    // يُطوى نموذج الانتقال بعد **اكتمال** الانتقال لا في لحظة وصول النتيجة: تفكيك النموذج
+    // أثناء تدفّق استجابة الإجراء يُجهض التدفّق فتضيع إعادة التصيير (انظر components/form-reset).
+    <div key={state?.success && !isPending ? state.success : "init"}>
       <WorkflowButtons state={state} formAction={formAction} issueId={issueId} allowed={allowed} resolution={resolution} />
     </div>
   );

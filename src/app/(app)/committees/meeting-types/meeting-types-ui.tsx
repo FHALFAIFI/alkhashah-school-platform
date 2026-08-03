@@ -4,11 +4,14 @@ import { useActionState, useState, useTransition } from "react";
 import { addMeetingTypeAction, toggleMeetingTypeActiveAction, deleteMeetingTypeAction, type ActionState } from "../actions";
 import { setMeetingTypeSignatureAction } from "../task-actions";
 import { Field, SubmitButton } from "@/components/ui";
+import { useResetOnSuccess } from "@/components/form-reset";
 
 export function AddMeetingTypeForm() {
   const [state, formAction] = useActionState<ActionState, FormData>(addMeetingTypeAction, null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   return (
-    <form key={state?.success ?? "f"} action={formAction} className="flex flex-wrap items-end gap-2">
+    <form ref={formRef} action={formAction} className="flex flex-wrap items-end gap-2">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="w-full rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
       <div className="min-w-56 flex-1">

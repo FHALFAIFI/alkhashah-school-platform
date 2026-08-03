@@ -24,6 +24,7 @@ import { ITEM_COLORS } from "@/lib/finance/colors";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
 import { formatMoney, orFallback } from "@/lib/format";
 import { overrunWarning } from "@/lib/finance/calc";
+import { useResetOnSuccess } from "@/components/form-reset";
 
 /**
  * واجهة المالية المدرسية (v2.2 §B).
@@ -48,6 +49,8 @@ const itemLabel = (name: string | null) => orFallback(name, "بند بدون ا�
 
 export function AddIncomeForm({ planYearId, items }: { planYearId: string; items: ItemLine[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addIncomeAction, null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -55,7 +58,7 @@ export function AddIncomeForm({ planYearId, items }: { planYearId: string; items
         {open ? "إغلاق" : "إضافة إيراد"}
       </button>
       {open && (
-        <form key={state?.success} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
+        <form ref={formRef} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="planYearId" value={planYearId} />
@@ -100,6 +103,8 @@ export function AddIncomeForm({ planYearId, items }: { planYearId: string; items
 
 export function AddExpenseForm({ planYearId, items }: { planYearId: string; items: ItemLine[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addExpenseAction, null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   const [open, setOpen] = useState(false);
   const [itemId, setItemId] = useState("");
   const [amount, setAmount] = useState("");
@@ -122,7 +127,7 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
         {open ? "إغلاق" : "إضافة مصروف"}
       </button>
       {open && (
-        <form key={state?.success} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
+        <form ref={formRef} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="planYearId" value={planYearId} />
@@ -214,6 +219,8 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
 export function FinancialItemForm({ item }: { item?: ItemLine & { color?: string | null; notes?: string | null } }) {
   const action = item ? updateFinancialItemAction.bind(null, item.id) : createFinancialItemAction;
   const [state, formAction] = useActionState<ActionState, FormData>(action, null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -221,7 +228,7 @@ export function FinancialItemForm({ item }: { item?: ItemLine & { color?: string
         {open ? "إغلاق" : item ? "تعديل" : "إضافة بند صرف"}
       </button>
       {open && (
-        <form key={state?.success} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
+        <form ref={formRef} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

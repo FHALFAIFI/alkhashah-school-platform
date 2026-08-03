@@ -11,6 +11,7 @@ import {
   type ActionState,
 } from "../task-actions";
 import { SubmitButton } from "@/components/ui";
+import { useResetOnSuccess } from "@/components/form-reset";
 
 type Tmpl = { id: string; title: string; active: boolean };
 
@@ -75,8 +76,10 @@ export function TaskTemplateManager({ templateKey, tasks, canManage }: { templat
 
 function AddTemplateForm({ templateKey }: { templateKey: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addTaskTemplateAction, null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   return (
-    <form key={state?.success} action={formAction} className="flex flex-wrap items-end gap-2 rounded-lg bg-sand-50 p-2">
+    <form ref={formRef} action={formAction} className="flex flex-wrap items-end gap-2 rounded-lg bg-sand-50 p-2">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-1.5 text-xs text-red-700">{state.error}</div>}
       <input type="hidden" name="templateKey" value={templateKey} />
       <div className="min-w-0 flex-1 basis-56">

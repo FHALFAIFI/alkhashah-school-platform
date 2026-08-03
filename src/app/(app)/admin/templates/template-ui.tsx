@@ -32,6 +32,7 @@ import {
 import { renderTemplate, sampleValues, sampleTable } from "@/lib/templates/render";
 import { DOC_SECTIONS, columnsFor, resolveColumns, resolveSections } from "@/lib/templates/structure";
 import type { PlaceholderDef } from "@/lib/templates/placeholders";
+import { useResetOnSuccess } from "@/components/form-reset";
 
 /**
  * محرّر القوالب (v2.2 §E2/§E4).
@@ -55,6 +56,8 @@ const DOCNUM_LABELS: Record<string, string> = {
 
 export function CreateTemplateForm({ docTypes }: { docTypes: { value: string; label: string }[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createTemplateAction, null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -65,7 +68,7 @@ export function CreateTemplateForm({ docTypes }: { docTypes: { value: string; la
         {open ? "إغلاق" : "إنشاء قالب"}
       </button>
       {open && (
-        <form key={state?.success} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
+        <form ref={formRef} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <div>
@@ -650,6 +653,8 @@ export function TemplateEditor({
 /** استيراد إعداد قالب مُتحقَّق منه (§E6) */
 export function ImportConfigForm({ templateId }: { templateId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(importTemplateConfigAction.bind(null, templateId), null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -657,7 +662,7 @@ export function ImportConfigForm({ templateId }: { templateId: string }) {
         {open ? "إغلاق الاستيراد" : "استيراد إعداد"}
       </button>
       {open && (
-        <form key={state?.success} action={formAction} className="mt-2 space-y-2">
+        <form ref={formRef} action={formAction} className="mt-2 space-y-2">
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <textarea name="payload" rows={4} placeholder="ألصق إعداد القالب (JSON)" className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs" />

@@ -290,13 +290,17 @@ export function FindingControls({
   hasIssue: boolean;
   canCreateIssue: boolean;
 }) {
-  const [updateState, updateForm] = useActionState<ActionState, FormData>(updateFindingAction, null);
-  const [closeState, closeForm] = useActionState<ActionState, FormData>(closeFindingAction, null);
-  const [issueState, issueForm] = useActionState<ActionState, FormData>(createIssueFromFindingAction, null);
-  const successMarker = updateState?.success || closeState?.success || issueState?.success || null;
+  const [updateState, updateForm, updatePending] = useActionState<ActionState, FormData>(updateFindingAction, null);
+  const [closeState, closeForm, closePending] = useActionState<ActionState, FormData>(closeFindingAction, null);
+  const [issueState, issueForm, issuePending] = useActionState<ActionState, FormData>(createIssueFromFindingAction, null);
+  const anyPending = updatePending || closePending || issuePending;
+  const rawSuccess = updateState?.success || closeState?.success || issueState?.success || null;
+  // يُعاد التركيب بعد **اكتمال** الانتقال فقط: تفكيك النموذج أثناء تدفّق استجابة الإجراء
+  // يُجهض التدفّق فتضيع إعادة التصيير (انظر components/form-reset).
+  const successMarker = anyPending ? null : rawSuccess;
   const router = useRouter();
 
-  // بعد النجاح: تحديث فوري للعرض — إعادة التركيب عبر key تطوي النموذج المفتوح
+  // بعد النجاح: تحديث فوري للعرض
   useEffect(() => {
     if (successMarker) router.refresh();
   }, [successMarker, router]);

@@ -21,6 +21,7 @@ import {
   ADD_TASK_CTA,
   taskStatusLabel,
 } from "@/lib/committees/task-status";
+import { useResetOnSuccess } from "@/components/form-reset";
 
 type TaskRow = {
   id: string;
@@ -208,8 +209,10 @@ function TaskItem({
 
 function AddTaskForm({ committeeId }: { committeeId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addCommitteeTaskAction.bind(null, committeeId), null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   return (
-    <form key={state?.success} action={formAction} className="flex flex-wrap items-end gap-2 rounded-lg bg-sand-50 p-3">
+    <form ref={formRef} action={formAction} className="flex flex-wrap items-end gap-2 rounded-lg bg-sand-50 p-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       <div className="min-w-0 flex-1 basis-56">
         <label className="mb-1 block text-xs text-gray-500">مهمة جديدة</label>

@@ -8,6 +8,7 @@ import {
 } from "../../../actions";
 import { MEETING_ATTACHMENT_CATEGORIES } from "@/lib/committees/constants";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
+import { useResetOnSuccess } from "@/components/form-reset";
 
 type MeetingType = { id: string; nameAr: string };
 
@@ -51,8 +52,10 @@ export function MeetingEditForm({
 /** إضافة مرفق خاص للاجتماع: عنوان، وصف، فئة، ملف. (ليست حضوراً — لا حضور ولا غياب.) */
 export function MeetingAttachmentForm({ meetingId }: { meetingId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addMeetingAttachmentAction.bind(null, meetingId), null);
+  // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
+  const formRef = useResetOnSuccess(state);
   return (
-    <form key={state?.success ?? "f"} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
+    <form ref={formRef} action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -32,7 +32,7 @@ export function SetAllocationForm({
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [state, formAction] = useActionState<ActionState, FormData>(
+  const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     setItemAllocationAction.bind(null, itemId),
     null,
   );
@@ -40,8 +40,10 @@ export function SetAllocationForm({
   const [seenSuccess, setSeenSuccess] = useState<string | undefined>(undefined);
   const router = useRouter();
 
-  // طيّ النموذج بعد النجاح — تعديل حالة أثناء التصيير (النمط الموصى به) لا داخل تأثير
-  if (state?.success && state.success !== seenSuccess) {
+  // طيّ النموذج بعد **اكتمال** الانتقال — تفكيكه لحظة وصول النتيجة يُجهض تدفّق الاستجابة
+  // فتضيع إعادة التصيير (انظر components/form-reset). تعديل الحالة أثناء التصيير هو النمط
+  // الموصى به هنا، لا داخل تأثير.
+  if (state?.success && !isPending && state.success !== seenSuccess) {
     setSeenSuccess(state.success);
     setOpen(false);
   }
