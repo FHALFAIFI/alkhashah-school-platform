@@ -2,14 +2,32 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — v2.4.0 IMPLEMENTED + REHEARSED (2026-08-02) — READY FOR CONTROLLED DEPLOYMENT (awaiting owner authorization)
+## Latest checkpoint — **v2.4.0 DEPLOYED TO PRODUCTION (2026-08-03)** — current production baseline
 
+- **Authorized production promotion executed 2026-08-03.** v2.4.0 replaced v2.3.0 in the
+  existing production environment (same URL, host port `3080`, database, uploads, secrets
+  and compose project `madrasa-prod`). Release tag **`v2.4.0`** at commit `da8db16`.
+  Full record: **`docs/DEPLOYMENT_V2_4.md`**.
+  - Image `madrasa-app:0.1.0` = `madrasa-app:v2.4.0` =
+    `sha256:2f69c724c625f60a39c9d8f8e109c97407ff70f23441386498a5e36872556c5b`.
+  - Rollback image **`madrasa-app:0.1.0-prev-v2_4-20260803`** = `7f5ff14a…` (v2.3 rc2),
+    boot-verified against the restored pre-deploy backup. Rollback needs **no DB action**.
+  - Migration ledger **27 → 29** (0027, 0028). All 86 table counts, all 84 untouched
+    row-hash fingerprints and all 6 historical anchors byte-identical; the 4 new columns
+    are 100 % NULL. **The database container was never restarted** (pid 707, postmaster
+    start `2026-07-29 15:01:06+00`, RestartCount 0 throughout).
+  - Observed interruption ≈ **0.2 s** (single failed sample at 0.2 s polling).
+  - Encrypted pre-deploy backup `backups/predeploy/*-20260803-065900*` (DB + uploads +
+    redacted config + manifest + checksums), restore-verified byte-identical to live
+    production in an isolated Docker network. Post-deploy **gold backup**
+    `backups/gold/*-20260803-gold*`, also restore-verified byte-identical.
+  - Production smoke: all 24 required checks satisfied (§5 of `docs/DEPLOYMENT_V2_4.md`);
+    0 console errors, 0 page errors, 0 unexpected container errors.
 - **Round-6 post-acceptance corrective release** on branch `scope-v2.4-post-acceptance`
-  (base `b47558c` = deployed v2.3.0). Brief `docs/BRIEF_V2_4_0.md` (source package
+  (base `b47558c` = previously deployed v2.3.0). Brief `docs/BRIEF_V2_4_0.md` (source package
   `fathers-app-review-2026-08-01.zip` verified byte-identical to HEAD before work);
   change map + root causes `docs/SCOPE_IMPACT_V2_4.md`; decisions **D-041…D-045**;
-  full delivery report **`docs/DELIVERY_V2_4.md`** (verdict: READY). **Production
-  untouched** — still v2.3.0 at ledger 27, containers never restarted.
+  full delivery report **`docs/DELIVERY_V2_4.md`** (verdict: READY → DEPLOYED).
 - **P0 fixes:** budget remaining everywhere + per-expense «المتبقي قبل/بعد» + halala-exact
   math (D-043) + snapshot-before-hard-delete; weekly follow-up made truthful (D-042 —
   week-snapshot page/report, «لم يتم التحديث هذا الأسبوع», createdAt no longer reset, empty

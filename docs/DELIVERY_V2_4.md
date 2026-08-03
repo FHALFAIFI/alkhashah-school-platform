@@ -2,8 +2,14 @@
 
 > Brief: `docs/BRIEF_V2_4_0.md` · Change map + root causes: `docs/SCOPE_IMPACT_V2_4.md` ·
 > Decisions: D-041…D-045 (`docs/DECISIONS.md`) · Branch `scope-v2.4-post-acceptance`
-> (base `b47558c` = deployed v2.3.0). **Production untouched** — rehearsal on an isolated
-> clone only; deployment awaits explicit owner authorization.
+> (base `b47558c` = previously deployed v2.3.0).
+>
+> **STATUS: SUPERSEDED BY DEPLOYMENT — v2.4.0 was promoted to production on 2026-08-03
+> under explicit owner authorization and is now the production baseline (ledger 29, image
+> `sha256:2f69c724c625…`, tag `v2.4.0`). The deployment record, production smoke results,
+> backup/restore evidence and rollback details are in `docs/DEPLOYMENT_V2_4.md`.** The
+> sections below describe the pre-deployment state and remain accurate as the
+> implementation and rehearsal record.
 
 ## 1) Executive verdict
 
@@ -184,8 +190,9 @@ remain capped by `MAX_EXPORT_ROWS`. No new infrastructure.
 
 ## 13) Deliverables & versions
 
-- Proposed version: **v2.4.0**; release tag only after principal acceptance (same policy
-  as v2.2/v2.3 — no tag, no gold backup, no host-PC migration until acceptance).
+- Released as **v2.4.0** — deployed to production 2026-08-03 under explicit owner
+  authorization; annotated tag `v2.4.0` created and post-deployment gold backup taken and
+  restore-verified (see `docs/DEPLOYMENT_V2_4.md`). Host-PC migration remains outstanding.
 - Commits on `scope-v2.4-post-acceptance` (base `b47558c`): `02973d0` (B — P0
   correctness), `f53b8a5` (C — program workflow/reports), `6dd8fb8` (D — institutional
   reports/header), `180985d` (E — inspection→maintenance), plus the F/G hardening +
