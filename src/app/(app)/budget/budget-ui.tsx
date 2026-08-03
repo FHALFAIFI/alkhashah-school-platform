@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   addIncomeAction,
   addExpenseAction,
@@ -24,7 +25,7 @@ import { ITEM_COLORS } from "@/lib/finance/colors";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
 import { formatMoney, orFallback } from "@/lib/format";
 import { overrunWarning } from "@/lib/finance/calc";
-import { useResetOnSuccess } from "@/components/form-reset";
+import { useResetOnSuccess, useRefreshOnSuccess } from "@/components/form-reset";
 
 /**
  * واجهة المالية المدرسية (v2.2 §B).
@@ -51,6 +52,8 @@ export function AddIncomeForm({ planYearId, items }: { planYearId: string; items
   const [state, formAction] = useActionState<ActionState, FormData>(addIncomeAction, null);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
+  // D-049: الصفحة تُحدَّث من العميل بعد استقرار النتيجة — الإجراء لا يُبطل مسارها
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -105,6 +108,8 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
   const [state, formAction] = useActionState<ActionState, FormData>(addExpenseAction, null);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
+  // D-049: الصفحة تُحدَّث من العميل بعد استقرار النتيجة — الإجراء لا يُبطل مسارها
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   const [itemId, setItemId] = useState("");
   const [amount, setAmount] = useState("");
@@ -221,6 +226,8 @@ export function FinancialItemForm({ item }: { item?: ItemLine & { color?: string
   const [state, formAction] = useActionState<ActionState, FormData>(action, null);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
+  // D-049: الصفحة تُحدَّث من العميل بعد استقرار النتيجة — الإجراء لا يُبطل مسارها
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   return (
     <div>

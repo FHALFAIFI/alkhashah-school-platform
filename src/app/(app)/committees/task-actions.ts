@@ -53,7 +53,8 @@ export async function loadCommitteeTasksAction(committeeId: string): Promise<Act
     toAdd.map((t, i) => ({ committeeId, title: t.title, sortOrder: base + i, fromTemplateId: t.id })),
   );
   await audit({ actorId: user.id, action: "committee.tasks_loaded", entityType: "committee", entityId: committeeId, summary: `تحميل ${toAdd.length} مهمة معرّفة مسبقاً` });
-  revalidatePath(`/committees/${committeeId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: `حُمّلت ${toAdd.length} مهمة معرّفة مسبقاً — راجعها ووزّعها على الأعضاء` };
 }
 
@@ -75,7 +76,8 @@ export async function addCommitteeTaskAction(committeeId: string, _prev: ActionS
     sortOrder: await nextAssignmentOrder(committeeId),
   });
   await audit({ actorId: user.id, action: "committee.task_added", entityType: "committee", entityId: committeeId, summary: parsed.data.title ?? "" });
-  revalidatePath(`/committees/${committeeId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "أُضيفت المهمة" };
 }
 
@@ -100,7 +102,8 @@ export async function updateCommitteeTaskAction(taskId: string, _prev: ActionSta
     .set({ title: parsed.data.title ?? "", notes: parsed.data.notes || null, updatedAt: new Date() })
     .where(eq(committeeTaskAssignments.id, taskId));
   await audit({ actorId: user.id, action: "committee.task_updated", entityType: "committee", entityId: committeeId, summary: parsed.data.title ?? "" });
-  revalidatePath(`/committees/${committeeId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "حُدّثت المهمة" };
 }
 
@@ -118,7 +121,8 @@ export async function assignCommitteeTaskAction(taskId: string, memberId: string
   }
   await db.update(committeeTaskAssignments).set({ assignedMemberId: assigned, updatedAt: new Date() }).where(eq(committeeTaskAssignments.id, taskId));
   await audit({ actorId: user.id, action: "committee.task_assigned", entityType: "committee", entityId: committeeId });
-  revalidatePath(`/committees/${committeeId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return null;
 }
 
@@ -140,7 +144,8 @@ export async function setCommitteeTaskStatusAction(taskId: string, status: strin
     entityId: committeeId,
     summary: status ? `حالة المهمة: ${status}` : "إلغاء تحديد حالة المهمة",
   });
-  revalidatePath(`/committees/${committeeId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return null;
 }
 
@@ -150,7 +155,8 @@ export async function toggleCommitteeTaskExcludedAction(taskId: string, excluded
   if (!committeeId) return { error: "المهمة غير موجودة" };
   await db.update(committeeTaskAssignments).set({ excluded, updatedAt: new Date() }).where(eq(committeeTaskAssignments.id, taskId));
   await audit({ actorId: user.id, action: excluded ? "committee.task_excluded" : "committee.task_included", entityType: "committee", entityId: committeeId });
-  revalidatePath(`/committees/${committeeId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return null;
 }
 
@@ -160,7 +166,8 @@ export async function deleteCommitteeTaskAction(taskId: string): Promise<ActionS
   if (!committeeId) return { error: "المهمة غير موجودة" };
   await db.delete(committeeTaskAssignments).where(eq(committeeTaskAssignments.id, taskId));
   await audit({ actorId: user.id, action: "committee.task_deleted", entityType: "committee", entityId: committeeId });
-  revalidatePath(`/committees/${committeeId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "حُذفت المهمة" };
 }
 
@@ -181,7 +188,8 @@ export async function moveCommitteeTaskAction(taskId: string, direction: "up" | 
   await db.update(committeeTaskAssignments).set({ sortOrder: other.sortOrder }).where(eq(committeeTaskAssignments.id, task.id));
   await db.update(committeeTaskAssignments).set({ sortOrder: task.sortOrder }).where(eq(committeeTaskAssignments.id, other.id));
   await audit({ actorId: user.id, action: "committee.task_reordered", entityType: "committee", entityId: task.committeeId });
-  revalidatePath(`/committees/${task.committeeId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return null;
 }
 

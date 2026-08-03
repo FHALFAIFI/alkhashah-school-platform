@@ -81,10 +81,28 @@ try {
   await expForm.locator('select[name="financialItemId"]').selectOption({ label: "المستلزمات" });
   await expForm.getByRole("button", { name: "حفظ المصروف" }).click();
   const savedMsg = page.getByRole("status").filter({ hasText: "تم حفظ المصروف" }).first();
-  await savedMsg.waitFor({ timeout: 30_000 });
-  const msgText = (await savedMsg.textContent())?.trim() ?? "";
-  record("2 · حفظ المصروف يقول «المتبقي بعد العملية»", msgText.includes("المتبقي بعد العملية"), msgText);
-  record("3 · المتبقي دقيق بالهللة (2500 − 300.25 = 2199.75)", /٢٬١٩٩٫٧٥|2,?199\.75/.test(msgText), msgText);
+  const msgShown = await savedMsg
+    .waitFor({ timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  const msgText = msgShown ? ((await savedMsg.textContent())?.trim() ?? "") : "";
+  record("2 · حفظ المصروف يعرض «المتبقي بعد العملية» في مكانه",
+    msgShown && msgText.includes("المتبقي بعد العملية"),
+    msgShown ? msgText : "لم تظهر رسالة النتيجة (D-049 — عطل سابق للإصدار، انظر التقرير)");
+  // الرقم نفسه يجب أن يظهر في الدفتر بعد التحديث حتى لو ضاعت الرسالة الفورية.
+  // المتوقَّع يُحتسب من القاعدة: البند يحمل مصروفات إنتاجية سابقة، فلا يُفترض رقم ثابت.
+  await page.goto(`${BASE}/budget/items/${itemId}`, { waitUntil: "networkidle" });
+  const itemLedgerText = (await page.locator("main").textContent()) ?? "";
+  const spent = Number(
+    sql(`select coalesce(sum(amount),0)::text from budget_expenses where financial_item_id='${itemId}' and archived_at is null`),
+  );
+  const expectedRemaining = Math.round((2500 - spent) * 100) / 100;
+  const arabicDigits = (n) => n.toLocaleString("ar-SA");
+  record(`3 · المتبقي دقيق بالهللة على الشاشة (2500 − ${spent} = ${expectedRemaining})`,
+    itemLedgerText.includes(arabicDigits(expectedRemaining)),
+    msgText || `من دفتر البند — المعروض يجب أن يحوي ${arabicDigits(expectedRemaining)}`);
+  const savedRow = sql(`select count(*) from budget_expenses where financial_item_id='${itemId}' and amount='300.25'`);
+  record("3b · المصروف مكتوب مرة واحدة بالضبط (لا كتابة مزدوجة)", Number(savedRow) === 1, `${savedRow} صف`);
 
   /* ── 4 · خفض المخصص تحت المصروف يتطلب تأكيداً صريحاً ─────────────────────── */
   await page.goto(`${BASE}/budget/items/${itemId}`, { waitUntil: "networkidle" });
@@ -104,6 +122,10 @@ try {
       "select count(*) from programs where archived_at is null and ((execution_status='مكتمل' and (progress<100 or completed_at is null)) or (progress=100 and execution_status<>'مكتمل'))",
     ),
   );
+  // القيم قبل التصحيح — الاعتماد والإقفال يجب أن يبقيا كما هما مهما كانا
+  const ndBefore = sql(
+    "select status||'|'||coalesce(closed_at::text,'null')||'|'||coalesce(approved_at::text,'null') from programs where name='اليوم الوطني'",
+  );
   await page.goto(`${BASE}/plan/consistency`, { waitUntil: "networkidle" });
   const nationalDay = page.locator("div.rounded-xl").filter({ hasText: "اليوم الوطني" }).first();
   const shown = (await nationalDay.count()) > 0;
@@ -122,9 +144,10 @@ try {
   const nd = sql(
     "select execution_status||'|'||progress||'|'||status||'|'||coalesce(closed_at::text,'null')||'|'||coalesce(approved_at::text,'null') from programs where name='اليوم الوطني'",
   );
-  const [ndStatus, ndProgress, ndApproval, ndClosed, ndApproved] = nd.split("|");
+  const [ndStatus, ndProgress, ...ndRest] = nd.split("|");
   record("5c · صُحّحت الحالة والتقدم", ndStatus === "في المسار" && ndProgress === "60", nd);
-  record("5d · الاعتماد والإقفال لم يُمسّا", ndApproval === "معتمد" && ndClosed === "null" && ndApproved !== "null");
+  record("5d · الاعتماد والإقفال لم يُمسّا (مقارنة قبل/بعد)", ndRest.join("|") === ndBefore,
+    `قبل=${ndBefore} · بعد=${ndRest.join("|")}`);
   record(
     "5e · لقطة سجل + تدقيق للتصحيح",
     Number(sql("select count(*) from record_versions where reason like 'تصحيح تناقض حالة:%'")) >= 1 &&
@@ -155,12 +178,19 @@ try {
   const unsetShown = (await page.getByText("لم يتم تحديد الحالة").count()) > 0;
   record("8a · المهمة بلا حالة تقول «لم يتم تحديد الحالة»", unsetShown);
 
-  const selects = page.locator('select[aria-label="حالة تنفيذ المهمة"]');
-  const toSet = Math.min(3, await selects.count());
+  const toSet = 3;
+  let stuckAfterUpdate = false;
   for (let i = 0; i < toSet; i++) {
+    const selects = page.locator('select[aria-label="حالة تنفيذ المهمة"]');
     await selects.nth(i).selectOption(i === 0 ? "منجزة" : i === 1 ? "قيد التنفيذ" : "لم تبدأ");
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2500);
+    // D-049: استجابة الإجراء تُجهض فيبقى مؤشر الانتظار مرفوعاً وتبقى بقية القوائم معطّلة
+    // حتى إعادة التحميل. نسجّل ذلك ثم نعيد التحميل لمتابعة بقية البروفة.
+    if (await selects.nth(Math.min(i + 1, toSet - 1)).isDisabled()) stuckAfterUpdate = true;
+    await page.reload({ waitUntil: "networkidle" });
   }
+  record("8a2 · قوائم الحالة تبقى معطّلة بعد كل تحديث حتى إعادة التحميل (أثر D-049)",
+    !stuckAfterUpdate, stuckAfterUpdate ? "معطّلة — تتطلب إعادة تحميل بين كل مهمة وأخرى" : "غير معطّلة");
   const nullAfter = Number(sql("select count(*) from committee_task_assignments where status is null"));
   record("8b · حُدِّثت حالات مهام فعلياً", nullAfter === nullBefore - toSet, `NULL: ${nullBefore} → ${nullAfter}`);
   record("8c · كل تحديث حالة مُدقَّق",

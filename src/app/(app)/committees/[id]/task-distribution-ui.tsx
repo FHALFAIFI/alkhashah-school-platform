@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   loadCommitteeTasksAction,
   addCommitteeTaskAction,
@@ -55,11 +56,19 @@ export function TaskDistribution({
 }) {
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
+  const router = useRouter();
 
   function run(fn: () => Promise<ActionState>) {
     start(async () => {
-      const res = await fn();
-      setMsg(res?.error ?? res?.success ?? null);
+      try {
+        const res = await fn();
+        setMsg(res?.error ?? res?.success ?? null);
+        // D-049: الصفحة تُحدَّث من العميل بعد استقرار النتيجة — الإجراء لا يُبطل مسارها
+        if (!res?.error) router.refresh();
+      } catch {
+        // لا يبقى الانتقال معلّقاً أبداً: انقطاع الطلب كان يترك كل القوائم معطّلة حتى إعادة التحميل
+        setMsg("تعذّر إكمال العملية — أعد المحاولة");
+      }
     });
   }
 

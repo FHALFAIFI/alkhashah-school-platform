@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 
 /**
  * تفريغ حقول النموذج بعد نجاح إجراء الخادم — بلا `key` يعيد تركيب النموذج (v2.4.1 §F).
@@ -32,4 +33,21 @@ export function useResetOnSuccess<T extends { success?: string } | null>(state: 
     }
   }, [state]);
   return formRef;
+}
+
+/**
+ * تحديث الصفحة الحالية بعد نجاح إجراء الخادم (D-049).
+ *
+ * الإجراءات لم تعد تُبطل مسار الصفحة المفتوحة (انظر `lib/revalidate.ts`)، فالتحديث
+ * مسؤولية العميل: طلب واحد يبدأ **بعد** استقرار نتيجة الإجراء، فلا يزاحم تدفّقها.
+ */
+export function useRefreshOnSuccess<T extends { success?: string } | null>(state: T) {
+  const router = useRouter();
+  const seen = useRef<unknown>(null);
+  useEffect(() => {
+    if (state?.success && state !== seen.current) {
+      seen.current = state;
+      router.refresh();
+    }
+  }, [state, router]);
 }

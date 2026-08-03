@@ -148,7 +148,8 @@ export async function correctProgramConsistencyAction(
       note: d.note,
     },
   });
-  revalidatePath("/plan/consistency");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   revalidatePath("/plan/followup");
   revalidatePath(`/plan/${programId}`);
   revalidatePath("/plan");
@@ -230,7 +231,8 @@ export async function bulkCorrectProgramsAction(_prev: ActionState, formData: Fo
     summary: `تصحيح جماعي: ${BULK_OPERATIONS[d.operation]} — ${changed} برنامج`,
     detail: { operation: d.operation, programIds: ids, count: changed, note: d.note },
   });
-  revalidatePath("/plan/consistency");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   revalidatePath("/plan/followup");
   revalidatePath("/plan");
   return { success: `صُحِّح ${changed} برنامج` };

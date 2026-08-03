@@ -79,7 +79,8 @@ export async function createFinancialItemAction(_prev: ActionState, formData: Fo
     entityId: row.id,
     summary: `إنشاء بند «${orFallback(d.nameAr, "بند بدون اسم")}»`,
   });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "أُنشئ البند" };
 }
 
@@ -134,8 +135,8 @@ export async function updateFinancialItemAction(itemId: string, _prev: ActionSta
         }
       : undefined,
   });
-  revalidatePath("/budget");
-  revalidatePath(`/budget/items/${itemId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "حُفظ البند" };
 }
 
@@ -212,8 +213,8 @@ export async function setItemAllocationAction(
       confirmedBelowSpent: d.confirmBelowSpent === "1",
     },
   });
-  revalidatePath("/budget");
-  revalidatePath(`/budget/items/${itemId}`);
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return {
     success:
       proposed === null
@@ -244,7 +245,8 @@ export async function archiveFinancialItemAction(itemId: string): Promise<Action
     entityId: itemId,
     summary: `أرشفة بند «${orFallback(item.nameAr, "بند بدون اسم")}»`,
   });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "أُرشف البند — عملياته محفوظة" };
 }
 
@@ -267,7 +269,8 @@ export async function restoreFinancialItemAction(itemId: string): Promise<Action
     entityId: itemId,
     summary: `استعادة بند «${orFallback(item.nameAr, "بند بدون اسم")}»`,
   });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "استُعيد البند" };
 }
 
@@ -295,7 +298,8 @@ export async function reorderFinancialItemAction(itemId: string, direction: "up"
     entityId: itemId,
     summary: `تغيير ترتيب بند «${orFallback(a.nameAr, "بند بدون اسم")}»`,
   });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "حُدّث الترتيب" };
 }
 
@@ -331,7 +335,8 @@ export async function createDefaultFinancialItemsAction(): Promise<ActionState> 
       summary: `إنشاء البند الأساسي «${name}» (تدفّق إداري صريح)`,
     });
   }
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: `أُنشئ ${missing.length} من البنود الأساسية` };
 }
 
@@ -352,7 +357,8 @@ export async function archiveIncomeAction(incomeId: string): Promise<ActionState
     .set({ archivedAt: new Date(), archivedBy: user.id, updatedAt: new Date() })
     .where(and(eq(budgetIncome.id, incomeId), isNull(budgetIncome.archivedAt)));
   await audit({ actorId: user.id, action: "finance.income_archived", entityType: "budget_income", entityId: incomeId, summary: "أرشفة إيراد" });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "أُرشف الإيراد" };
 }
 
@@ -364,7 +370,8 @@ export async function restoreIncomeAction(incomeId: string): Promise<ActionState
   if (!row.archivedAt) return { success: "الإيراد غير مؤرشف" };
   await db.update(budgetIncome).set({ archivedAt: null, archivedBy: null, updatedAt: new Date() }).where(eq(budgetIncome.id, incomeId));
   await audit({ actorId: user.id, action: "finance.income_restored", entityType: "budget_income", entityId: incomeId, summary: "استعادة إيراد" });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "استُعيد الإيراد" };
 }
 
@@ -379,7 +386,8 @@ export async function archiveExpenseAction(expenseId: string): Promise<ActionSta
     .set({ archivedAt: new Date(), archivedBy: user.id, updatedAt: new Date() })
     .where(and(eq(budgetExpenses.id, expenseId), isNull(budgetExpenses.archivedAt)));
   await audit({ actorId: user.id, action: "finance.expense_archived", entityType: "budget_expense", entityId: expenseId, summary: "أرشفة مصروف" });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "أُرشف المصروف — أُعيد حساب بنده" };
 }
 
@@ -391,6 +399,7 @@ export async function restoreExpenseAction(expenseId: string): Promise<ActionSta
   if (!row.archivedAt) return { success: "المصروف غير مؤرشف" };
   await db.update(budgetExpenses).set({ archivedAt: null, archivedBy: null, updatedAt: new Date() }).where(eq(budgetExpenses.id, expenseId));
   await audit({ actorId: user.id, action: "finance.expense_restored", entityType: "budget_expense", entityId: expenseId, summary: "استعادة مصروف" });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "استُعيد المصروف" };
 }

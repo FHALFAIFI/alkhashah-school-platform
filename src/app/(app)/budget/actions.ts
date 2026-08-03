@@ -165,12 +165,14 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
       });
     } catch (e) {
       // الإيراد حُفظ؛ فشل الإرفاق وحده — يبقى الإيصال قابلاً للإرفاق لاحقاً من لوحة الشواهد.
-      revalidatePath("/budget");
+      // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
       return { error: userFacingError(e, "تعذر حفظ الإيصال المرفق — حُفظ الإيراد ويمكن إرفاق الإيصال لاحقاً.") };
     }
   }
 
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "أُضيف الإيراد" };
 }
 
@@ -268,12 +270,14 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
       });
     } catch (e) {
       // المصروف حُفظ؛ فشل الإرفاق فقط — رسالة عربية واضحة، وتبقى الفاتورة قابلة للإرفاق لاحقاً من اللوحة.
-      revalidatePath("/budget");
+      // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
       return { error: userFacingError(e, "تعذر حفظ الفاتورة المرفقة — حُفظ المصروف ويمكن إرفاق الفاتورة لاحقاً من لوحة الفاتورة.") };
     }
   }
 
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   // القيم المالية لا تُغيَّر صامتاً. تجاوز المخصص لا يمنع الحفظ ولا يتطلب إقراراً (§B7).
   // v2.4.1 §4.7: نتيجة الحفظ تُقرأ في مكانها — المتبقي بعد العملية، أو سبب تعذّر احتسابه.
   const remaining = await remainingAfterExpense(d.financialItemId);
@@ -370,7 +374,8 @@ export async function updateIncomeAction(_prev: ActionState, formData: FormData)
       after: { status: after.status, mapped: incomeAuditView(after) },
     },
   });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "عُدّل الإيراد" };
 }
 
@@ -435,7 +440,8 @@ export async function updateExpenseAction(_prev: ActionState, formData: FormData
       after: { status: "مصروف", mapped: expenseAuditView(after) },
     },
   });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "عُدّل المصروف" };
 }
 
@@ -461,7 +467,8 @@ export async function deleteIncomeAction(incomeId: string): Promise<ActionState>
     summary: `حذف إيراد «${row.source}»`,
     detail: { before: { status: row.status, mapped: incomeAuditView(row) } },
   });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "حُذف الإيراد" };
 }
 
@@ -489,7 +496,8 @@ export async function deleteExpenseAction(expenseId: string): Promise<ActionStat
     summary: `حذف مصروف ${row.amount ?? ""}`.trim(),
     detail: { before: { status: "مصروف", mapped: expenseAuditView(row) } },
   });
-  revalidatePath("/budget");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
+  //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
   return { success: "حُذف المصروف" };
 }
 
