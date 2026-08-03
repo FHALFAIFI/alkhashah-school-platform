@@ -650,3 +650,49 @@ The rule is now enforced structurally rather than by inspection:
 result-bearing column (`sessionResult`/`resultPercent`/`score`/`finalScore`/`rating`)
 unless it declares `performance.individual.read`. A future report cannot reopen this by
 copying an existing definition.
+
+## D-049 — Never invalidate the route the action was invoked from; refresh it from the client (2026-08-03)
+
+Found during the v2.4.1 production-clone rehearsal, on the RC image against a clone of real
+production data. It had passed every gate before that.
+
+**Symptom.** Saving an expense wrote the row and showed nothing: no
+«تم حفظ المصروف — المتبقي بعد العملية: …», no refreshed table. The network trace showed the
+Server-Action POST ending in `net::ERR_ABORTED`. On the committee page it was worse — after
+setting ONE task status the transition never settled, so every status dropdown stayed
+disabled until a manual reload. With 31 statuses to enter, that is a reload per task.
+
+**Root cause.** A Next 16 Server-Action response is a stream: the returned value first, then
+the re-render payload produced by `revalidatePath`. Calling `revalidatePath(p)` for the route
+the user is *currently on* makes the client router refetch that route immediately, cancelling
+the still-streaming response before the client consumes the returned value. The write has
+already committed server-side, so the database is right and the screen is stale.
+
+**Proof.** Two production images differing only by the removal of `revalidatePath("/budget")`
+from `addExpenseAction`: without it the message appears, with it it never does. Confirmed
+identically on the **deployed v2.4.0 image** against the same clone, so this is pre-existing,
+not a v2.4.1 regression.
+
+**Why no gate caught it.** `next dev` completes the stream before the refetch lands, so all
+92 Playwright tests — which assert exactly these messages — pass there. This is the same
+symptom filed as «الواجهة لا تتحدث بعد الحفظ» against the v2.2.1 corrective patch and
+recorded in v2.3 as "an environment quirk where the host `next start` aborts Server-Action
+streams". It is not an environment quirk.
+
+**The rule.** Every page in this platform is `dynamic = "force-dynamic"`, so revalidating it
+buys no cache freshness and only buys the race.
+1. An action must not `revalidatePath` the route it was invoked from. Other affected paths
+   are still invalidated normally.
+2. The client refreshes that route itself, **after** the result settles —
+   `useRefreshOnSuccess` (`components/form-reset.ts`).
+3. Inside a `useTransition`, `router.refresh()` must run once `isPending` clears, never
+   within the transition callback: refreshing inside keeps `pending` raised, which is what
+   left the committee dropdowns disabled.
+4. Never unmount the owner of an in-flight action — no `key={state?.success}` on a `<form>`;
+   clear fields with an imperative `reset()` instead, and defer any collapse until the
+   transition ends.
+
+`lib/revalidate.ts` and `components/form-reset.ts` carry the rule and the evidence at the
+places a future change would touch. Remaining actions elsewhere in the app still revalidate
+their own route and can show the same staleness; sweeping them is recorded as follow-up work
+rather than done inside a corrective release.

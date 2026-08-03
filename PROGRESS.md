@@ -2,7 +2,49 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.4.0 DEPLOYED TO PRODUCTION (2026-08-03)** — current production baseline
+## Latest checkpoint — **v2.4.1 READY FOR DEPLOYMENT (2026-08-03)** — NOT deployed
+
+- **Production is still on v2.4.0.** v2.4.1 is a data-correction release: it gives the
+  principal a visible, audited workflow for the three production DATA preconditions the v2.4
+  investigation identified, and fabricates no value on their behalf. Full record:
+  **`docs/DELIVERY_V2_4_1.md`**.
+  - Branch `scope-v2.4.1-data-correction`, head **`bdbd02a`** (base `c5d13f8` = v2.4.0).
+  - RC image **`madrasa-app:0.1.0-v2_4_1-rc`** =
+    `sha256:a7550df8434baab39ff34dbadb70ea58cdd598018841834ab15294662a887354`
+    (`RELEASE_COMMIT=bdbd02a`, chromium-1228, no `src/lib/ai`, 29 migration files).
+  - **No migration.** Ledger stays **29**, tables **86** — verified unchanged on the clone
+    before and after the rehearsal. Rollback is app-only, **no DB action** (rehearsed).
+  - Gates: typecheck 0 · lint 0 · **vitest 806/806** · **Playwright 92 passed / 1 standing
+    skip (C5, D-018) / 0 failed** · build ✓ · `drizzle-kit check` clean.
+  - **Production-clone rehearsal 42/42 PASS** on a byte-identical clone of production data
+    (26 anchors + 5 content fingerprints matched). Production containers never touched —
+    RestartCount 0, `audit_log` still 540, D-022 fingerprint
+    `ff753b94d10cc9ab16d35b56641c5fbc` unchanged.
+  - Extra validation harnesses: `scripts/v241-clone-rehearsal.mjs` (42 checks),
+    `scripts/v241-visual-audit.mjs` (52/52 at four widths),
+    `scripts/v241-pdf-audit.ts` (15/15 PDFs/CSV/DOCX).
+- **D-049 — the reason this phase mattered.** The clone rehearsal found that
+  `revalidatePath()` for the route the user is currently on cancels the still-streaming
+  Server-Action response, so a save commits but the screen never updates. It reproduces on
+  the **deployed v2.4.0 image** too — it is the long-standing «الواجهة لا تتحدث بعد الحفظ»
+  complaint from v2.2.1, and what v2.3 filed as an environment quirk. `next dev` completes
+  the stream before the refetch lands, which is why 92 green e2e tests never saw it. Fixed
+  for the surfaces this release touches; a full sweep is follow-up work. **Any future release
+  touching Server Actions must be rehearsed on the production image against cloned production
+  data, not on the dev server.**
+- **D-048 (High, fixed):** the reports centre exposed a named employee's evaluation result
+  under `performance.read`, which `sysadmin` holds while D-013 denies them
+  `performance.individual.read`. Raised to the individual permission; a unit test now fails
+  any report pairing a named person with a result column.
+- **Waiting on the principal (the system must not invent these):** allocations for
+  المستلزمات and النشاط; the correct operational state for اليوم الوطني, متابعة الأداء
+  المبنية على البيانات, التطوير المهني بالأثر and رياضيات الإتقان; the actual status of the
+  31 committee tasks; and the missing tasks for اللجنة الإدارية للمدرسة and
+  لجنة التوجيه والإرشاد.
+- **Not done, by convention:** the annotated tag `v2.4.1` (created at deployment, as in
+  v2.2/v2.3), the gold backup, and the host-PC migration.
+
+## Previous checkpoint — **v2.4.0 DEPLOYED TO PRODUCTION (2026-08-03)** — current production baseline
 
 - **Authorized production promotion executed 2026-08-03.** v2.4.0 replaced v2.3.0 in the
   existing production environment (same URL, host port `3080`, database, uploads, secrets
