@@ -658,6 +658,24 @@ Verified in-container and on the clone:
 Earlier RC builds in this phase (`37a171e`, `921b877`) were superseded by the two D-049
 fixes the rehearsal found; only the digest above is the candidate.
 
+Commits after `6d7dacf` on this branch are **documentation and rehearsal-harness only** —
+`git diff 6d7dacf..HEAD --name-only` touches no file under `src/`, so the image is the tree
+that ships.
+
+### Branch and commits
+
+Branch `scope-v2.4.1-data-correction`, base `c5d13f8` (= deployed v2.4.0).
+
+| Commit | What |
+| --- | --- |
+| `d790ab0` · `33a98a0` · `8216264` · `08b65b5` · `bdbd02a` · `a8e1cf3` · `c33a347` | the earlier data-correction release (§1–§16) |
+| `fd20ce3` | final scope A–E: permanent lifecycle deletion, program editing in every state, maintenance-first inspection, budget/report content, migrations 0029 + 0030 |
+| `534f46a` | controlled edit form (React 19 reset defect), 9 browser scenarios, rehearsal harness, D-050/051/052 + deletion runbook |
+| `37a171e` | closed-program spec follows the new contract |
+| `921b877` | **D-049**: inspection actions stop invalidating their own route tree |
+| `6d7dacf` | **D-049**: maintenance report actions redirect instead of self-invalidating — **RC commit** |
+| `1eb5e51` + this document | rehearsal, rollback, RC digest and gate results |
+
 ## 17.17 Known limitations
 
 - The **31 committee task statuses**, the **two missing allocations**, the **four
