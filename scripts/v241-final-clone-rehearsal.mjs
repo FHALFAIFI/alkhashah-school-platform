@@ -35,16 +35,37 @@ const record = (step, ok, note = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${step}${note ? ` — ${note}` : ""}`);
 };
 
-/** SQL against the clone (never production). */
+/**
+ * SQL against the clone (never production).
+ *
+ * `psql -tA` still prints the command tag after a RETURNING clause, so a naive `.trim()`
+ * yields `"<uuid>\nINSERT 0 1"` — which silently produced a malformed URL and a 404 that
+ * looked like a missing button. Command tags are stripped here, once, for every caller.
+ */
 function sql(query) {
-  return execFileSync("docker", ["exec", PG, "psql", "-U", "madrasa", "-d", "madrasa", "-tA", "-c", query], {
+  const out = execFileSync("docker", ["exec", PG, "psql", "-U", "madrasa", "-d", "madrasa", "-tA", "-c", query], {
     encoding: "utf8",
-  }).trim();
+  });
+  return out
+    .split("\n")
+    .filter((line) => !/^(INSERT|UPDATE|DELETE|SELECT|COPY|MERGE)\s+\d/.test(line.trim()))
+    .join("\n")
+    .trim();
 }
 
 /** بصمة محتوى لجدول — تكشف أي تغيير غير مقصود على بيانات الإنتاج المنسوخة */
 function fingerprint(table, where = "true") {
   return sql(`select md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from ${table} t where ${where}`);
+}
+
+/** ينتظر ظهور عنصر ويعيد نجاحه — بديل `isVisible()` اللحظية التي تسابق استجابة الإجراء */
+async function appears(locator, timeout = 120_000) {
+  try {
+    await locator.first().waitFor({ state: "visible", timeout });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function login(page) {
@@ -62,11 +83,32 @@ const ctx = await browser.newContext({
   timezoneId: "Asia/Riyadh",
 });
 const page = await ctx.newPage();
+// النسخة تعمل على صورة إنتاج داخل حاوية: أول طلب لكل مسار يحمّل وحدته كسولاً، وقد يتجاوز
+// المهلة الافتراضية على جهاز مشغول. مهلة أطول + تسخين يجعلان الفشل دلالة على التطبيق لا
+// على البنية التحتية.
+page.setDefaultTimeout(90_000);
+page.setDefaultNavigationTimeout(120_000);
 
 try {
+  /* ── 0 · تنظيف بقايا أي تشغيل سابق ثم تسخين المسارات ───────────────────── */
+  sql(`delete from committee_members where person_id in (select id from people where full_name like '${TAG}%')`);
+  sql(`delete from perf_sessions where cycle_id in (select id from perf_cycles where person_id in (select id from people where full_name like '${TAG}%'))`);
+  sql(`delete from perf_cycles where person_id in (select id from people where full_name like '${TAG}%')`);
+  sql(`delete from people where full_name like '${TAG}%'`);
+  sql(`delete from programs where name like '${TAG}%'`);
+  sql(`delete from budget_expenses where category like '${TAG}%'`);
+  sql(`delete from financial_items where name_ar like '${TAG}%'`);
+  // الفحوصات والبلاغات التي أنشأها تشغيل سابق — وإلا حُسبت ازدواجاً فمُنع إنشاء بلاغ جديد
+  sql(`update inspection_findings set maintenance_issue_id = null where note like '${TAG}%'`);
+  sql(`delete from maintenance_status_history where issue_id in (select id from maintenance_issues where description like '${TAG}%')`);
+  sql(`update maintenance_issues set document_id = null where description like '${TAG}%'`);
+  sql(`delete from documents where entity_type = 'maintenance' and entity_id in (select id from maintenance_issues where description like '${TAG}%')`);
+  sql(`delete from maintenance_issues where description like '${TAG}%'`);
+  sql(`delete from inspections where id in (select distinct inspection_id from inspection_findings where note like '${TAG}%')`);
+
   /* ── 1 · مراسي خط الأساس قبل أي كتابة ──────────────────────────────────── */
   const baseline = {
-    ledger: sql("select count(*) from __drizzle_migrations"),
+    ledger: sql("select count(*) from drizzle.__drizzle_migrations"),
     tables: sql("select count(*) from information_schema.tables where table_schema='public'"),
     people: sql("select count(*) from people"),
     programs: sql("select count(*) from programs"),
@@ -94,16 +136,31 @@ try {
   );
   record("2a · جدولا الشاهد وسجل التعديل موجودان", newTables === "2", `${newTables}/2`);
   record("2b · أعمدة تقرير الصيانة الأربعة مضافة", newColumns === "4", `${newColumns}/4`);
-  record("2c · سجل الهجرات 31", baseline.ledger === "31", `ledger=${baseline.ledger}`);
+  record("2c · سجل الهجرات 31", ["31"].includes(baseline.ledger), `ledger=${baseline.ledger}`);
 
   /* ── 3 · البيانات القائمة لم تُمسّ بالهجرة: الأعمدة الجديدة كلها NULL ────── */
+  // يُقاس على البلاغات المنسوخة من الإنتاج وحدها — بلاغات البروفة تملأ الحقول عمداً
   const nonNull = sql(
-    "select count(*) from maintenance_issues where category is not null or safety_impact is not null or operational_impact is not null or requested_action is not null",
+    `select count(*) from maintenance_issues
+     where description is distinct from null and description not like '${TAG}%'
+       and (category is not null or safety_impact is not null or operational_impact is not null or requested_action is not null)`,
   );
   record("3 · الهجرة لم تكتب أي قيمة على بلاغ قائم", nonNull === "0", `${nonNull} صف غير فارغ`);
 
   await login(page);
   record("0 · تسجيل الدخول بحساب مكافئ للمدير على النسخة المعزولة", true);
+  for (const route of [
+    "/budget",
+    "/plan",
+    "/people",
+    "/performance",
+    "/performance/analytics",
+    "/committees",
+    "/building/maintenance",
+    "/building/maintenance/inspect",
+  ]) {
+    await page.goto(`${BASE}${route}`, { waitUntil: "networkidle" }).catch(() => {});
+  }
 
   /* ── 4-5 · الميزانية: مخصص لبند تجريبي ثم المتبقي في الملخّص الأعلى ─────── */
   sql(`delete from budget_expenses where category = '${TAG}'`);
@@ -154,17 +211,13 @@ try {
     }
     const issuesBefore = Number(sql("select count(*) from maintenance_issues"));
     await page.getByRole("button", { name: "حفظ الفحص" }).click();
-    const resultShown = await page
-      .getByText(/تم تسجيل .* تحتاج إلى صيانة/)
-      .first()
-      .isVisible({ timeout: 60_000 })
-      .catch(() => false);
+    const resultShown = await appears(page.getByText(/تم تسجيل .* تحتاج إلى صيانة/));
     record("6b · نتيجة الفحص تُقال صراحةً بعدد الملاحظات", resultShown);
 
     const optionsShown =
-      (await page.getByRole("button", { name: "إنشاء بلاغ منفصل لكل ملاحظة" }).count()) > 0 &&
-      (await page.getByRole("button", { name: "مراجعة قبل الإنشاء" }).count()) > 0 &&
-      (await page.getByRole("button", { name: "تخطي الآن" }).count()) > 0;
+      (await appears(page.getByRole("button", { name: "إنشاء بلاغ منفصل لكل ملاحظة" }), 30_000)) &&
+      (await appears(page.getByRole("button", { name: "مراجعة قبل الإنشاء" }), 30_000)) &&
+      (await appears(page.getByRole("button", { name: "تخطي الآن" }), 30_000));
     record("6c · الخيارات الأربعة معروضة بعد الحفظ", optionsShown);
 
     await page.getByRole("button", { name: /إنشاء بلاغ منفصل لكل ملاحظة/ }).click();
@@ -189,10 +242,12 @@ try {
   if (draftIssue) {
     await page.goto(`${BASE}/building/maintenance/${draftIssue}`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "اعتماد البلاغ وإصدار التقرير" }).click();
-    await page.waitForTimeout(20_000);
-    const hasPdf = (await page.getByRole("link", { name: "تنزيل PDF" }).count()) > 0;
-    const hasPrint = (await page.getByRole("link", { name: "طباعة تقرير الصيانة" }).count()) > 0;
-    record("7 · «اعتماد البلاغ وإصدار التقرير» ينتج تقريراً للطباعة والتنزيل", hasPdf && hasPrint);
+    // توليد الـPDF يمر بمتصفح داخل الحاوية — الانتظار على الرابط لا على مهلة ثابتة
+    const hasPdf = await appears(page.getByRole("link", { name: "تنزيل PDF" }), 240_000);
+    const hasPrint = await appears(page.getByRole("link", { name: "طباعة تقرير الصيانة" }), 30_000);
+    const letterIssued = sql(`select count(*) from documents where doc_type='maintenance_letter'`);
+    record("7 · «اعتماد البلاغ وإصدار التقرير» ينتج تقريراً للطباعة والتنزيل",
+      hasPdf && hasPrint, `وثائق خطاب صيانة=${letterIssued}`);
   } else {
     record("7 · اعتماد بلاغ وإصدار تقريره", false, "لا بلاغ مسودة من الخطوة السابقة");
   }
@@ -226,12 +281,15 @@ try {
       `select status || '|' || (approved_at is not null) || '|' || (completed_at is not null) || '|' || (closed_at is not null) || '|' || name from programs where id='${pid}'`,
     );
     const history = sql(`select count(*) from program_edit_history where program_id='${pid}'`);
+    // psql يصيّر المنطقي نصاً «true»/«false» عبر «||» — تُقارَن كما هي لا كـ t/f
     const [status, approved, completed, closed, name] = after.split("|");
+    const expectCompleted = st.label !== "معتمد";
+    const expectClosed = st.label === "مغلق";
     const stateKept =
       status === "معتمد" &&
-      approved === "t" &&
-      completed === String(st.label !== "معتمد").slice(0, 1).replace("t", "t").replace("f", "f") &&
-      (st.label === "مغلق" ? closed === "t" : closed === "f");
+      approved === "true" &&
+      completed === String(expectCompleted) &&
+      closed === String(expectClosed);
     record(`8-${st.label} · التعديل ظاهر ومسموح، والتحذير يظهر`, editVisible && warnShown);
     record(`8-${st.label} · السبب إلزامي بعد الاعتماد`, refusedNoReason);
     record(`8-${st.label} · حُفظ التعديل والحالة لم تتغيّر`, name.includes("معدّل") && stateKept, after);
@@ -363,8 +421,13 @@ try {
   record("13 · كل عملية جديدة مُدقَّقة", covered.length === required.length, auditActions);
 
   /* ── 14 · التصدير يعمل ─────────────────────────────────────────────────── */
-  const exportRes = await page.request.get(`${BASE}/api/reports/export?report=item-allocations&format=csv`);
-  record("14 · تصدير تقرير مالي يعمل", exportRes.ok(), `HTTP ${exportRes.status()}`);
+  // من داخل الصفحة نفسها: `page.request` لا يحمل كعكة الجلسة في هذا السياق فيعيد 401 مضلِّلاً
+  await page.goto(`${BASE}/reports`, { waitUntil: "networkidle" });
+  const exportStatus = await page.evaluate(async () => {
+    const r = await fetch("/api/reports/export?report=item-allocations&format=csv", { credentials: "include" });
+    return r.status;
+  });
+  record("14 · تصدير تقرير مالي يعمل", exportStatus === 200, `HTTP ${exportStatus}`);
 
   /* ── 15 · هوية الإصدار ─────────────────────────────────────────────────── */
   const health = await (await page.request.get(`${BASE}/api/health`)).json();
@@ -387,7 +450,7 @@ try {
   );
   record("16d · برامج الإنتاج المنسوخة نفسها لم تُمسّ", untouchedProgramsFp === baselineUntouched);
 
-  const ledgerAfter = sql("select count(*) from __drizzle_migrations");
+  const ledgerAfter = sql("select count(*) from drizzle.__drizzle_migrations");
   const tablesAfter = sql("select count(*) from information_schema.tables where table_schema='public'");
   record("17 · السجل والجداول ثابتان بعد البروفة",
     ledgerAfter === baseline.ledger && tablesAfter === baseline.tables,

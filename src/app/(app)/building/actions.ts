@@ -547,9 +547,13 @@ export async function submitInspectionAction(_prev: InspectionSubmitState, formD
     inspectorId: user.id,
   });
   await audit({ actorId: user.id, action: "inspection.submitted", entityType: "room", entityId: parsed.data.roomId, summary: `فحص ${orFallback(room.nameAr)}` });
-  revalidatePath("/building/inspections");
-  revalidatePath("/building/maintenance");
-  revalidatePath(`/building/rooms/${parsed.data.roomId}`);
+  /* D-049، وجدته بروفة نسخة الإنتاج مرة أخرى بعد نقل الفحص تحت الصيانة:
+   * هذا الإجراء يُستدعى من مسارين — صفحة الغرفة و«الصيانة ← إجراء فحص». إبطال
+   * `/building/maintenance` يبطل الشجرة التي ينتمي إليها `/building/maintenance/inspect`،
+   * فيعيد الموجّه الجلب ويُجهض تدفّق استجابة الإجراء: **الفحص يُحفظ وملاحظاته تُنشأ،
+   * ولا تظهر النتيجة ولا خيارات إنشاء البلاغات**. وإبطال مسار الغرفة يفعل الشيء نفسه
+   * للمسار الآخر. الصفحتان `force-dynamic` فلا يضيف الإبطال تحديثاً أصلاً — يضيف سباقاً.
+   * التحديث مسؤولية العميل بعد استقرار النتيجة (`useRefreshOnSuccess`). */
   // v2.4 §14 · v2.4.1 §1.2: نتيجة الفحص تُقال صراحةً، وتُعاد معها الملاحظات نفسها ليُراجعها
   // المستخدم ويختار منها قبل إنشاء البلاغات — لا انتقال إلى شاشة أخرى للبحث عنها.
   if (recorded.inspectionId && recorded.findingsCount > 0) {
@@ -720,8 +724,7 @@ export async function createIssueFromFindingAction(_prev: ActionState, formData:
     };
   }
   const issue = await createIssueFromFindingCore(finding, user.id);
-  revalidatePath(`/building/rooms/${finding.roomId}`);
-  revalidatePath("/building/maintenance");
+  // D-049: يُستدعى من صفحة الغرفة — إبطال مسارها يُجهض تدفّق الاستجابة
   return { success: `أُنشئ البلاغ ${issue.code}` };
 }
 
@@ -755,9 +758,7 @@ export async function createIssuesFromInspectionAction(_prev: ActionState, formD
     const issue = await createIssueFromFindingCore(finding, user.id);
     created.push(issue.code);
   }
-  const roomId = findings[0].roomId;
-  revalidatePath(`/building/rooms/${roomId}`);
-  revalidatePath("/building/maintenance");
+  // D-049: لا إبطال لمسار الصفحة المفتوحة ولا لشجرتها — العميل يحدّث بعد استقرار النتيجة
   const parts: string[] = [];
   if (created.length) parts.push(`أُنشئ ${created.length} بلاغاً (${created.join("، ")})`);
   if (alreadyLinked) parts.push(`${alreadyLinked} ملاحظة مرتبطة ببلاغ مسبقاً`);
@@ -805,8 +806,7 @@ export async function createSelectedIssuesFromInspectionAction(_prev: ActionStat
     const issue = await createIssueFromFindingCore(finding, user.id);
     created.push(issue.code);
   }
-  revalidatePath(`/building/rooms/${scoped[0].roomId}`);
-  revalidatePath("/building/maintenance");
+  // D-049: لا إبطال لمسار الصفحة المفتوحة ولا لشجرتها — العميل يحدّث بعد استقرار النتيجة
   const parts: string[] = [];
   if (created.length) parts.push(`أُنشئ ${created.length} بلاغاً منفصلاً (${created.join("، ")})`);
   if (alreadyLinked) parts.push(`${alreadyLinked} ملاحظة مرتبطة ببلاغ مسبقاً`);

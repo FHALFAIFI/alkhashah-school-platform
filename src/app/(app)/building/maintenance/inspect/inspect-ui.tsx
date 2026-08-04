@@ -44,6 +44,8 @@ export function MaintenanceInspectionFlow({
   canCreateIssues: boolean;
 }) {
   const [state, formAction] = useActionState<InspectionSubmitState, FormData>(submitInspectionAction, null);
+  // D-049: الإجراء لم يعد يُبطل أي مسار — تحديث القوائم مسؤولية العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [roomId, setRoomId] = useState(rooms[0]?.id ?? "");
   const [templateId, setTemplateId] = useState(rooms[0]?.templateIds[0] ?? "");
   const [dismissed, setDismissed] = useState(false);

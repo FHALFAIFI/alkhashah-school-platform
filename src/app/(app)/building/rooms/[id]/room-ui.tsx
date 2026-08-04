@@ -15,6 +15,7 @@ import {
   type InspectionSubmitState,
 } from "../../actions";
 import { Field, SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 const ROOM_TYPES = [
   "فصل دراسي", "معمل", "مكتب إداري", "غرفة معلمين", "مصادر تعلم", "ممر", "سلم",
@@ -125,6 +126,8 @@ export function InspectionRunForm({
   canCreateIssues: boolean;
 }) {
   const [state, formAction] = useActionState<InspectionSubmitState, FormData>(submitInspectionAction, null);
+  // D-049: الإجراء لم يعد يُبطل مسار الغرفة — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
   const [open, setOpen] = useState(false);
   const [offerDismissed, setOfferDismissed] = useState(false);
