@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, committeeMembers, committeeTaskAssignments, meetings, people, planYears, meetingTypes } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, LinkButton, WorkflowSteps } from "@/components/ui";
+import { COMMITTEE_CARD_LABEL } from "@/lib/committees/report-labels";
 import { AddMemberForm, ApproveCommitteeButton, ReopenCommitteeForm, NewMeetingForm, CloseCommitteeButton, RemoveMemberButton, AssignmentFormCard } from "./committee-ui";
 import { TaskDistribution } from "./task-distribution-ui";
 import { documents } from "@/db/schema";
@@ -80,7 +81,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Badge value={committeeStatusLabel(c.status)} />
-            <LinkButton href={`/committees/${id}/report`} variant="secondary">تقرير اللجنة</LinkButton>
+            <LinkButton href={`/committees/${id}/report`} variant="secondary">{COMMITTEE_CARD_LABEL}</LinkButton>
             {canApprove && c.status !== "مقفلة" && <CloseCommitteeButton committeeId={id} />}
           </div>
         }

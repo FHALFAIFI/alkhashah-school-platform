@@ -32,16 +32,14 @@ export function CorrectProgramForm({
   currentProgress,
   hasCompletedAt,
   locked,
-  canOverride,
 }: {
   programId: string;
   programName: string;
   currentStatus: string;
   currentProgress: number;
   hasCompletedAt: boolean;
-  /** البرنامج مقفل نهائياً — التصحيح يتطلب صلاحية التجاوز */
+  /** البرنامج مقفل نهائياً — يُعرض تنبيه، والتصحيح مسموح بسببه المكتوب (v2.4.1 §1.6) */
   locked: boolean;
-  canOverride: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [seenSuccess, setSeenSuccess] = useState<string | undefined>(undefined);
@@ -55,14 +53,6 @@ export function CorrectProgramForm({
   if (state?.success && !isPending && state.success !== seenSuccess) {
     setSeenSuccess(state.success);
     setOpen(false);
-  }
-
-  if (locked && !canOverride) {
-    return (
-      <p className="text-xs text-gray-500">
-        البرنامج مقفل نهائياً — تصحيح سجله يتطلب صلاحية التجاوز.
-      </p>
-    );
   }
 
   if (!open) {
@@ -164,10 +154,8 @@ export function CorrectProgramForm({
 /** تصحيح جماعي محدود — بمعاينة الاختيار وعدده وتأكيد صريح. لا «أصلح كل شيء». */
 export function BulkCorrectPanel({
   candidates,
-  canOverride,
 }: {
   candidates: { id: string; label: string; locked: boolean }[];
-  canOverride: boolean;
 }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [seenSuccess, setSeenSuccess] = useState<string | undefined>(undefined);
@@ -179,7 +167,8 @@ export function BulkCorrectPanel({
     setSelected([]);
   }
 
-  const selectable = candidates.filter((c) => !c.locked || canOverride);
+  // v2.4.1 §1.6: البرنامج المقفل يُصحَّح فردياً من صفحته، ويبقى خارج الدفعة عمداً
+  const selectable = candidates.filter((c) => !c.locked);
 
   return (
     <details className="rounded-xl border border-sand-200 bg-white p-4">

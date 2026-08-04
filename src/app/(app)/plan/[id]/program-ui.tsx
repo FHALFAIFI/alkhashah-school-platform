@@ -6,10 +6,11 @@ import {
   approvePackageAction, updateProgramExecutionAction,
   archiveProgramAction, unarchiveProgramAction,
   closeProgramAction, reopenClosedProgramAction,
-  completeProgramAction, resumeProgramAction,
+  completeProgramAction, resumeProgramAction, updateProgramAction,
   type ActionState,
 } from "../actions";
-import { SubmitButton } from "@/components/ui";
+import { SubmitButton, Field, TextArea } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 import { FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 
 export function ApproveProgramButton({ programId }: { programId: string }) {
@@ -34,9 +35,24 @@ export function ApproveProgramButton({ programId }: { programId: string }) {
   );
 }
 
-/** إدخال تقدم البرنامج وحالة تنفيذه مباشرةً — البرنامج نفسه وحدة التنفيذ (D-024) */
-export function ProgramExecutionForm({ programId, progress, executionStatus }: { programId: string; progress: number; executionStatus: string }) {
+/**
+ * إدخال تقدم البرنامج وحالة تنفيذه مباشرةً — البرنامج نفسه وحدة التنفيذ (D-024).
+ * v2.4.1 §1.6: متاح في كل الحالات؛ `reasonRequired` يعني أن قيمة البرنامج مستقرة
+ * تاريخياً (مكتمل/مغلق/سنة مقفلة) فيلزم سبب مكتوب يدخل «سجل التغييرات».
+ */
+export function ProgramExecutionForm({
+  programId,
+  progress,
+  executionStatus,
+  reasonRequired = false,
+}: {
+  programId: string;
+  progress: number;
+  executionStatus: string;
+  reasonRequired?: boolean;
+}) {
   const [state, formAction] = useActionState<ActionState, FormData>(updateProgramExecutionAction.bind(null, programId), null);
+  useRefreshOnSuccess(state);
   const currentStatus = (FOLLOWUP_STATUSES as readonly string[]).includes(executionStatus) ? executionStatus : "في المسار";
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-3">
@@ -67,6 +83,18 @@ export function ProgramExecutionForm({ programId, progress, executionStatus }: {
           ))}
         </select>
       </div>
+      {reasonRequired && (
+        <div className="basis-full sm:basis-64">
+          <label htmlFor={`rsn-${programId}`} className="mb-1 block text-xs text-gray-500">
+            سبب التعديل (إلزامي — البرنامج مكتمل أو مغلق)
+          </label>
+          <input
+            id={`rsn-${programId}`}
+            name="reason"
+            className="w-full min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+          />
+        </div>
+      )}
       <SubmitButton variant="secondary">حفظ التقدم والحالة</SubmitButton>
     </form>
   );
@@ -340,6 +368,78 @@ export function UnarchiveProgramButton({ programId }: { programId: string }) {
       >
         استرجاع
       </button>
+    </div>
+  );
+}
+
+/**
+ * v2.4.1 §1.6: «تعديل البرنامج» — متاح في كل حالات دورة الحياة.
+ *
+ * التحذير يظهر ولا يمنع، والسبب يصبح إلزامياً بعد الاعتماد أو الاكتمال أو الإقفال،
+ * وكل حقل يتغيّر يُقيَّد في «سجل التغييرات» بقيمته السابقة والجديدة. الحالة والاعتماد
+ * لا يتغيّران بالتعديل إطلاقاً.
+ */
+export function EditProgramForm({
+  programId,
+  values,
+  warnings,
+  reasonRequired,
+  updatedToken,
+}: {
+  programId: string;
+  values: { key: string; label: string; value: string | null; multiline: boolean }[];
+  warnings: string[];
+  reasonRequired: boolean;
+  updatedToken: string;
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(updateProgramAction.bind(null, programId), null);
+  useRefreshOnSuccess(state);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="min-h-11 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100 lg:min-h-0"
+      >
+        {open ? "إغلاق التعديل" : "تعديل البرنامج"}
+      </button>
+      {open && (
+        <form action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
+          {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+          {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+
+          {/* تحذير معلوماتي — التعديل مسموح ولا يتوقف عليه */}
+          {warnings.map((w) => (
+            <p key={w} role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+              {w}
+            </p>
+          ))}
+
+          <input type="hidden" name="updatedToken" value={updatedToken} />
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {values.map((f) =>
+              f.multiline ? (
+                <div key={f.key} className="sm:col-span-2">
+                  <TextArea label={f.label} name={`field_${f.key}`} defaultValue={f.value ?? ""} rows={2} />
+                </div>
+              ) : (
+                <Field key={f.key} label={f.label} name={`field_${f.key}`} defaultValue={f.value ?? ""} />
+              ),
+            )}
+          </div>
+
+          <TextArea
+            label={reasonRequired ? "سبب التعديل (إلزامي — يُحفظ في سجل التغييرات)" : "سبب التعديل (اختياري)"}
+            name="reason"
+            rows={2}
+          />
+
+          <SubmitButton>حفظ التعديل</SubmitButton>
+        </form>
+      )}
     </div>
   );
 }

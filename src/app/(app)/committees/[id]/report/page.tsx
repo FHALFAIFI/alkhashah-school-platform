@@ -7,6 +7,7 @@ import { committees, documents } from "@/db/schema";
 import { PageHeader, Card, SubmitButton, Table } from "@/components/ui";
 import { ReportActions } from "@/components/report-actions";
 import { generateCommitteeReport } from "@/lib/reports/committee-report";
+import { COMMITTEE_CARD_LABEL } from "@/lib/committees/report-labels";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +32,10 @@ export default async function CommitteeReportPage({ params }: { params: Promise<
 
   return (
     <div className="max-w-3xl space-y-4">
-      <PageHeader title={`تقرير اللجنة: ${committee.nameAr}`} subtitle="تقرير رسمي بلقطة ثابتة ورقم وثيقة ورمز تحقق — لا حضور ولا غياب ولا نصاب" />
+      <PageHeader title={`${COMMITTEE_CARD_LABEL}: ${committee.nameAr}`} subtitle="طباعة لجنة أو مجلس واحد مستقلاً — لقطة ثابتة برقم وثيقة ورمز تحقق، بأعضائها ومهامها وحالاتها واجتماعاتها ونتائجها" />
       <Card>
         <form action={issueReport} className="space-y-3">
-          <SubmitButton>إصدار تقرير اللجنة (PDF)</SubmitButton>
+          <SubmitButton>{COMMITTEE_CARD_LABEL} (PDF)</SubmitButton>
           <p className="text-xs text-gray-400">يشمل التقرير التشكيل والأعضاء والاجتماعات ونتائجها (قرارات/توصيات/ملاحظات) والإجراءات المرتبطة.</p>
         </form>
         <div className="mt-3 border-t border-sand-100 pt-3">

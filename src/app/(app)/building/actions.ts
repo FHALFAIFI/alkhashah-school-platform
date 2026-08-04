@@ -21,7 +21,14 @@ import { orFallback } from "@/lib/format";
 import { userFacingError } from "@/lib/user-error";
 import { recordInspection } from "@/lib/building/inspection-recording";
 import { ISSUE_TRANSITIONS } from "@/lib/building/maintenance-lifecycle";
+import {
+  DEFAULT_REQUESTED_ACTION,
+  inspectionResultMessage,
+  isMaintenanceCategory,
+  safetyImpactFromFinding,
+} from "@/lib/building/maintenance-report";
 import { isValidIsoDate, todayIso } from "@/lib/dates";
+import { isUuid } from "@/lib/validation";
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -541,22 +548,63 @@ export async function submitInspectionAction(_prev: InspectionSubmitState, formD
   });
   await audit({ actorId: user.id, action: "inspection.submitted", entityType: "room", entityId: parsed.data.roomId, summary: `فحص ${orFallback(room.nameAr)}` });
   revalidatePath("/building/inspections");
+  revalidatePath("/building/maintenance");
   revalidatePath(`/building/rooms/${parsed.data.roomId}`);
-  // v2.4 §14: عرض تحويل الملاحظات إلى بلاغات فور الحفظ — لا بحث يدوي عن الزر
+  // v2.4 §14 · v2.4.1 §1.2: نتيجة الفحص تُقال صراحةً، وتُعاد معها الملاحظات نفسها ليُراجعها
+  // المستخدم ويختار منها قبل إنشاء البلاغات — لا انتقال إلى شاشة أخرى للبحث عنها.
   if (recorded.inspectionId && recorded.findingsCount > 0) {
     return {
-      success: `سُجل الفحص — ${recorded.findingsCount} ملاحظة تحتاج معالجة`,
+      success: inspectionResultMessage(recorded.findingsCount),
       inspectionId: recorded.inspectionId,
       findingsCount: recorded.findingsCount,
+      findings: await actionableFindings(recorded.inspectionId),
     };
   }
-  return { success: "سجل الفحص — كل البنود سليمة" };
+  return { success: "سجل الفحص — كل البنود سليمة ولا توجد ملاحظات تحتاج صيانة" };
 }
 
 /** v2.4 §14: حالة إرسال الفحص — تحمل عرض تحويل الملاحظات إلى بلاغات */
 export type InspectionSubmitState =
-  | ({ inspectionId?: string; findingsCount?: number } & NonNullable<ActionState>)
+  | ({ inspectionId?: string; findingsCount?: number; findings?: ActionableFinding[] } & NonNullable<ActionState>)
   | null;
+
+/** ملاحظة فحص تحتاج معالجة، مع تحذير الازدواج إن وُجد بلاغ مفتوح لنفس البند */
+export type ActionableFinding = {
+  id: string;
+  label: string;
+  severity: string;
+  critical: boolean;
+  note: string | null;
+  /** بلاغ مفتوح قائم لنفس البند في نفس الغرفة — يمنع الإنشاء المكرر ويُعرض كرابط */
+  duplicateIssue: { id: string; code: string; status: string } | null;
+};
+
+/**
+ * v2.4.1 §1.2: يقرأ ملاحظات فحصٍ ما التي «تحتاج معالجة» ولم يُنشأ لها بلاغ بعد،
+ * ومعها كشف الازدواج الجاهز — فتُعرض المراجعة قبل الإنشاء بمعلومة كاملة لا بعنوان فقط.
+ *
+ * **غير مُصدَّرة عمداً**: كل دالة async مُصدَّرة من وحدة `"use server"` تصير نقطة نهاية
+ * عامة قابلة للاستدعاء من المتصفح بأي معرّف. هذه الدالة بلا حارس صلاحية لأنها تُستدعى
+ * داخل إجراء محروس بالفعل؛ تصديرها كان سيفتح قراءة ملاحظات أي فحص بلا تحقق.
+ */
+async function actionableFindings(inspectionId: string): Promise<ActionableFinding[]> {
+  const rows = await db
+    .select()
+    .from(inspectionFindings)
+    .where(and(eq(inspectionFindings.inspectionId, inspectionId), eq(inspectionFindings.status, "يحتاج معالجة")));
+  return Promise.all(
+    rows
+      .filter((f) => !f.maintenanceIssueId)
+      .map(async (f) => ({
+        id: f.id,
+        label: f.label,
+        severity: f.severity,
+        critical: f.critical,
+        note: f.note,
+        duplicateIssue: await findOpenDuplicateIssue(f),
+      })),
+  );
+}
 
 // ————————————————— ملاحظات الفحص (v2.3 §16) —————————————————
 
@@ -645,6 +693,10 @@ async function createIssueFromFindingCore(
       status: "مسودة",
       inspectionFindingId: finding.id,
       reportedBy: actorId,
+      // v2.4.1 §1.2: يُملأ من الملاحظة نفسها — إعادة صياغة أمينة لا تقدير جديد.
+      // التصنيف يبقى فارغاً حتى يختاره المدير: لا يُخمَّن نوع العطل من نص البند.
+      safetyImpact: safetyImpactFromFinding(finding),
+      requestedAction: DEFAULT_REQUESTED_ACTION,
     })
     .returning();
   await db.insert(maintenanceStatusHistory).values({ issueId: issue.id, fromStatus: null, toStatus: "مسودة", actorId, note: `أُنشئ من ملاحظة فحص «${finding.label}»` });
@@ -714,6 +766,55 @@ export async function createIssuesFromInspectionAction(_prev: ActionState, formD
   return { success: parts.join(" — ") };
 }
 
+/**
+ * v2.4.1 §1.2: «إنشاء البلاغات المحددة» — بلاغ **منفصل لكل ملاحظة مختارة**.
+ *
+ * لا تجميع: ثلاث ملاحظات مختارة تنتج ثلاثة بلاغات، كل واحد مرتبط بملاحظته وبفحصها
+ * وبموقعها ونص ملاحظتها. الازدواج يُفحص لكل ملاحظة على حدة قبل الإنشاء.
+ */
+export async function createSelectedIssuesFromInspectionAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("inspections.write", "maintenance.write");
+  const inspectionId = String(formData.get("inspectionId") ?? "");
+  if (!isUuid(inspectionId)) return { error: "الفحص غير محدد" };
+  // معرّفات مُطهَّرة من الاختيار — لا يمر معرّف ملفَّق من خارج هذا الفحص
+  const selected = new Set(
+    formData.getAll("findingId").map((v) => String(v)).filter((v) => isUuid(v)),
+  );
+  if (selected.size === 0) return { error: "اختر ملاحظة واحدة على الأقل" };
+
+  const findings = await db
+    .select()
+    .from(inspectionFindings)
+    .where(and(eq(inspectionFindings.inspectionId, inspectionId), eq(inspectionFindings.status, "يحتاج معالجة")));
+  const scoped = findings.filter((f) => selected.has(f.id));
+  if (scoped.length === 0) return { error: "الملاحظات المختارة لا تنتمي لهذا الفحص أو أُغلقت" };
+
+  const created: string[] = [];
+  let alreadyLinked = 0;
+  const duplicates: string[] = [];
+  for (const finding of scoped) {
+    if (finding.maintenanceIssueId) {
+      alreadyLinked++;
+      continue;
+    }
+    const duplicate = await findOpenDuplicateIssue(finding);
+    if (duplicate) {
+      duplicates.push(duplicate.code);
+      continue;
+    }
+    const issue = await createIssueFromFindingCore(finding, user.id);
+    created.push(issue.code);
+  }
+  revalidatePath(`/building/rooms/${scoped[0].roomId}`);
+  revalidatePath("/building/maintenance");
+  const parts: string[] = [];
+  if (created.length) parts.push(`أُنشئ ${created.length} بلاغاً منفصلاً (${created.join("، ")})`);
+  if (alreadyLinked) parts.push(`${alreadyLinked} ملاحظة مرتبطة ببلاغ مسبقاً`);
+  if (duplicates.length) parts.push(`تُجوّزت ${duplicates.length} ملاحظة لوجود بلاغ مفتوح لنفس البند (${[...new Set(duplicates)].join("، ")})`);
+  if (created.length === 0) return { error: parts.join(" — ") || "لم يُنشأ أي بلاغ" };
+  return { success: parts.join(" — ") };
+}
+
 /** تجاوز الجاهزية — سبب إلزامي */
 export async function overrideReadinessAction(roomId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("inspections.write", "building.publish");
@@ -736,7 +837,18 @@ const issueSchema = z.object({
   assetId: z.string().uuid().optional().or(z.literal("")),
   ownerPersonId: z.string().uuid("اختر المكلف من السجل").optional().or(z.literal("")),
   priority: z.enum(["عالية", "متوسطة", "منخفضة"]).default("متوسطة"),
+  // v2.4.1 §1.2: حقول تقرير الصيانة الرسمي — اختيارية كلها (القاعدة العامة §8)
+  category: z.string().optional(),
+  safetyImpact: z.string().optional(),
+  operationalImpact: z.string().optional(),
+  requestedAction: z.string().optional(),
 });
+
+/** يقبل تصنيفاً من القائمة المغلقة فقط؛ أي قيمة أخرى (أو فراغ) تُحفظ فارغة لا مرفوضة */
+function normalizeCategory(value: string | undefined): string | null {
+  const v = (value ?? "").trim();
+  return v && isMaintenanceCategory(v) ? v : null;
+}
 
 export async function createIssueAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("maintenance.write");
@@ -776,6 +888,10 @@ export async function createIssueAction(_prev: ActionState, formData: FormData):
       assetId: parsed.data.assetId || null,
       ownerPersonId: parsed.data.ownerPersonId || null,
       priority: parsed.data.priority,
+      category: normalizeCategory(parsed.data.category),
+      safetyImpact: parsed.data.safetyImpact?.trim() || null,
+      operationalImpact: parsed.data.operationalImpact?.trim() || null,
+      requestedAction: parsed.data.requestedAction?.trim() || DEFAULT_REQUESTED_ACTION,
       photos,
       reportedBy: user.id,
     })
@@ -863,4 +979,44 @@ export async function transitionIssueAction(_prev: ActionState, formData: FormDa
   revalidatePath(`/building/maintenance/${issueId}`);
   if (issue.roomId) revalidatePath(`/building/rooms/${issue.roomId}`);
   return { success: `انتقل البلاغ إلى «${toStatus}»` };
+}
+
+/**
+ * v2.4.1 §1.2: تحرير حقول تقرير الصيانة الرسمي على بلاغ قائم — التصنيف وأثر السلامة
+ * والأثر التشغيلي والإجراء المطلوب. كلها اختيارية، ومتاحة قبل الاعتماد وبعده: تصحيح
+ * وصف عطل بعد اعتماد البلاغ لا يستدعي إلغاء الاعتماد. كل تعديل يُقيَّد في سجل التدقيق.
+ */
+export async function updateIssueReportFieldsAction(issueId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("maintenance.write");
+  if (!isUuid(issueId)) return { error: "البلاغ غير موجود" };
+  const [issue] = await db.select().from(maintenanceIssues).where(eq(maintenanceIssues.id, issueId));
+  if (!issue) return { error: "البلاغ غير موجود" };
+
+  const patch = {
+    category: normalizeCategory(String(formData.get("category") ?? "")),
+    safetyImpact: String(formData.get("safetyImpact") ?? "").trim() || null,
+    operationalImpact: String(formData.get("operationalImpact") ?? "").trim() || null,
+    requestedAction: String(formData.get("requestedAction") ?? "").trim() || null,
+  };
+  const before = {
+    category: issue.category,
+    safetyImpact: issue.safetyImpact,
+    operationalImpact: issue.operationalImpact,
+    requestedAction: issue.requestedAction,
+  };
+  const changed = (Object.keys(patch) as (keyof typeof patch)[]).filter((k) => patch[k] !== before[k]);
+  if (changed.length === 0) return { success: "لا تغييرات لحفظها" };
+
+  await db.update(maintenanceIssues).set({ ...patch, updatedAt: new Date() }).where(eq(maintenanceIssues.id, issueId));
+  await audit({
+    actorId: user.id,
+    action: "maintenance.report_fields_updated",
+    entityType: "maintenance",
+    entityId: issueId,
+    summary: `تحديث بيانات تقرير البلاغ ${issue.code}`,
+    detail: { before, after: patch, changed },
+  });
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — العميل يحدّثها بعد استقرار النتيجة
+  revalidatePath("/building/maintenance");
+  return { success: "حُفظت بيانات تقرير الصيانة" };
 }

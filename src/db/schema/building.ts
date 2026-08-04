@@ -266,6 +266,21 @@ export const maintenanceIssues = pgTable(
     roomId: uuid("room_id").references(() => rooms.id),
     assetId: uuid("asset_id").references(() => assets.id),
     priority: text("priority").notNull().default("متوسطة"),
+    /**
+     * v2.4.1 §1.2: حقول تقرير الصيانة الرسمي. كلها **اختيارية** (القاعدة العامة §8)
+     * وقابلة للفراغ، فالبلاغات القائمة لا تُعاد كتابتها ولا يُخترع لها محتوى.
+     *
+     * البلاغ المنشأ من ملاحظة فحص يُملأ له `safetyImpact` و`requestedAction` بإعادة صياغة
+     * أمينة لخطورة الملاحظة نفسها — لا تقدير جديد ولا رأي مضاف.
+     */
+    /** تصنيف الصيانة من قائمة مغلقة — كهرباء / سباكة / تكييف … */
+    category: text("category"),
+    /** أثر المشكلة على سلامة مستخدمي المبنى */
+    safetyImpact: text("safety_impact"),
+    /** أثر المشكلة على سير العمل والتشغيل */
+    operationalImpact: text("operational_impact"),
+    /** الإجراء المطلوب من الجهة المستلمة */
+    requestedAction: text("requested_action"),
     /** مسودة | معتمد | تم الإرسال | تحت المعالجة | تم الإصلاح | لم يتم الإصلاح | مغلق */
     status: text("status").notNull().default("مسودة"),
     photos: jsonb("photos").$type<string[]>(),

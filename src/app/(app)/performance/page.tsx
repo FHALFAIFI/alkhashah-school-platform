@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { perfCycles, perfModels, people } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, EmptyState, LinkButton } from "@/components/ui";
+import { OVERALL_REPORT_LABEL, individualReportLabel } from "@/lib/performance/report-labels";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { faresPreviewBatchId } from "@/lib/committees/prerequisites";
 import { missingSignedReports } from "@/lib/performance/signed-reports";
@@ -58,13 +59,15 @@ export default async function PerformancePage() {
             وثيقتان رسميتان مرقّمتان تُصدَران بصلاحية «إصدار التقارير» مع «الاطلاع على الأداء الفردي» — بيانات الأداء
             الفردي لا تُتاح لغير المخوَّل (D-013).
           </p>
+          {/* v2.4.1 §1.4: صياغة المدير حرفياً — «للمعلم» و«للجميع» */}
           <div className="flex flex-wrap gap-2">
-            <LinkButton href="/performance/analytics" variant="secondary">تقرير تفصيلي للمدرسة</LinkButton>
-            <LinkButton href="/performance/analytics#needs-followup" variant="secondary">تقرير تفصيلي للموظف</LinkButton>
+            <LinkButton href="/performance/analytics" variant="secondary">{OVERALL_REPORT_LABEL}</LinkButton>
+            <LinkButton href="/performance/analytics#needs-followup" variant="secondary">{individualReportLabel("معلم")}</LinkButton>
           </div>
           <p className="mt-2 text-[11px] text-gray-400">
-            «تقرير تفصيلي للمدرسة» يُصدَر من لوحة الأداء العام. «تقرير تفصيلي للموظف» يُصدَر من صفحة المنسوب — افتحها من
-            سجل الدورات أدناه أو من قائمة المتابعة في لوحة الأداء العام.
+            «{OVERALL_REPORT_LABEL}» يُصدَر من لوحة الأداء العام. «{individualReportLabel("معلم")}» يُصدَر من صفحة
+            المنسوب — افتحها من سجل الدورات أدناه أو من قائمة المتابعة في لوحة الأداء العام. المنسوب غير المعلم يحمل
+            تقريره التسمية المحايدة «{individualReportLabel("موظف إداري")}».
           </p>
         </Card>
       )}

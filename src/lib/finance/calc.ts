@@ -238,6 +238,19 @@ export type SchoolFinanceSummary = {
   totalAllocated: number;
   /** مجموع المتبقي من البنود ذات المخصص فقط */
   totalRemaining: number;
+  /**
+   * v2.4.1 §1.1: هل يوجد أصلاً مخصص واحد على الأقل؟ عند `false` يكون `totalAllocated`
+   * و`totalRemaining` صفرين **لعدم وجود ما يُحتسب**، لا لأن الرصيد نفد — والسطوح تعرض
+   * نصاً عربياً صريحاً بدل رقم صفري مضلِّل.
+   */
+  hasAnyAllocation: boolean;
+  /** عدد البنود الحيّة بلا مخصص — النقص ظاهر بعدده لا بالبحث صفاً صفاً */
+  unallocatedItemCount: number;
+  /**
+   * نسبة الإنفاق من إجمالي المخصصات (٪) — `null` حين لا مخصص أو المخصص صفر.
+   * تُعرض في بطاقة مستقلة ضمن الملخص الأعلى.
+   */
+  spentPercent: number | null;
   /** عدد العمليات المالية الجارية (إيراد + مصروف) */
   operationCount: number;
   incomeCount: number;
@@ -279,6 +292,9 @@ export function summarizeSchoolFinance(
   // دون الملغى (لا يمثّل عملية قائمة).
   const operations = [...activeIncome.filter((r) => r.status !== INCOME_CANCELLED), ...activeExpenses];
 
+  // «لا مخصص لأي بند» حالة مختلفة عن «المخصص صفر» — تُنقل صراحةً بدل أن تُقرأ من صفر
+  const allocatedLines = liveLines.filter((l) => l.allocationState !== "none");
+
   return {
     totalIncome,
     totalExpectedIncome: sum(expectedIncome.map((r) => r.amount)),
@@ -286,6 +302,12 @@ export function summarizeSchoolFinance(
     cashBalance: moneySubtract(totalIncome, totalExpenses),
     totalAllocated,
     totalRemaining,
+    hasAnyAllocation: allocatedLines.length > 0,
+    unallocatedItemCount: liveLines.length - allocatedLines.length,
+    spentPercent:
+      totalAllocated > 0
+        ? Math.round((sum(allocatedLines.map((l) => l.expenses)) / totalAllocated) * 100)
+        : null,
     operationCount: operations.length,
     incomeCount: activeIncome.filter((r) => r.status !== INCOME_CANCELLED).length,
     expenseCount: activeExpenses.length,

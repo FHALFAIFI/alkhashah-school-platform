@@ -7,6 +7,9 @@ import { perfCycles, perfSessions, perfRatings, people, improvementPlans, docume
 import { PageHeader, Card, Badge, Table, LinkButton, ProgressBar, WorkflowSteps } from "@/components/ui";
 import { cycleProgress, weakIndicators } from "@/lib/performance/scoring";
 import { NewSessionForm, ImprovementPlanForm, PlanStatusControl } from "./cycle-ui";
+import { PermanentDeletePanel } from "@/components/permanent-delete";
+import { assessCycleDeletion } from "@/lib/lifecycle-delete";
+import { deleteCycleAction } from "../../actions";
 import { dualDisplay, todayIso } from "@/lib/dates";
 import { orFallback, orDash } from "@/lib/format";
 
@@ -45,6 +48,12 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
   const visits = sessions.filter((s) => s.sessionType === "زيارة").length;
   const followups = sessions.filter((s) => s.sessionType === "متابعة").length;
   const canWrite = user.permissions.has("performance.write") && cycle.status !== "مقفلة";
+  // v2.4.1 §1.3: حذف الدورة متاح في كل حالاتها (حتى المقفلة) — القرار للمدير لا للحالة
+  const canDeleteCycle =
+    user.permissions.has("performance.write") &&
+    user.permissions.has("performance.approve") &&
+    user.permissions.has("performance.individual.read");
+  const cycleImpact = canDeleteCycle ? await assessCycleDeletion(id) : null;
 
   const context = cycle.cycleType === "معلم" ? "teacher" : "employee";
   const startDisplay = cycle.startDate ? dualDisplay(cycle.startDate, context) : null;
@@ -228,6 +237,20 @@ export default async function CyclePage({ params }: { params: Promise<{ id: stri
         )}
         {canWrite && <ImprovementPlanForm cycleId={id} suggested={weakNames.length > 0} />}
       </Card>
+
+      {/* v2.4.1 §1.3: حذف دورة الأداء كاملةً — الموظف ودوراته الأخرى تبقى سليمة */}
+      {canDeleteCycle && cycleImpact && (
+        <Card>
+          <PermanentDeletePanel
+            action={deleteCycleAction.bind(null, id)}
+            impact={cycleImpact}
+            heading="حذف دورة الأداء"
+            cta="حذف دورة الأداء"
+            confirmFieldLabel="سنة الدورة"
+            intro={`يمحو هذه الدورة (${cycle.yearKey}) بكامل جلساتها وتقديراتها وخطط تحسينها ووثائقها الصادرة وشواهدها الخاصة. سجل الموظف «${orFallback(person?.fullName)}» ودوراته الأخرى تبقى كما هي.`}
+          />
+        </Card>
+      )}
 
       <Card>
         <h2 className="mb-2 font-bold text-brand-900">المؤشرات (لقطة النموذج المجمدة عند إنشاء الدورة)</h2>

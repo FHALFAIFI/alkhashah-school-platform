@@ -6,14 +6,23 @@ import { z } from "zod";
 import { db } from "@/db";
 import {
   programs, programChangeRequests, programDeliverables, planYears, programFollowups,
-  programClosureHistory,
+  programClosureHistory, programEditHistory,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { orFallback } from "@/lib/format";
 import { snapshotRecord } from "@/lib/versioning";
+import { revalidateOtherPaths } from "@/lib/revalidate";
+import { MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE } from "@/lib/finance/calc";
 import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
-import { PROGRAM_LIFECYCLE, LIFECYCLE_ACTIONS } from "@/lib/plan/lifecycle";
+import { PROGRAM_LIFECYCLE, LIFECYCLE_ACTIONS, programLifecycle } from "@/lib/plan/lifecycle";
+import {
+  EDITABLE_FIELD_KEYS,
+  REASON_REQUIRED_MESSAGE,
+  changesSummaryAr,
+  detectChanges,
+  reasonRequiredFor,
+} from "@/lib/plan/program-edit";
 import { notifyAll, notifyUser } from "@/lib/notify";
 import { isUuid } from "@/lib/validation";
 
@@ -30,32 +39,72 @@ export type ActionState = { error?: string; success?: string } | null;
 const executionSchema = z.object({
   progress: z.coerce.number().int().min(0, "النسبة بين 0 و100").max(100, "النسبة بين 0 و100"),
   executionStatus: z.enum(FOLLOWUP_STATUSES, { message: "حالة التنفيذ غير صحيحة" }),
+  reason: z.string().trim().optional(),
 });
 
+/**
+ * v2.4.1 §1.6: حالة البرنامج لم تعد تمنع تحديث التنفيذ.
+ *
+ * كان البرنامج المكتمل أو المغلق يرفض التحديث فيضطر المدير إلى إعادة فتحه لتصحيح نسبة —
+ * وإعادة الفتح تغيّر الحالة فعلياً، وهو تشويه للسجل أشدّ من التصحيح. الآن: التحديث
+ * مسموح، والسبب إلزامي متى كان البرنامج مكتملاً أو مغلقاً (قيمته مستقرة تاريخياً)،
+ * ويُقيَّد التغيير في `program_edit_history` كأي تعديل بعد الاعتماد. الحالة نفسها لا
+ * تتغيّر إطلاقاً — لا اكتمال ولا إقفال ولا إعادة فتح ضمنية.
+ */
 export async function updateProgramExecutionAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("plan.write");
   const parsed = executionSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
-  if (program.status === "مقفل") return { error: "السنة مقفلة — لا تعديل على التقدم" };
-  // البرنامج المغلق نهائياً للقراءة فقط — حارس خادم لا واجهة فحسب
-  if (program.closedAt) return { error: "البرنامج مغلق نهائياً — أعد فتحه أولاً قبل تعديل التنفيذ" };
 
-  await db
-    .update(programs)
-    .set({ progress: parsed.data.progress, executionStatus: parsed.data.executionStatus, updatedAt: new Date() })
-    .where(eq(programs.id, programId));
+  const lifecycle = programLifecycle(program);
+  const settled = lifecycle !== PROGRAM_LIFECYCLE.active || program.status === "مقفل";
+  const reason = (parsed.data.reason ?? "").trim();
+  if (settled && reason.length < 3) {
+    return { error: "اذكر سبب تعديل التنفيذ — إلزامي للبرنامج المكتمل أو المغلق أو ضمن سنة مقفلة" };
+  }
+  if (program.progress === parsed.data.progress && program.executionStatus === parsed.data.executionStatus) {
+    return { success: "لا تغييرات لحفظها" };
+  }
+
+  const before = { progress: program.progress, executionStatus: program.executionStatus };
+  await db.transaction(async (tx) => {
+    await tx
+      .update(programs)
+      .set({ progress: parsed.data.progress, executionStatus: parsed.data.executionStatus, updatedAt: new Date() })
+      .where(eq(programs.id, programId));
+    // التعديل بعد الاعتماد يدخل سجل التغييرات نفسه الذي يقرأه المدير — لا سجلّان متوازيان
+    if (program.status !== "مسودة" || settled) {
+      const rows = [
+        { field: "progress", fieldLabel: "نسبة الإنجاز", oldValue: String(before.progress), newValue: String(parsed.data.progress) },
+        { field: "executionStatus", fieldLabel: "حالة التنفيذ", oldValue: before.executionStatus, newValue: parsed.data.executionStatus },
+      ].filter((r) => r.oldValue !== r.newValue);
+      if (rows.length > 0) {
+        await tx.insert(programEditHistory).values(
+          rows.map((r) => ({
+            programId,
+            ...r,
+            approvalStatusAtEdit: program.status,
+            lifecycleAtEdit: lifecycle,
+            reason: reason || null,
+            actorId: user.id,
+          })),
+        );
+      }
+    }
+  });
+
   await audit({
     actorId: user.id,
     action: "program.progress_updated",
     entityType: "program",
     entityId: programId,
     summary: `تحديث تقدم «${program.name}» إلى ${parsed.data.progress}٪ — ${parsed.data.executionStatus}`,
+    detail: { before, after: { progress: parsed.data.progress, executionStatus: parsed.data.executionStatus }, reason: reason || null },
   });
-  revalidatePath(`/plan/${programId}`);
-  revalidatePath("/plan");
-  revalidatePath("/plan/followup");
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة
+  revalidateOtherPaths(["/plan", `/plan/${programId}`, "/plan/followup"], { except: `/plan/${programId}` });
   return { success: "حُدّث تقدم البرنامج وحالته" };
 }
 
@@ -78,8 +127,8 @@ const correctionSchema = z.object({
  * تصحيح حالة برنامج واحد بقرار صريح من المدير.
  *
  * لا يغيّر `status` ولا `approvedAt` ولا `closedAt` إطلاقاً — الاعتماد والإقفال لهما
- * إجراءاتهما المدقَّقة. تصحيح سجل مغلق نهائياً يتطلب صلاحية التجاوز (`plan.override`)
- * لأنه مساس بسجل أقفله المدير.
+ * إجراءاتهما المدقَّقة. (v2.4.1 §1.6) الإقفال لم يعد مانعاً للتصحيح؛ السبب المكتوب
+ * إلزامي وهو ما يوثّق المساس بسجل مقفل.
  */
 export async function correctProgramConsistencyAction(
   programId: string,
@@ -95,9 +144,9 @@ export async function correctProgramConsistencyAction(
   if (!isUuid(programId)) return { error: "البرنامج غير موجود" };
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
-  if ((program.closedAt || program.status === "مقفل") && !user.permissions.has("plan.override")) {
-    return { error: "البرنامج مقفل — تصحيح سجل مقفل يتطلب صلاحية التجاوز" };
-  }
+  // v2.4.1 §1.6: الإقفال لم يعد مانعاً. `plan.override` لم يكن ممنوحاً لأي دور أصلاً،
+  // فكان الشرط منعاً مطلقاً لا استثناءً مخوَّلاً. السبب المكتوب (`note`) إلزامي هنا
+  // أصلاً وهو ما يوثّق المساس بسجل مقفل.
 
   const before = {
     executionStatus: program.executionStatus,
@@ -203,8 +252,13 @@ export async function bulkCorrectProgramsAction(_prev: ActionState, formData: Fo
     return { error: `${ids.length - rows.length} من البرامج المختارة غير موجود أو مؤرشف — حدّث الصفحة وأعد الاختيار` };
   }
 
-  const blocked = rows.filter((p) => (p.closedAt || p.status === "مقفل") && !user.permissions.has("plan.override"));
-  if (blocked.length > 0) return { error: `${blocked.length} برنامج مقفل ضمن الاختيار — يتطلب صلاحية التجاوز` };
+  // v2.4.1 §1.6: التعديل الفردي متاح للبرنامج المقفل، أما **الدفعة** فتبقى مستبعِدة له
+  // عمداً: عملية جماعية تمسّ سجلات أقفلها المدير بضغطة واحدة تناقض «تصحيح مراجَع».
+  // البديل ظاهر ومباشر: افتح البرنامج المقفل وصحّحه فردياً بسببه المكتوب.
+  const blocked = rows.filter((p) => p.closedAt || p.status === "مقفل");
+  if (blocked.length > 0) {
+    return { error: `${blocked.length} برنامج مقفل ضمن الاختيار — صحّح كل واحد منها من صفحته مباشرةً بسبب مكتوب` };
+  }
 
   let changed = 0;
   for (const p of rows) {
@@ -660,6 +714,108 @@ export async function reopenClosedProgramAction(programId: string, _prev: Action
   });
   revalidateProgramLists(programId);
   return { success: "أُعيد فتح البرنامج بحالة «مكتمل» — أعده للتنفيذ إن أردت استئناف العمل عليه" };
+}
+
+/* ── تعديل بيانات البرنامج في كل حالات دورة الحياة (v2.4.1 §1.6) ───────────
+ * الحالة لم تعد تمنع التعديل. ما يحرس العملية: الصلاحية، والسبب الإلزامي بعد الاعتماد
+ * أو الاكتمال أو الإقفال، وسجل تغييرات على مستوى الحقل، وحماية التعديل المتزامن.
+ * لا يُمسّ `status` ولا `approvedAt` ولا `completedAt` ولا `closedAt` ولا `archivedAt`.
+ */
+export async function updateProgramAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("plan.write");
+  if (!isUuid(programId)) return { error: "البرنامج غير موجود" };
+  const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!program) return { error: "البرنامج غير موجود" };
+
+  const state = { approvalStatus: program.status, lifecycle: programLifecycle(program) };
+
+  // حماية التعديل المتزامن: رمز الحداثة يأتي من الصفحة التي فُتحت. اختلافه يعني أن
+  // السجل تغيّر بعد فتح النموذج — الحفظ يُرفض بدل الكتابة فوق تعديل شخص آخر.
+  const submittedToken = String(formData.get("updatedToken") ?? "");
+  if (!submittedToken) return { error: "أعد تحميل الصفحة قبل الحفظ" };
+  if (submittedToken !== program.updatedAt.toISOString()) {
+    return { error: "عُدّل البرنامج من مكان آخر بعد فتح هذا النموذج — أعد تحميل الصفحة وراجع القيم قبل الحفظ" };
+  }
+
+  // القيم المُرسلة فقط تُقارَن — الحقل الغائب عن النموذج لا يُمسح بصمت
+  const submitted: Record<string, unknown> = {};
+  for (const key of EDITABLE_FIELD_KEYS) {
+    if (formData.has(`field_${key}`)) submitted[key] = formData.get(`field_${key}`);
+  }
+  const changes = detectChanges(program as unknown as Record<string, unknown>, submitted);
+  if (changes.length === 0) return { success: "لا تغييرات لحفظها" };
+
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (reasonRequiredFor(state) && reason.length < 3) return { error: REASON_REQUIRED_MESSAGE };
+
+  // حرس المبالغ: الميزانية رقم أو فراغ — لا نص حر يفسد كل مجموع مالي لاحق
+  const budgetChange = changes.find((c) => c.field === "budget");
+  if (budgetChange && budgetChange.newValue !== null) {
+    const n = Number(budgetChange.newValue);
+    if (!Number.isFinite(n) || n < 0) return { error: "الميزانية يجب أن تكون رقماً موجباً أو فارغة" };
+    if (n > MAX_MONEY_AMOUNT) return { error: MAX_MONEY_MESSAGE };
+  }
+
+  const patch: Record<string, string | null> = {};
+  for (const c of changes) patch[c.field] = c.newValue;
+
+  // شرط `updated_at` داخل التحديث نفسه يجعل فحص التزامن ذرّياً لا فحصاً مسبقاً فحسب:
+  // طلبان متزامنان لا ينجح منهما إلا الأول، والثاني يعود برسالة «عُدّل من مكان آخر».
+  //
+  // `date_trunc` ليست تجميلاً: عمود `timestamptz` يحفظ بدقة الميكروثانية بينما `Date`
+  // في JS بدقة الملّي، فالمقارنة المباشرة لا تطابق أبداً وكانت سترفض كل تعديل بوصفه
+  // «قديماً». التقريب إلى الملّي على الطرفين يجعل الرمز المُرسل مطابقاً لما في العمود.
+  const applied = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(programs)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(programs.id, programId),
+          sql`date_trunc('milliseconds', ${programs.updatedAt}) = date_trunc('milliseconds', ${program.updatedAt}::timestamptz)`,
+        ),
+      )
+      .returning({ id: programs.id });
+    if (updated.length === 0) return false;
+
+    await tx.insert(programEditHistory).values(
+      changes.map((c) => ({
+        programId,
+        field: c.field,
+        fieldLabel: c.fieldLabel,
+        oldValue: c.oldValue,
+        newValue: c.newValue,
+        approvalStatusAtEdit: state.approvalStatus,
+        lifecycleAtEdit: state.lifecycle,
+        reason: reason || null,
+        actorId: user.id,
+      })),
+    );
+    return true;
+  });
+  if (!applied) {
+    return { error: "عُدّل البرنامج من مكان آخر بعد فتح هذا النموذج — أعد تحميل الصفحة وراجع القيم قبل الحفظ" };
+  }
+
+  await audit({
+    actorId: user.id,
+    action: "program.edited",
+    entityType: "program",
+    entityId: programId,
+    summary: `تعديل «${orFallback(program.name)}» (${state.approvalStatus} · ${state.lifecycle}) — ${changesSummaryAr(changes)}`,
+    detail: {
+      approvalStatusAtEdit: state.approvalStatus,
+      lifecycleAtEdit: state.lifecycle,
+      reason: reason || null,
+      changes: changes.map((c) => ({ field: c.field, label: c.fieldLabel, from: c.oldValue, to: c.newValue })),
+    },
+  });
+
+  // D-049: لا نُبطِل مسار الصفحة المفتوحة — العميل يحدّثها بعد استقرار النتيجة
+  revalidateOtherPaths(["/plan", `/plan/${programId}`, "/plan/consistency", "/reports"], {
+    except: `/plan/${programId}`,
+  });
+  return { success: `حُفظ التعديل — ${changes.length} حقلاً: ${changesSummaryAr(changes)}` };
 }
 
 /** طلب تغيير على برنامج معتمد: قيمة قديمة/جديدة وسبب واعتماد */

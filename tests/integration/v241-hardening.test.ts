@@ -351,7 +351,7 @@ describe("§5.5 — تصحيح البرنامج المفرد", () => {
     expect(audits.length).toBe(1);
   });
 
-  it("السجل المقفل يتطلب صلاحية التجاوز", async () => {
+  it("السجل المقفل يُصحَّح بسبب مكتوب ولا يُرفع إقفاله", async () => {
     const { db } = await import("@/db");
     const { programs } = await import("@/db/schema");
     const [p] = await db
@@ -368,20 +368,26 @@ describe("§5.5 — تصحيح البرنامج المفرد", () => {
       })
       .returning();
 
+    // v2.4.1 §1.6: الإقفال لم يعد مانعاً. `plan.override` لم تُمنح لأي دور قط، فكان
+    // الشرط منعاً مطلقاً لا استثناءً مخوَّلاً. الحارس الباقي هو السبب المكتوب الإلزامي.
     const { correctProgramConsistencyAction } = await import("@/app/(app)/plan/actions");
-    const denied = await correctProgramConsistencyAction(
+    const noReason = await correctProgramConsistencyAction(
       p.id,
       null,
-      fd({ executionStatus: "مكتمل", progress: "100", note: "سبب" }),
+      fd({ executionStatus: "مكتمل", progress: "100", note: "" }),
     );
-    expect(denied?.error).toContain("صلاحية التجاوز");
+    expect(noReason?.error).toBeTruthy();
 
-    permissions = new Set(["plan.read", "plan.write", "plan.override"]);
     const allowed = await correctProgramConsistencyAction(
       p.id,
       null,
-      fd({ executionStatus: "مكتمل", progress: "100", note: "سبب" }),
+      fd({ executionStatus: "مكتمل", progress: "100", note: "تصحيح سجل مقفل بقرار المدير" }),
     );
     expect(allowed?.success).toBeTruthy();
+
+    // والإقفال نفسه لم يُرفع
+    const [after] = await db.select().from(programs).where(eq(programs.id, p.id));
+    expect(after.closedAt).not.toBeNull();
+    expect(after.progress).toBe(100);
   });
 });

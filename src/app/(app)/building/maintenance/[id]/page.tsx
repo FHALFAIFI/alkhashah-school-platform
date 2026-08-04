@@ -17,7 +17,8 @@ import { revalidatePath } from "next/cache";
 import { isUuid } from "@/lib/validation";
 import { orDash, orFallback } from "@/lib/format";
 import { dualNumericCell } from "@/lib/dates";
-import { IssueWorkflowControl } from "../maintenance-ui";
+import { IssueWorkflowControl, IssueReportFieldsForm } from "../maintenance-ui";
+import { MAINTENANCE_FIELD_UNSET } from "@/lib/building/maintenance-report";
 
 export const metadata = { title: "بلاغ صيانة" };
 export const dynamic = "force-dynamic";
@@ -169,7 +170,30 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
             )}
             <dt className="text-gray-500">الإغلاق</dt>
             <dd className="tabular-nums">{issue.closedAt ? dualNumericCell(issue.closedAt) : "—"}</dd>
+            {/* v2.4.1 §1.2: حقول تقرير الصيانة الرسمي ظاهرة في البطاقة كما تظهر في التقرير */}
+            <dt className="text-gray-500">تصنيف الصيانة</dt>
+            <dd>{issue.category ?? MAINTENANCE_FIELD_UNSET}</dd>
+            <dt className="text-gray-500">أثر السلامة</dt>
+            <dd>{issue.safetyImpact ?? MAINTENANCE_FIELD_UNSET}</dd>
+            <dt className="text-gray-500">الأثر التشغيلي</dt>
+            <dd>{issue.operationalImpact ?? MAINTENANCE_FIELD_UNSET}</dd>
+            <dt className="text-gray-500">الإجراء المطلوب</dt>
+            <dd>{issue.requestedAction ?? MAINTENANCE_FIELD_UNSET}</dd>
           </dl>
+          {canWrite && (
+            <details className="mt-3 border-t border-sand-100 pt-3 print:hidden">
+              <summary className="cursor-pointer text-xs font-bold text-brand-800">تعديل بيانات تقرير الصيانة</summary>
+              <div className="mt-2">
+                <IssueReportFieldsForm
+                  issueId={issue.id}
+                  category={issue.category}
+                  safetyImpact={issue.safetyImpact}
+                  operationalImpact={issue.operationalImpact}
+                  requestedAction={issue.requestedAction}
+                />
+              </div>
+            </details>
+          )}
           {finding && (
             <div className="mt-2 rounded bg-sand-50 p-2 text-xs text-gray-600">
               {/* v2.4 §14ب: هوية مصدر الفحص كاملة — البند وخطورته وتاريخ الفحص وحالة الملاحظة */}

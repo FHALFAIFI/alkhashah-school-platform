@@ -9,6 +9,7 @@ import { committeeStatusLabel } from "@/lib/plan/status-labels";
 import { committedEmployeeCount, faresPreviewBatchId } from "@/lib/committees/prerequisites";
 import { FormCommitteeButton, NewPlcForm } from "./committees-ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
+import { COMMITTEE_REGISTRY_LABEL } from "@/lib/committees/report-labels";
 import { SubmitButton } from "@/components/ui";
 import { revalidatePath } from "next/cache";
 
@@ -67,7 +68,8 @@ export default async function CommitteesPage() {
             <SectionReportsLink category="committees" />
             {canGenerate && all.length > 0 && (
               <form action={issueRegistry}>
-                <SubmitButton variant="secondary">إصدار السجل التفصيلي (PDF)</SubmitButton>
+                {/* v2.4.1 §1.5: صياغة المدير حرفياً */}
+                <SubmitButton variant="secondary">{COMMITTEE_REGISTRY_LABEL}</SubmitButton>
               </form>
             )}
             <LinkButton href="/committees/templates" variant="secondary">عرض القوالب</LinkButton>

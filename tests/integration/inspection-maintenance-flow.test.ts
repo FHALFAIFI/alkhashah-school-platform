@@ -183,9 +183,14 @@ describe("خطاب البلاغ الرسمي (v2.4 §14ج)", () => {
     const res = await generateMaintenanceLetter({ issueId: linked.id, issuedBy: userId });
     const [doc] = await db.select().from(documents).where(eq(documents.id, res.documentId));
 
-    expect(doc.htmlSnapshot).toContain("مصدر البلاغ");
+    // v2.4.1 §1.2 أعاد تسمية صفّي المصدر والأثر ووسّع محتوى التقرير
+    expect(doc.htmlSnapshot).toContain("ملاحظة الفحص المصدر");
     expect(doc.htmlSnapshot).toContain("المكيف لا يعمل");
-    expect(doc.htmlSnapshot).toContain("حرج — يمس سلامة مستخدمي المبنى");
+    expect(doc.htmlSnapshot).toContain("أثر السلامة");
+    expect(doc.htmlSnapshot).toContain("يمسّ سلامة مستخدمي المبنى");
+    expect(doc.htmlSnapshot).toContain("تصنيف الصيانة");
+    expect(doc.htmlSnapshot).toContain("الأثر التشغيلي");
+    expect(doc.htmlSnapshot).toContain("الاعتماد والتوقيع");
     expect(doc.htmlSnapshot).toContain("المبلِّغ");
     expect(doc.htmlSnapshot).toContain("مسجل الفحوصات");
     expect(doc.htmlSnapshot).toContain("اعتماد المدير");

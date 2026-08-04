@@ -240,9 +240,14 @@ describe("summarizeSchoolFinance — المجاميع المدرسية", () => {
 
   it("لا ينتج NaN ولا undefined على مجموعة فارغة تماماً", () => {
     const s = summarizeSchoolFinance([], [], []);
-    for (const v of Object.values(s)) {
+    // v2.4.1 §1.1: الملخّص صار يحمل حقلين غير عدديين عمداً — `hasAnyAllocation` منطقي
+    // و`spentPercent` يساوي `null` حين لا مقام يُقسم عليه. كلاهما إعلان حالة لا رقم.
+    const { hasAnyAllocation, spentPercent, ...numeric } = s;
+    for (const v of Object.values(numeric)) {
       expect(Number.isFinite(v)).toBe(true);
     }
+    expect(hasAnyAllocation).toBe(false);
+    expect(spentPercent).toBeNull();
     expect(s.cashBalance).toBe(0);
   });
 
@@ -303,5 +308,88 @@ describe("monthlyTotals — اتجاه شهري", () => {
   it("يستثني المؤرشف", () => {
     const rows = monthlyTotals([expense({ id: "e1", amount: 10, date: "2026-07-01", archivedAt: new Date() })]);
     expect(rows).toEqual([]);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * v2.4.1 §1.1 / §5.1 — الملخّص الأعلى: المخصص والمتبقي ونسبة الإنفاق.
+ *
+ * الفرق المحمي هنا: **صفر لأنه نفد** ≠ **صفر لعدم وجود ما يُحتسب**. حين لا مخصص لأي بند
+ * تُنقل الحالة صراحةً (`hasAnyAllocation = false`, `spentPercent = null`) فتعرض الشاشة
+ * نصاً عربياً بدل رقم صفري يُقرأ خطأ.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe("v2.4.1 §1.1 — إجماليات الملخّص الأعلى", () => {
+  const item = (id: string, allocated: number | null) => ({
+    id,
+    name: id,
+    allocated,
+    archivedAt: null,
+    sortOrder: 0,
+    color: null,
+  });
+  const expense = (id: string, itemId: string | null, amount: number | null) => ({
+    id,
+    amount,
+    financialItemId: itemId,
+    archivedAt: null,
+    date: "2026-01-01",
+    hasInvoice: false,
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+  });
+
+  it("بلا أي مخصص: الحالة معلنة والنسبة null — لا صفر مضلِّل", () => {
+    const s = summarizeSchoolFinance([item("a", null), item("b", null)], [], [expense("e1", "a", 300)]);
+    expect(s.hasAnyAllocation).toBe(false);
+    expect(s.unallocatedItemCount).toBe(2);
+    expect(s.spentPercent).toBeNull();
+    expect(s.totalAllocated).toBe(0);
+    expect(s.totalRemaining).toBe(0);
+    // والمصروف نفسه محسوب رغم غياب المخصص — المالية لا تتوقف
+    expect(s.totalExpenses).toBe(300);
+  });
+
+  it("بمخصص موجب: المتبقي والنسبة محسوبان بدقة الهللة", () => {
+    const s = summarizeSchoolFinance([item("a", 1000)], [], [expense("e1", "a", 250.5)]);
+    expect(s.hasAnyAllocation).toBe(true);
+    expect(s.unallocatedItemCount).toBe(0);
+    expect(s.totalAllocated).toBe(1000);
+    expect(s.totalRemaining).toBe(749.5);
+    expect(s.spentPercent).toBe(25);
+  });
+
+  it("مخصص صفر: النسبة null لأن القسمة على صفر بلا معنى، والحالة ليست «بلا مخصص»", () => {
+    const s = summarizeSchoolFinance([item("a", 0)], [], [expense("e1", "a", 50)]);
+    expect(s.hasAnyAllocation).toBe(true);
+    expect(s.unallocatedItemCount).toBe(0);
+    expect(s.spentPercent).toBeNull();
+    expect(s.totalRemaining).toBe(-50);
+  });
+
+  it("خليط: النسبة تُحسب من البنود ذات المخصص وحدها، والبنود بلا مخصص تُعدّ", () => {
+    const s = summarizeSchoolFinance(
+      [item("a", 1000), item("b", null)],
+      [],
+      [expense("e1", "a", 400), expense("e2", "b", 999)],
+    );
+    expect(s.hasAnyAllocation).toBe(true);
+    expect(s.unallocatedItemCount).toBe(1);
+    // 400 من 1000 — مصروف البند بلا مخصص لا يدخل النسبة (لا مقام له)
+    expect(s.spentPercent).toBe(40);
+    expect(s.totalRemaining).toBe(600);
+    expect(s.totalExpenses).toBe(1399);
+  });
+
+  it("التجاوز يُنقل كنسبة أكبر من 100 لا يُطبَّع", () => {
+    const s = summarizeSchoolFinance([item("a", 100)], [], [expense("e1", "a", 150)]);
+    expect(s.spentPercent).toBe(150);
+    expect(s.totalRemaining).toBe(-50);
+    expect(s.overAllocationCount).toBe(1);
+  });
+
+  it("البند المؤرشف خارج الإجماليات والعدّ", () => {
+    const archived = { ...item("z", 500), archivedAt: new Date() };
+    const s = summarizeSchoolFinance([item("a", 1000), archived], [], [expense("e1", "a", 100)]);
+    expect(s.totalAllocated).toBe(1000);
+    expect(s.unallocatedItemCount).toBe(0);
   });
 });

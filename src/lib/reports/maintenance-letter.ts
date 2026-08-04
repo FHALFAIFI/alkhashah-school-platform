@@ -9,6 +9,11 @@ import { saveUploadedFile, readStoredFile } from "@/lib/storage";
 import { toHijriNumeric, toGregorianNumeric, dualNumericCell } from "@/lib/dates";
 import { escapeHtml } from "@/lib/html-escape";
 import { orFallback } from "@/lib/format";
+import {
+  DEFAULT_REQUESTED_ACTION,
+  MAINTENANCE_FIELD_UNSET,
+  safetyImpactFromFinding,
+} from "@/lib/building/maintenance-report";
 
 /**
  * خطاب بلاغ الصيانة الرسمي (v2.3 §18) — الوثيقة التي تُرسل لشركة الصيانة وتُتابع
@@ -76,20 +81,27 @@ export async function generateMaintenanceLetter(opts: { issueId: string; issuedB
     <p>السلام عليكم ورحمة الله وبركاته، نأمل منكم معالجة البلاغ الموضح أدناه وإفادتنا بما يتم.</p>
     <table>
       ${row("رقم البلاغ المرجعي", issue.code)}
+      ${row("تاريخ البلاغ", dualNumericCell(issue.createdAt))}
       ${row("عنوان البلاغ", issue.title)}
       ${row("الموقع", location || null)}
+      ${row("تصنيف الصيانة", issue.category ?? MAINTENANCE_FIELD_UNSET)}
       ${row("وصف المشكلة", issue.description)}
       ${row("الأولوية", issue.priority)}
       ${
         finding
           ? row(
-              "مصدر البلاغ",
-              `ملاحظة فحص: «${finding.label}»${inspection?.inspectionDate ? ` — فحص بتاريخ ${dualNumericCell(inspection.inspectionDate)}` : ""}`,
+              "ملاحظة الفحص المصدر",
+              `«${finding.label}»${inspection?.inspectionDate ? ` — فحص بتاريخ ${dualNumericCell(inspection.inspectionDate)}` : ""}`,
             )
           : row("مصدر البلاغ", "بلاغ مباشر")
       }
-      ${finding ? row("أثر السلامة", finding.critical ? "حرج — يمس سلامة مستخدمي المبنى" : `درجة الخطورة: ${finding.severity}`) : ""}
-      ${row("الإجراء المطلوب", "الكشف والمعالجة وإفادتنا بالنتيجة")}
+      ${/* v2.4.1 §1.2: الأثران والإجراء حقول مُدخلة؛ يسقطان إلى اشتقاق الملاحظة ثم إلى «غير محدد» */ ""}
+      ${row(
+        "أثر السلامة",
+        issue.safetyImpact ?? (finding ? safetyImpactFromFinding(finding) : MAINTENANCE_FIELD_UNSET),
+      )}
+      ${row("الأثر التشغيلي", issue.operationalImpact ?? MAINTENANCE_FIELD_UNSET)}
+      ${row("الإجراء المطلوب", issue.requestedAction ?? DEFAULT_REQUESTED_ACTION)}
       ${row("المبلِّغ", reporter?.name ?? null)}
       ${row(
         "اعتماد المدير",
@@ -116,6 +128,21 @@ export async function generateMaintenanceLetter(opts: { issueId: string; issuedB
     <table>
       <tr><th style="width:24%">النتيجة</th><td>${issue.resolution ? esc(issue.resolution) : "☐ تم الإصلاح &nbsp;&nbsp; ☐ لم يتم الإصلاح"}</td></tr>
       <tr><th>ملاحظات الإغلاق</th><td>${issue.closureReason ? esc(issue.closureReason) : ""}</td></tr>
+    </table>
+    ${/* v2.4.1 §1.2: خانة اعتماد وتوقيع ورقية تظهر دائماً — التقرير يُطبع ويُوقَّع يدوياً */ ""}
+    <h2>الاعتماد والتوقيع</h2>
+    <table>
+      <tr>
+        <th style="width:24%">اعتماد مدير المدرسة</th>
+        <td>${
+          issue.approvedAt
+            ? `معتمد — ${esc(approver?.name ?? null)} بتاريخ ${escapeHtml(dualNumericCell(issue.approvedAt))}`
+            : "☐ يُعتمد"
+        }</td>
+      </tr>
+      <tr><th>الاسم</th><td>${escapeHtml(identityHeader.resolved.principalName ?? "")}</td></tr>
+      <tr><th>التوقيع</th><td style="height:48px"></td></tr>
+      <tr><th>الختم</th><td style="height:48px"></td></tr>
     </table>
   `;
 

@@ -204,6 +204,20 @@
       "when": 1785606443494,
       "tag": "0028_blue_kulan_gath",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785830827932,
+      "tag": "0029_condemned_sugar_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785832128813,
+      "tag": "0030_bent_leo",
+      "breakpoints": true
     }
   ]
 }

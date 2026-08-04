@@ -32,7 +32,13 @@ export const ALLOCATION_NONE_VALUE = "غير محدد";
 export const ALLOCATION_NONE_HINT = "لم يتم تحديد مخصص لهذا البند";
 
 /** تفسير تعذّر احتساب المتبقي — بديل «—» في خانة المتبقي */
-export const REMAINING_UNAVAILABLE = "لا يمكن احتسابه قبل تحديد المخصص";
+export const REMAINING_UNAVAILABLE = "لا يمكن احتساب المتبقي قبل تحديد المخصص";
+
+/**
+ * تفسير تعذّر احتساب **الإجمالي** حين لا مخصص لأي بند حيّ (v2.4.1 §1.1).
+ * مجموع صفر هنا كذب: لا يعني «لم يتبق شيء» بل «لا يوجد ما يُحتسب منه».
+ */
+export const TOTAL_REMAINING_UNAVAILABLE = "لا يمكن احتساب المتبقي قبل تحديد المخصص لأي بند";
 
 /** نص الإجراء المصحّح */
 export const SET_ALLOCATION_CTA = "تحديد المخصص";

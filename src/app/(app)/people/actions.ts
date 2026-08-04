@@ -8,9 +8,11 @@ import { db } from "@/db";
 import { people } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/session";
 import { assessDeletion } from "@/lib/safe-delete";
+import { deletePersonPermanently as purgePerson } from "@/lib/lifecycle-delete";
 import { EMPLOYEE_TYPES, categoryForEmployeeType, type EmployeeType } from "@/lib/employee-type";
 import { audit } from "@/lib/audit";
 import { orFallback } from "@/lib/format";
+import { isUuid } from "@/lib/validation";
 
 const personSchema = z.object({
   // Optional per v2.1 global rule — an empty name is stored as "" (NOT-NULL column satisfied).
@@ -158,5 +160,34 @@ export async function deletePersonAction(personId: string): Promise<ActionState>
     detail: { snapshot: { fullName: person.fullName, category: person.category, jobNumber: person.jobNumber } },
   });
   revalidatePath("/people");
+  redirect("/people");
+}
+
+/**
+ * «حذف الموظف نهائياً» (v2.4.1 §1.3) — الحذف المقصود لمنسوب **مستخدَم** مع كامل دورة
+ * حياته، بخلاف `deletePersonAction` أعلاه المقصور على سجل لم يُستخدم قط.
+ *
+ * الصلاحية: `people.delete` **و** `performance.individual.read` معاً. الثانية ليست زينة:
+ * العملية تمحو محتوى تقييم فردي، ومن لا يملك حق الاطلاع عليه (D-013 — ومنه `sysadmin`)
+ * لا يملك حق إتلافه. المدير وحده يجمع الصلاحيتين.
+ *
+ * كل الحراسات (منع حذف الذات، آخر حساب مخوَّل، الاسم المكتوب حرفياً، السبب الإلزامي)
+ * تُفرض على الخادم داخل `lib/lifecycle-delete` — لا في الواجهة.
+ */
+export async function purgePersonAction(personId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("people.delete", "performance.individual.read");
+  if (!isUuid(personId)) return { error: "المنسوب غير موجود" };
+  if (String(formData.get("confirm") ?? "") !== "1") return { error: "أكّد الحذف النهائي قبل التنفيذ" };
+  const result = await purgePerson({
+    personId,
+    actorId: user.id,
+    reason: String(formData.get("reason") ?? ""),
+    typedName: String(formData.get("typedName") ?? ""),
+  });
+  if (result.error) return result;
+  revalidatePath("/people");
+  revalidatePath("/performance");
+  revalidatePath("/performance/analytics");
+  revalidatePath("/committees");
   redirect("/people");
 }

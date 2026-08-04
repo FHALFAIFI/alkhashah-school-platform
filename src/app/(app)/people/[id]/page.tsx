@@ -6,10 +6,12 @@ import { people, perfCycles } from "@/db/schema";
 import { PageHeader, Card, Badge, SubmitButton, LinkButton } from "@/components/ui";
 import { DependencyNotice } from "@/components/dependency-notice";
 import { assessDeletion } from "@/lib/safe-delete";
+import { assessPersonDeletion } from "@/lib/lifecycle-delete";
+import { PermanentDeletePanel } from "@/components/permanent-delete";
 import { employeeTypeOf } from "@/lib/employee-type";
 import { orFallback } from "@/lib/format";
 import { PersonForm } from "../person-form";
-import { deactivatePersonAction, reactivatePersonAction, deletePersonAction } from "../actions";
+import { deactivatePersonAction, reactivatePersonAction, deletePersonAction, purgePersonAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +28,9 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     : [];
   // تقييم التبعيات يُعرض دائماً قبل زر الحذف — لا حذف مفاجئ ولا حذف تعاقبي
   const assessment = await assessDeletion("person", id);
+  // v2.4.1 §1.3: معاينة أثر الحذف النهائي لدورة الحياة — تُحسب على الخادم قبل عرض الزر
+  const canPurge = user.permissions.has("people.delete") && user.permissions.has("performance.individual.read");
+  const purgeImpact = canPurge ? await assessPersonDeletion(id, { actorUserId: user.id }) : null;
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -108,6 +113,21 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
           )}
         </div>
       </Card>
+
+      {/* v2.4.1 §1.3: الحذف النهائي لدورة الحياة — متاح حتى لمنسوب مستخدَم، وهو ما يميّزه
+          عن «حذف نهائي» أعلاه المقصور على سجل بلا أي ارتباط. الصلاحيتان معاً شرط الظهور. */}
+      {canPurge && purgeImpact && (
+        <Card>
+          <PermanentDeletePanel
+            action={purgePersonAction.bind(null, person.id)}
+            impact={purgeImpact}
+            heading="حذف الموظف نهائياً"
+            cta="حذف الموظف نهائياً"
+            confirmFieldLabel="اسم الموظف"
+            intro="يمحو سجل الموظف وكامل دورة حياته الوظيفية (دورات الأداء وجلساتها وتقديراتها وخطط تحسينها ووثائقها وشواهدها الخاصة). السجلات المؤسسية المشتركة — اللجان والبرامج والاجتماعات والمهام — تبقى كما هي وتُفكّ صلتها بالموظف فقط."
+          />
+        </Card>
+      )}
     </div>
   );
 }

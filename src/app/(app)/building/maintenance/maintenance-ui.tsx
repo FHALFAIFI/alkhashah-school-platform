@@ -2,9 +2,11 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createIssueAction, transitionIssueAction, type ActionState } from "../actions";
+import { createIssueAction, transitionIssueAction, updateIssueReportFieldsAction, type ActionState } from "../actions";
 import { ISSUE_TRANSITIONS, transitionLabel } from "@/lib/building/maintenance-lifecycle";
-import { Field, SubmitButton } from "@/components/ui";
+import { Field, TextArea, SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
+import { MAINTENANCE_CATEGORIES, MAINTENANCE_FIELD_UNSET } from "@/lib/building/maintenance-report";
 
 export function NewIssueForm({
   rooms,
@@ -189,5 +191,55 @@ function WorkflowButtons({
         </form>
       )}
     </div>
+  );
+}
+
+/**
+ * v2.4.1 §1.2: بيانات تقرير الصيانة الرسمي على بلاغ قائم — التصنيف وأثر السلامة والأثر
+ * التشغيلي والإجراء المطلوب. كلها اختيارية، وقابلة للتعديل قبل الاعتماد وبعده: تصحيح
+ * وصف عطل بعد الاعتماد لا يستدعي إلغاء الاعتماد ولا إعادة إنشاء البلاغ.
+ */
+export function IssueReportFieldsForm({
+  issueId,
+  category,
+  safetyImpact,
+  operationalImpact,
+  requestedAction,
+}: {
+  issueId: string;
+  category: string | null;
+  safetyImpact: string | null;
+  operationalImpact: string | null;
+  requestedAction: string | null;
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(
+    updateIssueReportFieldsAction.bind(null, issueId),
+    null,
+  );
+  useRefreshOnSuccess(state);
+  return (
+    <form action={formAction} className="space-y-3">
+      {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
+      {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
+      <div>
+        <label htmlFor={`cat-${issueId}`} className="mb-1 block text-sm font-medium text-gray-700">تصنيف الصيانة</label>
+        <select
+          id={`cat-${issueId}`}
+          name="category"
+          defaultValue={category ?? ""}
+          className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0"
+        >
+          <option value="">— {MAINTENANCE_FIELD_UNSET} —</option>
+          {MAINTENANCE_CATEGORIES.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+      <TextArea label="أثر السلامة" name="safetyImpact" rows={2} defaultValue={safetyImpact ?? ""} />
+      <TextArea label="الأثر التشغيلي" name="operationalImpact" rows={2} defaultValue={operationalImpact ?? ""} />
+      <TextArea label="الإجراء المطلوب" name="requestedAction" rows={2} defaultValue={requestedAction ?? ""} />
+      <p className="text-xs text-gray-400">كل الحقول اختيارية — تظهر في تقرير الصيانة الرسمي، والفارغ منها يُعرض «{MAINTENANCE_FIELD_UNSET}».</p>
+      <SubmitButton variant="secondary">حفظ بيانات التقرير</SubmitButton>
+    </form>
   );
 }

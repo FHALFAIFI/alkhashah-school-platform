@@ -3,6 +3,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { perfCycles, perfSessions, perfRatings, people } from "@/db/schema";
 import { getSetting } from "@/lib/settings";
+import { employeeTypeOf } from "@/lib/employee-type";
 import { getExcludedIdSets } from "@/lib/synthetic";
 import {
   computeOverallAnalytics,
@@ -46,10 +47,12 @@ export async function loadAnalyticsCycles(personId?: string): Promise<AnalyticsC
     : [];
   const personIds = [...new Set(cycles.map((c) => c.personId))];
   const persons = await db
-    .select({ id: people.id, name: people.fullName })
+    .select({ id: people.id, name: people.fullName, category: people.category, employeeType: people.employeeType })
     .from(people)
     .where(inArray(people.id, personIds));
   const personName = new Map(persons.map((p) => [p.id, p.name]));
+  // D-019: النوع المعتمد يُشتق من `category` المصدري عند فراغ `employee_type` — لا يُعاد كتابة أي صف
+  const personCategory = new Map(persons.map((p) => [p.id, employeeTypeOf(p)]));
 
   const ratingsBySession = new Map<string, typeof ratings>();
   for (const r of ratings) {
@@ -72,6 +75,7 @@ export async function loadAnalyticsCycles(personId?: string): Promise<AnalyticsC
         id: c.id,
         personId: c.personId,
         personName: personName.get(c.personId) ?? "—",
+        personCategory: personCategory.get(c.personId) ?? "غير محدد",
         modelId: c.modelId,
         modelName: snapshot.model?.nameAr ?? "نموذج غير معروف",
         yearKey: c.yearKey,
@@ -99,12 +103,14 @@ export async function loadOverallAnalytics(): Promise<{ analytics: OverallAnalyt
   const [cycleInputs, activeRows, threshold] = await Promise.all([
     loadAnalyticsCycles(),
     db
-      .select({ id: people.id, name: people.fullName })
+      .select({ id: people.id, name: people.fullName, category: people.category, employeeType: people.employeeType })
       .from(people)
       .where(eq(people.active, true)),
     getSetting<number>(WEAK_THRESHOLD_SETTING, DEFAULT_WEAK_THRESHOLD),
   ]);
-  const activePeople = activeRows.filter((p) => !ex.people.has(p.id)).map((p) => ({ id: p.id, name: p.name ?? "—" }));
+  const activePeople = activeRows
+    .filter((p) => !ex.people.has(p.id))
+    .map((p) => ({ id: p.id, name: p.name ?? "—", category: employeeTypeOf(p) }));
   const analytics = computeOverallAnalytics({
     cycles: cycleInputs,
     activePeople,

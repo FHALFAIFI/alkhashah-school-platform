@@ -25,6 +25,7 @@ import { ITEM_COLORS } from "@/lib/finance/colors";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
 import { formatMoney, orFallback } from "@/lib/format";
 import { overrunWarning } from "@/lib/finance/calc";
+import { ALLOCATION_NONE_HINT, REMAINING_UNAVAILABLE, SET_ALLOCATION_CTA } from "@/lib/finance/allocation";
 import { useResetOnSuccess, useRefreshOnSuccess } from "@/components/form-reset";
 
 /**
@@ -170,29 +171,31 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
             <Field label="التصنيف" name="category" />
           </div>
 
+          {/* v2.4.1 §1.1: شاشة إدخال المصروف تعرض «الرصيد قبل — المبلغ — الرصيد بعد»،
+              أو تشرح بالعربية لماذا تعذّر الاحتساب وما الإجراء المصحّح. */}
           {selected && (
-            <p className="text-xs text-gray-500">
-              {selected.hasAllocation ? (
-                <>
-                  المخصص: <span className="tabular-nums">{money(selected.allocated)}</span> — المصروف:{" "}
-                  <span className="tabular-nums">{money(selected.expenses)}</span> — المتبقي:{" "}
-                  <span className={`tabular-nums ${(selected.remaining ?? 0) < 0 ? "text-red-600" : "text-emerald-700"}`}>
-                    {money(selected.remaining)}
-                  </span>
-                  {/* v2.4 §4: المتبقي بعد حفظ هذا المبلغ — يظهر مباشرة أثناء الإدخال */}
-                  {warning.remainingAfter !== null && parsedAmount !== null && (
-                    <>
-                      {" "}— المتبقي بعد الحفظ:{" "}
-                      <span className={`font-medium tabular-nums ${warning.remainingAfter < 0 ? "text-red-600" : "text-emerald-700"}`}>
-                        {money(warning.remainingAfter)}
-                      </span>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>لا يوجد مخصص لهذا البند — يمكن تعيينه من «بنود الصرف».</>
-              )}
-            </p>
+            selected.hasAllocation ? (
+              <p className="text-xs text-gray-500">
+                المخصص: <span className="tabular-nums">{money(selected.allocated)}</span> — المصروف:{" "}
+                <span className="tabular-nums">{money(selected.expenses)}</span> — الرصيد قبل العملية:{" "}
+                <span className={`tabular-nums ${(selected.remaining ?? 0) < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                  {money(selected.remaining)}
+                </span>
+                {warning.remainingAfter !== null && parsedAmount !== null && (
+                  <>
+                    {" "}— الرصيد بعد العملية:{" "}
+                    <span className={`font-medium tabular-nums ${warning.remainingAfter < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                      {money(warning.remainingAfter)}
+                    </span>
+                  </>
+                )}
+              </p>
+            ) : (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {ALLOCATION_NONE_HINT} — {REMAINING_UNAVAILABLE}. استخدم «{SET_ALLOCATION_CTA}» من صف البند أو بطاقته
+                في «بنود الصرف». تسجيل المصروف مسموح الآن ويُحتسب المتبقي فور تحديد المخصص.
+              </p>
+            )
           )}
 
           <div>

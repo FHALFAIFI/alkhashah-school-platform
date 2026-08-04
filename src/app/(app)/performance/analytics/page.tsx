@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { PageHeader, Card, Badge, Table, EmptyState, ProgressBar, SubmitButton } from "@/components/ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
+import { OVERALL_REPORT_LABEL } from "@/lib/performance/report-labels";
 import {
   loadOverallAnalytics,
   MIN_INSIGHT_SAMPLE,
@@ -42,8 +43,8 @@ export default async function PerformanceAnalyticsPage() {
             <SectionReportsLink category="performance" />
             {canGenerate && (
               <form action={issueOverallReport}>
-                {/* v2.4.1 §1: التسمية التي يطلبها المدير حرفياً */}
-                <SubmitButton variant="secondary">تقرير تفصيلي للمدرسة</SubmitButton>
+                {/* v2.4.1 §1.4: صياغة المدير حرفياً */}
+                <SubmitButton variant="secondary">{OVERALL_REPORT_LABEL}</SubmitButton>
               </form>
             )}
           </div>

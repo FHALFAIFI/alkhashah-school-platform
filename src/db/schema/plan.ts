@@ -441,6 +441,42 @@ export const programClosureHistory = pgTable(
   (t) => [index("program_closure_history_program_idx").on(t.programId, t.at)],
 );
 
+/**
+ * سجل تعديلات البرنامج على مستوى الحقل (v2.4.1 §1.6) — **إلحاقي فقط**.
+ *
+ * التعديل مسموح في كل حالات دورة الحياة (مسودة/بانتظار الاعتماد/معتمد/قيد التنفيذ/مكتمل/
+ * مغلق) ولا يُغيّر الحالة ولا يُلغي الاعتماد ولا يُعيد الفتح. ما يجعل ذلك آمناً هو هذا
+ * السجل: لكل حقل تغيّر صفٌّ يحمل الفاعل ووقته وحالة البرنامج لحظة التعديل والقيمة
+ * السابقة والجديدة وسبب التغيير.
+ *
+ * وجود صف واحد على الأقل بحالة اعتماد («معتمد») أو دورة حياة غير «قيد التنفيذ» هو مصدر
+ * علامة «تم تعديل البرنامج بعد الاعتماد» — لا عمود حالة إضافي على `programs` يمكن أن
+ * يتعارض مع السجل.
+ */
+export const programEditHistory = pgTable(
+  "program_edit_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    programId: uuid("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+    /** الحقل التقني ومسماه العربي المعروض */
+    field: text("field").notNull(),
+    fieldLabel: text("field_label").notNull(),
+    oldValue: text("old_value"),
+    newValue: text("new_value"),
+    /** حالة الاعتماد لحظة التعديل: مسودة | معتمد | مقفل */
+    approvalStatusAtEdit: text("approval_status_at_edit").notNull(),
+    /** حالة دورة الحياة لحظة التعديل: قيد التنفيذ | مكتمل | مغلق */
+    lifecycleAtEdit: text("lifecycle_at_edit").notNull(),
+    /** سبب التغيير — إلزامي بعد الاعتماد أو الاكتمال أو الإقفال، اختياري للمسودة */
+    reason: text("reason"),
+    actorId: uuid("actor_id").references(() => users.id),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("program_edit_history_program_idx").on(t.programId, t.at)],
+);
+
 /** طلبات تغيير البرامج المعتمدة */
 export const programChangeRequests = pgTable(
   "program_change_requests",

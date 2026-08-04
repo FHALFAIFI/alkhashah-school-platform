@@ -12,6 +12,7 @@ import {
   ALLOCATION_NONE_VALUE,
   REMAINING_UNAVAILABLE,
   SET_ALLOCATION_CTA,
+  TOTAL_REMAINING_UNAVAILABLE,
   ZERO_ALLOCATION_WARNING,
 } from "@/lib/finance/allocation";
 import { SetAllocationForm } from "./allocation-ui";
@@ -162,8 +163,35 @@ export default async function BudgetPage({
             tone={summary.cashBalance < 0 ? "bad" : "good"}
             hint="الإيراد المستلم − المصروف"
           />
-          <Stat label="إجمالي المخصصات" value={formatMoney(summary.totalAllocated)} href="/reports?category=finance&report=item-allocations" />
-          <Stat label="إجمالي المتبقي" value={formatMoney(summary.totalRemaining)} tone={summary.totalRemaining < 0 ? "bad" : "plain"} />
+          {/* v2.4.1 §1.1: المخصص والمتبقي ونسبة الإنفاق ثلاثتها في الملخص الأعلى.
+              بلا أي مخصص لا يُعرض صفر: يُقال صراحةً لماذا تعذّر الاحتساب وما الإجراء. */}
+          <Stat
+            label="إجمالي المخصصات"
+            value={summary.hasAnyAllocation ? formatMoney(summary.totalAllocated) : ALLOCATION_NONE_VALUE}
+            tone={summary.hasAnyAllocation ? "plain" : "warn"}
+            hint={summary.hasAnyAllocation ? undefined : ALLOCATION_NONE_HINT}
+            href="/reports?category=finance&report=item-allocations"
+          />
+          <Stat
+            label="إجمالي المتبقي"
+            value={summary.hasAnyAllocation ? formatMoney(summary.totalRemaining) : ALLOCATION_NONE_VALUE}
+            tone={!summary.hasAnyAllocation ? "warn" : summary.totalRemaining < 0 ? "bad" : "good"}
+            hint={summary.hasAnyAllocation ? "المخصص − المصروف" : TOTAL_REMAINING_UNAVAILABLE}
+          />
+          <Stat
+            label="نسبة الإنفاق من المخصص"
+            value={summary.spentPercent === null ? ALLOCATION_NONE_VALUE : `${summary.spentPercent}٪`}
+            tone={
+              summary.spentPercent === null
+                ? "warn"
+                : summary.spentPercent > 100
+                  ? "bad"
+                  : summary.spentPercent >= NEAR_EXHAUSTION_PERCENT
+                    ? "warn"
+                    : "good"
+            }
+            hint={summary.spentPercent === null ? TOTAL_REMAINING_UNAVAILABLE : "المصروف ÷ المخصص"}
+          />
           <Stat label="عدد العمليات المالية" value={String(summary.operationCount)} href="/reports?category=finance&report=all-operations" />
           <Stat label="عدد الفواتير المرفقة" value={String(summary.withInvoiceCount)} href="/reports?category=finance&report=invoice-register" />
           <Stat

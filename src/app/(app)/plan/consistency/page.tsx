@@ -32,7 +32,7 @@ export default async function PlanConsistencyPage({
 }) {
   const user = await requirePermission("plan.read");
   const canWrite = user.permissions.has("plan.write");
-  const canOverride = user.permissions.has("plan.override");
+
   const sp = await searchParams;
   const filter: ConsistencyFilter =
     sp.filter && sp.filter in CONSISTENCY_FILTERS ? (sp.filter as ConsistencyFilter) : "inconsistent";
@@ -182,7 +182,7 @@ export default async function PlanConsistencyPage({
                   currentProgress={p.progress}
                   hasCompletedAt={p.completedAt !== null}
                   locked={!!p.closedAt || p.status === "مقفل"}
-                  canOverride={canOverride}
+
                 />
               )}
             </Card>
@@ -199,7 +199,7 @@ export default async function PlanConsistencyPage({
               label: `${p.seq}. ${orFallback(p.name)} — ${p.executionStatus} / ${p.progress}٪`,
               locked: !!p.closedAt || p.status === "مقفل",
             }))}
-            canOverride={canOverride}
+
           />
         </div>
       )}

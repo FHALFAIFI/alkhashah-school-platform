@@ -41,6 +41,7 @@ import {
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { getSchoolFinance } from "@/lib/finance/service";
 import { amountOrNull, toMinor, fromMinor } from "@/lib/finance/calc";
+import { ALLOCATION_NONE_VALUE, REMAINING_UNAVAILABLE } from "@/lib/finance/allocation";
 import { isoWeekKey, NO_WEEKLY_UPDATE_LABEL } from "@/lib/plan/followup";
 import { programLifecycle } from "@/lib/plan/lifecycle";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
@@ -373,16 +374,17 @@ async function loadIncomeRegister(filters: ReportFilters): Promise<ReportRow[]> 
 }
 
 /**
- * v2.4 §4: المتبقي من مخصص البند بعد كل مصروف — تراكمي بترتيب زمني حتمي داخل كل بند
- * (التاريخ ثم وقت الإدخال ثم المعرف). `null` للمصروف بلا بند أو لبند بلا مخصص.
+ * v2.4 §4 · v2.4.1 §1.1: المتبقي من مخصص البند **قبل كل مصروف وبعده** — تراكمي بترتيب
+ * زمني حتمي داخل كل بند (التاريخ ثم وقت الإدخال ثم المعرف). القيمتان `null` للمصروف بلا
+ * بند أو لبند بلا مخصص، فلا يظهر صفر يُقرأ «نفد الرصيد».
  */
 function expenseRemainingAfter(
   lines: { id: string; allocated: number | null }[],
   expenses: { id: string; amount: string | null; financialItemId: string | null; archivedAt: Date | null; expenseDate: string | null; createdAt: Date | null }[],
-): Map<string, number | null> {
+): Map<string, { before: number | null; after: number | null }> {
   const allocationByItem = new Map(lines.map((l) => [l.id, l.allocated]));
   const spentMinorByItem = new Map<string, number>();
-  const result = new Map<string, number | null>();
+  const result = new Map<string, { before: number | null; after: number | null }>();
   const sorted = expenses
     .filter((r) => !r.archivedAt)
     .slice()
@@ -397,14 +399,17 @@ function expenseRemainingAfter(
     });
   for (const r of sorted) {
     if (!r.financialItemId) {
-      result.set(r.id, null);
+      result.set(r.id, { before: null, after: null });
       continue;
     }
     const allocated = allocationByItem.get(r.financialItemId) ?? null;
     const cur = spentMinorByItem.get(r.financialItemId) ?? 0;
     const next = cur + toMinor(amountOrNull(r.amount) ?? 0);
     spentMinorByItem.set(r.financialItemId, next);
-    result.set(r.id, allocated === null ? null : fromMinor(toMinor(allocated) - next));
+    result.set(r.id, {
+      before: allocated === null ? null : fromMinor(toMinor(allocated) - cur),
+      after: allocated === null ? null : fromMinor(toMinor(allocated) - next),
+    });
   }
   return result;
 }
@@ -424,7 +429,8 @@ async function loadExpenseRegister(filters: ReportFilters): Promise<ReportRow[]>
       paymentReference: r.paymentReference,
       supplier: r.supplier,
       hasInvoice: r.hasInvoice ? "نعم" : "لا",
-      remainingAfter: remainingAfter.get(r.id) ?? null,
+      remainingBefore: remainingAfter.get(r.id)?.before ?? null,
+      remainingAfter: remainingAfter.get(r.id)?.after ?? null,
     }));
 }
 
@@ -437,7 +443,16 @@ async function loadItemAllocations(): Promise<ReportRow[]> {
     expenses: l.expenses,
     remaining: l.remaining,
     spentPercent: l.spentPercent,
-    state: l.archived ? "مؤرشف" : l.overspent ? "تجاوز" : l.nearExhaustion ? "قارب الاستنفاد" : "ضمن المخصص",
+    // v2.4.1 §1.1: البند بلا مخصص ليس «ضمن المخصص» — يُسمّى بحاله وبسبب تعذّر الاحتساب
+    state: l.archived
+      ? "مؤرشف"
+      : l.allocationState === "none"
+        ? `${ALLOCATION_NONE_VALUE} — ${REMAINING_UNAVAILABLE}`
+        : l.overspent
+          ? "تجاوز"
+          : l.nearExhaustion
+            ? "قارب الاستنفاد"
+            : "ضمن المخصص",
   }));
 }
 
@@ -467,6 +482,7 @@ async function unifiedOperations(filters: ReportFilters) {
       reference: r.source,
       description: r.purpose ?? r.source,
       hasInvoice: r.hasInvoice,
+      remainingBefore: null as number | null,
       remainingAfter: null as number | null,
     }));
   const expenses = f.expenses
@@ -479,7 +495,8 @@ async function unifiedOperations(filters: ReportFilters) {
       reference: r.paymentReference,
       description: r.notes ?? r.supplier,
       hasInvoice: r.hasInvoice,
-      remainingAfter: remainingAfter.get(r.id) ?? null,
+      remainingBefore: remainingAfter.get(r.id)?.before ?? null,
+      remainingAfter: remainingAfter.get(r.id)?.after ?? null,
     }));
   return [...income, ...expenses]
     .filter((r) => inDateRange(r.date, filters))

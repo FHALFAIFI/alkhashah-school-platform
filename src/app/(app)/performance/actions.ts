@@ -22,6 +22,7 @@ import {
   modelInUse,
   modelLinkedRecords,
 } from "@/lib/performance/model-admin";
+import { deleteCyclePermanently } from "@/lib/lifecycle-delete";
 import { numOrNull } from "@/lib/format";
 import { userFacingError } from "@/lib/user-error";
 import { optionalIsoDate } from "@/lib/dates-zod";
@@ -644,4 +645,37 @@ export async function advanceImprovementPlanAction(planId: string): Promise<Acti
   await audit({ actorId: user.id, action: "improvement_plan.status_advanced", entityType: "perf_cycle", entityId: plan.cycleId, summary: `خطة «${plan.title}»: ${plan.status} → ${next}` });
   revalidatePath(`/performance/cycles/${plan.cycleId}`);
   return { success: next === "مكتملة" ? "اكتملت الخطة" : "بدأ تنفيذ الخطة" };
+}
+
+/* ────────────── حذف دورة الأداء نهائياً (v2.4.1 §1.3) ────────────── */
+
+/**
+ * «حذف دورة الأداء» — حذف كامل لدورة واحدة بدورة حياتها (جلسات، تقديرات، خطط تحسين،
+ * وثائق صادرة، شواهد خاصة)، مع بقاء الموظف ودوراته الأخرى سليمة تماماً.
+ *
+ * الصلاحية: `performance.write` + `performance.approve` + `performance.individual.read`.
+ * الثالثة تجعل العملية حكراً على المدير (D-013)، فمن لا يرى محتوى التقييم الفردي لا يتلفه.
+ *
+ * ثلاث عمليات حذف متمايزة لا يجوز الخلط بينها (موثقة في `docs/DECISIONS.md`):
+ *   1) حذف نموذج تقييم  (`deleteModelAction`)      — قالب غير مستخدم فقط، وإلا فأرشفة.
+ *   2) حذف دورة أداء    (هنا)                       — دورة واحدة لموظف باقٍ.
+ *   3) حذف موظف نهائياً (`purgePersonAction`)       — الموظف وكل دوراته.
+ */
+export async function deleteCycleAction(cycleId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("performance.write", "performance.approve", "performance.individual.read");
+  if (String(formData.get("confirm") ?? "") !== "1") return { error: "أكّد الحذف النهائي قبل التنفيذ" };
+  const [cycle] = await db.select({ personId: perfCycles.personId }).from(perfCycles).where(eq(perfCycles.id, cycleId));
+  if (!cycle) return { error: "دورة الأداء غير موجودة" };
+  const result = await deleteCyclePermanently({
+    cycleId,
+    actorId: user.id,
+    reason: String(formData.get("reason") ?? ""),
+    typedConfirm: String(formData.get("typedName") ?? ""),
+  });
+  if (result.error) return result;
+  revalidatePath("/performance");
+  revalidatePath("/performance/analytics");
+  revalidatePath(`/people/${cycle.personId}`);
+  revalidatePath(`/performance/employees/${cycle.personId}`);
+  redirect("/performance");
 }

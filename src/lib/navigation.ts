@@ -92,6 +92,8 @@ const PARENT_MAP: Readonly<Record<string, string>> = {
 
   // بلاغ صيانة واحد يعود إلى قائمة البلاغات
   "/building/maintenance/[id]": "/building/maintenance",
+  // v2.4.1 §1.2: الفحص أصبح تحت الصيانة، فأبوه صفحة الصيانة لا صفحة الفحص والجاهزية
+  "/building/maintenance/inspect": "/building/maintenance",
 
   // الأداء الوظيفي — اللوحة العامة وتقرير المنسوب
   "/performance/analytics": "/performance",

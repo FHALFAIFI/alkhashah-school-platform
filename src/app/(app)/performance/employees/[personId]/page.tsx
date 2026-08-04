@@ -12,6 +12,8 @@ import { orDash, orFallback } from "@/lib/format";
 import { dualNumericCell, toGregorianNumeric } from "@/lib/dates";
 import { cycleProgress } from "@/lib/performance/scoring";
 import { loadAnalyticsCycles } from "@/lib/performance/analytics-service";
+import { individualReportLabel, resultBandLabel } from "@/lib/performance/report-labels";
+import { employeeTypeOf } from "@/lib/employee-type";
 
 export const metadata = { title: "تقرير أداء منسوب" };
 export const dynamic = "force-dynamic";
@@ -101,13 +103,13 @@ export default async function EmployeeKpiPage({
         <BackButton fallbackHref="/performance/analytics" label="عودة إلى لوحة الأداء" />
       </div>
       <PageHeader
-        title={`تقرير الأداء التفصيلي — ${orFallback(person.fullName)}`}
+        title={`${individualReportLabel(employeeTypeOf(person))} — ${orFallback(person.fullName)}`}
         subtitle={[person.jobTitle, person.category].filter(Boolean).join(" — ") || undefined}
         actions={
           canGenerate && selected ? (
             <form action={issueReport}>
-              {/* v2.4.1 §1: التسمية التي يطلبها المدير حرفياً — لا «إصدار التقرير» العامّ */}
-              <SubmitButton variant="secondary">تقرير تفصيلي للموظف</SubmitButton>
+              {/* v2.4.1 §1.4: صياغة المدير حرفياً، متبعةً نوع المنسوب (معلم/موظف) */}
+              <SubmitButton variant="secondary">{individualReportLabel(employeeTypeOf(person))}</SubmitButton>
             </form>
           ) : undefined
         }
@@ -136,13 +138,15 @@ export default async function EmployeeKpiPage({
           {/* سجل الدورات */}
           <Card>
             <h2 className="mb-2 font-bold text-brand-900">سجل التقييمات ({cycles.length})</h2>
-            <Table headers={["السنة", "النموذج", "الحالة", "النتيجة", ""]}>
+            <Table headers={["السنة", "النموذج", "الحالة", "النتيجة", "الفئة النهائية", ""]}>
               {detailed.map(({ cycle, resultPercent }) => (
                 <tr key={cycle.id} className={selected?.cycle.id === cycle.id ? "bg-sand-50/60" : undefined}>
                   <td className="px-3 py-2 text-sm tabular-nums">{cycle.yearKey}</td>
                   <td className="px-3 py-2 text-xs">{cycle.modelName}</td>
                   <td className="px-3 py-2"><Badge value={cycle.status} /></td>
                   <td className="px-3 py-2 tabular-nums">{resultPercent === null ? "لم يبدأ التقييم بعد" : `${resultPercent}٪`}</td>
+                  {/* v2.4.1 §1.4: الفئة من شرائح التوزيع المعتمدة — لا تقدير لفظي مخترع */}
+                  <td className="px-3 py-2 text-xs">{resultBandLabel(resultPercent)}</td>
                   <td className="px-3 py-2">
                     <Link href={`/performance/cycles/${cycle.id}`} className="text-xs text-brand-700 underline">
                       فتح الدورة ←

@@ -190,8 +190,16 @@ describe("سير العمل ثلاثي الحالات §A — تعليم الب�
 
     await completeProgramAction(p.id, null, fd({}));
 
-    // التحرير ما يزال مقبولاً على الخادم بعد الاكتمال
-    const edit = await updateProgramExecutionAction(p.id, null, fd({ progress: "80", executionStatus: "في المسار" }));
+    // التحرير ما يزال مقبولاً على الخادم بعد الاكتمال — v2.4.1 §1.6 أضاف سبباً إلزامياً
+    // للحالة المستقرة (مكتمل/مغلق) ولم يمنع التحرير.
+    expect(
+      (await updateProgramExecutionAction(p.id, null, fd({ progress: "80", executionStatus: "في المسار" })))?.error,
+    ).toContain("سبب");
+    const edit = await updateProgramExecutionAction(
+      p.id,
+      null,
+      fd({ progress: "80", executionStatus: "في المسار", reason: "تحديث بعد استلام الشواهد" }),
+    );
     expect(edit?.error).toBeUndefined();
 
     // وإضافة الشواهد ما تزال ممكنة (الاكتمال ليس إقفالاً)
@@ -316,15 +324,35 @@ describe("سير العمل ثلاثي الحالات §B — الإقفال ا�
     expect(history.filter((h) => h.action === "إقفال")).toHaveLength(1);
   });
 
-  it("البرنامج المغلق للقراءة فقط: لا تحديث تنفيذ ولا متابعة ولا طلب تغيير", async () => {
+  /**
+   * v2.4.1 §1.6 غيّر هذا العقد عمداً: الإقفال لم يعد يمنع **تصحيح البيانات**، لأن المنع
+   * كان يدفع المدير إلى إعادة فتح البرنامج لتصحيح رقم — وإعادة الفتح تشويه للسجل أشدّ.
+   * الباقي على حاله: المتابعة الأسبوعية وطلب التغيير سيرورتان تشغيليتان لبرنامج جارٍ،
+   * ولا معنى لهما على سجل مقفل.
+   */
+  it("البرنامج المغلق: التصحيح مسموح بسبب مكتوب، والمتابعة وطلب التغيير ممنوعان", async () => {
     const p = await seedCompleted();
     const { closeProgramAction, updateProgramExecutionAction, submitFollowupAction, createChangeRequestAction } =
       await import("@/app/(app)/plan/actions");
 
     await closeProgramAction(p.id, null, fd({}));
 
-    const edit = await updateProgramExecutionAction(p.id, null, fd({ progress: "10", executionStatus: "في المسار" }));
-    expect(edit?.error).toContain("مغلق نهائياً");
+    // بلا سبب: مرفوض
+    const noReason = await updateProgramExecutionAction(p.id, null, fd({ progress: "10", executionStatus: "في المسار" }));
+    expect(noReason?.error).toContain("سبب");
+
+    // بسبب مكتوب: مقبول، والإقفال لا يُرفع ضمنياً
+    const edit = await updateProgramExecutionAction(
+      p.id,
+      null,
+      fd({ progress: "10", executionStatus: "في المسار", reason: "تصحيح نسبة بعد مراجعة الشواهد" }),
+    );
+    expect(edit?.error).toBeUndefined();
+    const { db } = await import("@/db");
+    const { programs } = await import("@/db/schema");
+    const [after] = await db.select().from(programs).where(eq(programs.id, p.id));
+    expect(after.progress).toBe(10);
+    expect(after.closedAt).not.toBeNull();
 
     const followup = await submitFollowupAction(p.id, null, fd({ executionStatus: "في المسار" }));
     expect(followup?.error).toContain("مغلق نهائياً");

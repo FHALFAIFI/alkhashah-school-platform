@@ -127,6 +127,41 @@ export const notifications = pgTable(
 );
 
 /**
+ * شواهد الحذف النهائي (v2.4.1 §1.3) — سجل **إلحاقي لا يُعدَّل ولا يُحذف**.
+ *
+ * الحذف النهائي لمنسوب أو لدورة أداء يمحو السجل ودورة حياته من القاعدة، فلا يبقى شيء
+ * يشير إليه في `audit_log.entity_id`. هذا الجدول هو الأثر الباقي: من نفّذ، وماذا حُذف،
+ * ومتى، ولماذا، وكم سجلاً من كل نوع.
+ *
+ * **لا يحفظ أي محتوى تقييمي حساس**: لا تقديرات ولا ملاحظات ولا نقاط قوة ولا ضعف ولا
+ * توصيات ولا نصوص جلسات. `displayRef` مرجع تعريفي آمن (الاسم والرقم الوظيفي) لا أكثر،
+ * و`counts` أعداد مجرّدة لكل نوع سجل.
+ *
+ * الاستعادة بعد الحذف النهائي غير ممكنة إلا باستعادة نسخة احتياطية كاملة.
+ */
+export const deletionTombstones = pgTable(
+  "deletion_tombstones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** person | perf_cycle */
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    /** مرجع تعريفي آمن للسجل المحذوف — لا محتوى تقييمي */
+    displayRef: text("display_ref").notNull(),
+    /** سبب الحذف (عربي، إلزامي) */
+    reason: text("reason").notNull(),
+    /** أعداد السجلات التابعة المحذوفة حسب النوع — أرقام مجرّدة فقط */
+    counts: jsonb("counts").$type<Record<string, number>>(),
+    actorId: uuid("actor_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("deletion_tombstones_entity_idx").on(t.entityType, t.entityId),
+    index("deletion_tombstones_created_idx").on(t.createdAt),
+  ],
+);
+
+/**
  * نسخ السجلات — generic version history for approve/reopen cycles.
  * Every approval or reopening writes a full JSON snapshot here.
  */

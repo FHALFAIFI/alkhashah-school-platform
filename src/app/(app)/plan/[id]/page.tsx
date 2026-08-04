@@ -4,7 +4,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import {
   programs, programDeliverables, programChangeRequests, programRoadmapCells, programFollowups,
-  programClosureHistory, users,
+  programClosureHistory, programEditHistory, users,
 } from "@/db/schema";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { evidenceForEntity } from "@/lib/evidence";
@@ -14,7 +14,17 @@ import { isFollowupDue, FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 import { programStatusLabel } from "@/lib/plan/status-labels";
 import { programLifecycle, nextLifecycleAction, PROGRAM_LIFECYCLE } from "@/lib/plan/lifecycle";
 import { getVersions } from "@/lib/versioning";
-import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps, DualDate } from "@/components/ui";
+import {
+  EDITABLE_FIELD_KEYS,
+  EDITABLE_PROGRAM_FIELDS,
+  EDIT_HISTORY_LABEL,
+  EDITED_AFTER_APPROVAL_MARKER,
+  MULTILINE_PROGRAM_FIELDS,
+  editWarningsFor,
+  normalizeValue,
+  reasonRequiredFor,
+} from "@/lib/plan/program-edit";
+import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps, DualDate, Table } from "@/components/ui";
 import { dualDisplay } from "@/lib/dates";
 import { orFallback, formatMoney, numOrNull } from "@/lib/format";
 import { FollowupDueBadge } from "../followup-badge";
@@ -23,7 +33,7 @@ import {
   ChangeRequestDecision, ProgramExecutionForm,
   ArchiveProgramForm, UnarchiveProgramButton,
   CloseProgramForm, ReopenClosedProgramForm,
-  CompleteProgramForm, ResumeProgramForm,
+  CompleteProgramForm, ResumeProgramForm, EditProgramForm,
 } from "./program-ui";
 import { EvidencePanel } from "@/components/evidence-panel";
 
@@ -39,7 +49,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
     .where(and(eq(programs.id, id), notSynthetic(programs.id, excluded.programs)));
   if (!program) notFound();
 
-  const [deliverables, changeRequests, roadmap, evidence, evidenceSummary, versions, followups, closureHistory] = await Promise.all([
+  const [deliverables, changeRequests, roadmap, evidence, evidenceSummary, versions, followups, closureHistory, editHistory] = await Promise.all([
     db.select().from(programDeliverables).where(eq(programDeliverables.programId, id)),
     db.select().from(programChangeRequests).where(eq(programChangeRequests.programId, id)),
     db.select().from(programRoadmapCells).where(eq(programRoadmapCells.programId, id)).orderBy(asc(programRoadmapCells.sortOrder)),
@@ -48,6 +58,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
     getVersions("program", id),
     db.select().from(programFollowups).where(eq(programFollowups.programId, id)).orderBy(desc(programFollowups.createdAt)).limit(8),
     db.select().from(programClosureHistory).where(eq(programClosureHistory.programId, id)).orderBy(desc(programClosureHistory.at)),
+    db.select().from(programEditHistory).where(eq(programEditHistory.programId, id)).orderBy(desc(programEditHistory.at)),
   ]);
 
   // البرنامج نفسه وحدة التنفيذ (D-024): التقدم والحالة مقروءان مباشرةً من سجل البرنامج،
@@ -59,7 +70,10 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
   // سير العمل ثلاثي الحالات: «قيد التنفيذ» / «مكتمل» / «مغلق» — مشتق من العمودين الزمنيين
   const lifecycle = programLifecycle(program);
   const isCompleted = lifecycle === PROGRAM_LIFECYCLE.completed;
-  const canWrite = user.permissions.has("plan.write") && program.status !== "مقفل" && !isArchived && !isClosed;
+  // v2.4.1 §1.6: الإقفال وإقفال السنة لم يعودا يمنعان تحديث التنفيذ — يلزمه سبب مكتوب.
+  // الأرشفة وحدها تبقى مستثناة: هي إخفاء مقصود يُستعاد بإجراء واحد ظاهر قبل أي تحرير.
+  const canWrite = user.permissions.has("plan.write") && !isArchived;
+  const executionReasonRequired = isClosed || isCompleted || program.status === "مقفل";
   const canApprove = user.permissions.has("plan.approve");
 
   // أسماء المسؤولين عن تحولات الحالة (آخر مسؤول + منفّذو سجل التحولات)
@@ -79,6 +93,24 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
     actorName(program.closedBy) ??
     actorName(program.completedBy) ??
     null;
+  /* v2.4.1 §1.6: التعديل مسموح في كل حالات دورة الحياة.
+   * الشرط الوحيد الباقي هو الصلاحية — لا الحالة. البرنامج المؤرشف يبقى مستثنى لأن
+   * الأرشفة إخفاء مقصود يُستعاد بإجراء واحد ظاهر، لا حالة عمل تُعدَّل بداخلها. */
+  const canEdit = user.permissions.has("plan.write") && !isArchived;
+  const editState = { approvalStatus: program.status, lifecycle };
+  const editWarnings = editWarningsFor(editState);
+  const editReasonRequired = reasonRequiredFor(editState);
+  const editableValues = EDITABLE_FIELD_KEYS.map((key) => ({
+    key,
+    label: EDITABLE_PROGRAM_FIELDS[key],
+    value: normalizeValue((program as unknown as Record<string, unknown>)[key]),
+    // الحقول السردية الطويلة في مربع نص متعدد الأسطر — الباقي حقل سطر واحد
+    multiline: MULTILINE_PROGRAM_FIELDS.has(key),
+  }));
+  const editedAfterApproval = editHistory.some(
+    (h) => h.approvalStatusAtEdit !== "مسودة" || h.lifecycleAtEdit !== PROGRAM_LIFECYCLE.active,
+  );
+
   // سجلات مرتبطة تحدد صياغة تأكيد الأرشفة (إخفاء مع الاحتفاظ بالسجلات التاريخية)
   const hasLinkedData =
     evidence.length > 0 || deliverables.length > 0 || roadmap.length > 0 || followups.length > 0 || changeRequests.length > 0;
@@ -227,12 +259,35 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           <p className="mb-3 text-xs text-gray-500">
             البرنامج نفسه وحدة التنفيذ والمتابعة — أدخل نسبة الإنجاز الحالية وحالة التنفيذ مباشرةً.
           </p>
-          <ProgramExecutionForm programId={id} progress={program.progress} executionStatus={program.executionStatus} />
+          <ProgramExecutionForm
+            programId={id}
+            progress={program.progress}
+            executionStatus={program.executionStatus}
+            reasonRequired={executionReasonRequired}
+          />
         </Card>
       )}
 
       <Card>
-        <h2 className="mb-3 font-bold text-brand-900">بطاقة البرنامج (القيم الرسمية من المصدر)</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold text-brand-900">بطاقة البرنامج (القيم الرسمية من المصدر)</h2>
+          {/* v2.4.1 §1.6: التعديل متاح في كل حالة — مسودة ومعتمد ومكتمل ومغلق */}
+          {canEdit && (
+            <EditProgramForm
+              programId={id}
+              values={editableValues}
+              warnings={editWarnings}
+              reasonRequired={editReasonRequired}
+              updatedToken={program.updatedAt.toISOString()}
+            />
+          )}
+        </div>
+        {editedAfterApproval && (
+          <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+            {EDITED_AFTER_APPROVAL_MARKER} — {editHistory.length} تغييراً مسجَّلاً. علامة معلوماتية
+            لا تمنع أي إجراء ولا تغيّر حالة الاعتماد.
+          </p>
+        )}
         <dl className="grid grid-cols-1 gap-x-8 gap-y-2 text-sm md:grid-cols-2">
           {infoRows.filter(([, v]) => v).map(([k, v]) => (
             <div key={k} className="flex gap-2">
@@ -242,6 +297,26 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           ))}
         </dl>
       </Card>
+
+      {/* v2.4.1 §1.6: سجل التغييرات — قيمة سابقة وجديدة وحالة البرنامج وقت التعديل وسببه */}
+      {editHistory.length > 0 && (
+        <Card>
+          <h2 className="mb-3 font-bold text-brand-900">{EDIT_HISTORY_LABEL} ({editHistory.length})</h2>
+          <Table headers={["الحقل", "القيمة السابقة", "القيمة الجديدة", "حالة البرنامج", "السبب", "بواسطة", "التاريخ"]}>
+            {editHistory.map((h) => (
+              <tr key={h.id}>
+                <td className="px-3 py-2 font-medium">{h.fieldLabel}</td>
+                <td className="px-3 py-2 text-xs text-gray-500">{h.oldValue ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{h.newValue ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{h.approvalStatusAtEdit} · {h.lifecycleAtEdit}</td>
+                <td className="px-3 py-2 text-xs text-gray-600">{h.reason ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{actorName(h.actorId) ?? "—"}</td>
+                <td className="px-3 py-2 text-xs tabular-nums">{h.at.toLocaleDateString("ar-SA-u-nu-latn")}</td>
+              </tr>
+            ))}
+          </Table>
+        </Card>
+      )}
 
       {deliverables.length > 0 && (
         <Card>

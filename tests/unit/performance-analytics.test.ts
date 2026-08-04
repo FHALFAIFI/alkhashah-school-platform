@@ -21,6 +21,7 @@ function cycle(over: {
   sessionType?: string;
   sessionStatus?: string;
   cycleStatus?: string;
+  personCategory?: string;
 }): AnalyticsCycleInput {
   seq += 1;
   const ratings = over.ratings ?? [];
@@ -32,6 +33,7 @@ function cycle(over: {
     modelName: "نموذج المعلم",
     yearKey: over.yearKey ?? "1448",
     status: over.cycleStatus ?? "نشطة",
+    personCategory: over.personCategory ?? "معلم",
     indicators: IND,
     sessions: ratings.length
       ? [

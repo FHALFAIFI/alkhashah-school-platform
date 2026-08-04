@@ -19,6 +19,8 @@ export type AnalyticsCycleInput = {
   modelName: string;
   yearKey: string;
   status: string;
+  /** فئة المنسوب المعتمدة («معلم» | «موظف إداري») — للمتوسط حسب الفئة (v2.4.1 §1.4) */
+  personCategory: string;
   /** مؤشرات النموذج المجمَّد وقت إنشاء الدورة: المعرف والاسم والوزن */
   indicators: { id: string; nameAr: string; weight: number }[];
   sessions: {
@@ -32,8 +34,8 @@ export type AnalyticsCycleInput = {
 
 export type AnalyticsInput = {
   cycles: AnalyticsCycleInput[];
-  /** المنسوبون النشطون — لكشف من لا دورة تقييم له */
-  activePeople: { id: string; name: string }[];
+  /** المنسوبون النشطون — لكشف من لا دورة تقييم له، ولعدّ إجمالي الموظفين */
+  activePeople: { id: string; name: string; category?: string }[];
   /** عتبة الضعف كنسبة مئوية (قابلة للضبط من الإعدادات) */
   weakThresholdPercent: number;
   /** أدنى حجم عينة تُقبل به رؤية معيار (عدد التقييمات) */
@@ -58,6 +60,8 @@ export type EmployeeStat = {
   resultPercent: number | null;
   evaluated: boolean;
   weakCriteria: string[];
+  /** معايير بلغت العتبة أو تجاوزتها — أساس «نقاط القوة المتكررة» (v2.4.1 §1.4) */
+  strongCriteria: string[];
 };
 
 export type Insight = {
@@ -70,6 +74,14 @@ export type Insight = {
 export type OverallAnalytics = {
   criteria: CriterionStat[];
   byModel: { modelName: string; averagePercent: number; sampleSize: number }[];
+  /** v2.4.1 §1.4: المتوسط حسب فئة المنسوب — «معلم» و«موظف إداري» */
+  byCategory: { category: string; averagePercent: number; sampleSize: number }[];
+  /** إجمالي المنسوبين النشطين — أساس نسب الإنجاز في الملخص التنفيذي */
+  totalEmployees: number;
+  /** متوسط أداء المدرسة عبر كل الدورات المقيَّمة — `null` حين لا تقييم مكتمل */
+  schoolAverage: number | null;
+  /** معايير تكرّرت **قوةً** لدى موظفَين فأكثر (فوق العتبة) — نظير الضعف المتكرر */
+  recurringStrengths: { name: string; affectedCycles: number; affectedPeople: number }[];
   employees: EmployeeStat[];
   highest: CriterionStat[];
   lowest: CriterionStat[];
@@ -146,6 +158,21 @@ export function computeOverallAnalytics(input: AnalyticsInput): OverallAnalytics
     sampleSize: list.length,
   }));
 
+  // ── حسب فئة المنسوب (v2.4.1 §1.4) ───────────────────────────────────────
+  const byCategoryMap = new Map<string, number[]>();
+  for (const { cycle, resultPercent } of perCycle) {
+    if (resultPercent === null) continue;
+    const key = cycle.personCategory || "غير محدد";
+    const list = byCategoryMap.get(key) ?? [];
+    list.push(resultPercent);
+    byCategoryMap.set(key, list);
+  }
+  const byCategory = [...byCategoryMap.entries()].map(([category, list]) => ({
+    category,
+    averagePercent: round1(list.reduce((s, p) => s + p, 0) / list.length),
+    sampleSize: list.length,
+  }));
+
   // ── الموظفون ────────────────────────────────────────────────────────────
   const employees: EmployeeStat[] = perCycle.map(({ cycle, progress, indicatorName, resultPercent }) => ({
     personId: cycle.personId,
@@ -156,6 +183,9 @@ export function computeOverallAnalytics(input: AnalyticsInput): OverallAnalytics
     evaluated: progress.evaluated,
     weakCriteria: progress.entries
       .filter((e) => e.rating !== null && (e.rating / 5) * 100 < threshold)
+      .map((e) => indicatorName.get(e.indicatorId) ?? e.indicatorId),
+    strongCriteria: progress.entries
+      .filter((e) => e.rating !== null && (e.rating / 5) * 100 >= threshold)
       .map((e) => indicatorName.get(e.indicatorId) ?? e.indicatorId),
   }));
 
@@ -195,6 +225,11 @@ export function computeOverallAnalytics(input: AnalyticsInput): OverallAnalytics
     bucket,
     count: evaluatedPercents.filter(test).length,
   }));
+  // متوسط المدرسة — `null` بلا تقييم مكتمل، فلا يُعرض صفر يُقرأ «أداء صفري»
+  const schoolAverage =
+    evaluatedPercents.length > 0
+      ? round1(evaluatedPercents.reduce((s, p) => s + p, 0) / evaluatedPercents.length)
+      : null;
 
   // ── التغير بين الفترات لكل موظف ─────────────────────────────────────────
   const byPerson = new Map<string, typeof perCycle>();
@@ -232,6 +267,21 @@ export function computeOverallAnalytics(input: AnalyticsInput): OverallAnalytics
     }
   }
   const recurringWeaknesses = [...weaknessSpread.entries()]
+    .map(([name, v]) => ({ name, affectedCycles: v.cycles.size, affectedPeople: v.people.size }))
+    .filter((w) => w.affectedPeople >= 2)
+    .sort((a, b) => b.affectedPeople - a.affectedPeople);
+
+  // ── القوة المتكررة عبر الموظفين — نظير الضعف المتكرر تماماً ─────────────
+  const strengthSpread = new Map<string, { cycles: Set<string>; people: Set<string> }>();
+  for (const e of employees) {
+    for (const name of e.strongCriteria) {
+      const cur = strengthSpread.get(name) ?? { cycles: new Set(), people: new Set() };
+      cur.cycles.add(e.cycleId);
+      cur.people.add(e.personId);
+      strengthSpread.set(name, cur);
+    }
+  }
+  const recurringStrengths = [...strengthSpread.entries()]
     .map(([name, v]) => ({ name, affectedCycles: v.cycles.size, affectedPeople: v.people.size }))
     .filter((w) => w.affectedPeople >= 2)
     .sort((a, b) => b.affectedPeople - a.affectedPeople);
@@ -299,6 +349,9 @@ export function computeOverallAnalytics(input: AnalyticsInput): OverallAnalytics
     return {
       criteria,
       byModel,
+      byCategory,
+      totalEmployees: input.activePeople.length,
+      schoolAverage,
       employees,
       highest,
       lowest,
@@ -307,6 +360,7 @@ export function computeOverallAnalytics(input: AnalyticsInput): OverallAnalytics
       counts: { notStarted, inProgress, completed, awaitingFinalApproval },
       distribution,
       periodChange,
+      recurringStrengths,
       recurringWeaknesses,
       missingEvaluations,
       insights: operational,
@@ -316,6 +370,9 @@ export function computeOverallAnalytics(input: AnalyticsInput): OverallAnalytics
   return {
     criteria,
     byModel,
+    byCategory,
+    totalEmployees: input.activePeople.length,
+    schoolAverage,
     employees,
     highest,
     lowest,
@@ -324,6 +381,7 @@ export function computeOverallAnalytics(input: AnalyticsInput): OverallAnalytics
     counts: { notStarted, inProgress, completed, awaitingFinalApproval },
     distribution,
     periodChange,
+    recurringStrengths,
     recurringWeaknesses,
     missingEvaluations,
     insights,

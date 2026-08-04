@@ -19,6 +19,14 @@ import { orFallback, orDash } from "@/lib/format";
 import { escapeHtml as esc } from "@/lib/html-escape";
 import { loadAnalyticsCycles, loadOverallAnalytics } from "@/lib/performance/analytics-service";
 import { cycleProgress } from "@/lib/performance/scoring";
+import {
+  OVERALL_REPORT_LABEL,
+  OVERALL_REPORT_SECTIONS,
+  individualReportLabel,
+  resultBandLabel,
+  trainingRecommendation,
+} from "@/lib/performance/report-labels";
+import { employeeTypeOf } from "@/lib/employee-type";
 
 /**
  * v2.4 §13: مولدا تقارير الأداء الوظيفي —
@@ -140,6 +148,7 @@ export async function generateEmployeePerformanceReport(opts: {
     <tr><th>نموذج التقييم</th><td>${esc(cycle.modelName)}</td></tr>
     <tr><th>حالة الدورة</th><td>${esc(cycle.status)}</td></tr>
     <tr><th>النتيجة النهائية</th><td>${resultPercent === null ? "لم يكتمل التقييم بعد" : `${resultPercent}٪ (تغطية التقييم ${Math.round(progress.coverage)}٪)`}</td></tr>
+    <tr><th>الفئة النهائية</th><td>${esc(resultBandLabel(resultPercent))}</td></tr>
   </table>
 
   <h2>المعايير والتقديرات</h2>
@@ -208,6 +217,14 @@ export async function generateEmployeePerformanceReport(opts: {
         : "لم يُعتمد بعد"
     }</td></tr>
     <tr><th>التقرير الموقع</th><td>${finalSession?.signedReportFileId ? "مستلم ومحفوظ" : "لم يُستلم بعد"}</td></tr>
+  </table>
+
+  ${/* v2.4.1 §1.4: خانة توقيع ورقية تظهر دائماً — التقرير يُطبع ويُوقَّع يدوياً */ ""}
+  <h2>التواقيع</h2>
+  <table>
+    <tr><th style="width:22%">توقيع الموظف</th><td style="height:48px"></td></tr>
+    <tr><th>توقيع مدير المدرسة</th><td style="height:48px"></td></tr>
+    <tr><th>التاريخ</th><td style="height:32px"></td></tr>
   </table>`;
 
   if (cycles.length > 1) {
@@ -228,7 +245,7 @@ export async function generateEmployeePerformanceReport(opts: {
 
   return issuePerfDocument({
     docType: "employee_performance_report",
-    title: `تقرير الأداء الوظيفي التفصيلي — ${orFallback(person.fullName)} (${cycle.yearKey})`,
+    title: `${individualReportLabel(employeeTypeOf(person))} — ${orFallback(person.fullName)} (${cycle.yearKey})`,
     entityType: "perf_cycle",
     entityId: cycle.id,
     body,
@@ -240,15 +257,50 @@ export async function generateOverallPerformanceReport(opts: { issuedBy: string 
   const { analytics, threshold } = await loadOverallAnalytics();
   const a = analytics;
   const evaluatedEmployees = a.employees.filter((e) => e.evaluated);
+  const incomplete = a.counts.notStarted + a.counts.inProgress + a.counts.awaitingFinalApproval;
 
+  /* ── أولاً: الملخص الإحصائي التنفيذي ────────────────────────────────────
+   * كل رقم هنا محسوب من السجلات، ولا شيء يُقدَّر: «لا تقييم مكتمل» تُقال صراحةً
+   * بدل عرض صفر يُقرأ «أداء صفري». */
   let body = `
-  <h2>حالة دورات التقييم</h2>
+  <h2>${esc(OVERALL_REPORT_SECTIONS.summary)}</h2>
   <table>
-    <tr><th>لم يبدأ</th><th>قيد التقييم</th><th>بانتظار الاعتماد النهائي</th><th>مكتملة</th><th>بلا دورة تقييم</th></tr>
-    <tr><td>${a.counts.notStarted}</td><td>${a.counts.inProgress}</td><td>${a.counts.awaitingFinalApproval}</td><td>${a.counts.completed}</td><td>${a.missingEvaluations.length}</td></tr>
+    <tr><th>إجمالي الموظفين النشطين</th><td>${a.totalEmployees}</td></tr>
+    <tr><th>تقييمات مكتملة</th><td>${a.counts.completed}</td></tr>
+    <tr><th>تقييمات غير مكتملة</th><td>${incomplete}</td></tr>
+    <tr><th>منسوبون بلا دورة تقييم</th><td>${a.missingEvaluations.length}</td></tr>
+    <tr><th>متوسط أداء المدرسة</th><td>${a.schoolAverage === null ? "لا تقييم مكتمل بعد" : `${a.schoolAverage}٪`}</td></tr>
+    <tr><th>عتبة المعالجة المعتمدة</th><td>${threshold}٪</td></tr>
   </table>
 
-  <h2>متوسط الأداء لكل معيار (عتبة المعالجة: ${threshold}٪)</h2>
+  <h3>حالة دورات التقييم</h3>
+  <table>
+    <tr><th>لم يبدأ</th><th>قيد التقييم</th><th>بانتظار الاعتماد النهائي</th><th>مكتملة</th></tr>
+    <tr><td>${a.counts.notStarted}</td><td>${a.counts.inProgress}</td><td>${a.counts.awaitingFinalApproval}</td><td>${a.counts.completed}</td></tr>
+  </table>
+
+  <h3>توزيع النتائج</h3>
+  <table>
+    <tr>${a.distribution.map((d) => `<th>${esc(d.bucket)}</th>`).join("")}</tr>
+    <tr>${a.distribution.map((d) => `<td>${d.count}</td>`).join("")}</tr>
+  </table>
+
+  <h3>المتوسط حسب فئة المنسوب</h3>
+  <table>
+    <tr><th>الفئة</th><th>المتوسط ٪</th><th>العينة</th></tr>
+    ${a.byCategory.map((c) => `<tr><td>${esc(c.category)}</td><td>${c.averagePercent}</td><td>${c.sampleSize}</td></tr>`).join("")}
+    ${a.byCategory.length === 0 ? `<tr><td colspan="3">لا بيانات كافية</td></tr>` : ""}
+  </table>
+
+  <h3>المتوسط حسب النموذج</h3>
+  <table>
+    <tr><th>النموذج</th><th>المتوسط ٪</th><th>العينة</th></tr>
+    ${a.byModel.map((m) => `<tr><td>${esc(m.modelName)}</td><td>${m.averagePercent}</td><td>${m.sampleSize}</td></tr>`).join("")}
+    ${a.byModel.length === 0 ? `<tr><td colspan="3">لا بيانات</td></tr>` : ""}
+  </table>
+
+  <h2>${esc(OVERALL_REPORT_SECTIONS.strengthsWeaknesses)}</h2>
+  <h3>متوسط كل معيار</h3>
   <table>
     <tr><th>المعيار</th><th>المتوسط ٪</th><th>العينة</th><th>الحالة</th></tr>
     ${a.criteria
@@ -257,9 +309,10 @@ export async function generateOverallPerformanceReport(opts: { issuedBy: string 
         return `<tr><td>${esc(c.name)}</td><td>${c.insufficientData ? "—" : c.averagePercent}</td><td>${c.sampleSize}</td><td>${state}</td></tr>`;
       })
       .join("")}
+    ${a.criteria.length === 0 ? `<tr><td colspan="4">لا تقديرات مسجلة بعد</td></tr>` : ""}
   </table>
 
-  <h2>أقوى المعايير وأضعفها</h2>
+  <h3>أقوى المعايير وأضعفها</h3>
   <table>
     <tr><th>الأقوى</th><th>الأضعف</th></tr>
     <tr>
@@ -268,22 +321,49 @@ export async function generateOverallPerformanceReport(opts: { issuedBy: string 
     </tr>
   </table>
 
-  <h2>توزيع النتائج</h2>
+  <h3>نقاط قوة متكررة (لدى موظفَين فأكثر)</h3>
   <table>
-    <tr>${a.distribution.map((d) => `<th>${esc(d.bucket)}</th>`).join("")}</tr>
-    <tr>${a.distribution.map((d) => `<td>${d.count}</td>`).join("")}</tr>
+    <tr><th>المعيار</th><th>عدد الدورات</th><th>عدد الموظفين</th></tr>
+    ${a.recurringStrengths.map((w) => `<tr><td>${esc(w.name)}</td><td>${w.affectedCycles}</td><td>${w.affectedPeople}</td></tr>`).join("")}
+    ${a.recurringStrengths.length === 0 ? `<tr><td colspan="3">لا نقاط قوة متكررة بعينة كافية</td></tr>` : ""}
   </table>
 
-  <h2>المتوسط حسب النموذج</h2>
+  <h3>جوانب ضعف متكررة (لدى موظفَين فأكثر)</h3>
   <table>
-    <tr><th>النموذج</th><th>المتوسط ٪</th><th>العينة</th></tr>
-    ${a.byModel.map((m) => `<tr><td>${esc(m.modelName)}</td><td>${m.averagePercent}</td><td>${m.sampleSize}</td></tr>`).join("")}
-    ${a.byModel.length === 0 ? `<tr><td colspan="3">لا بيانات</td></tr>` : ""}
+    <tr><th>المعيار</th><th>عدد الدورات</th><th>عدد الموظفين</th></tr>
+    ${a.recurringWeaknesses.map((w) => `<tr><td>${esc(w.name)}</td><td>${w.affectedCycles}</td><td>${w.affectedPeople}</td></tr>`).join("")}
+    ${a.recurringWeaknesses.length === 0 ? `<tr><td colspan="3">لا جوانب ضعف متكررة بعينة كافية</td></tr>` : ""}
   </table>`;
+
+  if (a.periodChange.length > 0) {
+    body += `
+  <h3>التغير بين آخر فترتين</h3>
+  <table>
+    <tr><th>الاسم</th><th>من</th><th>إلى</th><th>التغير ٪</th></tr>
+    ${a.periodChange
+      .map((p) => `<tr><td>${esc(p.personName)}</td><td>${esc(p.fromYear)}</td><td>${esc(p.toYear)}</td><td>${p.deltaPercent > 0 ? "+" : ""}${p.deltaPercent}</td></tr>`)
+      .join("")}
+  </table>`;
+  }
+
+  /* ── ثالثاً: التوصيات — مشتقة من المعايير الضعيفة نفسها، بلا برامج مُختلقة ── */
+  body += `
+  <h2>${esc(OVERALL_REPORT_SECTIONS.training)}</h2>`;
+  const trainingNeeds = a.recurringWeaknesses.length > 0 ? a.recurringWeaknesses : a.belowThreshold.map((c) => ({ name: c.name, affectedPeople: c.sampleSize, affectedCycles: c.sampleSize }));
+  if (trainingNeeds.length > 0) {
+    body += `
+  <p>الاحتياجات التطويرية أدناه مشتقة من المعايير التي جاءت دون العتبة (${threshold}٪) — القرار التدريبي قرار المدير، والتقرير يشير إلى موضعه فقط.</p>
+  <ul>
+    ${trainingNeeds.map((w) => `<li>${esc(trainingRecommendation(w.name, w.affectedPeople))}</li>`).join("")}
+  </ul>`;
+  } else {
+    body += `
+  <p>لا احتياجات تطويرية متكررة بعينة كافية — لا معيار تكرر دون العتبة لدى موظفَين فأكثر.</p>`;
+  }
 
   if (a.needsFollowUp.length > 0) {
     body += `
-  <h2>موظفون يحتاجون متابعة (${a.needsFollowUp.length})</h2>
+  <h3>موظفون يحتاجون متابعة (${a.needsFollowUp.length})</h3>
   <table>
     <tr><th>الاسم</th><th>السنة</th><th>النتيجة ٪</th><th>معايير دون العتبة</th></tr>
     ${a.needsFollowUp
@@ -295,46 +375,32 @@ export async function generateOverallPerformanceReport(opts: { issuedBy: string 
   </table>`;
   }
 
-  if (a.recurringWeaknesses.length > 0) {
-    body += `
-  <h2>جوانب ضعف متكررة (احتياجات تطوير مهني)</h2>
+  /* ── رابعاً: الملحق التفصيلي بالأسماء ─────────────────────────────────── */
+  body += `
+  <h2>${esc(OVERALL_REPORT_SECTIONS.appendix)}</h2>
   <table>
-    <tr><th>المعيار</th><th>عدد الدورات</th><th>عدد الموظفين</th></tr>
-    ${a.recurringWeaknesses.map((w) => `<tr><td>${esc(w.name)}</td><td>${w.affectedCycles}</td><td>${w.affectedPeople}</td></tr>`).join("")}
-  </table>`;
-  }
-
-  if (a.periodChange.length > 0) {
-    body += `
-  <h2>التغير بين آخر فترتين</h2>
-  <table>
-    <tr><th>الاسم</th><th>من</th><th>إلى</th><th>التغير ٪</th></tr>
-    ${a.periodChange
-      .map((p) => `<tr><td>${esc(p.personName)}</td><td>${esc(p.fromYear)}</td><td>${esc(p.toYear)}</td><td>${p.deltaPercent > 0 ? "+" : ""}${p.deltaPercent}</td></tr>`)
+    <tr><th>م</th><th>الاسم</th><th>السنة</th><th>النتيجة ٪</th><th>الفئة</th><th>معايير دون العتبة</th></tr>
+    ${evaluatedEmployees
+      .map(
+        (e, i) =>
+          `<tr><td>${i + 1}</td><td>${esc(e.personName)}</td><td>${esc(e.yearKey)}</td><td>${e.resultPercent ?? "—"}</td><td>${esc(resultBandLabel(e.resultPercent))}</td><td>${e.weakCriteria.map((w) => esc(w)).join("؛ ") || "—"}</td></tr>`,
+      )
       .join("")}
+    ${evaluatedEmployees.length === 0 ? `<tr><td colspan="6">لا تقييمات مكتملة بعد</td></tr>` : ""}
   </table>`;
-  }
 
   if (a.missingEvaluations.length > 0) {
     body += `
-  <h2>منسوبون نشطون بلا دورة تقييم (${a.missingEvaluations.length})</h2>
+  <h3>منسوبون نشطون بلا دورة تقييم (${a.missingEvaluations.length})</h3>
   <p>${a.missingEvaluations.map((m) => esc(m.name)).join("؛ ")}</p>`;
   }
 
   body += `
-  <h2>الملحق: تفصيل الموظفين المقيَّمين (${evaluatedEmployees.length})</h2>
-  <table>
-    <tr><th>م</th><th>الاسم</th><th>السنة</th><th>النتيجة ٪</th></tr>
-    ${evaluatedEmployees
-      .map((e, i) => `<tr><td>${i + 1}</td><td>${esc(e.personName)}</td><td>${esc(e.yearKey)}</td><td>${e.resultPercent ?? "—"}</td></tr>`)
-      .join("")}
-    ${evaluatedEmployees.length === 0 ? `<tr><td colspan="4">لا تقييمات مكتملة بعد</td></tr>` : ""}
-  </table>
   <p class="meta">هذا التقرير يتضمن بيانات أداء فردية حساسة — يُصدر ويُتداول وفق صلاحية الاطلاع على الأداء الفردي فقط (D-013).</p>`;
 
   return issuePerfDocument({
     docType: "overall_performance_report",
-    title: "تقرير الأداء الوظيفي التفصيلي للمدرسة",
+    title: OVERALL_REPORT_LABEL,
     entityType: "performance_overall",
     body,
     issuedBy: opts.issuedBy,
