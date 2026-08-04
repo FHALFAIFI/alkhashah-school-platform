@@ -2,9 +2,42 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.4.1 final consolidated scope (2026-08-04)** — NOT deployed
+## Latest checkpoint — **v2.4.1 DEPLOYED to production (2026-08-04)**
 
-- **Production is still on v2.4.0.** The v2.4.1 branch now carries the data-correction
+**Verdict: DEPLOYED — HEALTHY.** Full record: **`docs/DEPLOYMENT_V2_4_1.md`**.
+
+- **Production baseline is now v2.4.1**, tag `v2.4.1` (annotated, on `6d7dacf`), image
+  `madrasa-app:0.1.0` = `sha256:4b427c8e16d8…`, ledger **31**, tables **88**, host binding
+  unchanged at `0.0.0.0:3080` under compose project `madrasa-prod`.
+- **Migrations 0029 + 0030** applied through the migrate-only `init` service. Both purely
+  additive: 2 new empty tables, 4 nullable columns that are 100 % NULL. The **database
+  container was never restarted** (same id, `StartedAt`, `Pid`, `RestartCount 0`,
+  `pg_postmaster_start_time` unchanged).
+- **Nothing else in the database changed.** A 183-line probe (86 counts + 86 fingerprints +
+  9 anchors) run before and after differed only by the ledger, the two new tables and the
+  `maintenance_issues` row literal; the `mi_pre0030` anchor proves no existing report row was
+  touched. Across the whole deployment only `audit_log` (540 → 550) and `sessions` (56 → 60)
+  moved — the smoke test's own logins and exports. **No business record was created, updated
+  or deleted.**
+- **Interruption ≈ 1.4 s** (17 samples at ~0.29 s, 2 DOWN). App-only recreate.
+- **Backups.** Pre-deploy `20260804-143255` (db + uploads + redacted config, AES-256-CBC /
+  PBKDF2 200k) — restore-verified byte-identical to production, uploads digest matched
+  (89 files). Gold `20260804-gold` — restore-verified byte-identical at ledger 31.
+- **Rollback image** `madrasa-app:0.1.0-prev-v2_4_1-20260804` (= v2.4.0), boot-proven against
+  the restored backup. **App-only; no database action.** Not exercised — no trigger occurred.
+- **Smoke: 26/26 PASS.** Read-only on production as `admin`; the mutating and principal-only
+  checks (both performance reports, permanent deletion, inspection → separate reports,
+  program editing in all six states) ran **53/53 PASS** on a disposable clone of the
+  post-deployment data using the deployed image, then destroyed. Container log holds exactly
+  3 error lines, all the D-013 denials the smoke triggered on purpose.
+- **Still the principal's to supply** (the platform invents nothing): the 2 missing budget
+  allocations, the 4 contradictory program states, the 31 NULL committee task statuses, and
+  tasks for the 2 empty committees.
+- Next: the principal's `/pilot` retest is the acceptance channel.
+
+### Pre-deployment record — v2.4.1 final consolidated scope
+
+- The v2.4.1 branch carries the data-correction
   release **plus** the principal's final confirmed requirements. Full record:
   **`docs/DELIVERY_V2_4_1.md` §17**; decisions **D-050 · D-051 · D-052**; deletion procedure
   and recovery: **`docs/DELETION_RUNBOOK.md`**.

@@ -1,7 +1,9 @@
 # DELIVERY v2.4.1 — data-correction release (post-v2.4.0)
 
 > Decisions: D-046…D-052 (`docs/DECISIONS.md`) · Branch `scope-v2.4.1-data-correction`
-> (base `c5d13f8` = deployed v2.4.0) · **NOT deployed — production is still on v2.4.0.**
+> (base `c5d13f8` = deployed v2.4.0) · **DEPLOYED to production on 2026-08-04 — deployment
+> record and production evidence: `docs/DEPLOYMENT_V2_4_1.md`.** Statements below about
+> production being untouched describe the state during *pre-deployment* verification.
 >
 > **§17 onward covers the final consolidated corrective scope** added after this document
 > was first written (permanent lifecycle deletion, program editing in every state,
@@ -10,7 +12,7 @@
 
 ## 1) Executive verdict
 
-**READY FOR DEPLOYMENT** — pending explicit owner authorization.
+**DEPLOYED 2026-08-04** (this section was written at "READY FOR DEPLOYMENT").
 
 Every §11 condition is met with evidence: the discoverability audit passes through the real
 navigation shell, 15 principal-role browser scenarios pass, RTL/visual passes at four
@@ -274,9 +276,11 @@ no value on the principal's behalf.
 
 - Commits on `scope-v2.4.1-data-correction` (base `c5d13f8`): `d790ab0` (A–E),
   `33a98a0` (F), `8216264` + `08b65b5` + `bdbd02a` (G / D-049), plus this document.
-- Proposed annotated tag **`v2.4.1`** — *not created*: this project's convention is to tag at
-  deployment, after the principal's acceptance (v2.2/v2.3 followed the same rule).
-- Production image tag `madrasa-app:0.1.0` was **not** moved. Production remains v2.4.0.
+- Annotated tag **`v2.4.1`** — created at deployment on `6d7dacf`, per this project's
+  convention of tagging at deployment (v2.2/v2.3/v2.4 followed the same rule).
+- Production image tag `madrasa-app:0.1.0` now resolves to
+  `sha256:4b427c8e16d8…`; the previous image is preserved as
+  `madrasa-app:0.1.0-prev-v2_4_1-20260804`.
 
 ---
 
@@ -287,8 +291,9 @@ Added on top of everything above, from the principal's confirmed requirements. D
 
 ## 17.1 Executive verdict
 
-**READY FOR DEPLOYMENT** — pending explicit owner authorization. Production was never
-touched at any point in this phase.
+**DEPLOYED 2026-08-04** (was: READY FOR DEPLOYMENT pending owner authorization). Production
+was never touched at any point in this *verification* phase; the deployment itself is
+recorded separately in `docs/DEPLOYMENT_V2_4_1.md`.
 
 Two defects were found by the new gates and fixed before the RC. Both would have shipped:
 
@@ -701,9 +706,11 @@ Branch `scope-v2.4.1-data-correction`, base `c5d13f8` (= deployed v2.4.0).
 - Report samples and screenshots stay under git-ignored `storage-e2e/` because they contain
   school data.
 
-## 17.18 Proposed deployment sequence
+## 17.18 Deployment sequence — **EXECUTED 2026-08-04**
 
-Nothing below has been executed. **Production is still on v2.4.0.**
+Every step below was carried out under explicit owner authorization. Production is now on
+v2.4.1 (ledger 31, tables 88, tag `v2.4.1` on `6d7dacf`). Full evidence, smoke results,
+backups, rollback proof and the new baseline: **`docs/DEPLOYMENT_V2_4_1.md`**.
 
 1. Owner authorisation.
 2. `npm run backup:daily && npm run restore:rehearsal` — fresh pre-deploy backup, restore-verified.
