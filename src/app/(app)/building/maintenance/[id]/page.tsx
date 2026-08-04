@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { asc, eq, inArray } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
@@ -77,6 +77,10 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
       )[0] ?? null
     : null;
 
+  /* D-049 (بروفة النطاق النهائي): كان الإجراء يُبطل مسار الصفحة التي استُدعي منها، فيعيد
+   * الموجّه جلبها ويُجهض تدفّق الاستجابة — **الخطاب يُصدر فعلاً ولا تظهر روابطه**. أُثبت
+   * على نسخة الإنتاج: الوثيقة مكتوبة في القاعدة والصفحة كما هي. البديل: إعادة توجيه صريحة
+   * إلى المسار نفسه — تنقّل نظيف يعيد التصيير بلا سباق. */
   async function issueLetter() {
     "use server";
     const u = await requirePermission("reports.generate", "maintenance.read");
@@ -86,7 +90,8 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
     } catch {
       // سباق نادر (بلاغ عاد مسودة): الصفحة تعاد وتظهر حالة المسودة وشرحها بدل حد الخطأ
     }
-    revalidatePath(`/building/maintenance/${id}`);
+    revalidatePath("/documents");
+    redirect(`/building/maintenance/${id}`);
   }
 
   // v2.4 §14د: اعتماد البلاغ وإصدار خطابه بخطوة واحدة — بدل إخفاء زر الخطاب بصمت للمسودة
@@ -105,9 +110,10 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
     } catch {
       // فشل التوليد لا يلغي الاعتماد — زر التوليد يبقى متاحاً بعد إعادة العرض
     }
-    revalidatePath(`/building/maintenance/${id}`);
     revalidatePath("/building/maintenance");
     revalidatePath("/documents");
+    // D-049: لا إبطال لمسار هذه الصفحة — إعادة توجيه صريحة تعيد التصيير بلا سباق
+    redirect(`/building/maintenance/${id}`);
   }
 
   return (
