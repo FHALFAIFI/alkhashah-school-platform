@@ -696,3 +696,116 @@ buys no cache freshness and only buys the race.
 places a future change would touch. Remaining actions elsewhere in the app still revalidate
 their own route and can show the same staleness; sweeping them is recorded as follow-up work
 rather than done inside a corrective release.
+
+## D-050 — Permanent lifecycle deletion is a separate, privileged path from safe delete (2026-08-04)
+
+v2.4.1 final scope §1.3. The principal asked for real deletion of an employee and of a
+performance cycle — "not archive-only". The platform already had `lib/safe-delete.ts`,
+which answers a different question: *is this record unused, so that deleting it destroys
+nothing?* That guard is correct for incidental deletes and must not be weakened, because
+weakening it would silently permit cascade damage everywhere it is used.
+
+So permanent deletion is a **second, explicitly privileged path** (`lib/lifecycle-delete.ts`)
+rather than a flag on the first. It answers: *destroy this record and everything it owns,
+deliberately, and prove the institution survived.*
+
+**Owned vs shared was derived from the database, not assumed.** The FK graph was read from
+`information_schema` before any code was written; six columns reference `people` and each
+was classified individually:
+
+| Relation | Decision | Why |
+| --- | --- | --- |
+| `perf_cycles` → sessions → ratings / signed versions / improvement plans | delete | the employee's own evaluation lifecycle |
+| `person_stages` | delete | assignment of the employee, meaningless without them |
+| `documents` (perf_cycle / perf_session / person) | delete | issued *about* this employee |
+| `evidence_links` for those records | delete | the link, not the evidence |
+| `evidence_items` with zero links remaining | delete | employee-exclusive by definition |
+| `committee_members` | delete the membership row | the committee is institutional and survives |
+| `programs` / `program_activities` / `action_tasks` / `maintenance_issues` / `inspection_findings` / `budget_expenses` | null the reference | institutional records; ownership is an attribute, not existence |
+| `users` | deactivate + unlink + drop sessions, **never delete** | `audit_log.actor_id` and a dozen other `NO ACTION` keys point at it; deleting it either fails or forces destroying the audit trail |
+| `audit_log`, `import_rows`, `record_versions` of shared entities | retain | append-only history |
+
+`committee_task_assignments.assigned_member_id` is `ON DELETE SET NULL`, so removing a
+membership leaves the committee's task in place, unassigned — which is the correct
+institutional outcome and required no extra code.
+
+**Stored files.** A file is deleted only when no reference remains anywhere — checked
+against all twelve FK columns plus the two `jsonb` photo arrays that hold file ids without a
+constraint. Physical removal happens **after** the transaction commits, never inside it,
+because unlinking a file cannot be rolled back.
+
+**Authorization is `people.delete` + `performance.individual.read`** (cycle deletion adds
+`performance.write` + `performance.approve`). The second permission is not decoration: the
+operation destroys individual evaluation content, and D-013 denies `sysadmin` the right to
+*read* it. Whoever may not read it may not destroy it — so the principal is the only holder.
+
+**The tombstone** (`deletion_tombstones`, migration 0029) is what remains: actor, safe
+identifying reference, timestamp, reason and per-type counts. It deliberately stores **no
+evaluation content** — a test serialises the row and asserts the seeded sensitive strings
+are absent. Permanent deletion is irreversible except by restoring a full backup; that
+sentence is in the deletion runbook and on the confirmation panel.
+
+Three deletions remain distinct actions with distinct previews and permissions, and must
+not be conflated: deleting an **evaluation form** (unused only, else archive — D-041),
+deleting **one performance cycle** (employee and other cycles survive), and deleting an
+**employee** (all their cycles go with them).
+
+## D-051 — Program lifecycle state warns, it never blocks editing (2026-08-04)
+
+v2.4.1 final scope §1.6. Editing a program's data was blocked once it was approved (only a
+change-request workflow remained), and blocked entirely once completed or closed. The
+observed consequence is worse than the risk it guarded: to fix a typo in a closed program
+the principal had to **reopen it**, and reopening writes a real lifecycle transition. The
+guard was producing the record corruption it existed to prevent.
+
+State now produces a **warning, never a refusal**. What replaces the block:
+
+- **Reason is mandatory** past draft (approved, completed, closed, or inside a closed year).
+- **Field-level history** (`program_edit_history`, migration 0029): actor, timestamp,
+  approval status *and* lifecycle at the moment of the edit, old value, new value, reason.
+  The «تم تعديل البرنامج بعد الاعتماد» marker is derived from that history — no extra status
+  column exists that could disagree with the record.
+- **No implicit state change**: `status`, `approvedAt`, `completedAt`, `closedAt` and
+  `archivedAt` are never written by the edit path. A forged `field_status` is ignored because
+  the action reads only a whitelist (`EDITABLE_PROGRAM_FIELDS`), and a test asserts it.
+- **Concurrency**: the update carries the row's `updated_at` and is applied only if it still
+  matches, so of two concurrent saves exactly one wins.
+
+Two guards were removed as dead: `plan.override` was required to correct closed programs but
+**was never granted to any role** (`src/db/seed-data/permissions.ts` excludes it from both
+principal and sysadmin), so it was an absolute block wearing the costume of an exception.
+Bulk correction still excludes closed programs deliberately — a one-click mass edit of
+records the principal closed contradicts "reviewed correction", and single-program editing
+is now available as the explicit alternative.
+
+Archived programs remain excluded from editing: archiving is a deliberate, one-click
+reversible hiding, so the correct first step is to restore.
+
+**Concurrency footnote worth keeping.** The first implementation compared the submitted
+token to `programs.updated_at` with a plain equality on a JS `Date`. `timestamptz` stores
+microseconds and `Date` holds milliseconds, so the comparison never matched and *every* edit
+was rejected as stale. The state-matrix integration test caught it before the RC; the fix
+truncates both sides to milliseconds in SQL.
+
+## D-052 — Inspection belongs to maintenance, and one finding is one report (2026-08-04)
+
+v2.4.1 final scope §1.2. The inspection→maintenance conversion existed since v2.4, but the
+only way to *run* an inspection was from a room page under «الفحص والجاهزية» — so from the
+principal's seat the feature was not where the work is. `/building/maintenance/inspect` now
+hosts the flow inside the maintenance area («المبنى المدرسي ← الصيانة ← إجراء فحص»); the
+room page keeps its entry point as a second, field-facing path, not a replacement.
+
+Saving states the outcome in plain Arabic («تم تسجيل 3 ملاحظات تحتاج إلى صيانة», with
+correct singular/dual/plural), lists the findings with duplicate detection already resolved,
+and offers four explicit paths — create selected, create one separate report per finding,
+review first, skip. **Grouping is never offered**: three actionable findings produce three
+independent reports, each linked to its finding, its inspection, its location and its note.
+Duplicate prevention runs per finding, so a re-inspection of the same failing item links to
+the existing open report instead of creating a second one.
+
+The formal report gained the fields the principal listed — category (closed list), safety
+impact, operational impact, requested action — all **optional** per the platform-wide rule,
+plus an always-printed approval and signature block. A report created from a finding fills
+safety impact and requested action by restating the finding's own recorded severity; the
+category stays empty until a human picks it, because the type of fault is not something the
+system knows.

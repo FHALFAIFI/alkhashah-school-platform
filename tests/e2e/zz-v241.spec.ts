@@ -112,7 +112,7 @@ test("س1: بند بلا مخصص يشرح حالته ويقدّم «تحديد 
 
   // §4.1: النص التفسيري ظاهر على الشاشة الاعتيادية قبل أي نقرة إضافية
   await expect(page.getByText("لم يتم تحديد مخصص لهذا البند").first()).toBeVisible();
-  await expect(page.getByText("لا يمكن احتسابه قبل تحديد المخصص").first()).toBeVisible();
+  await expect(page.getByText("لا يمكن احتساب المتبقي قبل تحديد المخصص").first()).toBeVisible();
   await expect(page.getByText("غير محدد").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "تحديد المخصص" }).first()).toBeVisible();
 
@@ -120,7 +120,7 @@ test("س1: بند بلا مخصص يشرح حالته ويقدّم «تحديد 
   await page.getByRole("link", { name: `${TAG} بند بلا مخصص` }).first().click();
   await page.waitForURL("**/budget/items/**");
   await expect(page.getByText("لم يتم تحديد مخصص لهذا البند").first()).toBeVisible();
-  await expect(page.getByText("لا يمكن احتسابه قبل تحديد المخصص").first()).toBeVisible();
+  await expect(page.getByText("لا يمكن احتساب المتبقي قبل تحديد المخصص").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "تحديد المخصص" }).first()).toBeVisible();
 });
 
@@ -490,7 +490,7 @@ test("س7: مهمة بلا حالة تقول «لم يتم تحديد الحال
 
   // الحالة مطبوعة في السجل التفصيلي — الوثيقة نفسها التي تُصدَّر في الإنتاج
   await page.goto("/committees");
-  await page.getByRole("button", { name: "إصدار السجل التفصيلي (PDF)" }).click();
+  await page.getByRole("button", { name: "سجل المجالس واللجان التفصيلي" }).click();
   await expect
     .poll(
       async () =>
@@ -661,14 +661,14 @@ test("س13: تقارير الأداء التفصيلية بأسمائها الم
   // معلنة من جذر قسم الأداء (§1)
   await page.goto("/performance");
   await expect(page.getByRole("heading", { name: "تقارير الأداء التفصيلية" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "تقرير تفصيلي للمدرسة" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "تقرير تفصيلي للموظف" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "تقرير تفصيلي وإحصائي للجميع" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "تقرير تفصيلي للمعلم" })).toBeVisible();
 
   // زر الإصدار الفعلي بالتسمية نفسها على لوحة الأداء العام
-  await page.getByRole("link", { name: "تقرير تفصيلي للمدرسة" }).click();
+  await page.getByRole("link", { name: "تقرير تفصيلي وإحصائي للجميع" }).click();
   await page.waitForURL("**/performance/analytics**");
-  await expect(page.getByRole("button", { name: "تقرير تفصيلي للمدرسة" })).toBeVisible();
-  await page.getByRole("button", { name: "تقرير تفصيلي للمدرسة" }).click();
+  await expect(page.getByRole("button", { name: "تقرير تفصيلي وإحصائي للجميع" })).toBeVisible();
+  await page.getByRole("button", { name: "تقرير تفصيلي وإحصائي للجميع" }).click();
   await expect
     .poll(
       async () =>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useMemo, useState, useTransition } from "react";
 import {
   approveProgramAction, reopenProgramAction, createChangeRequestAction, decideChangeRequestAction,
   approvePackageAction, updateProgramExecutionAction,
@@ -9,7 +9,7 @@ import {
   completeProgramAction, resumeProgramAction, updateProgramAction,
   type ActionState,
 } from "../actions";
-import { SubmitButton, Field, TextArea } from "@/components/ui";
+import { SubmitButton } from "@/components/ui";
 import { useRefreshOnSuccess } from "@/components/form-reset";
 import { FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 
@@ -378,6 +378,13 @@ export function UnarchiveProgramButton({ programId }: { programId: string }) {
  * التحذير يظهر ولا يمنع، والسبب يصبح إلزامياً بعد الاعتماد أو الاكتمال أو الإقفال،
  * وكل حقل يتغيّر يُقيَّد في «سجل التغييرات» بقيمته السابقة والجديدة. الحالة والاعتماد
  * لا يتغيّران بالتعديل إطلاقاً.
+ *
+ * ── لماذا الحقول **محكومة** بحالة React لا `defaultValue` ────────────────────
+ * React 19 يعيد ضبط النموذج غير المحكوم تلقائياً بعد اكتمال `action`، **حتى حين تعيد
+ * النتيجة خطأً**. مع سبب إلزامي بعد الاعتماد يعني ذلك أن أول حفظ بلا سبب يمسح كل ما
+ * كتبه المدير في خمسة وعشرين حقلاً ويعيدها لقيمها الأصلية بصمت — ثم يبدو الحفظ الثاني
+ * وكأنه «لا تغييرات لحفظها». اكتُشف في متصفح حقيقي لا في اختبار وحدة.
+ * الحقول المحكومة تُبقي المُدخَل عبر الأخطاء، ويُزامَن من الخادم عند النجاح فقط.
  */
 export function EditProgramForm({
   programId,
@@ -395,6 +402,24 @@ export function EditProgramForm({
   const [state, formAction] = useActionState<ActionState, FormData>(updateProgramAction.bind(null, programId), null);
   useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
+
+  const serverValues = useMemo(
+    () => Object.fromEntries(values.map((f) => [f.key, f.value ?? ""])) as Record<string, string>,
+    [values],
+  );
+  const [draft, setDraft] = useState<Record<string, string>>(serverValues);
+  const [reason, setReason] = useState("");
+  // بعد نجاح الحفظ تصير قيم الخادم هي المرجع — نُزامن المسودة معها مرة واحدة لكل نجاح
+  const [syncedAt, setSyncedAt] = useState<unknown>(null);
+  if (state?.success && state !== syncedAt) {
+    setSyncedAt(state);
+    setDraft(serverValues);
+    setReason("");
+  }
+
+  const set = (key: string, v: string) => setDraft((prev) => ({ ...prev, [key]: v }));
+  const inputClass =
+    "min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 lg:min-h-0";
 
   return (
     <div>
@@ -420,22 +445,49 @@ export function EditProgramForm({
           <input type="hidden" name="updatedToken" value={updatedToken} />
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {values.map((f) =>
-              f.multiline ? (
-                <div key={f.key} className="sm:col-span-2">
-                  <TextArea label={f.label} name={`field_${f.key}`} defaultValue={f.value ?? ""} rows={2} />
-                </div>
-              ) : (
-                <Field key={f.key} label={f.label} name={`field_${f.key}`} defaultValue={f.value ?? ""} />
-              ),
-            )}
+            {values.map((f) => (
+              <div key={f.key} className={f.multiline ? "sm:col-span-2" : undefined}>
+                <label htmlFor={`field_${f.key}`} className="mb-1 block text-sm font-medium text-gray-700">
+                  {f.label}
+                </label>
+                {f.multiline ? (
+                  <textarea
+                    id={`field_${f.key}`}
+                    name={`field_${f.key}`}
+                    rows={2}
+                    value={draft[f.key] ?? ""}
+                    onChange={(e) => set(f.key, e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  />
+                ) : (
+                  <input
+                    id={`field_${f.key}`}
+                    name={`field_${f.key}`}
+                    value={draft[f.key] ?? ""}
+                    onChange={(e) => set(f.key, e.target.value)}
+                    autoComplete="off"
+                    data-1p-ignore=""
+                    data-lpignore="true"
+                    className={inputClass}
+                  />
+                )}
+              </div>
+            ))}
           </div>
 
-          <TextArea
-            label={reasonRequired ? "سبب التعديل (إلزامي — يُحفظ في سجل التغييرات)" : "سبب التعديل (اختياري)"}
-            name="reason"
-            rows={2}
-          />
+          <div>
+            <label htmlFor="edit-reason" className="mb-1 block text-sm font-medium text-gray-700">
+              {reasonRequired ? "سبب التعديل (إلزامي — يُحفظ في سجل التغييرات)" : "سبب التعديل (اختياري)"}
+            </label>
+            <textarea
+              id="edit-reason"
+              name="reason"
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
 
           <SubmitButton>حفظ التعديل</SubmitButton>
         </form>

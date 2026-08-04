@@ -1,7 +1,12 @@
 # DELIVERY v2.4.1 — data-correction release (post-v2.4.0)
 
-> Decisions: D-046…D-049 (`docs/DECISIONS.md`) · Branch `scope-v2.4.1-data-correction`
+> Decisions: D-046…D-052 (`docs/DECISIONS.md`) · Branch `scope-v2.4.1-data-correction`
 > (base `c5d13f8` = deployed v2.4.0) · **NOT deployed — production is still on v2.4.0.**
+>
+> **§17 onward covers the final consolidated corrective scope** added after this document
+> was first written (permanent lifecycle deletion, program editing in every state,
+> maintenance-first inspection, report content). Sections 1–16 describe the data-correction
+> release as delivered earlier; where the two differ, §17 onward is authoritative.
 
 ## 1) Executive verdict
 
@@ -272,3 +277,210 @@ no value on the principal's behalf.
 - Proposed annotated tag **`v2.4.1`** — *not created*: this project's convention is to tag at
   deployment, after the principal's acceptance (v2.2/v2.3 followed the same rule).
 - Production image tag `madrasa-app:0.1.0` was **not** moved. Production remains v2.4.0.
+
+---
+
+# 17) Final consolidated corrective scope (2026-08-04)
+
+Added on top of everything above, from the principal's confirmed requirements. Decisions
+**D-050 · D-051 · D-052**. Base commit for this phase: `c33a347` (the previously READY tree).
+
+## 17.1 Executive verdict
+
+**READY FOR DEPLOYMENT** — pending explicit owner authorization. Production was never
+touched at any point in this phase.
+
+Two defects were found by the new gates and fixed before the RC. Both would have shipped:
+
+1. **Every program edit would have been rejected as stale.** The concurrency guard compared
+   a JavaScript `Date` (millisecond precision) with a Postgres `timestamptz` (microsecond
+   precision); the equality never matched. Caught by the state-matrix integration test, not
+   by typecheck, lint, or review. Fixed by truncating both sides to milliseconds in SQL.
+2. **A rejected save silently erased everything the principal had typed.** React 19 resets
+   an uncontrolled form after its `action` completes — *including when the action returns an
+   error*. With a mandatory reason after approval, the first save without a reason wiped all
+   25 fields back to their stored values, and the second save then reported
+   «لا تغييرات لحفظها». Only visible in a real browser. Fixed by making the edit form
+   controlled; the browser scenario now asserts the typed value survives the rejection.
+
+A third issue was closed during the security review: `actionableFindings` was exported from
+a `"use server"` module, which makes it a **public endpoint** callable with any inspection
+id and no permission check. It is now module-private.
+
+## 17.2 What was built
+
+| § | Requirement | Where |
+| --- | --- | --- |
+| 1.1 | Remaining across the live financial workflow; top cards show allocated / spent / remaining / **spending percentage**; missing allocation explained, never `—` | `lib/finance/calc.ts`, `lib/finance/allocation.ts`, `/budget`, expense reports |
+| 1.2 | «إجراء فحص» inside maintenance; one **separate** report per actionable finding; duplicate prevention; approve → print → PDF | `/building/maintenance/inspect`, `lib/building/maintenance-report.ts`, migration 0030 |
+| 1.3 | «حذف الموظف نهائياً» and «حذف دورة الأداء» with full safeguards and audit tombstone | `lib/lifecycle-delete.ts`, `components/permanent-delete.tsx`, migration 0029 |
+| 1.4 | «تقرير تفصيلي للمعلم» and «تقرير تفصيلي وإحصائي للجميع» with the required content and four-section structure | `lib/reports/performance-reports.ts`, `lib/performance/report-labels.ts` |
+| 1.5 | «سجل المجالس واللجان التفصيلي» and «بطاقة مجلس أو لجنة»; member-per-row layout | `lib/reports/committee-report.ts`, `lib/committees/report-labels.ts` |
+| 1.6 | Program editing in **every** lifecycle state, warnings without blocking, mandatory reason, full change history | `lib/plan/program-edit.ts`, `updateProgramAction`, migration 0029 |
+
+## 17.3 Budget (§1.1)
+
+Top summary now carries four money/percentage cards. When **no item has an allocation**,
+`hasAnyAllocation` is false and the cards say «غير محدد» with
+«لا يمكن احتساب المتبقي قبل تحديد المخصص لأي بند» instead of a zero that reads as
+"nothing left". `spentPercent` is `null` rather than `0` when there is no denominator.
+
+The expense-entry screen shows «الرصيد قبل العملية» and «الرصيد بعد العملية» live, or the
+two required Arabic explanations plus the corrective action when the item has no allocation.
+`expense-register` and `all-operations` gained a **balance-before** column; the item
+allocations report no longer labels an unallocated item «ضمن المخصص».
+
+`REMAINING_UNAVAILABLE` was changed to the principal's exact wording,
+«لا يمكن احتساب المتبقي قبل تحديد المخصص».
+
+`financial_items` remains the authoritative live registry; nothing is copied from
+`plan_budget_items`, and `NULL` is never treated as zero (D-046 unchanged).
+
+## 17.4 Inspection → maintenance (§1.2)
+
+The conversion existed since v2.4; what was missing was that running an inspection lived
+outside maintenance. `/building/maintenance/inspect` now hosts the whole flow, reachable by
+clicking «إجراء فحص» from the maintenance page — the room page keeps its entry point as a
+second, field-facing path.
+
+- Result message states the count with correct Arabic number agreement
+  («تم تسجيل 3 ملاحظات تحتاج إلى صيانة», «ملاحظة واحدة», «ملاحظتين»).
+- Four explicit paths after saving: «إنشاء البلاغات المحددة» · «إنشاء بلاغ منفصل لكل ملاحظة»
+  · «مراجعة قبل الإنشاء» · «تخطي الآن».
+- **One finding = one report.** Verified in integration (three findings → three issues with
+  distinct codes, each linked bidirectionally to its own finding) and in the browser.
+- Duplicate prevention is per finding and shown inline with a link to the existing open
+  report; a closed report allows re-reporting the same item.
+- Report content: official header, number, date, location, category, priority, source
+  finding, description, safety impact, operational impact, requested action, attachments,
+  approval and an always-printed signature block. The four new fields (migration 0030) are
+  optional; a report created from a finding fills safety impact and requested action by
+  restating the finding's recorded severity, and leaves category empty for a human.
+
+## 17.5 Permanent deletion (§1.3) — design and evidence
+
+Design and the full owned/shared table: **D-050** and `docs/DELETION_RUNBOOK.md`.
+
+Evidence (`tests/integration/lifecycle-delete.test.ts`, 11 tests, all passing) against a
+seeded employee with two cycles, sessions, ratings, an improvement plan, an issued document,
+one exclusive and one shared evidence item, plus committee membership, program and activity
+ownership, a task, a maintenance issue and an expense:
+
+| Assertion | Result |
+| --- | --- |
+| Impact preview counts exact per type | PASS |
+| Owned lifecycle fully erased | PASS |
+| Committee preserved, membership removed, its task kept but unassigned | PASS |
+| Program / activity / task / maintenance / expense preserved with the reference nulled | PASS |
+| Linked login account deactivated + unlinked, not deleted | PASS |
+| Shared evidence kept with its other link; exclusive evidence removed | PASS |
+| Another employee and their cycle untouched | PASS |
+| No orphan rows in any of the 10 columns referencing `people` | PASS |
+| Forced failure mid-transaction → full rollback, no tombstone | PASS |
+| Tombstone written; serialised row contains no seeded evaluation text | PASS |
+| Wrong typed name / short reason / self-delete / last privileged account → refused | PASS |
+| Orphan file deleted from disk; file still referenced by a meeting attachment kept | PASS |
+
+Cycle deletion (§5.4) is verified separately: the selected cycle and its dependents go, the
+employee and the other cycle remain byte-identical, institutional links are untouched, and
+the tombstone records the cycle.
+
+## 17.6 Program editing in every state (§1.6)
+
+`tests/integration/program-edit-states.test.ts` runs the full matrix — draft, awaiting
+approval, approved, in progress, completed, closed — 23 tests, all passing:
+
+- Edit accepted in **all six** states.
+- Reason mandatory in the four post-draft states; optional in the two draft states.
+- Old and new values stored per field with actor, timestamp, approval status and lifecycle
+  at edit time, and the reason.
+- `status`, `approvedAt`, `completedAt`, `closedAt`, `archivedAt` unchanged after every edit.
+- The «تم تعديل البرنامج بعد الاعتماد» marker derives from the history, so it cannot disagree
+  with it.
+- A forged `field_status` / `field_approvedAt` / `field_closedAt` is ignored.
+- Non-numeric or negative budget refused; invalid/unknown program id returns Arabic text.
+- Stale-token concurrency: of two saves from the same opened form, exactly one applies.
+
+Closed programs also accept execution-progress correction with a mandatory reason, recorded
+in the same history — the closure is never lifted implicitly. Two legacy tests that asserted
+the old blocking behaviour were rewritten to the new contract, with the reason recorded in
+the test itself.
+
+## 17.7 Performance and committee reporting (§1.4, §1.5)
+
+The school-wide report is restructured into the four required sections: executive statistical
+summary (total employees, completed/incomplete, school average, distribution, per-category
+and per-model averages), strength/weakness analysis (per-criterion averages, strongest and
+weakest, **recurring strengths** alongside recurring weaknesses), training and development
+recommendations derived from the weak criteria themselves, and a named detailed appendix.
+
+The individual report gained a final band and a signature block. The band comes from the
+platform's own distribution buckets — no invented verbal grade; a test asserts that
+«ممتاز/جيد/ضعيف» never appear.
+
+Labels adopt the principal's wording. The individual label follows employee type
+(«تقرير تفصيلي للمعلم» / «تقرير تفصيلي للموظف»), because the register holds administrative
+staff too (D-019) and calling one a «معلم» would be false.
+
+The committee registry already produced a section per committee with one row per member;
+this scope adopts the requested header («العضو | الصفة | المهمة | حالة التنفيذ»), renames the
+single-committee document to «بطاقة مجلس أو لجنة», and states explicitly that a task due date
+is not held by the data model rather than printing an empty column.
+
+## 17.8 Discoverability (Phase B)
+
+All fourteen required labels exist and are reachable by clicking through the normal shell.
+`tests/unit/discoverability.test.ts` pins each one to the specific page that must carry it,
+so a later refactor cannot rename an entry point back into obscurity, and the browser
+scenarios reach each surface by navigation, never by typing a URL.
+
+## 17.9 Gates
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | 0 errors |
+| `npm run lint` | 0 problems |
+| `npm test` | **909 / 909** across 94 files (was 806 / 88) |
+| `npm run test:e2e` | see §17.11 |
+| `npm run build` | success |
+| `npx drizzle-kit check` | clean |
+
+New automated coverage: `program-edit.test.ts`, `maintenance-report.test.ts`,
+`performance-report-labels.test.ts`, finance-summary cases, `lifecycle-delete.test.ts` (11),
+`program-edit-states.test.ts` (23), `maintenance-inspection.test.ts` (10),
+`v241-final-security.test.ts` (10), and browser spec `zzz-v241-final.spec.ts` (9).
+
+## 17.10 Security review (§6)
+
+| Area | Finding | Status |
+| --- | --- | --- |
+| Public server-action surface | `actionableFindings` exported from a `"use server"` module = unauthenticated endpoint | **Fixed** — made module-private |
+| Privilege bypass | Deletion requires `performance.individual.read`, which `sysadmin` lacks (D-013) | Enforced + tested |
+| Mass assignment | Program edit reads a field whitelist; maintenance report edit reads four named fields; category validated against a closed list | Enforced + tested |
+| IDOR / forged ids | `isUuid` guards, and selected findings must belong to the named inspection | Enforced + tested |
+| Unsafe cascade / orphans | Explicit per-table handling; orphan sweep test over 10 columns | Enforced + tested |
+| Self-deletion / last admin | Blocked with Arabic explanation | Enforced + tested |
+| Typed confirmation / reason bypass | Compared server-side; whitespace tolerated, difference refused | Enforced + tested |
+| Partial deletion | Single transaction; forced-failure rollback test | Enforced + tested |
+| Audit tampering / sensitive tombstone | Append-only; serialised tombstone asserted free of evaluation content | Enforced + tested |
+| File remnants / report cleanup | Deleted only when unreferenced across 12 FK columns + 2 jsonb arrays; disk removal after commit | Enforced + tested |
+| Path traversal | File deletion goes through the existing `safeResolve` guard | Unchanged |
+| Stored XSS | Malicious strings in the new report fields are escaped and preserved, not executed | Tested |
+| CSRF | Server Actions (framework-level) and `requireCsrf` on route handlers | Unchanged |
+| Replayed destructive request | Second attempt returns «المنسوب غير موجود»; exactly one tombstone | Tested |
+| Concurrent program edits | Atomic `updated_at` predicate; one winner | Tested |
+
+**No unresolved High or Critical finding.**
+
+## 17.11 Migrations
+
+Two, both purely additive; ledger **29 → 31**.
+
+| # | File | Change |
+| --- | --- | --- |
+| 0029 | `0029_condemned_sugar_man.sql` | `deletion_tombstones`, `program_edit_history` (new tables, 3 indexes, 3 FKs) |
+| 0030 | `0030_bent_leo.sql` | `maintenance_issues.category / safety_impact / operational_impact / requested_action` (4 nullable columns) |
+
+No column is dropped, renamed or retyped; no row is written, deleted or rewritten; no
+default backfills existing data. Rollback to v2.4.0 needs **no database action** — the new
+tables and columns are simply unused by the older image.

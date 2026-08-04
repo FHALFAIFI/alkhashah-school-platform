@@ -535,7 +535,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByRole("link", { name: "تنزيل Word" })).toBeVisible();
     await expect(page.getByRole("link", { name: "تنزيل Excel" })).toBeVisible();
     await expect(page.getByText("فتح مسودة بريد")).toBeVisible();
-    await page.getByRole("button", { name: "إصدار تقرير اللجنة (PDF)" }).click();
+    await page.getByRole("button", { name: "بطاقة مجلس أو لجنة (PDF)" }).click();
     await expect(page.getByText(/KHS-DOC-/).first()).toBeVisible({ timeout: 150_000 });
 
     // /tasks: المهمة الإلزامية بمصدر يعود للاجتماع وبشارة تأخر
@@ -710,7 +710,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     const row = page.locator("tr", { hasText: state.issueTitle });
     await expect(row.getByText("تجريبي أول مثال")).toBeVisible();
     await expect(row.locator("span.rounded-full", { hasText: "مسودة" })).toBeVisible();
-    await row.getByRole("link", { name: "فتح البلاغ ←" }).click();
+    await row.getByRole("link", { name: "عرض بلاغ الصيانة ←" }).click();
     await page.waitForURL(/\/building\/maintenance\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 
     // مسودة ← معتمد (زر مباشر بلا نموذج)

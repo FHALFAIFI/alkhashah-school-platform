@@ -2,7 +2,51 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.4.1 READY FOR DEPLOYMENT (2026-08-03)** — NOT deployed
+## Latest checkpoint — **v2.4.1 final consolidated scope (2026-08-04)** — NOT deployed
+
+- **Production is still on v2.4.0.** The v2.4.1 branch now carries the data-correction
+  release **plus** the principal's final confirmed requirements. Full record:
+  **`docs/DELIVERY_V2_4_1.md` §17**; decisions **D-050 · D-051 · D-052**; deletion procedure
+  and recovery: **`docs/DELETION_RUNBOOK.md`**.
+- **What the final scope added.**
+  - **Permanent lifecycle deletion** (`lib/lifecycle-delete.ts`): «حذف الموظف نهائياً» and
+    «حذف دورة الأداء». Owned lifecycle erased; every shared institutional record survives
+    with its link nulled. Built from the real FK graph — the linked login account is
+    deactivated and unlinked, never deleted, because `audit_log.actor_id` and a dozen
+    `NO ACTION` keys point at it. Requires `performance.individual.read` as well, so
+    `sysadmin` (denied it by D-013) cannot destroy what they may not read.
+  - **Program editing in every lifecycle state** (`lib/plan/program-edit.ts`): state warns,
+    never blocks; reason mandatory past draft; field-level history; approval and lifecycle
+    never changed implicitly. `plan.override` guards removed — that permission was never
+    granted to any role, so they were absolute blocks.
+  - **Inspection under maintenance** (`/building/maintenance/inspect`): «إجراء فحص» in the
+    maintenance area, explicit result count, four post-save paths, **one separate report per
+    finding**, per-finding duplicate prevention, richer formal report + signature block.
+  - Budget top summary gains a spending-percentage card and explains why remaining cannot be
+    computed instead of showing a misleading zero; expense reports gain balance-before.
+    School-wide performance report restructured into the four required sections; labels
+    adopt the principal's wording.
+- **Two defects found by the new gates and fixed before the RC — both would have shipped:**
+  1. *Every* program edit would have been rejected as stale — the concurrency guard compared
+     a millisecond JS `Date` against a microsecond `timestamptz`. Caught by the state-matrix
+     integration test; typecheck, lint and review all passed it.
+  2. A rejected save silently erased everything typed. React 19 resets an uncontrolled form
+     after its action completes **including on error**, so the first save without a reason
+     wiped all 25 fields and the second reported «لا تغييرات لحفظها». Visible only in a real
+     browser; fixed with controlled inputs, asserted in the browser scenario.
+  A third was closed in the security review: `actionableFindings` was exported from a
+  `"use server"` module, making it a public endpoint with no permission check.
+- **Migrations 0029 + 0030 — ledger 29 → 31, both purely additive** (2 new tables, 4 nullable
+  columns). No row written, deleted or rewritten. Rollback to v2.4.0 still needs no DB action.
+- Gates: typecheck 0 · lint 0 · **vitest 909/909 (94 files)** · build ✓ · `drizzle-kit check`
+  clean · Playwright incl. 9 new principal-role scenarios.
+- **Still waiting on the principal (unchanged — the system must not invent these):**
+  allocations for المستلزمات and النشاط; the correct operational state for اليوم الوطني,
+  متابعة الأداء المبنية على البيانات, التطوير المهني بالأثر and رياضيات الإتقان; the actual
+  status of the 31 committee tasks; and the missing tasks for اللجنة الإدارية للمدرسة and
+  لجنة التوجيه والإرشاد.
+
+## Previous checkpoint — **v2.4.1 READY FOR DEPLOYMENT (2026-08-03)** — NOT deployed
 
 - **Production is still on v2.4.0.** v2.4.1 is a data-correction release: it gives the
   principal a visible, audited workflow for the three production DATA preconditions the v2.4

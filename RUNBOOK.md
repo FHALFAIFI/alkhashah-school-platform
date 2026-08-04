@@ -36,7 +36,7 @@
 | 2026-07-30 | v2.2.1 | — | `ab259dd8` | 23 |
 | 2026-07-31 | v2.3.0 | `b47558c` | `7f5ff14a` | 27 |
 | **2026-08-03** | **v2.4.0** | **`da8db16`** | **`2f69c724`** | **29** |
-| _(مرشَّح)_ | v2.4.1 | `a8e1cf3` | `b2f9b613` | 29 (بلا هجرة) |
+| _(مرشَّح)_ | v2.4.1 | _(انظر `docs/DELIVERY_V2_4_1.md`)_ | _(صورة RC)_ | **31** (هجرتان إضافيتان: 0029، 0030) |
 
 ### التراجع السريع (بلا أي إجراء على القاعدة)
 
@@ -94,7 +94,13 @@ docker compose logs db --tail 50                # سجلات القاعدة
 | فشل فحص اتصال أولاما داخل Docker | `localhost` داخل الحاوية | استخدم `http://host.docker.internal:11434` |
 | بطء ردود المساعد | نموذج تفكير مطول | استخدم `qwen3:4b` (التفكير معطل تلقائياً في المنصة) |
 
-## نشر v2.4.1 (بعد التفويض الصريح — بلا هجرة)
+## نشر v2.4.1 (بعد التفويض الصريح — بهجرتين إضافيتين فقط)
+
+> **تغيّر عن المسودة الأولى لهذا الإصدار:** النطاق الموحّد النهائي أضاف الهجرتين **0029**
+> و**0030**، فالسجل ينتقل **29 → 31**. كلتاهما إضافيتان بحتاً: جدولان جديدان وأربعة أعمدة
+> تقبل الفراغ. لا عمود يُحذف أو يُعاد تسميته أو يتغيّر نوعه، ولا صف يُكتب أو يُحذف أو
+> يُعاد كتابته. لهذا يبقى **التراجع بلا أي إجراء على القاعدة**: الصورة الأقدم ببساطة لا
+> تستعمل الجداول والأعمدة الجديدة.
 
 ```bash
 cd "/Users/fahedalfify/Developer/School/Father's File"
@@ -104,16 +110,50 @@ npm run backup:daily && npm run restore:rehearsal
 # 2) وسم صورة التراجع من الصورة العاملة حالياً قبل تحريك أي وسم
 docker tag madrasa-app:0.1.0 madrasa-app:0.1.0-prev-v2_4_1-$(date +%Y%m%d)
 
-# 3) ترقية التطبيق فقط — القاعدة لا تُلمس ولا تُعاد تشغيلها (السجل يبقى 29)
-docker tag madrasa-app:0.1.0-v2_4_1-rc madrasa-app:0.1.0
-docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod   up -d --no-deps --force-recreate app
+# 3) سجل الهجرات قبل الترقية — يُقيَّد للمقارنة
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from drizzle.__drizzle_migrations"   # المتوقع 29
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from information_schema.tables where table_schema='public'"  # المتوقع 86
 
-# 4) تحقّق
-curl -s http://127.0.0.1:3080/api/health   # version=2.4.1 · commit=a8e1cf3
-docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc   "select count(*) from drizzle.__drizzle_migrations"   # يجب أن يبقى 29
+# 4) ترقية التطبيق فقط — حاوية القاعدة لا تُعاد تشغيلها.
+#    الهجرة تُطبَّق عند إقلاع التطبيق (نمط migrate-only نفسه المتبع منذ v2.1).
+docker tag madrasa-app:0.1.0-v2_4_1-rc madrasa-app:0.1.0
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  up -d --no-deps --force-recreate app
+
+# 5) تحقّق
+curl -s http://127.0.0.1:3080/api/health   # version=2.4.1 · db=up
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from drizzle.__drizzle_migrations"   # يصبح 31
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from information_schema.tables where table_schema='public'"  # يصبح 88
+# الأعمدة الجديدة فارغة تماماً على البيانات القائمة:
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from maintenance_issues where category is not null or safety_impact is not null \
+   or operational_impact is not null or requested_action is not null"   # يجب أن يكون 0
 ```
-التراجع: أعد وسم `madrasa-app:0.1.0-prev-v2_4_1-<التاريخ>` إلى `madrasa-app:0.1.0` وأعد
-إنشاء `app` وحده. **لا إجراء على القاعدة** — لا هجرة في هذا الإصدار.
+
+**التراجع:** أعد وسم `madrasa-app:0.1.0-prev-v2_4_1-<التاريخ>` إلى `madrasa-app:0.1.0` وأعد
+إنشاء `app` وحده. **لا إجراء على القاعدة** — الجدولان والأعمدة الجديدة تبقى بلا استعمال ولا
+تُسقط. أُثبت ذلك في بروفة التراجع على نسخة الإنتاج.
+
+## الحذف النهائي — قبل أي تنفيذ على الإنتاج
+
+الحذف النهائي للموظف أو لدورة الأداء **لا يمكن التراجع عنه** إلا باستعادة نسخة احتياطية
+كاملة (وهي تُرجع كل شيء إلى لحظة النسخة). خذ نسخة قبل أي حذف نهائي:
+
+```bash
+npm run backup:daily
+```
+
+الإجراء الكامل وخريطة ما يُحذف وما يبقى وطريق الاستعادة: **`docs/DELETION_RUNBOOK.md`**.
+شواهد الحذف تُقرأ من:
+
+```sql
+SELECT created_at, entity_type, display_ref, reason, counts
+FROM deletion_tombstones ORDER BY created_at DESC;
+```
 
 ## القيم التي ينتظرها النظام من المدير بعد نشر v2.4.1
 

@@ -50,6 +50,10 @@ const ROUTES = [
   "/performance/analytics",
   "/reports?category=plan&report=programs-by-owner",
   "/reports?category=committees&report=committee-members",
+  // النطاق الموحّد النهائي (v2.4.1 §1.2/§1.3/§1.6): الأسطح الجديدة تُقاس بالمقاييس نفسها
+  "/building/maintenance",
+  "/building/maintenance/inspect",
+  "/people",
 ];
 
 async function measure(page) {
