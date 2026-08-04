@@ -80,8 +80,11 @@ test("الدورة الكاملة: إنشاء ← اكتمال ← إقفال (�
   await page.reload();
   await expect(page.getByText("هذا البرنامج مغلق نهائياً — للقراءة فقط ومرفوع من القوائم التشغيلية")).toBeVisible({ timeout: 20_000 });
   await expect(stateCard).toContainText("تاريخ الإقفال");
-  // قراءة فقط: نموذج تحديث التقدم مختفٍ، ولا زر إضافة شاهد
-  await expect(page.getByRole("heading", { name: "تحديث تقدم البرنامج وحالته" })).toHaveCount(0);
+  // v2.4.1 §1.6: الإقفال لم يعد يمنع تصحيح البيانات — النموذج ظاهر ومعه سبب إلزامي،
+  // لأن إجبار المدير على إعادة فتح البرنامج لتصحيح رقم كان يشوّه السجل أكثر من التصحيح.
+  await expect(page.getByRole("heading", { name: "تحديث تقدم البرنامج وحالته" })).toBeVisible();
+  await expect(page.getByLabel(/سبب التعديل \(إلزامي/)).toBeVisible();
+  // أما تحولات دورة الحياة نفسها فتبقى محكومة: لا «تعليم كمكتمل» على برنامج مغلق
   await expect(page.getByRole("button", { name: "تعليم البرنامج كمكتمل" })).toHaveCount(0);
   // الشواهد تبقى معروضة للاطلاع والسجل كامل
   await expect(page.getByRole("heading", { name: "شواهد البرنامج" })).toBeVisible();
