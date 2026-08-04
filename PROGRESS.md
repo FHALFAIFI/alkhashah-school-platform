@@ -38,6 +38,29 @@
   `"use server"` module, making it a public endpoint with no permission check.
 - **Migrations 0029 + 0030 — ledger 29 → 31, both purely additive** (2 new tables, 4 nullable
   columns). No row written, deleted or rewritten. Rollback to v2.4.0 still needs no DB action.
+- **Production-clone rehearsal 53/53 PASS** on a clone byte-identical to production
+  (18 anchors incl. 4 whole-table fingerprints). Migration applied through the same
+  migrate-only init production uses: ledger 29→31, tables 86→88, every anchor still
+  identical, the four new columns 100% NULL on all production-copied reports. All
+  destructive steps ran only on records the harness seeded; people count returned to 54 and
+  the committee fingerprint was unchanged. Harness:
+  `scripts/v241-final-clone-setup.sh` + `scripts/v241-final-clone-rehearsal.mjs`.
+- **The rehearsal found two more D-049 recurrences — both fixed and re-verified**: inspection
+  actions invalidated `/building/maintenance`, the ancestor segment of the new inspect page
+  (findings were created, the result panel never appeared); and the maintenance page's
+  approve-and-issue invalidated its own route (letter issued, links never appeared). Fixed by
+  revalidating nothing + client refresh, and by an explicit redirect. **Both passed 909
+  vitest and 101 Playwright scenarios on `next dev` first** — the rehearsal-on-the-real-image
+  rule is now proven twice.
+- **Rollback rehearsal PASS**: v2.4.0 booted against the clone *after* v2.4.1 wrote to it —
+  health ok, all sections render, v2.4.1-created records visible, ledger stays 31, only
+  `audit_log +1` (the login). **Rollback is app-only, no DB action.**
+- RTL/visual **64/64** at four widths on the RC against production data; page timings 673–986 ms
+  including the person page with its deletion impact preview (900 ms).
+- **Production untouched**: RestartCount 0 both containers, ledger 29/86, `audit_log` 540, all
+  18 anchors identical to the session start. The clone, its volumes and network were destroyed.
+- RC image **`madrasa-app:0.1.0-v2_4_1-rc`** built from `6d7dacf` (Chromium-1228, no
+  `src/lib/ai`, 31 migration files) — digest recorded in `docs/DELIVERY_V2_4_1.md` §17.16.
 - Gates: typecheck 0 · lint 0 · **vitest 909/909 (94 files)** · build ✓ · `drizzle-kit check`
   clean · Playwright incl. 9 new principal-role scenarios.
 - **Still waiting on the principal (unchanged — the system must not invent these):**

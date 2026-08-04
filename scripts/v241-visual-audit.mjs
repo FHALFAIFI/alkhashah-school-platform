@@ -25,9 +25,18 @@ const BASE = process.env.APP_URL ?? "http://localhost:3081";
 const OUT = path.resolve(process.argv[2] ?? "storage-e2e/visual-audit");
 mkdirSync(OUT, { recursive: true });
 
-const credsFile = path.resolve(process.env.E2E_STORAGE_DIR ?? "storage-e2e", "private/initial-credentials.txt");
-const line = readFileSync(credsFile, "utf8").split("\n").find((l) => l.includes("principal"));
-const password = line.split("كلمة المرور المؤقتة:")[1].trim();
+/**
+ * الاعتماد: من ملف بذرة الاختبار افتراضياً، أو من البيئة حين يُشغَّل السكربت على نسخة
+ * الإنتاج المعزولة (حيث لا وجود لملف بذرة الاختبار أصلاً).
+ */
+const AUDIT_USER = process.env.AUDIT_USER ?? "principal";
+const password =
+  process.env.AUDIT_PASSWORD ??
+  (() => {
+    const credsFile = path.resolve(process.env.E2E_STORAGE_DIR ?? "storage-e2e", "private/initial-credentials.txt");
+    const line = readFileSync(credsFile, "utf8").split("\n").find((l) => l.includes("principal"));
+    return line.split("كلمة المرور المؤقتة:")[1].trim();
+  })();
 
 const WIDTHS = [
   { name: "laptop-1366", width: 1366, height: 768 },
@@ -150,7 +159,7 @@ for (const w of WIDTHS) {
   });
   const page = await ctx.newPage();
   await page.goto(BASE + "/login", { timeout: 120_000 });
-  await page.fill("#username", "principal");
+  await page.fill("#username", AUDIT_USER);
   await page.fill("#password", password);
   await page.getByRole("button", { name: "تسجيل الدخول" }).click();
   await page.waitForURL("**/dashboard", { timeout: 60_000 });

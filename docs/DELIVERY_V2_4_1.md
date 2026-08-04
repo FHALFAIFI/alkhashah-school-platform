@@ -441,9 +441,22 @@ scenarios reach each surface by navigation, never by typing a URL.
 | `npm run typecheck` | 0 errors |
 | `npm run lint` | 0 problems |
 | `npm test` | **909 / 909** across 94 files (was 806 / 88) |
-| `npm run test:e2e` | see §17.11 |
+| `npm run test:e2e` | **101 passed / 1 standing skip (C5, D-018) / 0 failed** |
 | `npm run build` | success |
 | `npx drizzle-kit check` | clean |
+| `scripts/v241-visual-audit.mjs` (RC on cloned production data, 4 widths) | **64 PASS · 0 FAIL** |
+| `scripts/v241-pdf-audit.ts` | **14 PASS · 0 FAIL · 1 SKIP** |
+| `scripts/v241-final-clone-rehearsal.mjs` | **53 / 53 PASS** |
+
+PDF/export detail — every artifact produced by the real issuance pipeline and checked
+structurally with poppler (`%PDF-` signature, extractable Arabic, page count, no blank
+trailing page, page numbering, CSV formula-injection neutralised, DOCX a valid RTL zip):
+program card (1 p, 752 Arabic chars), program report (1 p, 438), **committee registry
+(3 p, 1331)**, **committee card (3 p, 3467)**, **school-wide performance report (2 p, 1103)**,
+**maintenance letter (2 p, 822)**, five CSV exports, formula-injection guard, DOCX.
+The one SKIP is the individual performance report: the e2e database holds a single cycle
+with no ratings, so there is nothing to report on — it was issued successfully on the clone
+against real production data (§17.12, documents 37 → 41).
 
 New automated coverage: `program-edit.test.ts`, `maintenance-report.test.ts`,
 `performance-report-labels.test.ts`, finance-summary cases, `lifecycle-delete.test.ts` (11),
@@ -484,3 +497,209 @@ Two, both purely additive; ledger **29 → 31**.
 No column is dropped, renamed or retyped; no row is written, deleted or rewritten; no
 default backfills existing data. Rollback to v2.4.0 needs **no database action** — the new
 tables and columns are simply unused by the older image.
+
+## 17.12 Production-clone rehearsal (§8) — PASS 53/53
+
+Harness: `scripts/v241-final-clone-setup.sh` (build/teardown) + `scripts/v241-final-clone-rehearsal.mjs`
+(the 17 required steps). Production was only ever **read**.
+
+**Isolation and parity**
+
+- One read-only `pg_dump` of `madrasa-prod-db-1` (10,522,410 bytes) and a read of the uploads
+  volume. Own Docker network, own Postgres container (same `postgres:16-alpine` image as
+  production), own volumes, `127.0.0.1:3086`, and a clone-only principal-equivalent account.
+- **18 anchors including 4 whole-table content fingerprints compared clone vs production —
+  identical**: people 54, programs 30, committees 4, committee members 13, committee tasks 31,
+  perf cycles 7, perf sessions 11, documents 36, financial items 4, expenses 4, maintenance 5,
+  inspections 6, evidence 33, stored files 88, audit_log 540, and md5 fingerprints of
+  `people` / `programs` / `committees` / `documents`.
+
+**Migration on real production data**
+
+- Applied through the same **migrate-only init** command production uses
+  (`npx tsx src/db/migrate.ts` from the RC image), not by the app on boot.
+- Ledger **29 → 31**, tables **86 → 88**. Every anchor above still identical afterwards.
+- The four new `maintenance_issues` columns are **100 % NULL** on all 5 production-copied
+  reports — the migration wrote nothing.
+
+**The seventeen steps — all PASS**
+
+Baseline anchors · migration applied · existing data unchanged · allocation set on a
+disposable item · top-summary remaining and percentage · «إجراء فحص» reachable inside
+maintenance · explicit result count · four post-save options · **three findings → three
+separate reports** with bidirectional links · approve + issue the formal report with print
+and PDF · program editing in approved / completed / closed with warning, mandatory reason,
+field history and unchanged state · complete cycle deletion (employee and other cycle
+survive) · permanent employee deletion (committee preserved byte-identically, membership
+unlinked) · individual and school-wide performance reports issued · committee registry and
+single card issued (documents 37 → 41) · every operation audited · CSV export HTTP 200 ·
+release identity · people count back to baseline 54 · committee fingerprint unchanged ·
+production-copied programs untouched · ledger 31 / tables 88 stable.
+
+All destructive steps ran **only on records the script seeded itself**. Evidence captured:
+
+```
+tombstones:
+  perf_cycle | دورة 1447 — بروفة-نهائي موظف (معلم) | دورة أُنشئت للبروفة | {"perf_cycles":1,"perf_sessions":1}
+  person     | بروفة-نهائي موظف — الرقم الوظيفي RHS-1 — معلم | منسوب أُنشئ للبروفة فقط
+             | {"person":1,"perf_cycles":1,"perf_sessions":1,"unlinked_committee_members":1}
+program_edit_history:
+  name | بروفة-نهائي معتمد -> … — معدّل | معتمد/قيد التنفيذ | تصحيح مُراجَع أثناء البروفة
+  name | بروفة-نهائي مكتمل -> … — معدّل | معتمد/مكتمل      | تصحيح مُراجَع أثناء البروفة
+  name | بروفة-نهائي مغلق  -> … — معدّل | معتمد/مغلق       | تصحيح مُراجَع أثناء البروفة
+maintenance letter: category ✓ safety ✓ operational ✓ signature ✓ date ✓
+```
+
+The tombstones carry counts and a safe reference — no evaluation content, as designed.
+
+**Two defects the rehearsal found (and only the rehearsal could)**
+
+Both are D-049 recurrences and both were fixed and re-verified on a rebuilt clone:
+
+1. `submitInspectionAction` invalidated `/building/maintenance` — which is the **ancestor
+   segment** of the new `/building/maintenance/inspect` — and the room path for the other
+   entry point. The write landed (inspection row and findings confirmed in the clone
+   database) but the client never received the returned state, so the result count and the
+   four conversion options never appeared. The three create-issue actions had the same
+   problem. Fixed: these actions revalidate nothing; both clients refresh from
+   `useRefreshOnSuccess` once the result settles.
+2. The maintenance page's approve-and-issue action invalidated its own route. The letter was
+   issued (`KHS-DOC-00037` written, issue «معتمد», `document_id` set) while the page kept
+   showing neither «تنزيل PDF» nor «طباعة تقرير الصيانة». Fixed with an explicit redirect to
+   the same path — a clean navigation with nothing to race.
+
+909 unit/integration tests and 101 browser scenarios on `next dev` passed through both,
+because dev completes the action stream before the refetch lands. **The rehearsal rule from
+v2.4.1 holds and is now proven twice: any release touching Server Actions must be rehearsed
+on the production image against cloned production data.**
+
+**Clean-up:** clone, volumes, network, plaintext dump and the temporary account all
+destroyed after evidence capture (`0` rehearsal containers, `0` rehearsal volumes remaining).
+
+## 17.13 Rollback rehearsal — PASS, no database action
+
+The **v2.4.0 image was started against the same clone after v2.4.1 had written to it**
+(2 tombstones, 3 edit-history rows, 3 new maintenance reports, 41 documents, 558 audit rows):
+
+- `/api/health` → `{"status":"ok","db":"up","version":"0.1.0"}` (the version marker is a
+  v2.4.1 feature, so its absence is expected).
+- Login works; `/budget`, `/plan`, `/people`, `/committees`, `/building/maintenance`,
+  `/performance`, `/documents`, `/reports` all render.
+- Records **created by v2.4.1 remain visible** under v2.4.0 — `KHS-MNT-0008` listed.
+- Ledger stays **31**, tables **88** — the older image simply ignores the two new tables and
+  the four new columns. Nothing is dropped.
+- The only database change from running it was `audit_log` **558 → 559** (the login).
+
+**Rollback is app-only: re-tag the previous image and recreate `app`. No migration to
+reverse, no data to restore.** The RC was then restored on the same clone and re-verified
+(`version=2.4.1`, `commit=6d7dacf`).
+
+## 17.14 RTL / visual and performance
+
+`scripts/v241-visual-audit.mjs` against the **RC image on cloned production data**, four
+widths (1366 / 1440 / 1024 / 360), now including the three new surfaces:
+**64 PASS · 0 FAIL** — zero page-level horizontal overflow, zero clipped text, zero
+overlapping controls, `dir=rtl` applied, keyboard focus reaching the first sidebar link with
+a visible outline, destructive actions in a high-contrast style. Screenshots in git-ignored
+`storage-e2e/visual-audit-final/`.
+
+Response times on the RC against production data (median of 3, after warm-up):
+
+| Route | ms |
+| --- | --- |
+| `/dashboard` | 966 |
+| `/budget` | 943 |
+| `/people` | 986 |
+| `/people/[id]` (with the deletion impact preview) | 900 |
+| `/building/maintenance` | 925 |
+| `/building/maintenance/inspect` | 673 |
+| `/committees` | 934 |
+| `/performance` | 910 |
+| `/performance/analytics` | 907 |
+| `/plan` | 965 |
+
+The person page computes the full deletion impact preview — about a dozen indexed `COUNT`
+queries — and lands at 900 ms, inside the spread of every other page. No regression, and no
+reason to defer the preview behind another click.
+
+## 17.15 Production untouched — verified at the end
+
+| Check | Value |
+| --- | --- |
+| `madrasa-prod-db-1` restart count | **0** |
+| `madrasa-prod-db-1` start time | `2026-07-29T15:01:06Z` (unchanged all session) |
+| `madrasa-prod-app-1` restart count / image | **0** / `madrasa-app:0.1.0` (still v2.4.0) |
+| Migration ledger / tables | **29 / 86** — untouched |
+| `audit_log` | **540** — identical to the start |
+| All 18 anchors incl. 4 fingerprints | **identical to the session-start snapshot** |
+
+The production image tag was never moved, the database was never written to, and no
+production container was restarted.
+
+## 17.16 RC image
+
+**`madrasa-app:0.1.0-v2_4_1-rc` =
+`sha256:4b427c8e16d8a332c5a9a0739be3e9a8cfe55fcee2c5992dc2f463e34802e7d3`**
+(linux/arm64, `Dockerfile.production`, `RELEASE_COMMIT=6d7dacf`).
+
+Verified in-container and on the clone:
+
+| Check | Result |
+| --- | --- |
+| `/api/health` | `{"status":"ok","db":"up","version":"2.4.1","commit":"6d7dacf","environment":"production"}` |
+| Migration files | **31** (0000…0030) |
+| Migrate-only init on a fresh clone | ledger 29 → 31, tables 86 → 88, no data written |
+| Chromium build | **chromium-1228**, matching the locked Playwright 1.61.1 (the v2.3 PDF-500 invariant) |
+| In-container PDF probe | `PDF-OK %PDF-` on RTL Arabic content |
+| `src/lib/ai` | absent (D-035) |
+| Boots against the migrated clone | yes — 53/53 rehearsal steps driven through it |
+| v2.4.0 image on the same clone | boots, renders, reads v2.4.1 data (§17.13) |
+
+Earlier RC builds in this phase (`37a171e`, `921b877`) were superseded by the two D-049
+fixes the rehearsal found; only the digest above is the candidate.
+
+## 17.17 Known limitations
+
+- The **31 committee task statuses**, the **two missing allocations**, the **four
+  contradictory program states** and the **two committees without tasks** are still
+  unresolved *data*, exactly as in §15. This scope adds no ability to invent them.
+- Permanent deletion is **irreversible** except by restoring a full backup — stated on the
+  confirmation panel, in `docs/DELETION_RUNBOOK.md`, and in the RUNBOOK.
+- Committee **task due dates** are not held by the data model. The registry says so
+  explicitly rather than printing an empty column; adding them would be a schema change
+  outside this scope.
+- The **D-049 sweep is still partial.** This phase fixed the surfaces it touched and the two
+  the rehearsal exposed; other Server Actions across the platform may still invalidate their
+  own route. A systematic audit remains follow-up work, and the rule is recorded in
+  `lib/revalidate.ts`, `docs/DECISIONS.md` (D-049) and the RUNBOOK.
+- **React 19 resets uncontrolled forms after an action, including on error.** Fixed for the
+  program edit form (the one with a mandatory reason, where rejection is routine). Other
+  forms in the platform that can return validation errors have the same latent behaviour and
+  are worth a sweep.
+- The **archived** program remains excluded from editing by decision (restore first) — the
+  only lifecycle state that still blocks.
+- Tailscale Serve (HTTPS) is still not enabled — a tailnet-wide admin action outside the
+  agent's reach.
+- Report samples and screenshots stay under git-ignored `storage-e2e/` because they contain
+  school data.
+
+## 17.18 Proposed deployment sequence
+
+Nothing below has been executed. **Production is still on v2.4.0.**
+
+1. Owner authorisation.
+2. `npm run backup:daily && npm run restore:rehearsal` — fresh pre-deploy backup, restore-verified.
+3. `docker tag madrasa-app:0.1.0 madrasa-app:0.1.0-prev-v2_4_1-$(date +%Y%m%d)` — rollback image.
+4. Record the ledger and table counts (expect **29 / 86**).
+5. `docker tag madrasa-app:0.1.0-v2_4_1-rc madrasa-app:0.1.0` then recreate **`app` only**
+   (`--no-deps --force-recreate`). The database container is not restarted; the migrate-only
+   init applies 0029 and 0030.
+6. Verify: health `version=2.4.1`, ledger **31**, tables **88**, and the four new
+   `maintenance_issues` columns **0** non-null rows.
+7. Principal smoke: the fourteen required labels, one inspection → separate reports, one
+   program edit in a post-approval state, and the two performance reports.
+8. Create the annotated tag **`v2.4.1`** at the deployed commit, then the gold backup —
+   the project's convention is to tag at deployment, after acceptance.
+
+**Rollback** (any point): re-tag `madrasa-app:0.1.0-prev-v2_4_1-<date>` to
+`madrasa-app:0.1.0`, recreate `app` only. **No database action** — rehearsed in §17.13.

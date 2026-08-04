@@ -198,7 +198,7 @@ async function main() {
   if (committeeRows.length > 0) {
     const { generateCommitteeRegistry } = await import("@/lib/reports/committee-report");
     const reg = await generateCommitteeRegistry({ issuedBy: actor.id });
-    await checkDocument("سجل المجالس واللجان التفصيلي", reg, ["الأعضاء والتكليفات", "لم تتم إضافة مهام لهذه اللجنة"]);
+    await checkDocument("سجل المجالس واللجان التفصيلي", reg, ["الأعضاء والمهام", "لم تتم إضافة مهام لهذه اللجنة"]);
   } else skip("سجل المجالس واللجان التفصيلي", "لا لجان في القاعدة");
 
   /* 4 — بطاقة لجنة مفردة (تشمل قسم المهام الفارغ المعنون) */
