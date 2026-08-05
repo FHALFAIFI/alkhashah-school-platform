@@ -225,6 +225,20 @@
       "when": 1785949441430,
       "tag": "0031_unknown_master_chief",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785955576581,
+      "tag": "0032_jittery_mister_sinister",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785955577581,
+      "tag": "0033_v250_report_builder_permissions",
+      "breakpoints": true
     }
   ]
 }

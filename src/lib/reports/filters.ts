@@ -354,6 +354,33 @@ export function serializeReportFilters(filters: ReportFilters, base?: URLSearchP
   return sp;
 }
 
+/**
+ * تمثيل قابل للتخزين في `jsonb` — **خريطة إلى مصفوفات**، لا إلى نصوص مفردة.
+ *
+ * السبب دقيق ويستحق الذكر: `Object.fromEntries(searchParams.entries())` يُسقط كل قيمة
+ * مكرّرة عدا الأخيرة، فقالبٌ محفوظ بثلاث لجان يعود بلجنة واحدة — وهو فقدان صامت لا
+ * يُلاحَظ إلا حين يقرأ المدير تقريراً ناقصاً. المصفوفة تحفظ التكرار صراحةً.
+ */
+export type StoredFilters = Record<string, string[]>;
+
+export function filtersToStored(filters: ReportFilters): StoredFilters {
+  const sp = serializeReportFilters(filters);
+  const out: StoredFilters = {};
+  for (const key of new Set(sp.keys())) out[key] = sp.getAll(key);
+  return out;
+}
+
+/** العكس — يقبل الشكل القديم (نص مفرد) كي لا ينكسر صفّ مخزَّن قبل هذا التمثيل */
+export function storedToParams(stored: unknown): URLSearchParams {
+  const sp = new URLSearchParams();
+  if (!stored || typeof stored !== "object") return sp;
+  for (const [key, value] of Object.entries(stored as Record<string, unknown>)) {
+    if (Array.isArray(value)) for (const v of value) sp.append(key, String(v));
+    else if (value !== null && value !== undefined) sp.append(key, String(value));
+  }
+  return sp;
+}
+
 /* ─────────────────────────── الوصف بالعربية ─────────────────────────── */
 
 /** جداول أسماء تحوّل المعرّفات إلى أسماء مقروءة في الشرائح وترويسة التقرير */

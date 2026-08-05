@@ -49,6 +49,11 @@ export const permissionsSeed: { key: string; nameAr: string; module: string }[] 
   { key: "reports.read", nameAr: "عرض التقارير", module: "reports" },
   { key: "reports.generate", nameAr: "إصدار التقارير", module: "reports" },
   { key: "reports.executive", nameAr: "التقارير التنفيذية الشاملة", module: "reports" },
+  // v2.5.0 §4/§16 — منشئ التقارير وقوالبه. المنشئ لا يوسّع ما يُرى: صلاحية التقرير
+  // المصدر تُفحص عند كل تشغيل، فالقالب لا يفتح ما أغلقه التقرير نفسه.
+  { key: "reports.builder", nameAr: "استخدام منشئ التقارير", module: "reports" },
+  { key: "reports.templates.share", nameAr: "مشاركة قوالب التقارير", module: "reports" },
+  { key: "reports.templates.global", nameAr: "إدارة قوالب التقارير العامة", module: "reports" },
   { key: "documents.read", nameAr: "عرض الوثائق الصادرة", module: "documents" },
   { key: "documents.issue", nameAr: "إصدار الوثائق الرسمية", module: "documents" },
   { key: "branding.use", nameAr: "استخدام التوقيع والختم", module: "documents" },

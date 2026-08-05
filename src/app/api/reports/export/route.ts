@@ -19,7 +19,8 @@ import { escapeHtml } from "@/lib/html-escape";
  * الضمانات:
  *  - المصادقة والتفويض على حدود الخادم: تسجيل دخول + `reports.generate` + صلاحية التقرير
  *    نفسه المعلَنة في السجل. لا يكفي إخفاء زر التصدير.
- *  - الأعمدة من تعريف التقرير حصراً — لا يختار المستخدم أعمدة، فلا يُكشف حقل غير معلَن.
+ *  - الأعمدة مُقيَّدة بتعريف التقرير: يجوز للمستخدم اختيار أيها يظهر وبأي ترتيب (§4.4)،
+ *    لكن ما ليس معلَناً في التعريف لا يُصدَّر — القائمة تُصفّى داخل المحلّل لا هنا.
  *  - كل خلية تمرّ بمعطِّل حقن الصيغ قبل الكتابة في CSV أو Excel.
  *  - سقف صفوف صريح يمنع التصدير غير المحدود، ويُبلَّغ عنه بدل الاقتطاع الصامت.
  *  - كل تصدير يُسجَّل في سجل التدقيق (من، أي تقرير، أي صيغة، كم صفاً).
@@ -63,7 +64,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "تعذّر توليد التقرير" }, { status: 500 });
   }
 
-  const headers = def.columns.map((c) => c.label);
+  /* §4.4 + §3.4: التصدير يخرج بالأعمدة المختارة نفسها وبترتيبها، لا بكل أعمدة التقرير.
+     القائمة مُصفّاة بأعمدة التقرير المعلَنة داخل المحلّل، فلا يُصدَّر عمود غير معلَن. */
+  const columns = filters.columns?.length
+    ? filters.columns.flatMap((k) => def.columns.filter((c) => c.key === k))
+    : def.columns;
+  const headers = columns.map((c) => c.label);
   // أعمدة التاريخ تُصدَّر بالعرض المزدوج نفسه الظاهر على الشاشة — D-033
   const cellOf = (row: Record<string, unknown>, c: (typeof def.columns)[number]) => {
     const v = row[c.key];
@@ -71,7 +77,7 @@ export async function GET(request: NextRequest) {
     if (c.type === "date" && (typeof v === "string" || v instanceof Date)) return dualNumericCell(v);
     return v as string | number;
   };
-  const matrix = rows.rows.map((row) => def.columns.map((c) => cellOf(row, c)));
+  const matrix = rows.rows.map((row) => columns.map((c) => cellOf(row, c)));
 
   const formatLabel = { csv: "CSV", xlsx: "Excel", pdf: "PDF", docx: "Word" }[format];
   await audit({
@@ -127,7 +133,7 @@ export async function GET(request: NextRequest) {
       : "";
     const tableHtml = `
       <table>
-        <thead><tr>${def.columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join("")}</tr></thead>
+        <thead><tr>${columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join("")}</tr></thead>
         <tbody>
           ${matrix
             .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(String(c === "" ? "—" : c))}</td>`).join("")}</tr>`)
@@ -192,12 +198,12 @@ export async function GET(request: NextRequest) {
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("التقرير", { views: [{ rightToLeft: true }] });
-  ws.columns = def.columns.map((c) => ({ header: c.label, key: c.key, width: 20 }));
+  ws.columns = columns.map((c) => ({ header: c.label, key: c.key, width: 20 }));
   ws.getRow(1).font = { bold: true };
   for (const row of rows.rows) {
     // كل قيمة نصية تمرّ بمعطِّل حقن الصيغ؛ الأرقام تُكتب أرقاماً فتبقى قابلة للحساب
     const record: Record<string, string | number> = {};
-    for (const c of def.columns) {
+    for (const c of columns) {
       const v = cellOf(row, c);
       record[c.key] = typeof v === "number" ? v : sanitizeCell(v);
     }

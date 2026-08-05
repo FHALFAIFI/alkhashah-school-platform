@@ -140,6 +140,13 @@ export default async function ReportsPage({
   if (selectedReport && filters.group && !isGroupableColumn(selectedReport.key, filters.group)) filters.group = undefined;
 
   const result = selectedReport ? await runReport(selectedReport.key, filters) : null;
+  /* §4.4: الأعمدة المختارة — من القالب أو من المنشئ — تُطبَّق على العرض بترتيبها
+     المختار. الفراغ يعني كل أعمدة التقرير. القائمة مُصفّاة أصلاً بأعمدة التقرير
+     المعلَنة في المحلّل، فلا يمر اسم عمود غير معلَن. */
+  const shownColumns =
+    selectedReport && filters.columns?.length
+      ? filters.columns.flatMap((k) => selectedReport.columns.filter((c) => c.key === k))
+      : (selectedReport?.columns ?? []);
 
   // خيارات المرشّحات تُحمَّل فقط لما أعلنه التقرير المعروض — لا استعلام بلا داعٍ
   const filterKeys = selectedReport?.filters ?? [];
@@ -173,7 +180,7 @@ export default async function ReportsPage({
   // §15: الأعمدة الفارغة تماماً على كل النتائج — تحذير قبل توليد تقرير بأعمدة بيضاء
   const emptyColumns =
     selectedReport && result && result.rows.length > 0
-      ? selectedReport.columns.filter((c) => result.rows.every((r) => r[c.key] === null || r[c.key] === undefined || r[c.key] === ""))
+      ? shownColumns.filter((c) => result.rows.every((r) => r[c.key] === null || r[c.key] === undefined || r[c.key] === ""))
       : [];
 
   return (
@@ -348,12 +355,12 @@ export default async function ReportsPage({
           ) : (
             <>
               <Table
-                headers={selectedReport.columns.map((c) => c.label)}
-                sortLinks={selectedReport.columns.map((c) => sortHref(sp, c.key, filters.sort === c.key && filters.dir === "asc" ? "desc" : "asc"))}
+                headers={shownColumns.map((c) => c.label)}
+                sortLinks={shownColumns.map((c) => sortHref(sp, c.key, filters.sort === c.key && filters.dir === "asc" ? "desc" : "asc"))}
               >
                 {result.rows.map((row, i) => (
                   <tr key={i}>
-                    {selectedReport.columns.map((c) => (
+                    {shownColumns.map((c) => (
                       <td
                         key={c.key}
                         className={`px-3 py-2 text-sm ${c.type === "money" || c.type === "number" || c.type === "percent" ? "tabular-nums" : ""}`}
