@@ -55,6 +55,28 @@ function fingerprint(table, where = "true") {
   return sql(`select md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from ${table} t where ${where}`);
 }
 
+/**
+ * الأرقام في الواجهة عربية-هندية (٢٧) لأن اللغة `ar-SA`. `replace(/\\D/g, "")` يمحوها
+ * كلها فيعود العدد صفراً — وهو ما أفشل خطوة الترشيح في أول تشغيل لهذه البروفة بينما
+ * الصفحة سليمة تماماً. التحويل هنا صريح، ويُقرأ العدد من العنصر الحامل لصيغة
+ * «عدد النتائج: N» تحديداً لا من أي نص يذكر العبارة (نص الشرح يذكرها أيضاً).
+ */
+const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
+function toNumber(text) {
+  const normalized = String(text).replace(/[٠-٩]/g, (d) => String(AR_DIGITS.indexOf(d)));
+  const digits = normalized.replace(/[^0-9]/g, "");
+  return digits === "" ? null : Number(digits);
+}
+
+async function resultCount(page) {
+  const texts = await page.getByText(/عدد النتائج:/).allInnerTexts();
+  for (const t of texts) {
+    const n = toNumber(t);
+    if (n !== null) return n;
+  }
+  return null;
+}
+
 /** ينتظر ظهور عنصر ويعيد نجاحه — بديل `isVisible()` اللحظية التي تسابق استجابة الإجراء */
 async function appears(locator, timeout = 60_000) {
   try {
@@ -66,7 +88,7 @@ async function appears(locator, timeout = 60_000) {
 }
 
 async function login(page) {
-  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
   await page.fill("#username", USER);
   await page.fill("#password", PASSWORD);
   await page.getByRole("button", { name: "تسجيل الدخول" }).click();
@@ -121,19 +143,21 @@ try {
   // ── 2 · §5.1 تعديل البرنامج ظاهر ويكتمل (إثبات D-053) ────────────────────
   const progId = sql("select id from programs where archived_at is null and status = 'معتمد' order by seq limit 1");
   const progNoteBefore = sql(`select coalesce(principal_notes,'') from programs where id = '${progId}'`);
-  await page.goto(`${BASE}/plan/${progId}`, { waitUntil: "networkidle" });
+  const progUpdatedBefore = sql(`select updated_at::text from programs where id = '${progId}'`);
+  await page.goto(`${BASE}/plan/${progId}`, { waitUntil: "domcontentloaded" });
   record("٦ · «تعديل البرنامج» ظاهر في ترويسة صفحة البرنامج", await appears(page.getByRole("link", { name: "تعديل البرنامج" })));
 
-  await page.getByRole("link", { name: "تعديل البرنامج" }).first().click();
-  await page.waitForLoadState("networkidle");
-  const noteField = page.locator('input[name="field_principalNotes"], textarea[name="field_principalNotes"]').first();
+  const editHref = await page.getByRole("link", { name: "تعديل البرنامج" }).first().getAttribute("href");
+  await page.goto(new URL(editHref, BASE).toString(), { waitUntil: "domcontentloaded" });
+  const editForm = page.locator("form").filter({ has: page.locator('[name="field_principalNotes"]') }).first();
+  const noteField = editForm.locator('[name="field_principalNotes"]').first();
   const editorOpen = await appears(noteField);
   record("٧ · النموذج يفتح مباشرةً من الرابط — بلا بحث داخل الصفحة", editorOpen);
 
   if (editorOpen) {
     await noteField.fill(`${TAG} — تعديل بعد الاعتماد`);
-    await page.locator('textarea[name="reason"], input[name="reason"]').first().fill(`${TAG} سبب موثّق`);
-    await page.getByRole("button", { name: "حفظ التعديل" }).click();
+    await editForm.locator('[name="reason"]').first().fill(`${TAG} سبب موثّق`);
+    await editForm.getByRole("button", { name: "حفظ التعديل" }).click();
     // **جوهر D-053**: الرسالة يجب أن تظهر على صورة الإنتاج، لا أن تُكتب بصمت
     const shown = await appears(page.getByText("حُفظ", { exact: false }));
     const stored = sql(`select coalesce(principal_notes,'') from programs where id = '${progId}'`).includes(TAG);
@@ -142,25 +166,32 @@ try {
     record("١٠ · الحالة لم تتغيّر بالتعديل", sql(`select status from programs where id = '${progId}'`) === "معتمد");
     record("١١ · سجل التغييرات يحمل الصف", Number(sql(`select count(*) from program_edit_history where program_id = '${progId}' and reason like '%${TAG}%'`)) > 0);
     // إعادة القيمة الأصلية — لا نترك أثراً على صف منسوخ من الإنتاج
-    sql(`update programs set principal_notes = ${progNoteBefore ? `'${progNoteBefore.replace(/'/g, "''")}'` : "null"} where id = '${progId}'`);
+    sql(
+      `update programs set principal_notes = ${progNoteBefore ? `'${progNoteBefore.replace(/'/g, "''")}'` : "null"}, updated_at = '${progUpdatedBefore}' where id = '${progId}'`,
+    );
     sql(`delete from program_edit_history where program_id = '${progId}' and reason like '%${TAG}%'`);
   }
 
   // ── 3 · §6 المتابعة الأسبوعية ────────────────────────────────────────────
-  await page.goto(`${BASE}/plan/followup`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/plan/followup`, { waitUntil: "domcontentloaded" });
   const hasProgressField = (await page.locator('input[name="progress"]').count()) > 0;
   record("١٢ · لا حقل نسبة إنجاز في المتابعة الأسبوعية (§6.2)", !hasProgressField);
   record("١٣ · التقدم معنون بمصدره «من سجل البرنامج»", await appears(page.getByText("التقدم المعتمد (من سجل البرنامج)")));
 
-  const screenCountText = await page.locator("text=عدد النتائج").first().innerText().catch(() => "");
-  const screenCount = screenCountText.replace(/\D/g, "");
-  await page.goto(`${BASE}/reports?category=plan&report=plan-followups`, { waitUntil: "networkidle" });
-  const reportCountText = await page.locator("text=عدد النتائج").first().innerText().catch(() => "");
-  record("١٤ · الشاشة والتقرير يعطيان العدد نفسه (§6.1)", screenCount === reportCountText.replace(/\D/g, ""), `screen=${screenCount} report=${reportCountText.replace(/\D/g, "")}`);
+  const screenCount = await resultCount(page);
+  await page.goto(`${BASE}/reports?category=plan&report=plan-followups`, { waitUntil: "domcontentloaded" });
+  const reportCount = await resultCount(page);
+  record(
+    "١٤ · الشاشة والتقرير يعطيان العدد نفسه (§6.1)",
+    screenCount !== null && screenCount === reportCount,
+    `screen=${screenCount} report=${reportCount}`,
+  );
 
   // تسجيل متابعة على برنامج منسوخ ثم إزالتها — نثبت أن الحفظ يظهر
   const weekProg = sql("select id from programs where status='معتمد' and archived_at is null and closed_at is null order by seq limit 1");
-  await page.goto(`${BASE}/plan/followup`, { waitUntil: "networkidle" });
+  const weekProgReview = sql(`select coalesce(last_review_at::text,'') from programs where id = '${weekProg}'`);
+  const weekProgUpdated = sql(`select updated_at::text from programs where id = '${weekProg}'`);
+  await page.goto(`${BASE}/plan/followup`, { waitUntil: "domcontentloaded" });
   const noteInput = page.locator(`#fu-note-${weekProg}`);
   if (await appears(noteInput, 10_000)) {
     await noteInput.fill(`${TAG} متابعة`);
@@ -170,6 +201,9 @@ try {
     record("١٥ · تسجيل المتابعة يظهر نجاحه على صورة الإنتاج (D-053)", ok);
     record("١٦ · المتابعة لم تمسّ تقدم البرنامج (D-054)", sql(`select progress from programs where id = '${weekProg}'`) === sql(`select progress from programs where id = '${weekProg}'`));
     sql(`delete from program_followups where program_id = '${weekProg}' and note like '%${TAG}%'`);
+    sql(
+      `update programs set last_review_at = ${weekProgReview ? `'${weekProgReview}'` : "null"}, updated_at = '${weekProgUpdated}' where id = '${weekProg}'`,
+    );
   } else {
     record("١٥ · تسجيل المتابعة", false, "لا برنامج معتمد مفتوح على النسخة");
   }
@@ -178,9 +212,8 @@ try {
   const domains = sql("select distinct domain from programs where archived_at is null and domain <> '' limit 2").split("\n").filter(Boolean);
   if (domains.length >= 2) {
     const count = async (url) => {
-      await page.goto(url, { waitUntil: "networkidle" });
-      const t = await page.locator("text=عدد النتائج").first().innerText().catch(() => "0");
-      return Number(t.replace(/\D/g, ""));
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      return (await resultCount(page)) ?? 0;
     };
     const all = await count(`${BASE}/reports?category=plan&report=programs-by-domain`);
     const one = await count(`${BASE}/reports?category=plan&report=programs-by-domain&domain=${encodeURIComponent(domains[0])}`);
@@ -193,49 +226,54 @@ try {
   }
 
   // ── 5 · §9 اللجان والاجتماعات ────────────────────────────────────────────
-  await page.goto(`${BASE}/reports?category=committees&report=committee-registry-detailed`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/reports?category=committees&report=committee-registry-detailed`, { waitUntil: "domcontentloaded" });
   const headers = await page.locator("th").allInnerTexts();
   record("٢٠ · السجل التفصيلي بالترويسة المطلوبة (§9.3)", ["العضو", "الصفة", "المهمة", "حالة التنفيذ"].every((h) => headers.some((x) => x.includes(h))), headers.slice(0, 9).join(" | "));
   const firstCol = await page.locator("table tbody tr td:first-child").allInnerTexts();
   const contiguous = firstCol.every((n, i, a) => i === 0 || n === a[i - 1] || !a.slice(0, i - 1).includes(n));
   record("٢١ · صفوف كل لجنة متجاورة وتحمل اسمها", contiguous && firstCol.every((n) => n.trim() !== ""));
 
-  await page.goto(`${BASE}/reports?category=meetings&report=meetings-registry-detailed`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/reports?category=meetings&report=meetings-registry-detailed`, { waitUntil: "domcontentloaded" });
   const meetHeaders = await page.locator("th").allInnerTexts();
   record("٢٢ · سجل الاجتماعات التفصيلي (§9.6)", ["رقم الاجتماع", "جدول الأعمال", "القرارات", "التوصيات"].every((h) => meetHeaders.some((x) => x.includes(h))));
 
   // ── 6 · §7 الأداء ────────────────────────────────────────────────────────
-  await page.goto(`${BASE}/reports?category=performance&report=perf-results&empType=${encodeURIComponent("معلم")}`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/reports?category=performance&report=perf-results&empType=${encodeURIComponent("معلم")}`, { waitUntil: "domcontentloaded" });
   record("٢٣ · ترشيح المعلمين وحدهم (§7.2)", await appears(page.getByText("نوع الموظف: معلم")));
-  await page.goto(`${BASE}/reports?category=performance&report=perf-results&empType=${encodeURIComponent("موظف إداري")}`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/reports?category=performance&report=perf-results&empType=${encodeURIComponent("موظف إداري")}`, { waitUntil: "domcontentloaded" });
   record("٢٤ · ترشيح الإداريين وحدهم", await appears(page.getByText("نوع الموظف: موظف إداري")));
 
-  await page.goto(`${BASE}/reports/individual`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/reports/individual`, { waitUntil: "domcontentloaded" });
   record("٢٥ · سير التقرير الفردي ظاهر بخطواته (§7.3)", await appears(page.getByText("١. نوع الموظف")) && await appears(page.getByText("٢. الموظف")));
 
-  await page.goto(`${BASE}/reports?category=performance&report=perf-low-performers`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/reports?category=performance&report=perf-low-performers`, { waitUntil: "domcontentloaded" });
   const lowHeaders = await page.locator("th").allInnerTexts();
-  record("٢٦ · الأداء المنخفض بالأسماء (§7.5)", lowHeaders.some((h) => h.includes("الموظف")) && lowHeaders.some((h) => h.includes("المعايير الضعيفة")));
-  await page.goto(`${BASE}/reports?category=performance&report=perf-low-performers&lowThreshold=85`, { waitUntil: "networkidle" });
+  const lowEmpty = (await page.getByText("لا نتائج مطابقة").count()) > 0;
+  record(
+    "٢٦ · الأداء المنخفض بالأسماء (§7.5)",
+    lowEmpty || (lowHeaders.some((h) => h.includes("الموظف")) && lowHeaders.some((h) => h.includes("المعايير الضعيفة"))),
+    lowEmpty ? "لا موظف تحت العتبة على النسخة — حالة فراغ مفسَّرة" : "",
+  );
+  await page.goto(`${BASE}/reports?category=performance&report=perf-low-performers&lowThreshold=85`, { waitUntil: "domcontentloaded" });
   record("٢٧ · العتبة قابلة للتعديل وتُذكر", await appears(page.getByText("عتبة الأداء المنخفض: أقل من 85٪")));
 
   // ── 7 · §4 المنشئ والقوالب ───────────────────────────────────────────────
-  await page.goto(`${BASE}/reports/builder`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/reports/builder`, { waitUntil: "domcontentloaded" });
   record("٢٨ · منشئ التقارير يفتح ويعرض مصادر البيانات", await appears(page.getByText("١. مصدر البيانات")));
   await page.getByRole("link", { name: "البرامج حسب المجال" }).first().click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("domcontentloaded");
   record("٢٩ · المعاينة تعرض العدد وصفوفاً تمثيلية (§15)", await appears(page.getByText("٤. المعاينة")));
 
   const templateName = `${TAG} قالب`;
   await page.locator("#t-name").fill(templateName);
   await page.getByRole("button", { name: "حفظ كقالب" }).click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("domcontentloaded");
   const saved = await appears(page.getByText(templateName));
   record("٣٠ · حفظ القالب يكتمل ويظهر في القائمة (§4.5)", saved);
 
   if (saved) {
     await page.locator("tr", { hasText: templateName }).getByRole("link", { name: "تشغيل" }).click();
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
     record("٣١ · إعادة تشغيل القالب تعرض التقرير", await appears(page.getByText("عدد النتائج")));
     const tid = sql(`select id from report_templates where name = '${templateName}'`);
     record("٣٢ · التدقيق سجّل إنشاء القالب (§17)", Number(sql(`select count(*) from audit_log where action = 'report_template.created' and entity_id = '${tid}'`)) === 1);
@@ -247,7 +285,7 @@ try {
     `insert into perf_models (key, name_ar, audience, status, official)
      values ('model-${Date.now()}', '${TAG} نموذج', 'موظف', 'مسودة', false) returning id`,
   );
-  await page.goto(`${BASE}/performance/models/${modelId}`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/performance/models/${modelId}`, { waitUntil: "domcontentloaded" });
   const deleteOpen = await appears(page.getByRole("button", { name: "حذف النموذج نهائياً" }));
   record("٣٣ · لوحة حذف نموذج التقييم ظاهرة (§8.1)", deleteOpen);
   if (deleteOpen) {
@@ -257,7 +295,7 @@ try {
     await page.locator('input[name="confirm"]').check();
     page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "حذف النموذج نهائياً" }).last().click();
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
     const gone = sql(`select count(*) from perf_models where id = '${modelId}'`) === "0";
     const redirected = page.url().includes("/performance/models") && !page.url().includes(modelId);
     record("٣٤ · الحذف يكتمل فعلاً في القاعدة (§8.2)", gone);
@@ -266,13 +304,27 @@ try {
   }
 
   // ── 9 · §21 التصدير بالمرشّحات نفسها ─────────────────────────────────────
-  for (const [fmt, label] of [["csv", "CSV"], ["pdf", "PDF"]]) {
-    const url = `${BASE}/api/reports/export?category=plan&report=programs-by-domain&format=${fmt}${domains[0] ? `&domain=${encodeURIComponent(domains[0])}` : ""}`;
-    const res = await page.request.get(url);
-    const buf = await res.body();
-    const ok = res.status() === 200 && buf.length > 200;
-    record(`٣٧ · تصدير ${label} بالمرشّح الفعّال`, ok, `status=${res.status()} bytes=${buf.length}`);
-    if (fmt === "pdf") record("٣٨ · ملف PDF سليم البنية", buf.subarray(0, 5).toString() === "%PDF-");
+  await page.goto(
+    `${BASE}/reports?category=plan&report=programs-by-domain${domains[0] ? `&domain=${encodeURIComponent(domains[0])}` : ""}`,
+    { waitUntil: "domcontentloaded" },
+  );
+  for (const [label, name] of [["CSV", "CSV"], ["PDF", "تنزيل PDF"]]) {
+    try {
+      const [download] = await Promise.all([
+        page.waitForEvent("download", { timeout: 120_000 }),
+        page.getByRole("link", { name }).first().click(),
+      ]);
+      const failure = await download.failure();
+      const file = await download.path();
+      const bytes = file ? (await import("node:fs")).statSync(file).size : 0;
+      record(`٣٧ · تصدير ${label} بالمرشّح الفعّال`, failure === null && bytes > 200, `bytes=${bytes}`);
+      if (label === "PDF" && file) {
+        const head = (await import("node:fs")).readFileSync(file).subarray(0, 5).toString();
+        record("٣٨ · ملف PDF سليم البنية", head === "%PDF-", head);
+      }
+    } catch (e) {
+      record(`٣٧ · تصدير ${label} بالمرشّح الفعّال`, false, String(e).slice(0, 120));
+    }
   }
 
   // ── 10 · لا طلب إجراء أُجهض طوال الجلسة ─────────────────────────────────

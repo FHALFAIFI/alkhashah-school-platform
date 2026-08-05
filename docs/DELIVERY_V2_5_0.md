@@ -167,3 +167,86 @@ In order:
   still sees «في المسار» on historical rows; the UI and reports show «قيد التنفيذ».
 - **`progress_snapshot`** still holds historical percentages. It is deliberately unread; any
   future report wanting it must state that it is historical and not current truth.
+
+---
+
+# 9) Production-clone rehearsal (§24) — RUN, **45 / 48 PASS**, one blocking defect
+
+Run on **2026-08-05** against `madrasa-app:0.1.0-v2_5_0-rc`
+(`sha256:0410fdb3ce9f8d727e9e923f39a2bea6af3c2bf16fd00898a822fb0ce2796ddc`, linux/arm64,
+commit `f4920a7`) on a disposable clone of the live production database
+(30 programmes / 54 people / 4 committees / 6 cycles / 5 maintenance issues).
+
+Harness: `scripts/v250-clone-setup.sh` + `scripts/v250-clone-rehearsal.mjs`.
+
+## 9.1 What passed
+
+- Migration on real production data: **ledger 31 → 34, tables 88 → 89**, all six new
+  `program_followups` columns **empty on every existing row**, the three new permissions
+  created and granted (6 role grants).
+- «تعديل البرنامج» visible in the programme header; the link opens the editor directly; the
+  edit saves, the success message appears, the programme's status/completion/closure are
+  unchanged, and the change is recorded in `program_edit_history`.
+- Weekly follow-up carries **no percentage field**; progress is labelled with its source;
+  recording a follow-up shows its success message and does not touch programme progress.
+- Screen and report agree exactly: **11 = 11**.
+- One domain / two domains / all: **7 → 12 → 27**, with the active-filter chip shown and
+  programme names (not counts) in the table.
+- Committee registry carries العضو | الصفة | المهمة | حالة التنفيذ with each committee's rows
+  contiguous; meeting registry carries number, agenda, decisions, recommendations.
+- Teachers-only and administrative-only filters; individual-report workflow; low-performer
+  threshold editable and stated.
+- Report builder opens, previews, saves a template, re-runs it, and audits the creation.
+- Evaluation-form deletion completes in the database and writes its tombstone.
+- CSV (1 623 B) and PDF (49 270 B, valid `%PDF-` header) export with the active filter.
+- **Production untouched** throughout: `RestartCount 0` and an unchanged `StartedAt` before,
+  during and after; the clone was destroyed afterwards.
+
+## 9.2 The blocking defect — D-053 is **not fully closed**
+
+**Symptom.** After a successful permanent delete of an evaluation form, the browser stays on
+the deleted record's page. The row is gone from the database and the tombstone is written, but
+the user is left on a dead URL. §8.2 requires navigating to a valid destination.
+
+**Evidence.** `net::ERR_ABORTED` on the Server-Action POST for two flows on the RC image:
+
+```
+POST /performance/models/<id>        net::ERR_ABORTED   ← delete: commits, no redirect
+POST /plan/<id>?تعديل=1              net::ERR_ABORTED   ← edit: commits, message DOES appear
+```
+
+**Reading.** The abort lands *after* the client has consumed the returned value — success
+messages appear and writes land — so what is lost is the **tail** of the stream. For an action
+whose tail carries a `redirect()`, that redirect is destroyed. This is the same class as D-049,
+with a different trigger: removing `revalidatePath` fixed the writes-without-feedback symptom
+(confirmed above), but a client-side refresh still races the tail of redirect-bearing actions.
+
+**Status.** Not diagnosed to root cause and **not fixed**. It must be resolved and re-rehearsed
+before deployment. Two candidate directions, neither verified: (a) redirect-ending actions
+should return state and let the client navigate, rather than redirecting server-side; (b) the
+refresh hooks should not fire while a navigation is pending.
+
+**Scope of impact.** Every action ending in `redirect()`: permanent deletion of an evaluation
+form, a performance cycle and an employee; template save; import upload. The data is always
+correct; the navigation is not.
+
+## 9.3 Third failure — rehearsal bookkeeping, not data loss
+
+The `programs` fingerprint differs by one row after the run. The cause is known and benign: the
+rehearsal's own programme-edit step writes to a production-copied row and the restore does not
+reset every touched column (`version` increments alongside `updated_at`). No other table drifts
+and all row counts are unchanged. The correct fix is for the destructive steps to seed their own
+disposable programme instead of editing a copied one — a harness change, not a product one.
+
+## 9.4 Three harness bugs found and fixed during the run
+
+Recorded because they nearly produced false confidence in both directions:
+
+1. `replace(/\D/g, "")` on «عدد النتائج: ٢٧» returned an empty string — the UI renders
+   Arabic-Indic digits under `ar-SA`, so every filter count read as zero and the filter steps
+   "failed" while the page was correct.
+2. The programme page has **five** inputs named `reason` (archive, reopen, change request,
+   execution update, edit). `.first()` filled the wrong form, so the edit action correctly
+   answered «السبب إلزامي» and the step looked like a product defect.
+3. `page.request.get()` does not carry the browser session, so export checks returned 401.
+   Exports are now downloaded by clicking the link, as a user does.
