@@ -24,6 +24,8 @@ import {
   normalizeValue,
   reasonRequiredFor,
 } from "@/lib/plan/program-edit";
+import { CompletenessMeter } from "@/components/completeness-meter";
+import { hasValue } from "@/lib/completeness";
 import { PageHeader, Card, Badge, ProgressBar, LinkButton, WorkflowSteps, DualDate, Table } from "@/components/ui";
 import { dualDisplay } from "@/lib/dates";
 import { orFallback, formatMoney, numOrNull } from "@/lib/format";
@@ -284,6 +286,15 @@ export default async function ProgramPage({
       )}
 
       <Card id="edit">
+        {/* §13: مؤشّر معلوماتي — لا يمنع اعتماداً ولا إقفالاً ولا يُخزَّن، ويُسمّي النواقص */}
+        <CompletenessMeter
+          className="mb-3"
+          fields={EDITABLE_FIELD_KEYS.map((key) => ({
+            label: EDITABLE_PROGRAM_FIELDS[key],
+            filled: hasValue((program as unknown as Record<string, unknown>)[key]),
+            affectsIntegration: key === "name" || key === "domain" || key === "ownerPosition",
+          }))}
+        />
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold text-brand-900">بطاقة البرنامج (القيم الرسمية من المصدر)</h2>
           {/* v2.4.1 §1.6: التعديل متاح في كل حالة — مسودة ومعتمد ومكتمل ومغلق */}

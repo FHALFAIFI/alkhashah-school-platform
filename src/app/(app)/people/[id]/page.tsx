@@ -3,6 +3,8 @@ import { desc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { people, perfCycles } from "@/db/schema";
+import { CompletenessMeter } from "@/components/completeness-meter";
+import { hasValue } from "@/lib/completeness";
 import { PageHeader, Card, Badge, SubmitButton, LinkButton } from "@/components/ui";
 import { DependencyNotice } from "@/components/dependency-notice";
 import { assessDeletion, dependencySummaryAr } from "@/lib/safe-delete";
@@ -52,6 +54,20 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
         </Card>
       )}
       <Card>
+        {/* §12.3/§13: الاسم وحده إلزامي؛ الباقي اختياري ويُقال أثره حين يغيب */}
+        <CompletenessMeter
+          className="mb-3"
+          fields={[
+            { label: "الاسم", filled: hasValue(person.fullName), affectsIntegration: true },
+            { label: "الرقم الوظيفي", filled: hasValue(person.jobNumber), affectsIntegration: true },
+            { label: "نوع الموظف", filled: hasValue(person.employeeType), affectsIntegration: true },
+            { label: "المسمى الوظيفي", filled: hasValue(person.jobTitle) },
+            { label: "المرتبة", filled: hasValue(person.cadre) },
+            { label: "حالة التوظيف", filled: hasValue(person.employmentStatus) },
+            { label: "الوحدة التنظيمية", filled: hasValue(person.orgUnit) },
+            { label: "البريد الإلكتروني", filled: hasValue(person.email) },
+          ]}
+        />
         <PersonForm person={person} />
       </Card>
       {canSeePerformance && (
