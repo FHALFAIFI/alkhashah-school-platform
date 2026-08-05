@@ -26,6 +26,8 @@ import {
   committeeMembers,
   committeeTaskAssignments,
   meetings,
+  meetingTypes,
+  meetingAttachments,
   meetingOutcomes,
   rooms,
   floors,
@@ -44,6 +46,7 @@ import { getSchoolFinance } from "@/lib/finance/service";
 import { amountOrNull, toMinor, fromMinor } from "@/lib/finance/calc";
 import { ALLOCATION_NONE_VALUE, REMAINING_UNAVAILABLE } from "@/lib/finance/allocation";
 import { normalizeWeeklyStatus } from "@/lib/plan/followup";
+import { TASK_STATUS_UNSET_LABEL } from "@/lib/committees/task-status";
 import { programLifecycle } from "@/lib/plan/lifecycle";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
 import { hijriTextToIso } from "@/lib/dates";
@@ -894,6 +897,242 @@ async function loadCommitteeTasks(filters: ReportFilters): Promise<ReportRow[]> 
     }));
 }
 
+/* ─────────── المجالس واللجان: الأنواع الثلاثة المتمايزة (v2.5.0 §9.1) ─────────── */
+
+/** ترشيح اللجان المشترك — واحدة أو عدة أو الكل، بالحالة والنوع والمدة (§9.2) */
+function committeeWhere(filters: ReportFilters): (SQL | undefined)[] {
+  const where: (SQL | undefined)[] = [];
+  if (filters.search) where.push(ilike(committees.nameAr, likeTerm(filters.search)));
+  const byId = inArrayIf(committees.id, filters.committeeIds);
+  if (byId) where.push(byId);
+  const byStatus = inArrayIf(committees.status, filters.statuses);
+  if (byStatus) where.push(byStatus);
+  return where;
+}
+
+/**
+ * (١) الملخص الإحصائي — أعداد فقط، بلا أسماء (§9.1).
+ * منفصل عمداً عن السجل التفصيلي: خلطهما هو ما جعل التقرير السابق يبدو «أرقاماً بلا أسماء»
+ * و«أسماءً بلا إجماليات» في آن واحد.
+ */
+async function loadCommitteeSummary(filters: ReportFilters): Promise<ReportRow[]> {
+  const where = committeeWhere(filters);
+  const rows = await db.select().from(committees).where(where.length ? and(...where) : undefined).orderBy(asc(committees.nameAr));
+  if (rows.length === 0) return [];
+  const ids = rows.map((c) => c.id);
+
+  const [memberRows, meetingRows, taskRows] = await Promise.all([
+    db.select({ id: committeeMembers.committeeId }).from(committeeMembers).where(inArray(committeeMembers.committeeId, ids)),
+    db.select({ id: meetings.committeeId }).from(meetings).where(inArray(meetings.committeeId, ids)),
+    db
+      .select({ id: committeeTaskAssignments.committeeId, status: committeeTaskAssignments.status, excluded: committeeTaskAssignments.excluded })
+      .from(committeeTaskAssignments)
+      .where(inArray(committeeTaskAssignments.committeeId, ids)),
+  ]);
+
+  const count = (list: { id: string }[], id: string) => list.filter((r) => r.id === id).length;
+  return rows.map((c) => {
+    const tasks = taskRows.filter((t) => t.id === c.id && !t.excluded);
+    return {
+      nameAr: c.nameAr,
+      kind: c.kind,
+      status: c.status,
+      memberCount: count(memberRows, c.id),
+      meetingCount: count(meetingRows, c.id),
+      taskCount: tasks.length,
+      // «منجزة» هي حالة الإنجاز المعتمدة في مفردات مهام اللجان
+      completedTasks: tasks.filter((t) => t.status === "منجزة").length,
+      // المهمة بلا حالة ليست متأخرة ولا منجزة — تُعد «غير محددة» ولا تُحسب إنجازاً
+      unsetTasks: tasks.filter((t) => !t.status).length,
+      pendingTasks: tasks.filter((t) => t.status && t.status !== "منجزة").length,
+    };
+  });
+}
+
+/**
+ * (٢) السجل التفصيلي للمجالس واللجان (§9.3/§9.4).
+ *
+ * **صف واحد لكل (لجنة × عضو × مهمة).** الخلية المدموجة ممنوعة: كان العضو يظهر ومهامه
+ * مجموعة في خلية واحدة مفصولة بفواصل، فيتعذّر الفرز والتصفية والقراءة في PDF. الآن
+ * الترويسة كما طلبها المدير — العضو | الصفة | المهمة | حالة التنفيذ — مع اسم اللجنة في
+ * العمود الأول فتبقى صفوف كل لجنة متجاورة ومعنونة.
+ *
+ * العضو بلا مهام يظهر بصف واحد بمهمة فارغة — لا يختفي من السجل.
+ */
+async function loadCommitteeRegistryDetailed(filters: ReportFilters): Promise<ReportRow[]> {
+  const where = committeeWhere(filters);
+  const committeeRows = await db
+    .select()
+    .from(committees)
+    .where(where.length ? and(...where) : undefined)
+    .orderBy(asc(committees.nameAr));
+  if (committeeRows.length === 0) return [];
+  const ids = committeeRows.map((c) => c.id);
+
+  const [memberRows, taskRows, meetingRows] = await Promise.all([
+    db
+      .select({
+        id: committeeMembers.id,
+        committeeId: committeeMembers.committeeId,
+        personName: people.fullName,
+        role: committeeMembers.role,
+        position: committeeMembers.position,
+      })
+      .from(committeeMembers)
+      .leftJoin(people, eq(committeeMembers.personId, people.id))
+      .where(inArray(committeeMembers.committeeId, ids)),
+    db
+      .select({
+        committeeId: committeeTaskAssignments.committeeId,
+        assignedMemberId: committeeTaskAssignments.assignedMemberId,
+        title: committeeTaskAssignments.title,
+        status: committeeTaskAssignments.status,
+        notes: committeeTaskAssignments.notes,
+        excluded: committeeTaskAssignments.excluded,
+      })
+      .from(committeeTaskAssignments)
+      .where(inArray(committeeTaskAssignments.committeeId, ids)),
+    db
+      .select({ committeeId: meetings.committeeId, n: sql<number>`count(*)::int` })
+      .from(meetings)
+      .where(inArray(meetings.committeeId, ids))
+      .groupBy(meetings.committeeId),
+  ]);
+  const meetingCount = new Map(meetingRows.map((m) => [m.committeeId, m.n]));
+  const tasks = taskRows.filter((t) => !t.excluded);
+
+  const out: ReportRow[] = [];
+  for (const c of committeeRows) {
+    const members = memberRows.filter((m) => m.committeeId === c.id);
+    const committeeTasks = tasks.filter((t) => t.committeeId === c.id);
+    const base = {
+      committeeName: c.nameAr,
+      kind: c.kind,
+      committeeStatus: c.status,
+      meetingCount: meetingCount.get(c.id) ?? 0,
+    };
+
+    if (members.length === 0) {
+      // اللجنة بلا أعضاء تبقى في السجل بصفّها — الغياب معلومة لا فراغ
+      out.push({ ...base, personName: null, role: null, taskText: null, taskStatus: null, taskNotes: null });
+      continue;
+    }
+    for (const m of members) {
+      const memberTasks = committeeTasks.filter((t) => t.assignedMemberId === m.id);
+      if (memberTasks.length === 0) {
+        out.push({ ...base, personName: m.personName, role: m.role ?? m.position, taskText: null, taskStatus: null, taskNotes: null });
+        continue;
+      }
+      for (const t of memberTasks) {
+        out.push({
+          ...base,
+          personName: m.personName,
+          role: m.role ?? m.position,
+          taskText: t.title,
+          // §9.4: الحالة غير المحددة تُقال صراحةً ولا تُقدَّم كإنجاز
+          taskStatus: t.status ?? TASK_STATUS_UNSET_LABEL,
+          taskNotes: t.notes,
+        });
+      }
+    }
+    // مهام اللجنة غير المسندة لعضو — تبقى ظاهرة تحت لجنتها
+    for (const t of committeeTasks.filter((t) => !t.assignedMemberId)) {
+      out.push({
+        ...base,
+        personName: null,
+        role: "غير مسندة",
+        taskText: t.title,
+        taskStatus: t.status ?? TASK_STATUS_UNSET_LABEL,
+        taskNotes: t.notes,
+      });
+    }
+  }
+
+  const flags = filters.flags ?? [];
+  let result = out;
+  if (flags.includes("hasTasks")) result = result.filter((r) => r.taskText !== null);
+  if (flags.includes("noTasks")) result = result.filter((r) => r.taskText === null);
+  if (flags.includes("hasMeetings")) result = result.filter((r) => Number(r.meetingCount) > 0);
+  if (flags.includes("noMeetings")) result = result.filter((r) => Number(r.meetingCount) === 0);
+  if (flags.includes("incompleteTasks")) result = result.filter((r) => r.taskText !== null && r.taskStatus !== "منجزة");
+  return result;
+}
+
+/**
+ * (٣) سجل الاجتماعات التفصيلي (§9.6) — صف لكل اجتماع بتفاصيله الكاملة.
+ * منفصل عن السجل أعلاه: الاجتماع وحدة مستقلة بحضورها وجدولها وقراراتها.
+ */
+async function loadMeetingsRegistryDetailed(filters: ReportFilters): Promise<ReportRow[]> {
+  const where: (SQL | undefined)[] = [...dateRangeTs(meetings.meetingDate, filters)];
+  const byCommittee = inArrayIf(meetings.committeeId, filters.committeeIds);
+  if (byCommittee) where.push(byCommittee);
+  const byStatus = inArrayIf(meetings.status, filters.statuses);
+  if (byStatus) where.push(byStatus);
+  if (filters.search) where.push(or(ilike(meetings.title, likeTerm(filters.search)), ilike(committees.nameAr, likeTerm(filters.search))));
+
+  const rows = await db
+    .select({ m: meetings, committeeName: committees.nameAr, kind: committees.kind, typeName: meetingTypes.nameAr })
+    .from(meetings)
+    .innerJoin(committees, eq(meetings.committeeId, committees.id))
+    .leftJoin(meetingTypes, eq(meetings.typeId, meetingTypes.id))
+    .where(where.filter(Boolean).length ? and(...where) : undefined)
+    .orderBy(desc(meetings.meetingDate));
+  if (rows.length === 0) return [];
+
+  const meetingIds = rows.map((r) => r.m.id);
+  const [outcomes, attachments] = await Promise.all([
+    db.select().from(meetingOutcomes).where(inArray(meetingOutcomes.meetingId, meetingIds)),
+    db
+      .select({ meetingId: meetingAttachments.meetingId, n: sql<number>`count(*)::int` })
+      .from(meetingAttachments)
+      .where(inArray(meetingAttachments.meetingId, meetingIds))
+      .groupBy(meetingAttachments.meetingId),
+  ]);
+  const attachmentCount = new Map(attachments.map((a) => [a.meetingId, a.n]));
+
+  // مالك القرار وتاريخه المستهدف وحالة تنفيذه ليست حقولاً على النتيجة: النتيجة تُحوَّل
+  // إلى مهمة في `action_tasks` وهناك تُحفظ. تُقرأ من مصدرها لا تُختلق هنا.
+  const taskIds = outcomes.map((o) => o.taskId).filter((v): v is string => Boolean(v));
+  const taskRows = taskIds.length
+    ? await db
+        .select({ id: actionTasks.id, ownerText: actionTasks.ownerText, ownerName: people.fullName, status: actionTasks.status, dueDate: actionTasks.dueDate })
+        .from(actionTasks)
+        .leftJoin(people, eq(actionTasks.ownerPersonId, people.id))
+        .where(inArray(actionTasks.id, taskIds))
+    : [];
+  const taskById = new Map(taskRows.map((t) => [t.id, t]));
+
+  const textsOf = (list: typeof outcomes, kind: string) =>
+    list.filter((o) => o.outcomeType === kind).map((o) => o.text).filter(Boolean).join(" · ");
+
+  return rows.map(({ m, committeeName, kind, typeName }) => {
+    const mine = outcomes.filter((o) => o.meetingId === m.id);
+    const linkedTasks = mine.map((o) => (o.taskId ? taskById.get(o.taskId) : undefined)).filter(Boolean);
+    return {
+      committeeName,
+      kind,
+      // رقم الاجتماع داخل لجنته هو `seq` — لا رقم عام عبر اللجان
+      meetingNumber: m.seq,
+      title: m.title,
+      meetingType: typeName,
+      meetingDate: isoDate(m.meetingDate),
+      status: m.status,
+      location: m.location,
+      // جدول الأعمال مصفوفة بنود — تُعرض مرقّمة لا ككائن
+      agenda: (m.agenda ?? []).join(" · "),
+      discussion: m.discussion,
+      decisions: textsOf(mine, "قرار"),
+      recommendations: textsOf(mine, "توصية"),
+      notes: textsOf(mine, "ملاحظة"),
+      owners: linkedTasks.map((t) => t!.ownerName ?? t!.ownerText ?? "").filter(Boolean).join(" · "),
+      targetDates: linkedTasks.map((t) => isoDate(t!.dueDate) ?? "").filter(Boolean).join(" · "),
+      executionStatus: linkedTasks.map((t) => t!.status).filter(Boolean).join(" · "),
+      minutesSigned: m.signedMinutesFileId ? "محضر موقّع مستلم" : "لم يُستلم المحضر الموقّع",
+      attachmentCount: attachmentCount.get(m.id) ?? 0,
+    };
+  });
+}
+
 async function loadCommitteesWithoutMeetings(): Promise<ReportRow[]> {
   const all = await db.select().from(committees);
   const withMeetings = await db.selectDistinct({ id: meetings.committeeId }).from(meetings);
@@ -1461,6 +1700,9 @@ const LOADERS: Record<string, (f: ReportFilters) => Promise<ReportRow[]>> = {
   "committee-members": loadCommitteeMembers,
   "committee-tasks": loadCommitteeTasks,
   "committees-without-meetings": loadCommitteesWithoutMeetings,
+  "committee-summary": loadCommitteeSummary,
+  "committee-registry-detailed": loadCommitteeRegistryDetailed,
+  "meetings-registry-detailed": loadMeetingsRegistryDetailed,
 
   "meetings-register": loadMeetings,
   "meeting-decisions": loadDecisions,
