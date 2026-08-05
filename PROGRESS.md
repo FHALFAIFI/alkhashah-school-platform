@@ -2,45 +2,35 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Current work in progress — **v2.5.0 scope, PARTIAL (2026-08-05)**
+## Latest checkpoint — **v2.5.0 READY FOR DEPLOYMENT (2026-08-05)**
 
-**Verdict: NOT READY FOR DEPLOYMENT.** Full status table: **`docs/DELIVERY_V2_5_0.md`**.
-Branch `scope-v2.5-reporting-workflows`, from the deployed v2.4.1 baseline. **Production is
-untouched** — nothing was built, tagged, restarted or deployed.
+**Verdict: READY — awaiting the owner's explicit authorisation.** Full record:
+**`docs/DELIVERY_V2_5_0.md`**. Branch `scope-v2.5-reporting-workflows`, RC image
+`madrasa-app:0.1.0-v2_5_0-rc` = `sha256:0410fdb3ce9f…`. Deployment sequence in `RUNBOOK.md`.
 
-**Delivered and green (949/949 vitest, typecheck and lint clean):**
-- **D-053 — the systemic one.** All 202 `revalidatePath` call sites removed from the
-  application layer; clients refresh themselves after the action result settles. This is the
-  most likely cause of the three v2.4.1 field reports ("editing not visible", "individual
-  report does not appear", "deletion does not complete") — all of which write correctly and
-  then show nothing. **Not yet confirmed in a browser on a production image.**
-- §3 unified filter framework (URL + session, multi-select, one/several/all, chips, counts)
-  and §3.4 filter-consistent exports with the filters printed in the report header.
-- §6 weekly follow-up: one source shared by screen and report (parity test), manual
-  percentage removed everywhere, narrative fields added (migration **0031**, additive), the
-  weekly axis no longer overwrites programme progress or state (**D-054**).
-- §5.1 programme editing made visible in all three required places; §5.5/§5.6 by-owner and
-  by-domain reports with one/several/all.
-- §14/§15 reports page reorganised by domain with preview counts and generation warnings.
-- §7 performance reporting rebuilt on one result source, with `/reports/individual` giving
-  the individual report the explicit workflow it lacked, an editable low-performance
-  threshold (default 70 %) and names in every detailed report. A **real permission leak was
-  caught and fixed** here by the existing D-048 guard.
-- §8 evaluation-form deletion moved onto the full permanent-delete surface (typed name,
-  mandatory reason, tombstone, one transaction).
-- §9 three distinct council/committee reports; the detailed registry is one row per member
-  **and per task** — no merged cells.
-- §4 report builder (`/reports/builder`) and saved templates (`/reports/templates`) over the
-  same catalogue and loaders — no second engine. Migrations **0032** (table) and **0033**
-  (permissions data migration, idempotent, verified). A template grants nothing: every read
-  and run re-checks the source report's permission.
-- §10 maintenance filtering (status, category, priority, location, owner, flags) and §11
-  budget filtering with استغلال المخصصات and بنود بلا مخصص.
-
-**Not started or unfinished — see the table in `docs/DELIVERY_V2_5_0.md`:**
-§11.3 filter-responsive budget cards · §12/§13 optional-field policy · §19.3 the 26 browser
-scenarios · §20 visual audit · §21 export audit · §22 security review · §23 performance
-review · §24 clone rehearsal and rollback rehearsal · §26 RC image.
+- **Gates.** typecheck 0 · lint 0 · **975/975 vitest across 100 files** · build success ·
+  clone rehearsal **49/49** · rollback **PASS, no database action** · RTL/visual **100/100**
+  (25 surfaces × 4 widths) · exports **27/27** · security **22 assertions, 3 findings fixed** ·
+  performance **17 surfaces, 9–73 ms**.
+- **Migrations 31 → 34, tables 88 → 89.** 0031 six nullable/defaulted columns on
+  `program_followups`; 0032 `report_templates`; 0033 a **data migration** adding three
+  permissions and granting them — necessary because the seed service is profile-gated and never
+  runs in production. Additive only; rollback needs no database action (proven by booting
+  v2.4.1 against the migrated database).
+- **D-053.** All 202 `revalidatePath` call sites removed from the application layer; clients
+  refresh themselves after the result settles. Confirmed on the RC image against production
+  data: edits save *and their messages appear*, follow-ups record, deletes complete and
+  navigate.
+- **D-054.** The weekly follow-up records an observation, not progress: the manual percentage
+  is gone everywhere and the weekly axis no longer overwrites programme progress or state.
+- **Two scope items deliberately not delivered** (owner's call, not silent omissions):
+  §11.3 filter-responsive budget cards — the cards now declare their scope instead; and §12.4
+  "form optional on a performance cycle" — `perf_cycles.model_id` is NOT NULL and a cycle
+  without a form cannot be evaluated at all.
+- **Production untouched by the work itself**, with one disclosed exception: the production
+  *app* container was killed by the host OS during the RC image build and auto-restarted
+  (~0.4 s) on the same v2.4.1 image. The database was never restarted and no data changed.
+  Lesson recorded: do not build a release image on the machine serving production.
 
 ## Deployed baseline — **v2.4.1 DEPLOYED to production (2026-08-04)**
 

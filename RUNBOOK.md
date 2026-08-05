@@ -2,22 +2,71 @@
 
 > المرجع السريع لتشغيل المنصة وتشخيصها. التفاصيل الكاملة: `docs/INSTALL_MAC_AR.md` (ماك) و`docs/DEPLOY_UBUNTU_AR.md` (أوبنتو).
 
-## العمل الجاري — v2.5.0 (**غير جاهز للنشر**)
+## المرشَّح الجاهز للنشر (بانتظار تفويض المالك)
 
 | البند | القيمة |
 | --- | --- |
-| الإصدار | **v2.5.0** — نطاق جزئي منجَز (`docs/DELIVERY_V2_5_0.md`) |
-| الفرع | `scope-v2.5-reporting-workflows` من خط الأساس `v2.4.1` |
-| صورة المرشَّح | **لم تُبنَ بعد** |
-| الهجرات | **0031** فقط (إضافية بحتة على `program_followups`) — السجل ينتقل 31 → 32 |
-| البروفة على نسخة الإنتاج | **لم تُنفَّذ** |
-| سيناريوهات المتصفّح (26) | **لم تُكتب** |
-| الإنتاج | **لم يُمسّ** — لا بناء ولا وسم ولا إعادة تشغيل |
+| الإصدار | **v2.5.0** — جاهز (`docs/DELIVERY_V2_5_0.md`) |
+| الالتزام | `scope-v2.5-reporting-workflows` من خط الأساس `v2.4.1` |
+| صورة المرشَّح | `madrasa-app:0.1.0-v2_5_0-rc` = `sha256:0410fdb3ce9f…` (linux/arm64) |
+| سجل الهجرات | **31 → 34** · الجداول **88 → 89** |
+| البروفة على نسخة الإنتاج | **49/49** · التراجع **ناجح بلا إجراء على القاعدة** |
+| التدقيق البصري / التصدير / الأمن / الأداء | 100/100 · 27/27 · 22 تأكيداً · 17 سطحاً دون 100 ms |
+| التراجع | تبديل صورة فقط — **لا إجراء على قاعدة البيانات** (مُثبَت بالبروفة) |
+| الوسم | `v2.5.0` **لم يُنشأ بعد** — يُنشأ عند النشر كما في v2.3/v2.4 |
 
-> **لا يُنشر هذا الفرع.** المتبقي: منشئ التقارير والقوالب (§4)، مرشّحات الصيانة (§10)،
-> مرشّحات الميزانية وبطاقاتها (§11)، سياسة الحقول الاختيارية (§12/§13)، سيناريوهات
-> المتصفّح (§19.3)، التدقيق البصري (§20) وتدقيق التصدير (§21) والمراجعة الأمنية (§22)
-> ومراجعة الأداء (§23) وبروفة نسخة الإنتاج (§24) وصورة المرشَّح (§26).
+### نشر v2.5.0 (بعد التفويض الصريح — ثلاث هجرات)
+
+> الهجرات: **0031** (ستة أعمدة تقبل الفراغ على `program_followups`) و**0032** (جدول
+> `report_templates`) و**0033** (هجرة بيانات: ثلاث صلاحيات جديدة ومنحها للأدوار القائمة —
+> **ضرورية** لأن خدمة البذر مقيّدة بملف تعريف ولا تعمل على الإنتاج، فالصلاحية المضافة إلى
+> البذرة وحدها لا تصل للمدير أبداً). لا عمود يُحذف أو يُعاد تسميته، ولا صف قائم يُعدَّل أو
+> يُحذف. لهذا يبقى **التراجع بلا أي إجراء على القاعدة**.
+
+```bash
+cd "/Users/fahedalfify/Developer/School/Father's File"
+# 1) نسخة ما قبل النشر + تحقّق استعادة
+npm run backup:daily && npm run restore:rehearsal
+
+# 2) وسم صورة التراجع من الصورة العاملة حالياً قبل تحريك أي وسم
+docker tag madrasa-app:0.1.0 madrasa-app:0.1.0-prev-v2_5_0-$(date +%Y%m%d)
+
+# 3) القيَم قبل الترقية — تُقيَّد للمقارنة
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from drizzle.__drizzle_migrations"                              # المتوقع 31
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from information_schema.tables where table_schema='public'"     # المتوقع 88
+
+# 4) ترقية التطبيق وحده — حاوية القاعدة لا تُعاد تشغيلها
+docker tag madrasa-app:0.1.0-v2_5_0-rc madrasa-app:0.1.0
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  up -d --no-deps --force-recreate app
+
+# 5) تحقّق
+curl -s http://127.0.0.1:3080/api/health                                            # version=2.5.0
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from drizzle.__drizzle_migrations"                              # يصبح 34
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from information_schema.tables where table_schema='public'"     # يصبح 89
+# الأعمدة الجديدة فارغة تماماً على البيانات القائمة:
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from program_followups where completed_work is not null \
+   or obstacles is not null or required_action is not null or next_step is not null \
+   or evidence_update is not null or intervention_needed = true"                    # يجب أن يكون 0
+# الصلاحيات الجديدة ممنوحة للدورين:
+docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
+  "select count(*) from role_permissions rp join permissions p on p.id = rp.permission_id \
+   where p.key in ('reports.builder','reports.templates.share','reports.templates.global')"  # 6
+```
+
+**التراجع:** أعد وسم `madrasa-app:0.1.0-prev-v2_5_0-<التاريخ>` إلى `madrasa-app:0.1.0` وأعد
+إنشاء `app` وحده. **لا إجراء على القاعدة** — أُثبت بتشغيل صورة v2.4.1 على قاعدة مُهاجَرة
+(سجل 34، جداول 89) فعملت سليمة.
+
+> **لا تبنِ صورة الإصدار على الجهاز الذي يخدم الإنتاج.** أثناء بناء صورة هذا المرشَّح قتل
+> نظام التشغيل عملية تطبيق الإنتاج تحت ضغط الذاكرة، فأعادته سياسة `unless-stopped` خلال
+> ~0.4 ثانية على الصورة نفسها. لا بيانات تأثرت والقاعدة لم تُعد تشغيلها، لكن الانقطاع كان
+> حقيقياً. ابنِ الصورة خارج ساعات العمل أو على جهاز آخر.
 
 ## الإصدار المنشور حالياً (خط الأساس)
 
