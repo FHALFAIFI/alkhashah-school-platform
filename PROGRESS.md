@@ -8,7 +8,7 @@
 Branch `scope-v2.5-reporting-workflows`, from the deployed v2.4.1 baseline. **Production is
 untouched** — nothing was built, tagged, restarted or deployed.
 
-**Delivered and green (936/936 vitest, typecheck and lint clean):**
+**Delivered and green (949/949 vitest, typecheck and lint clean):**
 - **D-053 — the systemic one.** All 202 `revalidatePath` call sites removed from the
   application layer; clients refresh themselves after the action result settles. This is the
   most likely cause of the three v2.4.1 field reports ("editing not visible", "individual
@@ -30,12 +30,17 @@ untouched** — nothing was built, tagged, restarted or deployed.
   mandatory reason, tombstone, one transaction).
 - §9 three distinct council/committee reports; the detailed registry is one row per member
   **and per task** — no merged cells.
+- §4 report builder (`/reports/builder`) and saved templates (`/reports/templates`) over the
+  same catalogue and loaders — no second engine. Migrations **0032** (table) and **0033**
+  (permissions data migration, idempotent, verified). A template grants nothing: every read
+  and run re-checks the source report's permission.
+- §10 maintenance filtering (status, category, priority, location, owner, flags) and §11
+  budget filtering with استغلال المخصصات and بنود بلا مخصص.
 
 **Not started or unfinished — see the table in `docs/DELIVERY_V2_5_0.md`:**
-§4 report builder and saved templates · §10 maintenance filters · §11 budget filters and
-cards · §12/§13 optional-field policy · §19.3 the 26 browser scenarios · §20 visual audit ·
-§21 export audit · §22 security review · §23 performance review · §24 clone rehearsal ·
-§26 RC image.
+§11.3 filter-responsive budget cards · §12/§13 optional-field policy · §19.3 the 26 browser
+scenarios · §20 visual audit · §21 export audit · §22 security review · §23 performance
+review · §24 clone rehearsal and rollback rehearsal · §26 RC image.
 
 ## Deployed baseline — **v2.4.1 DEPLOYED to production (2026-08-04)**
 
