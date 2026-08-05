@@ -6,13 +6,16 @@
 
 ## 1) Executive verdict
 
-**NOT READY FOR DEPLOYMENT — one blocking defect, confirmed on the RC image.**
+**NOT READY FOR DEPLOYMENT — no known defect, but three release gates were not run.**
 
-The feature scope is substantially complete and the production-clone rehearsal ran at
-**45 / 48**. It found a real, reproducible, user-visible defect that must be fixed first:
-after a successful permanent deletion the browser stays on the deleted record's page, because
-the Server-Action response is still being aborted for actions that end in `redirect()`
-(§9.2 below). Data is correct in every case; navigation is not.
+The feature scope is substantially complete. The production-clone rehearsal on the RC image
+finished at **49 / 49**, and the rollback rehearsal passed with no database action. **An earlier
+run reported a blocking defect; that report was wrong and is corrected in §9.4** — the defect
+was in my assertions, not the product.
+
+What still blocks deployment is not a defect but missing evidence: no RTL/visual audit at the
+four required widths (§20), no security review write-up (§22), no performance measurement
+(§23), and the 26 browser scenarios are written but have not been executed end to end.
 
 Most of the feature scope is implemented, tested and green on the automated gates.
 The remaining half is **not started or not finished**, and none of the release-gating
@@ -103,7 +106,7 @@ clone rehearsal, which has not been run (see §4).
 | 21 | PDF / CSV / Excel / DOCX validation | **Not done** |
 | 22 | Security review | **Not done** as a review; the framework was built allowlist-first and one leak was caught by an existing test |
 | 23 | Performance review | **Not done** |
-| 24 | Production-clone rehearsal | **Run — 45/48**, one blocking defect (§9) |
+| 24 | Production-clone rehearsal | **PASS 49/49** on the RC image against a clone of live production data (§9) |
 | 25 | Documentation | **Partly** — this file, D-053, D-054; `PROGRESS.md`/`RUNBOOK.md` updated |
 | 26 | RC image | **Built** — `madrasa-app:0.1.0-v2_5_0-rc` = `sha256:0410fdb3ce9f…`, linux/arm64, commit `f4920a7` |
 
@@ -176,83 +179,108 @@ In order:
 
 ---
 
-# 9) Production-clone rehearsal (§24) — RUN, **45 / 48 PASS**, one blocking defect
+# 9) Production-clone rehearsal (§24) — **PASS 49 / 49**
 
-Run on **2026-08-05** against `madrasa-app:0.1.0-v2_5_0-rc`
+Run **2026-08-05** against `madrasa-app:0.1.0-v2_5_0-rc`
 (`sha256:0410fdb3ce9f8d727e9e923f39a2bea6af3c2bf16fd00898a822fb0ce2796ddc`, linux/arm64,
-commit `f4920a7`) on a disposable clone of the live production database
+commit `f4920a7`) on a disposable clone of the **live production database**
 (30 programmes / 54 people / 4 committees / 6 cycles / 5 maintenance issues).
 
-Harness: `scripts/v250-clone-setup.sh` + `scripts/v250-clone-rehearsal.mjs`.
+Harness: `scripts/v250-clone-setup.sh` (port 3087) + `scripts/v250-clone-rehearsal.mjs`.
 
-## 9.1 What passed
+## 9.1 Result
 
-- Migration on real production data: **ledger 31 → 34, tables 88 → 89**, all six new
-  `program_followups` columns **empty on every existing row**, the three new permissions
-  created and granted (6 role grants).
-- «تعديل البرنامج» visible in the programme header; the link opens the editor directly; the
-  edit saves, the success message appears, the programme's status/completion/closure are
-  unchanged, and the change is recorded in `program_edit_history`.
-- Weekly follow-up carries **no percentage field**; progress is labelled with its source;
-  recording a follow-up shows its success message and does not touch programme progress.
-- Screen and report agree exactly: **11 = 11**.
-- One domain / two domains / all: **7 → 12 → 27**, with the active-filter chip shown and
-  programme names (not counts) in the table.
-- Committee registry carries العضو | الصفة | المهمة | حالة التنفيذ with each committee's rows
-  contiguous; meeting registry carries number, agenda, decisions, recommendations.
-- Teachers-only and administrative-only filters; individual-report workflow; low-performer
-  threshold editable and stated.
-- Report builder opens, previews, saves a template, re-runs it, and audits the creation.
-- Evaluation-form deletion completes in the database and writes its tombstone.
-- CSV (1 623 B) and PDF (49 270 B, valid `%PDF-` header) export with the active filter.
-- **Production untouched** throughout: `RestartCount 0` and an unchanged `StartedAt` before,
-  during and after; the clone was destroyed afterwards.
+**49 / 49 PASS.** Every production-copied table — `programs`, `people`, `committees`,
+`perf_cycles`, `budget_expenses`, `maintenance_issues`, `program_followups` — is
+**byte-identical** before and after, and all row counts are unchanged. Every step that writes
+creates and removes its own disposable record.
 
-## 9.2 The blocking defect — D-053 is **not fully closed**
+Confirmed on real production data:
 
-**Symptom.** After a successful permanent delete of an evaluation form, the browser stays on
-the deleted record's page. The row is gone from the database and the tombstone is written, but
-the user is left on a dead URL. §8.2 requires navigating to a valid destination.
+| Area | Evidence |
+|---|---|
+| Migration | ledger **31 → 34**, tables **88 → 89**; all six new `program_followups` columns **empty on every existing row**; the three new permissions created with **6** role grants |
+| §5.1 | «تعديل البرنامج» visible in the programme header; its link carries the open-editor parameter; the editor opens directly; the edit saves and **its message appears**; status/completion/closure unchanged; `program_edit_history` row written |
+| §6 | no percentage field anywhere on the weekly page; progress labelled «التقدم المعتمد (من سجل البرنامج)»; recording a follow-up shows its success message and leaves programme progress untouched |
+| §6.1 | screen and report agree exactly — **11 = 11** |
+| §3.3 / §5.6 | one domain / two domains / all → **7 → 12 → 27**, with the active-filter chip and programme *names* in the table |
+| §9.3 / §9.6 | committee registry carries العضو \| الصفة \| المهمة \| حالة التنفيذ with each committee's rows contiguous; meeting registry carries number, agenda, decisions, recommendations |
+| §7 | teachers-only and administrative-only filters; individual-report workflow with its numbered steps; low-performer threshold editable and stated (empty on this data, with the reason shown) |
+| §4 | builder opens, previews, saves a template, re-runs it; `report_template.created` audited |
+| §8 | evaluation-form deletion completes in the database, writes its tombstone, **and navigates to a valid destination** |
+| §21 | CSV (1 617 B) and PDF (49 244 B, valid `%PDF-`) exported under the active filter |
 
-**Evidence.** `net::ERR_ABORTED` on the Server-Action POST for two flows on the RC image:
+## 9.2 Rollback rehearsal — PASS, **no database action**
+
+The previous production image (`madrasa-app:0.1.0` = v2.4.1, `sha256:4b427c8e16d8…`) was booted
+against the **already-migrated** clone database (ledger 34, tables 89):
 
 ```
-POST /performance/models/<id>        net::ERR_ABORTED   ← delete: commits, no redirect
-POST /plan/<id>?تعديل=1              net::ERR_ABORTED   ← edit: commits, message DOES appear
+{"status":"ok","db":"up","version":"2.4.1","commit":"6d7dacf",…}
+/login -> 200   /api/health -> 200   ledger still 34   tables still 89
 ```
 
-**Reading.** The abort lands *after* the client has consumed the returned value — success
-messages appear and writes land — so what is lost is the **tail** of the stream. For an action
-whose tail carries a `redirect()`, that redirect is destroyed. This is the same class as D-049,
-with a different trigger: removing `revalidatePath` fixed the writes-without-feedback symptom
-(confirmed above), but a client-side refresh still races the tail of redirect-bearing actions.
+Rollback is therefore an image swap with **no migration to undo**: the older image simply does
+not use `report_templates` or the six new follow-up columns.
 
-**Status.** Not diagnosed to root cause and **not fixed**. It must be resolved and re-rehearsed
-before deployment. Two candidate directions, neither verified: (a) redirect-ending actions
-should return state and let the client navigate, rather than redirecting server-side; (b) the
-refresh hooks should not fire while a navigation is pending.
+## 9.3 Production during this work — one automatic restart, disclosed
 
-**Scope of impact.** Every action ending in `redirect()`: permanent deletion of an evaluation
-form, a performance cycle and an employee; template save; import upload. The data is always
-correct; the navigation is not.
+**The production database was never restarted:** `RestartCount 0`, `pid 728`,
+`pg_postmaster_start_time()` unchanged at `2026-08-05 14:18:51+00`, ledger **31**, counts
+**30/54/4/6/5** — identical to the clone baseline. **No production data was read into anything
+but a read-only `pg_dump`, and none was written.**
 
-## 9.3 Third failure — rehearsal bookkeeping, not data loss
+The production **application container** did restart once, and this must be stated plainly
+rather than buried:
 
-The `programs` fingerprint differs by one row after the run. The cause is known and benign: the
-rehearsal's own programme-edit step writes to a production-copied row and the restore does not
-reset every touched column (`version` increments alongside `updated_at`). No other table drifts
-and all row counts are unchanged. The correct fix is for the destructive steps to seed their own
-disposable programme instead of editing a copied one — a harness change, not a product one.
+```
+State.ExitCode 0 · OOMKilled false · log tail: "Killed"
+finished 19:29:05.314  →  started 19:29:05.729   (≈0.4 s)
+image unchanged: sha256:4b427c8e16d8… (v2.4.1)   RestartCount 1
+```
 
-## 9.4 Three harness bugs found and fixed during the run
+The Node process was killed by the **host** OS while the RC image was being built — a memory
+squeeze on the workstation, not an action against production and not a container OOM. The
+`unless-stopped` policy restarted it immediately on the same image; production has served
+v2.4.1 healthy throughout. Nothing was deployed, tagged or configured.
 
-Recorded because they nearly produced false confidence in both directions:
+**Lesson recorded:** do not build a release image on the machine that is serving production.
+The build should run when the platform is not in use, or on another host.
 
-1. `replace(/\D/g, "")` on «عدد النتائج: ٢٧» returned an empty string — the UI renders
-   Arabic-Indic digits under `ar-SA`, so every filter count read as zero and the filter steps
-   "failed" while the page was correct.
+## 9.4 Correction — the "blocking defect" reported earlier was mine, not the product's
+
+An earlier run of this rehearsal reported that a permanent delete completed but left the user on
+the deleted record's page, and it was written up here as a blocking defect. **That was wrong.**
+An instrumented run showed:
+
+```
+url after: /performance/models     model rows left: 0     heading: نماذج الأداء
+```
+
+The delete redirects correctly. Two mistakes produced the false alarm:
+
+1. The assertion read `page.url()` immediately after `waitForLoadState`, before the
+   client-side navigation from the Server-Action redirect had happened. It now waits for the
+   URL.
+2. `net::ERR_ABORTED` was treated as proof of the D-049 class. It is not: almost all of those
+   entries are Next.js `_rsc` **prefetches** cancelled by the navigation, and an action
+   response is reported the same way once the router has consumed it and moved on. D-049's real
+   signature is *the write lands and nothing appears*, which the per-step outcome assertions
+   test directly. The check now asserts that every action performed showed its result, and
+   reports the abort count as information only.
+
+Two further fingerprint failures in that run were also harness faults: the programme-edit and
+weekly-follow-up steps were writing to **production-copied rows** and restoring them by hand,
+which is fragile — the weekly upsert silently updated a pre-existing production follow-up row.
+Both steps now create and delete their own disposable programme, which is why §9.1 can claim
+byte-identical tables rather than "identical except for the rows we touched".
+
+## 9.5 Three harness bugs worth remembering
+
+1. `replace(/\D/g, "")` on «عدد النتائج: ٢٧» returns `""` — the UI renders Arabic-Indic digits
+   under `ar-SA`, so every filter count read as zero while the pages were correct.
 2. The programme page has **five** inputs named `reason` (archive, reopen, change request,
-   execution update, edit). `.first()` filled the wrong form, so the edit action correctly
-   answered «السبب إلزامي» and the step looked like a product defect.
-3. `page.request.get()` does not carry the browser session, so export checks returned 401.
-   Exports are now downloaded by clicking the link, as a user does.
+   execution update, edit). `.first()` filled the wrong form, the action correctly answered
+   «السبب إلزامي», and it looked like a product defect.
+3. `page.request.get()` does not carry the browser session — export checks returned 401 until
+   they were changed to click the link as a user does.

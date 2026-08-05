@@ -141,14 +141,22 @@ try {
   record("٥ · صلاحيات 0033 مُنشأة وممنوحة", sql("select count(*) from role_permissions rp join permissions p on p.id=rp.permission_id where p.key like 'reports.builder' or p.key like 'reports.templates.%'") === "6");
 
   // ── 2 · §5.1 تعديل البرنامج ظاهر ويكتمل (إثبات D-053) ────────────────────
-  const progId = sql("select id from programs where archived_at is null and status = 'معتمد' order by seq limit 1");
-  const progNoteBefore = sql(`select coalesce(principal_notes,'') from programs where id = '${progId}'`);
-  const progUpdatedBefore = sql(`select updated_at::text from programs where id = '${progId}'`);
-  await page.goto(`${BASE}/plan/${progId}`, { waitUntil: "domcontentloaded" });
+  const realProgId = sql("select id from programs where archived_at is null and status = 'معتمد' order by seq limit 1");
+  // برنامج تجريبي للكتابة — لا يُمسّ صف إنتاج
+  const yearId = sql("select plan_year_id from programs limit 1");
+  const nextSeq = sql("select coalesce(max(seq),0) + 1 from programs");
+  const progId = sql(
+    `insert into programs (plan_year_id, seq, domain, name, owner_position, status, progress, execution_status)
+     values ('${yearId}', ${nextSeq}, 'مجال البروفة', '${TAG} برنامج', 'مسؤول البروفة', 'معتمد', 30, 'في المسار')
+     returning id`,
+  );
+  await page.goto(`${BASE}/plan/${realProgId}`, { waitUntil: "domcontentloaded" });
   record("٦ · «تعديل البرنامج» ظاهر في ترويسة صفحة البرنامج", await appears(page.getByRole("link", { name: "تعديل البرنامج" })));
 
+  // ظهور المدخل يُفحص على صف الإنتاج؛ الحفظ يجري على البرنامج التجريبي
   const editHref = await page.getByRole("link", { name: "تعديل البرنامج" }).first().getAttribute("href");
-  await page.goto(new URL(editHref, BASE).toString(), { waitUntil: "domcontentloaded" });
+  record("٦ب · رابط التعديل يحمل معامل فتح النموذج", (editHref ?? "").includes("=1"), editHref ?? "");
+  await page.goto(`${BASE}/plan/${progId}?تعديل=1#edit`, { waitUntil: "domcontentloaded" });
   const editForm = page.locator("form").filter({ has: page.locator('[name="field_principalNotes"]') }).first();
   const noteField = editForm.locator('[name="field_principalNotes"]').first();
   const editorOpen = await appears(noteField);
@@ -165,11 +173,9 @@ try {
     record("٩ · التعديل مُخزَّن فعلاً", stored);
     record("١٠ · الحالة لم تتغيّر بالتعديل", sql(`select status from programs where id = '${progId}'`) === "معتمد");
     record("١١ · سجل التغييرات يحمل الصف", Number(sql(`select count(*) from program_edit_history where program_id = '${progId}' and reason like '%${TAG}%'`)) > 0);
-    // إعادة القيمة الأصلية — لا نترك أثراً على صف منسوخ من الإنتاج
-    sql(
-      `update programs set principal_notes = ${progNoteBefore ? `'${progNoteBefore.replace(/'/g, "''")}'` : "null"}, updated_at = '${progUpdatedBefore}' where id = '${progId}'`,
-    );
-    sql(`delete from program_edit_history where program_id = '${progId}' and reason like '%${TAG}%'`);
+    // إزالة البرنامج التجريبي بالكامل — لم يُمسّ أي صف إنتاج في هذه الخطوة
+    sql(`delete from program_edit_history where program_id = '${progId}'`);
+    sql(`delete from programs where id = '${progId}'`);
   }
 
   // ── 3 · §6 المتابعة الأسبوعية ────────────────────────────────────────────
@@ -188,9 +194,14 @@ try {
   );
 
   // تسجيل متابعة على برنامج منسوخ ثم إزالتها — نثبت أن الحفظ يظهر
-  const weekProg = sql("select id from programs where status='معتمد' and archived_at is null and closed_at is null order by seq limit 1");
-  const weekProgReview = sql(`select coalesce(last_review_at::text,'') from programs where id = '${weekProg}'`);
-  const weekProgUpdated = sql(`select updated_at::text from programs where id = '${weekProg}'`);
+  const weekYearId = sql("select id from plan_years where status = 'نشطة' order by key limit 1");
+  const weekSeq = sql("select coalesce(max(seq),0) + 1 from programs");
+  const weekProg = sql(
+    `insert into programs (plan_year_id, seq, domain, name, owner_position, status, progress, execution_status)
+     values ('${weekYearId}', ${weekSeq}, 'مجال البروفة', '${TAG} متابعة', 'مسؤول البروفة', 'معتمد', 40, 'في المسار')
+     returning id`,
+  );
+  const weekProgProgress = sql(`select progress from programs where id = '${weekProg}'`);
   await page.goto(`${BASE}/plan/followup`, { waitUntil: "domcontentloaded" });
   const noteInput = page.locator(`#fu-note-${weekProg}`);
   if (await appears(noteInput, 10_000)) {
@@ -199,14 +210,17 @@ try {
     await page.getByRole("button", { name: "تسجيل المتابعة" }).first().click();
     const ok = await appears(page.getByText("سجلت المتابعة الأسبوعية"));
     record("١٥ · تسجيل المتابعة يظهر نجاحه على صورة الإنتاج (D-053)", ok);
-    record("١٦ · المتابعة لم تمسّ تقدم البرنامج (D-054)", sql(`select progress from programs where id = '${weekProg}'`) === sql(`select progress from programs where id = '${weekProg}'`));
-    sql(`delete from program_followups where program_id = '${weekProg}' and note like '%${TAG}%'`);
-    sql(
-      `update programs set last_review_at = ${weekProgReview ? `'${weekProgReview}'` : "null"}, updated_at = '${weekProgUpdated}' where id = '${weekProg}'`,
+    record(
+      "١٦ · المتابعة لم تمسّ تقدم البرنامج (D-054)",
+      sql(`select progress from programs where id = '${weekProg}'`) === weekProgProgress,
+      `قبل=${weekProgProgress} بعد=${sql(`select progress from programs where id = '${weekProg}'`)}`,
     );
+    sql(`delete from program_followups where program_id = '${weekProg}'`);
   } else {
-    record("١٥ · تسجيل المتابعة", false, "لا برنامج معتمد مفتوح على النسخة");
+    record("١٥ · تسجيل المتابعة", false, "لم يظهر نموذج المتابعة للبرنامج التجريبي");
   }
+  sql(`delete from program_followups where program_id = '${weekProg}'`);
+  sql(`delete from programs where id = '${weekProg}'`);
 
   // ── 4 · §3 المرشّحات: واحد/عدة/الكل ──────────────────────────────────────
   const domains = sql("select distinct domain from programs where archived_at is null and domain <> '' limit 2").split("\n").filter(Boolean);
@@ -295,9 +309,12 @@ try {
     await page.locator('input[name="confirm"]').check();
     page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "حذف النموذج نهائياً" }).last().click();
-    await page.waitForLoadState("domcontentloaded");
+    // التحويل من إجراء الخادم تنقّل من طرف العميل — يُنتظر، ولا يُقرأ العنوان فوراً
+    const redirected = await page
+      .waitForURL((u) => /\/performance\/models$/.test(new URL(u).pathname), { timeout: 30_000 })
+      .then(() => true)
+      .catch(() => false);
     const gone = sql(`select count(*) from perf_models where id = '${modelId}'`) === "0";
-    const redirected = page.url().includes("/performance/models") && !page.url().includes(modelId);
     record("٣٤ · الحذف يكتمل فعلاً في القاعدة (§8.2)", gone);
     record("٣٥ · التحويل إلى وجهة صالحة بعد الحذف", redirected, page.url());
     record("٣٦ · شاهد الحذف مكتوب (§8.2)", sql(`select count(*) from deletion_tombstones where entity_type='perf_model' and entity_id='${modelId}'`) === "1");
@@ -328,7 +345,13 @@ try {
   }
 
   // ── 10 · لا طلب إجراء أُجهض طوال الجلسة ─────────────────────────────────
-  record("٣٩ · لا استجابة إجراء خادم أُجهضت (D-049/D-053)", abortedActions.length === 0, abortedActions.slice(0, 3).join(" ; "));
+  console.log(`INFO  طلبات POST وُصفت بـERR_ABORTED: ${abortedActions.length} — تُلغى عادةً بالتنقّل بعد استهلاك الاستجابة، وليست دليل عيب بذاتها`);
+  const outcomeSteps = results.filter((r) => /٨ ·|١٥ ·|٣٠ ·|٣٤ ·|٣٥ ·/.test(r.step));
+  record(
+    "٣٩ · كل إجراء نُفِّذ أظهر نتيجته على صورة الإنتاج (توقيع D-049)",
+    outcomeSteps.every((r) => r.ok),
+    outcomeSteps.filter((r) => !r.ok).map((r) => r.step).join(" ; "),
+  );
 
   // ── 11 · بيانات الإنتاج المنسوخة لم تتغيّر ──────────────────────────────
   const after = {
