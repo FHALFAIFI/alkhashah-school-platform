@@ -6,7 +6,13 @@
 
 ## 1) Executive verdict
 
-**NOT READY FOR DEPLOYMENT — partial scope delivered.**
+**NOT READY FOR DEPLOYMENT — one blocking defect, confirmed on the RC image.**
+
+The feature scope is substantially complete and the production-clone rehearsal ran at
+**45 / 48**. It found a real, reproducible, user-visible defect that must be fixed first:
+after a successful permanent deletion the browser stays on the deleted record's page, because
+the Server-Action response is still being aborted for actions that end in `redirect()`
+(§9.2 below). Data is correct in every case; navigation is not.
 
 Most of the feature scope is implemented, tested and green on the automated gates.
 The remaining half is **not started or not finished**, and none of the release-gating
@@ -85,21 +91,21 @@ clone rehearsal, which has not been run (see §4).
 | 9.5 | Committee card | **Already delivered in v2.4.1** («بطاقة مجلس أو لجنة») |
 | 10 | Maintenance/inspection filters and builder domains | **Done** for maintenance (status, category, priority, location, owner, date, approved/issued/open/safety flags). Inspection-level filtering as its own report is **not** added |
 | 11 | Budget filters, reports, filter-aware summary cards | **Mostly** — item multi-select, amount range, supplier/invoice search, missing-allocation and overspent flags, plus استغلال المخصصات and بنود بلا مخصص. Summary cards now **declare their scope** but are still not filter-responsive (§11.3) |
-| 12 | Mandatory-field reduction | **Not started** (much of it already holds from v2.1 §H, but not reviewed field by field) |
-| 13 | Form UX for optional fields | **Partly** — applied to the new weekly follow-up form only |
+| 12 | Mandatory-field reduction | **Mostly** — the policy was already in force from v2.1 §H; audited, and the remaining `required` markers are exactly the safety controls §12.9/§12.10 require. §12.4's "form optional on a cycle" is **not** done: `perf_cycles.model_id` is NOT NULL and a cycle without a form cannot be evaluated at all |
+| 13 | Form UX for optional fields | **Mostly** — completeness indicator on the programme and person pages, collapsible optional detail on the weekly form. Not applied to every form |
 | 14 | Reports page reorganised by domain, descriptions | **Done** |
 | 15 | Selection → filters → count → representative rows → generate, with warnings | **Done** |
 | 16 | Permissions review | **Mostly** — one real leak found and fixed (see below); three new permissions designed, granted by migration, and pinned by tests. A full RBAC sweep of every surface is not done |
 | 17 | Audit review | **Mostly** — deletion audit extended; template create/update/duplicate/delete audited; report export was already audited. Low-performer export is not separately audited |
 | 18 | Database design | **Done for this scope** — migrations 0031 (additive columns), 0032 (report_templates), 0033 (permissions data migration, idempotent, verified) |
-| 19 | Unit / integration / E2E | **Partly** — 949 unit+integration green, 27 new; **none of the 26 mandatory browser scenarios written** |
+| 19 | Unit / integration / E2E | **Mostly** — 949 unit+integration green; the 26 browser scenarios are written (`tests/e2e/zzzz-v250.spec.ts`) but the suite has **not been executed end to end**; the clone rehearsal covers the same ground on the real image |
 | 20 | RTL / visual validation at four widths | **Not done** |
 | 21 | PDF / CSV / Excel / DOCX validation | **Not done** |
 | 22 | Security review | **Not done** as a review; the framework was built allowlist-first and one leak was caught by an existing test |
 | 23 | Performance review | **Not done** |
-| 24 | Production-clone rehearsal | **Not done** |
+| 24 | Production-clone rehearsal | **Run — 45/48**, one blocking defect (§9) |
 | 25 | Documentation | **Partly** — this file, D-053, D-054; `PROGRESS.md`/`RUNBOOK.md` updated |
-| 26 | RC image | **Not built** |
+| 26 | RC image | **Built** — `madrasa-app:0.1.0-v2_5_0-rc` = `sha256:0410fdb3ce9f…`, linux/arm64, commit `f4920a7` |
 
 ### Permission leak found and fixed
 
@@ -132,7 +138,7 @@ new columns.
 | `npm test` | **949 / 949** across 98 files (was 915 / 95 at the v2.4.1 baseline) |
 | `npx drizzle-kit generate` | migration 0031 generated cleanly |
 | `npm run test:e2e` | **not run** — no new browser scenarios written |
-| `npm run build` | **not run** |
+| `npm run build` | success |
 
 New test files:
 - `tests/unit/no-revalidate-in-actions.test.ts` — 6 tests, pins D-053
