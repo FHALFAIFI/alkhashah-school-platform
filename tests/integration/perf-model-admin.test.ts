@@ -87,15 +87,28 @@ async function seedPersonWithCycle(modelId: string, yearKey: string) {
   return { person, cycle };
 }
 
-describe("إدارة نماذج الأداء (v2.4 §6): الحذف الآمن والأرشفة والاستعادة", () => {
+/**
+ * v2.5.0 §8.1: الحذف النهائي للنموذج صار يمرّ بضوابط الحذف نفسها المطبَّقة على الموظف
+ * ودورة الأداء — إقرار صريح واسم مكتوب حرفياً وسبب إلزامي وشاهد حذف. هذه المساعدة تبني
+ * الطلب الكامل، فتبقى الاختبارات معبّرة عن العقد الجديد لا عن نداء بمعرّف واحد.
+ */
+function deleteFd(name: string, reason = "نموذج تجريبي لم يُستعمل") {
+  const fd = new FormData();
+  fd.set("confirm", "1");
+  fd.set("typedName", name);
+  fd.set("reason", reason);
+  return fd;
+}
+
+describe("إدارة نماذج الأداء (v2.4 §6 · v2.5.0 §8.1): الحذف الآمن والأرشفة والاستعادة", () => {
   it("(أ) حذف نهائي لمسودة غير مستخدمة: يحذف النموذج ومؤشراته مع لقطة وسجل تدقيق", async () => {
     const { db } = await import("@/db");
     const { perfModels, perfIndicators, auditLog, recordVersions } = await import("@/db/schema");
     const { deleteModelAction } = await import("@/app/(app)/performance/actions");
     const model = await seedModel({ status: "مسودة" });
 
-    const res = await deleteModelAction(model.id);
-    expect(res?.success).toBeTruthy();
+    const res = await deleteModelAction(model.id, null, deleteFd(model.nameAr));
+    expect(res?.error).toBeUndefined();
 
     const gone = await db.select().from(perfModels).where(eq(perfModels.id, model.id));
     expect(gone).toHaveLength(0);
@@ -110,8 +123,16 @@ describe("إدارة نماذج الأداء (v2.4 §6): الحذف الآمن �
     const audits = await db
       .select()
       .from(auditLog)
-      .where(and(eq(auditLog.action, "perf_model.deleted"), eq(auditLog.entityId, model.id)));
+      .where(and(eq(auditLog.action, "perf_model.permanently_deleted"), eq(auditLog.entityId, model.id)));
     expect(audits).toHaveLength(1);
+
+    // شاهد الحذف يحمل السبب والأعداد — §8.2/§17
+    const { deletionTombstones } = await import("@/db/schema");
+    const [tomb] = await db
+      .select()
+      .from(deletionTombstones)
+      .where(and(eq(deletionTombstones.entityType, "perf_model"), eq(deletionTombstones.entityId, model.id)));
+    expect(tomb.reason).toContain("لم يُستعمل");
   });
 
   it("(ب) حذف نموذج معتمد غير مستخدم: يمر عندما يوجد نموذج معتمد نشط آخر لنفس الفئة", async () => {
@@ -121,15 +142,15 @@ describe("إدارة نماذج الأداء (v2.4 §6): الحذف الآمن �
     await seedModel({ status: "معتمد" }); // بديل نشط يبقي الفئة مغطاة
     const model = await seedModel({ status: "معتمد" });
 
-    const res = await deleteModelAction(model.id);
-    expect(res?.success).toBeTruthy();
+    const res = await deleteModelAction(model.id, null, deleteFd(model.nameAr));
+    expect(res?.error).toBeUndefined();
     expect(await db.select().from(perfModels).where(eq(perfModels.id, model.id))).toHaveLength(0);
   });
 
   it("(ج) النموذج الرسمي لا يحذف نهائياً", async () => {
     const { deleteModelAction } = await import("@/app/(app)/performance/actions");
     const model = await seedModel({ status: "معتمد", official: true });
-    const res = await deleteModelAction(model.id);
+    const res = await deleteModelAction(model.id, null, deleteFd(model.nameAr));
     expect(res?.error).toContain("الرسمية");
   });
 
@@ -140,7 +161,7 @@ describe("إدارة نماذج الأداء (v2.4 §6): الحذف الآمن �
     const model = await seedModel({ status: "معتمد" });
     await seedPersonWithCycle(model.id, "2026-t-d");
 
-    const res = await deleteModelAction(model.id);
+    const res = await deleteModelAction(model.id, null, deleteFd(model.nameAr));
     expect(res?.error).toContain("أرشفة");
     expect(res?.error).toContain("دورة تقييم");
     expect(await db.select().from(perfModels).where(eq(perfModels.id, model.id))).toHaveLength(1);
@@ -195,7 +216,7 @@ describe("إدارة نماذج الأداء (v2.4 §6): الحذف الآمن �
 
     const resA = await archiveModelAction(last.id, null, new FormData());
     expect(resA?.error).toContain("آخر نموذج معتمد");
-    const resD = await deleteModelAction(last.id);
+    const resD = await deleteModelAction(last.id, null, deleteFd(last.nameAr));
     expect(resD?.error).toContain("آخر نموذج معتمد");
   });
 

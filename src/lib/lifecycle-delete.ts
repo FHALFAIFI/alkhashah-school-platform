@@ -11,6 +11,8 @@ import {
   sessions as authSessions,
   personStages,
   perfCycles,
+  perfModels,
+  perfIndicators,
   perfSessions,
   perfRatings,
   perfSignedReportVersions,
@@ -80,7 +82,7 @@ import { orFallback } from "@/lib/format";
 export type ImpactLine = { type: string; labelAr: string; count: number };
 
 export type DeletionImpact = {
-  entity: "person" | "perf_cycle";
+  entity: "person" | "perf_cycle" | "perf_model";
   entityId: string;
   /** مرجع تعريفي آمن يُعرض في المعاينة ويُحفظ في الشاهد */
   displayRef: string;
@@ -507,6 +509,104 @@ export async function deleteCyclePermanently(opts: {
   return {
     success: `حُذفت دورة الأداء نهائياً — ${impact.owned.reduce((s, l) => s + l.count, 0)} سجلاً${removed ? ` و${removed} ملفاً` : ""}`,
   };
+}
+
+/* ────────────── نموذج التقييم (v2.5.0 §8.1) ────────────── */
+
+/**
+ * معاينة أثر حذف **نموذج تقييم** — الثالث من عمليات الحذف الثلاث المتمايزة.
+ *
+ * ما يملكه النموذج ويُحذف معه: مؤشراته (`perf_indicators`). لا شيء غيره.
+ *
+ * ما **لا** يملكه: دورات الأداء المبنية عليه. الدورة سجل حياة **الموظف** لا سجل النموذج،
+ * وحذفها هنا يمحو تقييم إنسان بقرار عن قالب. هذا هو الاستثناء الوحيد المقصود من قاعدة
+ * §8.2 «لا تتوقف بسبب سجلات تابعة»: القاعدة عن السجلات **المملوكة**، والدورة ليست منها.
+ * فتظهر كمانع صريح مع البديل الصحيح — أرشفة النموذج، وهي تُبقي كل تقييم وتقرير تاريخي.
+ */
+export async function assessModelDeletion(modelId: string): Promise<DeletionImpact | null> {
+  const [model] = await db.select().from(perfModels).where(eq(perfModels.id, modelId));
+  if (!model) return null;
+
+  const [indicators, cycles] = await Promise.all([
+    countRows(perfIndicators, eq(perfIndicators.modelId, modelId)),
+    countRows(perfCycles, eq(perfCycles.modelId, modelId)),
+  ]);
+
+  const blockers: string[] = [];
+  if (cycles > 0) {
+    blockers.push(
+      `يرتبط بالنموذج ${cycles} دورة تقييم — حذفه يمحو تقييمات موظفين. استخدم «أرشفة النموذج»: تبقى كل الدورات والتقارير التاريخية سليمة ولا يُستعمل النموذج في دورات جديدة.`,
+    );
+  }
+  if (model.official) {
+    blockers.push("النماذج الرسمية لا تُحذف نهائياً — مصدرها ملف الوزارة (D-014). استخدم «أرشفة النموذج».");
+  }
+
+  return {
+    entity: "perf_model",
+    entityId: modelId,
+    displayRef: `${orFallback(model.nameAr, "نموذج بدون اسم")} — ${model.audience} (${model.status})`,
+    // التأكيد الكتابي = اسم النموذج
+    confirmName: model.nameAr,
+    owned: [
+      { type: "perf_models", labelAr: "نموذج التقييم", count: 1 },
+      { type: "perf_indicators", labelAr: "معايير النموذج", count: indicators },
+    ].filter((l) => l.count > 0),
+    shared: [],
+    blockers,
+  };
+}
+
+/**
+ * حذف نموذج تقييم غير مستخدم بمعاييره، في معاملة واحدة مع شاهد الحذف وسجل التدقيق.
+ *
+ * كان الحذف قبل v2.5.0 بلا اسم مكتوب ولا سبب ولا شاهد — مجرد `window.confirm`. الآن يمرّ
+ * بضوابط الحذف نفسها المطبَّقة على الموظف ودورة الأداء (§8.4، §12.9).
+ */
+export async function deleteModelPermanently(opts: {
+  modelId: string;
+  actorId: string;
+  reason: string;
+  typedName: string;
+}): Promise<DeleteResult> {
+  const impact = await assessModelDeletion(opts.modelId);
+  if (!impact) return { error: "النموذج غير موجود" };
+  if (impact.blockers.length > 0) return { error: impact.blockers[0] };
+  const reason = opts.reason.trim();
+  if (reason.length < DELETE_REASON_MIN) return { error: "سبب الحذف إلزامي (5 أحرف على الأقل)" };
+  const expected = impact.confirmName.trim() || "حذف نهائي";
+  if (opts.typedName.trim() !== expected) return { error: `اكتب اسم النموذج «${expected}» حرفياً للتأكيد` };
+
+  await db.transaction(async (tx) => {
+    // إعادة الفحص داخل المعاملة: دورة أُنشئت بين المعاينة والتنفيذ يجب ألا تمر
+    const stillLinked = await countRowsTx(tx, perfCycles, eq(perfCycles.modelId, opts.modelId));
+    if (stillLinked > 0) throw new Error("LINKED_DURING_DELETE");
+    await tx.delete(perfIndicators).where(eq(perfIndicators.modelId, opts.modelId));
+    await tx.delete(perfModels).where(eq(perfModels.id, opts.modelId));
+    await tx.insert(deletionTombstones).values({
+      entityType: "perf_model",
+      entityId: opts.modelId,
+      displayRef: impact.displayRef,
+      reason,
+      counts: countsMap(impact.owned),
+      actorId: opts.actorId,
+    });
+    await tx.insert(auditLog).values({
+      actorId: opts.actorId,
+      action: "perf_model.permanently_deleted",
+      entityType: "perf_model",
+      entityId: opts.modelId,
+      summary: `حذف نهائي لنموذج التقييم — ${impact.displayRef}`,
+      detail: { counts: countsMap(impact.owned), reason },
+    });
+  }).catch((e: unknown) => {
+    if (e instanceof Error && e.message === "LINKED_DURING_DELETE") {
+      throw new Error("ارتبطت بالنموذج دورة تقييم أثناء العملية — لم يُحذف شيء، استخدم «أرشفة النموذج»");
+    }
+    throw e;
+  });
+
+  return { success: `حُذف نموذج التقييم نهائياً — ${impact.owned.reduce((s, l) => s + l.count, 0)} سجلاً` };
 }
 
 /* ────────────── التنفيذ: حذف المنسوب ────────────── */

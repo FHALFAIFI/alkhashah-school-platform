@@ -21,7 +21,7 @@ import {
   modelInUse,
   modelLinkedRecords,
 } from "@/lib/performance/model-admin";
-import { deleteCyclePermanently } from "@/lib/lifecycle-delete";
+import { deleteCyclePermanently, deleteModelPermanently } from "@/lib/lifecycle-delete";
 import { numOrNull } from "@/lib/format";
 import { userFacingError } from "@/lib/user-error";
 import { optionalIsoDate } from "@/lib/dates-zod";
@@ -158,21 +158,16 @@ export async function restoreModelAction(modelId: string): Promise<ActionState> 
  * يحذف (الحذف التتابعي للبيانات التقييمية خارج نطاق هذا الإصدار عمداً). النماذج الرسمية
  * لا تحذف نهائياً — مصدرها ملف الوزارة وتقارير الجاهزية تستند إليها (D-014).
  */
-export async function deleteModelAction(modelId: string): Promise<ActionState> {
+export async function deleteModelAction(modelId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("performance.models.manage");
+  if (String(formData.get("confirm") ?? "") !== "1") return { error: "أكّد الحذف النهائي قبل التنفيذ" };
   const [model] = await db.select().from(perfModels).where(eq(perfModels.id, modelId));
   if (!model) return { error: "النموذج غير موجود" };
-  if (model.official) return { error: "النماذج الرسمية لا تحذف نهائياً — استخدم «أرشفة النموذج»" };
-  const counts = await modelLinkedRecords(modelId);
-  if (modelInUse(counts)) {
-    return {
-      error: `يرتبط بالنموذج ${linkedSummaryAr(counts)} — الحذف النهائي غير متاح حفاظاً على السجل التاريخي، استخدم «أرشفة النموذج»`,
-    };
-  }
   if (await isLastActiveApprovedForAudience(model)) {
     return { error: `لا يمكن حذف آخر نموذج معتمد نشط لفئة «${model.audience}» — اعتمد نموذجاً بديلاً أولاً` };
   }
   const indicators = await db.select().from(perfIndicators).where(eq(perfIndicators.modelId, modelId));
+  // لقطة قبل الحذف — تبقى في `record_versions` حتى بعد اختفاء الصف
   await snapshotRecord({
     entityType: "perf_model",
     entityId: modelId,
@@ -181,24 +176,21 @@ export async function deleteModelAction(modelId: string): Promise<ActionState> {
     reason: "لقطة قبل الحذف النهائي لنموذج غير مستخدم",
     actorId: user.id,
   });
+
+  let result: { error?: string; success?: string };
   try {
-    // المؤشرات تحذف تتابعياً؛ قيد المفتاح الأجنبي من perf_cycles يمنع أي سباق مع إنشاء دورة
-    await db.delete(perfModels).where(eq(perfModels.id, modelId));
-  } catch {
-    return { error: "تعذر الحذف — ارتبطت بالنموذج دورة تقييم أثناء العملية، استخدم «أرشفة النموذج»" };
+    result = await deleteModelPermanently({
+      modelId,
+      actorId: user.id,
+      reason: String(formData.get("reason") ?? ""),
+      typedName: String(formData.get("typedName") ?? ""),
+    });
+  } catch (e) {
+    // المعاملة تراجعت كاملةً — لا حذف جزئي (§8.3)
+    return { error: userFacingError(e, "تعذّر الحذف — لم يُحذف أي سجل") };
   }
-  await audit({
-    actorId: user.id,
-    action: "perf_model.deleted",
-    entityType: "perf_model",
-    entityId: modelId,
-    summary: `حذف نهائي لنموذج «${model.nameAr}» (${model.status}) — غير مرتبط بأي تقييم`,
-    detail: {
-      before: { key: model.key, nameAr: model.nameAr, status: model.status, audience: model.audience, indicators: counts.indicators },
-      linkedRecords: counts,
-    },
-  });
-  return { success: `حُذف النموذج «${model.nameAr}» نهائياً` };
+  if (result.error) return result;
+  redirect("/performance/models");
 }
 
 /** اعتماد نموذج — مجموع الأوزان يجب أن يساوي 100٪ تماماً */

@@ -64,6 +64,45 @@ function renderCell(value: string | number | null, column: ReportColumn): string
 
 const SECTION_ORDER: SectionKey[] = ["programs", "performance", "councils", "finance", "building", "custom", "records"];
 
+/**
+ * مداخل الأداء المطلوبة في §7.1 و§14، كل واحد برابط يحمل مرشّحه مسبقاً.
+ *
+ * الفرق بين «تقرير المعلمين» و«تقرير الإداريين» و«تقرير الجميع» مرشّح واحد لا ثلاثة
+ * تقارير، لكن المدير يطلبها بأسمائها — فتظهر بأسمائها ويقودها المرشّح نفسه.
+ */
+const PERFORMANCE_QUICK_LINKS = [
+  {
+    label: "التقرير التفصيلي الفردي (معلم أو موظف إداري)",
+    description: "خطوات صريحة: النوع ← الموظف ← الدورة ← المعاينة ← الإصدار، مع بيان سبب أي نقص في البيانات.",
+    href: "/reports/individual",
+  },
+  {
+    label: "تقرير المعلمين",
+    description: "نتائج المعلمين وحدهم بالأسماء والنتائج والفئات.",
+    href: "/reports?category=performance&report=perf-results&empType=معلم",
+  },
+  {
+    label: "تقرير الموظفين الإداريين",
+    description: "نتائج الموظفين الإداريين وحدهم بالأسماء والنتائج والفئات.",
+    href: "/reports?category=performance&report=perf-results&empType=موظف إداري",
+  },
+  {
+    label: "تقرير جميع الموظفين",
+    description: "كل الموظفين في تقرير واحد — معلمين وإداريين معاً.",
+    href: "/reports?category=performance&report=perf-results",
+  },
+  {
+    label: "الأداء المنخفض بالأسماء",
+    description: "أقل من 70٪ افتراضياً، والعتبة قابلة للتعديل — بالأسماء والمعايير الضعيفة والتوصيات.",
+    href: "/reports?category=performance&report=perf-low-performers",
+  },
+  {
+    label: "التقييمات غير المكتملة",
+    description: "الدورات التي لم تكتمل تقديراتها بعد، مع سبب النقص لكل دورة.",
+    href: "/reports?category=performance&report=perf-results&flag=incomplete",
+  },
+] as const;
+
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -203,6 +242,19 @@ export default async function ReportsPage({
           return (
             <section key={sectionKey}>
               <h2 className="mb-2 text-sm font-bold text-gray-600">{REPORT_SECTIONS[sectionKey]}</h2>
+              {/* §14 §7.1: مداخل الأداء المطلوبة بأسمائها، مرشَّحة مسبقاً — لا يبحث المدير
+                  عن «المعلمون فقط» داخل لوحة مرشّحات */}
+              {sectionKey === "performance" && user.permissions.has("performance.individual.read") && (
+                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {PERFORMANCE_QUICK_LINKS.map((q) => (
+                    <Card key={q.href}>
+                      <h3 className="font-bold text-brand-900">{q.label}</h3>
+                      <p className="mt-1 text-xs text-gray-500">{q.description}</p>
+                      <div className="mt-3"><LinkButton href={q.href} variant="secondary">فتح</LinkButton></div>
+                    </Card>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {cats.map((c) => {
                   const count = reportsInCategory(c.key).filter((r) => user.permissions.has(r.permission)).length;

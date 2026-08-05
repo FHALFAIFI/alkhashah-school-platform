@@ -6,12 +6,13 @@ import { perfModels, perfIndicators } from "@/db/schema";
 import { PageHeader, Card, Badge, Table } from "@/components/ui";
 import {
   IndicatorForm, DeleteIndicatorButton, ApproveModelButton, ReopenModelForm,
-  ArchiveModelForm, RestoreModelButton, DeleteModelButton,
+  ArchiveModelForm, RestoreModelButton, DeleteModelPanel,
 } from "../models-ui";
 import { orFallback } from "@/lib/format";
 import { dualNumericCell } from "@/lib/dates";
 import { isAwaitingFaresIndicator, AWAITING_FARES_LABEL } from "@/lib/performance/d014";
 import { modelLinkedRecords, modelInUse } from "@/lib/performance/model-admin";
+import { assessModelDeletion } from "@/lib/lifecycle-delete";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export default async function ModelPage({ params }: { params: Promise<{ id: stri
   await requirePermission("performance.models.manage");
   const { id } = await params;
   const [model] = await db.select().from(perfModels).where(eq(perfModels.id, id));
+  const deleteImpact = await assessModelDeletion(id);
   if (!model) notFound();
   const [indicators, linked] = await Promise.all([
     db
@@ -134,9 +136,8 @@ export default async function ModelPage({ params }: { params: Promise<{ id: stri
           ) : (
             <p className="text-xs text-gray-500">النموذج مؤرشف — الاستعادة من اللافتة أعلى الصفحة.</p>
           )}
-          {!modelInUse(linked) && !model.official && (
-            <DeleteModelButton modelId={id} modelName={orFallback(model.nameAr)} />
-          )}
+          {/* v2.5.0 §8: اللوحة تظهر دائماً وتشرح المانع بنفسها بدل أن تختفي بلا تفسير */}
+          {deleteImpact && <DeleteModelPanel modelId={id} impact={deleteImpact} />}
         </div>
       </Card>
     </div>

@@ -169,7 +169,7 @@ describe("§11.5.B — التفويض على حدود الخادم (وحدات �
     const { archiveModelAction, restoreModelAction, deleteModelAction } = await import("@/app/(app)/performance/actions");
     await expect(archiveModelAction(crypto.randomUUID(), null, fd({}))).rejects.toThrow();
     await expect(restoreModelAction(crypto.randomUUID())).rejects.toThrow();
-    await expect(deleteModelAction(crypto.randomUUID())).rejects.toThrow();
+    await expect(deleteModelAction(crypto.randomUUID(), null, fd({}))).rejects.toThrow();
   });
 
   it("v2.4: حالة مهام اللجان تُرفض بلا committees.write", async () => {

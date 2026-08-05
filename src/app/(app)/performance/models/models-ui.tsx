@@ -9,6 +9,8 @@ import {
 } from "../actions";
 import { Field, SubmitButton } from "@/components/ui";
 import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
+import { PermanentDeletePanel } from "@/components/permanent-delete";
+import type { DeletionImpact } from "@/lib/lifecycle-delete";
 
 export function NewModelForm() {
   const [state, formAction] = useActionState<ActionState, FormData>(createModelAction, null);
@@ -146,37 +148,29 @@ export function RestoreModelButton({ modelId }: { modelId: string }) {
   );
 }
 
-/** حذف نهائي — متاح فقط للنموذج غير المرتبط بأي تقييم؛ التأكيد صريح ولا تراجع بعده */
-export function DeleteModelButton({ modelId, modelName }: { modelId: string; modelName: string }) {
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
-  useRefreshAfterTransition(pending);
-  const router = useRouter();
+/**
+ * حذف نموذج التقييم نهائياً (v2.5.0 §8.1).
+ *
+ * كان الحذف قبل هذا الإصدار `window.confirm` واحداً بلا اسم مكتوب ولا سبب ولا شاهد،
+ * وبلا معاينة لما سيُحذف. صار يمرّ بلوحة الحذف النهائي نفسها المستعملة للموظف ولدورة
+ * الأداء: معاينة الأثر، ثم الاسم حرفياً، ثم السبب الإلزامي، ثم إقرار صريح (§8.4، §12.9).
+ */
+export function DeleteModelPanel({
+  modelId,
+  impact,
+}: {
+  modelId: string;
+  impact: DeletionImpact;
+}) {
   return (
-    <div className="text-end">
-      {error && <div role="alert" className="mb-1 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
-      <button
-        disabled={pending}
-        onClick={() => {
-          if (
-            !window.confirm(
-              `هل تريد حذف نموذج الأداء الوظيفي «${modelName}» نهائياً؟\nلا يرتبط بالنموذج أي تقييم، وسيحذف مع مؤشراته، ولا يمكن التراجع عن العملية.`,
-            )
-          )
-            return;
-          startTransition(async () => {
-            const res = await deleteModelAction(modelId);
-            if (res?.error) setError(res.error);
-            // بعد الحذف صفحة النموذج لم تعد موجودة — العودة لقائمة النماذج (لا نجاح صامت)
-            else router.push("/performance/models");
-          });
-        }}
-        className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-      >
-        حذف النموذج
-      </button>
-    </div>
+    <PermanentDeletePanel
+      action={deleteModelAction.bind(null, modelId)}
+      impact={impact}
+      heading="حذف نموذج التقييم نهائياً"
+      cta="حذف النموذج نهائياً"
+      confirmFieldLabel="اسم النموذج"
+      intro="يمحو النموذج ومعاييره. لا يُتاح إلا لنموذج لا ترتبط به أي دورة تقييم — الدورة سجل الموظف لا سجل النموذج، وحذفها بقرار عن قالب غير مقبول. للنموذج المستخدم: «أرشفة النموذج» تُبقي كل التقييمات والتقارير التاريخية سليمة."
+    />
   );
 }
 

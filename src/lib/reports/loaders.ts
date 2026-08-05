@@ -703,6 +703,84 @@ async function loadPerfSessions(filters: ReportFilters, mode: "planning" | "eval
 
 /* ───────────────────────────── اللجان والاجتماعات ─────────────────────────── */
 
+/* ─────────────── الأداء الوظيفي: النتائج والأداء المنخفض (v2.5.0 §7) ─────────────── */
+
+/**
+ * كل تقارير §7 تقرأ `lib/performance/results-service` — حساب واحد للنتيجة والفئة والعتبة.
+ * الاستيراد كسول لأن الوحدة `server-only` وتجرّ خدمة التحليلات معها.
+ */
+async function loadPerfResults(filters: ReportFilters, mode: "results" | "low" | "narrative"): Promise<ReportRow[]> {
+  const { loadEmployeeResults, effectiveThreshold, isLowPerformer } = await import("@/lib/performance/results-service");
+  const threshold = effectiveThreshold(filters);
+  const rows = await loadEmployeeResults(filters);
+
+  if (mode === "low") {
+    // §7.5: أسماء لا نسب مجرّدة — ومع كل اسم ما يفسّر انخفاضه وما يُقترح له
+    return rows
+      .filter((r) => isLowPerformer(r, threshold))
+      .sort((a, b) => (a.resultPercent ?? 0) - (b.resultPercent ?? 0))
+      .map((r) => ({
+        personName: r.personName,
+        employeeType: r.employeeType,
+        jobTitle: r.jobTitle,
+        yearKey: r.yearKey,
+        resultPercent: r.resultPercent,
+        band: r.band,
+        weakCriteria: r.weakCriteria.join("، "),
+        weaknesses: r.weaknesses.join(" · "),
+        recommendations: r.recommendations.join(" · "),
+        threshold,
+      }));
+  }
+
+  if (mode === "narrative") {
+    // §7.6: لا يُعرض صف بلا أي سرد — التقرير عن ما سُجّل فعلاً
+    return rows
+      .filter((r) => r.strengths.length + r.weaknesses.length + r.weakCriteria.length + r.recommendations.length > 0)
+      .map((r) => ({
+        personName: r.personName,
+        employeeType: r.employeeType,
+        yearKey: r.yearKey,
+        strengths: r.strengths.join(" · "),
+        weaknesses: r.weaknesses.join(" · "),
+        weakCriteria: r.weakCriteria.join("، "),
+        recommendations: r.recommendations.join(" · "),
+      }));
+  }
+
+  return rows.map((r) => ({
+    personName: r.personName,
+    employeeType: r.employeeType,
+    jobTitle: r.jobTitle,
+    department: r.department,
+    yearKey: r.yearKey,
+    modelName: r.modelName,
+    criteriaCount: r.criteriaCount,
+    ratedCount: r.ratedCount,
+    resultPercent: r.resultPercent,
+    band: r.band,
+    cycleStatus: r.cycleStatus,
+    // §7.3: الغياب يُقال — لا صفر مضلّل ولا صف مخفيّ
+    missingReason: r.missingReason,
+    lowPerformer: isLowPerformer(r, threshold) ? `أقل من ${threshold}٪` : "",
+  }));
+}
+
+/** التوزيع الإحصائي — الأعداد مبنيّة على المجموعة المرشَّحة نفسها التي تعرضها التقارير التفصيلية */
+async function loadPerfDistribution(filters: ReportFilters): Promise<ReportRow[]> {
+  const { loadEmployeeResults } = await import("@/lib/performance/results-service");
+  const rows = await loadEmployeeResults(filters);
+  const bands = new Map<string, { count: number; teachers: number; admins: number }>();
+  for (const r of rows) {
+    const cur = bands.get(r.band) ?? { count: 0, teachers: 0, admins: 0 };
+    cur.count += 1;
+    if (r.employeeType === "معلم") cur.teachers += 1;
+    else cur.admins += 1;
+    bands.set(r.band, cur);
+  }
+  return [...bands.entries()].map(([band, v]) => ({ band, count: v.count, teachers: v.teachers, admins: v.admins }));
+}
+
 async function loadCommitteeRegister(filters: ReportFilters): Promise<ReportRow[]> {
   const where: (SQL | undefined)[] = [];
   if (filters.search) where.push(ilike(committees.nameAr, likeTerm(filters.search)));
@@ -1374,6 +1452,10 @@ const LOADERS: Record<string, (f: ReportFilters) => Promise<ReportRow[]>> = {
   "perf-evaluations": (f) => loadPerfSessions(f, "evaluations"),
   "perf-incomplete": (f) => loadPerfSessions(f, "incomplete"),
   "perf-evidence-counts": (f) => loadPerfSessions(f, "evidence"),
+  "perf-results": (f) => loadPerfResults(f, "results"),
+  "perf-low-performers": (f) => loadPerfResults(f, "low"),
+  "perf-strengths-weaknesses": (f) => loadPerfResults(f, "narrative"),
+  "perf-distribution": loadPerfDistribution,
 
   "committee-register": loadCommitteeRegister,
   "committee-members": loadCommitteeMembers,

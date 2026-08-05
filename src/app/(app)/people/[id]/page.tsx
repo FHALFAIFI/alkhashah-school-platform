@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { people, perfCycles } from "@/db/schema";
 import { PageHeader, Card, Badge, SubmitButton, LinkButton } from "@/components/ui";
 import { DependencyNotice } from "@/components/dependency-notice";
-import { assessDeletion } from "@/lib/safe-delete";
+import { assessDeletion, dependencySummaryAr } from "@/lib/safe-delete";
 import { assessPersonDeletion } from "@/lib/lifecycle-delete";
 import { PermanentDeletePanel } from "@/components/permanent-delete";
 import { employeeTypeOf } from "@/lib/employee-type";
@@ -97,15 +97,32 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
             <SubmitButton variant="secondary">إعادة التفعيل</SubmitButton>
           </form>
         )}
+        {/*
+          v2.5.0 §8.3: قائمة الارتباطات لم تعد تُعرض كحائط.
+          كان السجل المرتبط يُظهر «لا يمكن الحذف — يوجد سجلات مرتبطة: …» ثم يقف، بينما
+          «حذف الموظف نهائياً» أسفل الصفحة يعالج تلك السجلات بالضبط. فبدا للمستخدم أن
+          الحذف ممنوع. الآن: المسار المختصر يظهر فقط حين يكون هو الصحيح فعلاً (سجل لم
+          يُستعمل قط)، وإلا يُحال المستخدم صراحةً إلى لوحة الحذف النهائي أسفل الصفحة.
+        */}
         <div className="mt-4 space-y-2">
-          <DependencyNotice assessment={assessment} />
-          {!assessment.blocked && (
+          {assessment.blocked ? (
+            canPurge ? (
+              <p className="rounded-lg border border-sand-200 bg-sand-50 p-3 text-xs text-gray-600">
+                لهذا الموظف سجلات مرتبطة ({dependencySummaryAr(assessment.dependencies)}). الحذف
+                متاح من <strong>«حذف الموظف نهائياً»</strong> أسفل الصفحة: يمحو دورة حياته الوظيفية
+                ويُبقي السجلات المؤسسية المشتركة ويفكّ صلتها به.
+              </p>
+            ) : (
+              <DependencyNotice assessment={assessment} />
+            )
+          ) : (
             <form
               action={async () => {
                 "use server";
                 await deletePersonAction(person.id);
               }}
             >
+              <p className="mb-2 text-xs text-gray-500">لا سجلات مرتبطة بهذا الموظف — الحذف مباشر.</p>
               <SubmitButton variant="danger" confirmText={`حذف «${orFallback(person.fullName)}» نهائياً؟ لا يمكن التراجع.`}>
                 حذف نهائي
               </SubmitButton>
