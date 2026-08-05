@@ -241,7 +241,17 @@ const MAX_SEARCH_LENGTH = 120;
 
 function readMulti(source: ParamSource, name: string): string[] | undefined {
   const values = [...new Set(readAll(source, name).map((v) => v.trim()))].slice(0, MAX_MULTI_VALUES);
-  return values.length ? values : undefined;
+  return emptyToUndefined(values);
+}
+
+/**
+ * المصفوفة الفارغة والغياب مترادفان في هذا الإطار («الفراغ يعني الكل»)، فيُوحَّد التمثيل
+ * على `undefined`. يهمّ هذا تحديداً بعد تصفية القيم غير المعروفة: عنوانٌ يحمل `flag=خبيث`
+ * وحده كان ينتج `flags: []` — وهي قيمة تعني «الكل» لكنها تُقرأ في الشيفرة كأن مرشّحاً
+ * فعّالاً موجود. التوحيد يمنع هذا الالتباس.
+ */
+function emptyToUndefined(values: string[] | undefined): string[] | undefined {
+  return values && values.length > 0 ? values : undefined;
 }
 
 /**
@@ -282,7 +292,7 @@ export function parseReportFilters(
     owners: readMulti(source, "owner"),
     committeeIds: readMulti(source, "committeeId"),
     programIds: readMulti(source, "programId"),
-    employeeTypes: readMulti(source, "empType")?.filter((t) => (EMPLOYEE_TYPES as readonly string[]).includes(t)),
+    employeeTypes: emptyToUndefined(readMulti(source, "empType")?.filter((t) => (EMPLOYEE_TYPES as readonly string[]).includes(t))),
     jobTitles: readMulti(source, "jobTitle"),
     departments: readMulti(source, "dept"),
     cycleIds: readMulti(source, "cycleId"),
@@ -297,12 +307,12 @@ export function parseReportFilters(
     maxAmount: readNumber(source, "maxAmount", 0, Number.MAX_SAFE_INTEGER),
     minProgress: readNumber(source, "minProgress", 0, 100),
     maxProgress: readNumber(source, "maxProgress", 0, 100),
-    flags: readMulti(source, "flag")?.filter(isFilterFlag),
+    flags: emptyToUndefined(readMulti(source, "flag")?.filter(isFilterFlag)) as FilterFlag[] | undefined,
     lowThreshold: readNumber(source, "lowThreshold", 0, 100),
     sort: sortRaw && (opts?.allowedSort?.(sortRaw) ?? false) ? sortRaw : undefined,
     dir: readOne(source, "dir") === "desc" ? "desc" : "asc",
     group: groupRaw && allowed?.includes(groupRaw) ? groupRaw : undefined,
-    columns: allowed ? columnsRaw?.filter((c) => allowed.includes(c)) : undefined,
+    columns: allowed ? emptyToUndefined(columnsRaw?.filter((c) => allowed.includes(c))) : undefined,
     mode: modeRaw && isReportMode(modeRaw) ? modeRaw : undefined,
     page: readNumber(source, "page", 1, 10_000),
     pageSize: readNumber(source, "pageSize", 1, 500),

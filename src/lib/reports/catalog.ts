@@ -544,6 +544,8 @@ export const REPORTS: readonly ReportDefinition[] = [
     // كان معلَناً بـ`performance.read` وحدها التي يملكها «مسؤول النظام»، فكان يفتح من
     // مركز التقارير ما أغلقه D-013 على صفحة المنسوب وما أغلقه D-044 على وثائق الأداء.
     permission: "performance.individual.read",
+    // §15/§22: يحمل نتيجة موظف مسمّى — يُحذَّر قبل تصديره كبقية تقارير الأداء الفردي
+    sensitive: true,
     columns: [col("personName", "الموظف"), col("cycleType", "الدورة"), col("stage", "المرحلة"), col("status", "الحالة"), col("sessionResult", "النتيجة"), col("completedAt", "تاريخ الاكتمال", "date")],
     filters: ["search", "status", "person", "dateRange"],
   },
