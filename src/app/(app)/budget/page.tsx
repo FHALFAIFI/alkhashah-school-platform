@@ -153,7 +153,16 @@ export default async function BudgetPage({
 
       {/* ── المؤشرات العليا ───────────────────────────────────────────── */}
       <section>
-        <h2 className="mb-3 text-sm font-bold text-gray-600">الملخّص المالي</h2>
+        {/* v2.5.0 §11.3: البطاقة تقول نطاقها صراحةً. هذه الأرقام **إجمالي المدرسة** غير
+            مرشَّحة — لا ترشيح على هذه الشاشة. الترشيح مكانه تقارير المالية، وأرقامها
+            تتبع مرشّحاتها هناك. ذكر النطاق يمنع قراءة رقم مرشَّح على أنه إجمالي أو العكس. */}
+        <h2 className="mb-3 text-sm font-bold text-gray-600">
+          الملخّص المالي — إجمالي المدرسة (بلا ترشيح)
+        </h2>
+        <p className="mb-3 text-xs text-gray-500">
+          للأرقام المرشَّحة حسب البند أو المدة أو المبلغ:{" "}
+          <a href="/reports?category=finance" className="text-brand-700 hover:underline">تقارير المالية والميزانية</a>
+        </p>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
           <Stat label="إجمالي الإيرادات" value={formatMoney(summary.totalIncome)} tone="good" href="/reports?category=finance&report=income-register" />
           <Stat label="إجمالي المصروفات" value={formatMoney(summary.totalExpenses)} href="/reports?category=finance&report=expense-register" />

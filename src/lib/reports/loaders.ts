@@ -501,15 +501,38 @@ function expenseRemainingAfter(
   return result;
 }
 
+/**
+ * سجل المصروفات (v2.5.0 §11.1).
+ *
+ * الترشيح: بنداً واحداً أو عدة بنود أو الكل، ومدى التاريخ، ومدى المبلغ، والمورّد ورقم
+ * الفاتورة بالبحث الحر، وعلامتا «بلا مخصص» و«المتجاوزة للمخصص» على مستوى بند المصروف.
+ */
 async function loadExpenseRegister(filters: ReportFilters): Promise<ReportRow[]> {
   const f = await financeData();
   const remainingAfter = expenseRemainingAfter(f.lines, f.expenses);
-  return f.expenses
+  const lineByItem = new Map(f.lines.map((l) => [l.id, l]));
+
+  let rows = f.expenses
     .filter((r) => !r.archivedAt)
     .filter((r) => inDateRange(r.expenseDate, filters))
-    .filter((r) => !filters.itemId || r.financialItemId === filters.itemId)
-    .filter((r) => !filters.search || (r.supplier ?? "").includes(filters.search) || (r.paymentReference ?? "").includes(filters.search))
-    .map((r) => ({
+    .filter((r) => matchesMulti(r.financialItemId, filters.itemIds))
+    .filter((r) => inRange(amountOrNull(r.amount), filters.minAmount, filters.maxAmount))
+    .filter((r) => textMatches(filters.search, r.supplier, r.paymentReference, r.itemName));
+
+  const flags = filters.flags ?? [];
+  if (flags.includes("missingAllocation")) {
+    rows = rows.filter((r) => {
+      const line = r.financialItemId ? lineByItem.get(r.financialItemId) : undefined;
+      return !line || line.allocationState === "none";
+    });
+  }
+  if (flags.includes("overspent")) {
+    rows = rows.filter((r) => (r.financialItemId ? lineByItem.get(r.financialItemId)?.overspent : false) === true);
+  }
+
+  return rows.map((r) => {
+    const line = r.financialItemId ? lineByItem.get(r.financialItemId) : undefined;
+    return {
       amount: amountOrNull(r.amount),
       expenseDate: r.expenseDate,
       itemName: r.itemName ?? (r.items ? `${r.items} (تاريخي)` : null),
@@ -518,7 +541,50 @@ async function loadExpenseRegister(filters: ReportFilters): Promise<ReportRow[]>
       hasInvoice: r.hasInvoice ? "نعم" : "لا",
       remainingBefore: remainingAfter.get(r.id)?.before ?? null,
       remainingAfter: remainingAfter.get(r.id)?.after ?? null,
-    }));
+      // v2.4.1 §1.1: البند بلا مخصص لا يُقال عنه «ضمن المخصص» — يُسمّى بحاله
+      allocationState:
+        !line || line.allocationState === "none" ? ALLOCATION_NONE_VALUE : line.overspent ? "تجاوز المخصص" : "ضمن المخصص",
+    };
+  });
+}
+
+/**
+ * استغلال المخصصات (§11.2) — لكل بند: المخصص والمنصرف والمتبقي ونسبة الصرف وحاله.
+ * يقبل بنداً أو عدة أو الكل، ومدى نسبة الصرف، وعلامتَي التجاوز وغياب المخصص.
+ */
+async function loadAllocationUtilization(filters: ReportFilters): Promise<ReportRow[]> {
+  const f = await financeData();
+  let lines = f.lines.filter((l) => matchesMulti(l.id, filters.itemIds));
+  // «مدى نسبة الصرف» يُقرأ من مرشّح الإنجاز — المعنى واحد: نسبة مئوية من حدّ معلوم
+  lines = lines.filter((l) => inRange(l.spentPercent, filters.minProgress, filters.maxProgress));
+
+  const flags = filters.flags ?? [];
+  if (flags.includes("overspent")) lines = lines.filter((l) => l.overspent);
+  if (flags.includes("missingAllocation")) lines = lines.filter((l) => l.allocationState === "none");
+
+  return lines.map((l) => ({
+    name: l.name,
+    allocated: l.allocated,
+    income: l.income,
+    expenses: l.expenses,
+    remaining: l.remaining,
+    spentPercent: l.spentPercent,
+    state: l.archived
+      ? "مؤرشف"
+      : l.allocationState === "none"
+        ? `${ALLOCATION_NONE_VALUE} — ${REMAINING_UNAVAILABLE}`
+        : l.overspent
+          ? "تجاوز"
+          : l.nearExhaustion
+            ? "قارب الاستنفاد"
+            : "ضمن المخصص",
+  }));
+}
+
+/** البنود بلا مخصص (§11.2) — سبب تعذّر احتساب المتبقي يُقال صراحةً */
+async function loadMissingAllocation(filters: ReportFilters): Promise<ReportRow[]> {
+  const rows = await loadAllocationUtilization({ ...filters, flags: ["missingAllocation"] });
+  return rows;
 }
 
 async function loadItemAllocations(): Promise<ReportRow[]> {
@@ -1235,24 +1301,86 @@ async function loadFacilities(filters: ReportFilters): Promise<ReportRow[]> {
     .map((r) => ({ facilityType: r.facilityType, kind: r.kind, status: r.status, requiredQty: r.requiredQty }));
 }
 
+/**
+ * سجل بلاغات الصيانة (v2.5.0 §10).
+ *
+ * سير عمل v2.4.1 «الصيانة أولاً» لم يُمسّ — ما أُضيف هو الترشيح: الحالة والأولوية
+ * والتصنيف والموقع والمسؤول والمدة، مع علامات الاعتماد والإصدار والفتح/الإغلاق وأثر
+ * السلامة. كل ملاحظة فحص تبقى **بلاغاً مستقلاً** كما تقرّر في v2.4.1 — لا تجميع.
+ */
 async function loadMaintenance(filters: ReportFilters): Promise<ReportRow[]> {
   const where: (SQL | undefined)[] = [...dateRangeTs(maintenanceIssues.createdAt, filters)];
-  if (filters.status) where.push(eq(maintenanceIssues.status, filters.status));
+  const byStatus = inArrayIf(maintenanceIssues.status, filters.statuses);
+  if (byStatus) where.push(byStatus);
+  const byRoom = inArrayIf(maintenanceIssues.roomId, filters.roomIds);
+  if (byRoom) where.push(byRoom);
+  const byOwner = inArrayIf(maintenanceIssues.ownerPersonId, filters.personIds);
+  if (byOwner) where.push(byOwner);
+
   const rows = await db
     .select({
+      code: maintenanceIssues.code,
       title: maintenanceIssues.title,
       roomName: rooms.nameAr,
+      floorName: floors.nameAr,
+      category: maintenanceIssues.category,
       priority: maintenanceIssues.priority,
       status: maintenanceIssues.status,
+      safetyImpact: maintenanceIssues.safetyImpact,
+      operationalImpact: maintenanceIssues.operationalImpact,
+      requestedAction: maintenanceIssues.requestedAction,
+      ownerName: people.fullName,
+      approvedAt: maintenanceIssues.approvedAt,
+      sentTo: maintenanceIssues.sentTo,
+      sentAt: maintenanceIssues.sentAt,
+      documentId: maintenanceIssues.documentId,
+      closedAt: maintenanceIssues.closedAt,
+      fromInspection: maintenanceIssues.inspectionFindingId,
       createdAt: maintenanceIssues.createdAt,
     })
     .from(maintenanceIssues)
     .leftJoin(rooms, eq(maintenanceIssues.roomId, rooms.id))
-    .where(where.length ? and(...where) : undefined)
+    .leftJoin(floors, eq(rooms.floorId, floors.id))
+    .leftJoin(people, eq(maintenanceIssues.ownerPersonId, people.id))
+    .where(where.filter(Boolean).length ? and(...where) : undefined)
     .orderBy(desc(maintenanceIssues.createdAt));
-  return rows
-    .filter((r) => !filters.search || (r.title ?? "").includes(filters.search))
-    .map((r) => ({ ...r, createdAt: isoDate(r.createdAt) }));
+
+  let out = rows.filter(
+    (r) =>
+      textMatches(filters.search, r.title, r.code, r.roomName, r.sentTo) &&
+      matchesMulti(r.category, filters.categories) &&
+      matchesMulti(r.priority, filters.priorities),
+  );
+
+  const flags = filters.flags ?? [];
+  if (flags.includes("approved")) out = out.filter((r) => r.approvedAt !== null);
+  if (flags.includes("notApproved")) out = out.filter((r) => r.approvedAt === null);
+  if (flags.includes("issued")) out = out.filter((r) => r.documentId !== null);
+  if (flags.includes("notIssued")) out = out.filter((r) => r.documentId === null);
+  if (flags.includes("openOnly")) out = out.filter((r) => r.closedAt === null);
+  if (flags.includes("closedOnly")) out = out.filter((r) => r.closedAt !== null);
+  if (flags.includes("safetyImpact")) out = out.filter((r) => (r.safetyImpact ?? "").trim() !== "");
+
+  return out.map((r) => ({
+    code: r.code,
+    title: r.title,
+    location: [r.floorName, r.roomName].filter(Boolean).join(" — ") || null,
+    category: r.category,
+    priority: r.priority,
+    status: r.status,
+    safetyImpact: r.safetyImpact,
+    operationalImpact: r.operationalImpact,
+    requestedAction: r.requestedAction,
+    owner: r.ownerName,
+    approved: r.approvedAt ? "معتمد" : "",
+    sentTo: r.sentTo,
+    sentAt: r.sentAt,
+    issued: r.documentId ? "صدرت وثيقته" : "",
+    // §10: كل ملاحظة فحص بلاغ مستقل — يُقال مصدره صراحةً
+    source: r.fromInspection ? "من ملاحظة فحص" : "بلاغ مباشر",
+    closedAt: isoDate(r.closedAt),
+    createdAt: isoDate(r.createdAt),
+  }));
 }
 
 async function loadAssets(filters: ReportFilters): Promise<ReportRow[]> {
@@ -1680,6 +1808,8 @@ const LOADERS: Record<string, (f: ReportFilters) => Promise<ReportRow[]>> = {
   "income-register": loadIncomeRegister,
   "expense-register": loadExpenseRegister,
   "item-allocations": loadItemAllocations,
+  "allocation-utilization": loadAllocationUtilization,
+  "missing-allocation": loadMissingAllocation,
   "over-budget": loadOverBudget,
   "missing-invoice": (f) => loadInvoiceReports(f, false),
   "invoice-register": (f) => loadInvoiceReports(f, true),

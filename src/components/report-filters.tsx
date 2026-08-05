@@ -43,6 +43,9 @@ export type FilterOptions = Partial<{
   jobTitles: string[];
   departments: string[];
   cycles: Option[];
+  categories: string[];
+  priorities: string[];
+  rooms: Option[];
   weeks: string[];
   years: string[];
   employeeTypes: string[];
@@ -60,6 +63,9 @@ const MULTI_PARAM: Partial<Record<FilterKey, string>> = {
   jobTitle: "jobTitle",
   department: "dept",
   cycle: "cycleId",
+  category: "category",
+  priority: "priority",
+  location: "roomId",
 };
 
 const inputCls = "min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0";
@@ -434,6 +440,12 @@ function optionsFor(key: FilterKey, options: FilterOptions): Option[] {
       return asOptions(options.departments);
     case "cycle":
       return options.cycles ?? [];
+    case "category":
+      return asOptions(options.categories);
+    case "priority":
+      return asOptions(options.priorities);
+    case "location":
+      return options.rooms ?? [];
     default:
       return [];
   }

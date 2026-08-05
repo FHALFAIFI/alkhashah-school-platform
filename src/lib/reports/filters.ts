@@ -38,6 +38,9 @@ export const FILTER_KEYS = [
   "jobTitle",
   "department",
   "cycle",
+  "category",
+  "priority",
+  "location",
   "week",
   "academicYear",
   "scoreRange",
@@ -75,6 +78,9 @@ export const FILTER_DEFS: Readonly<Record<FilterKey, FilterDef>> = {
   jobTitle: { key: "jobTitle", labelAr: "المسمى الوظيفي", kind: "multi", params: ["jobTitle"] },
   department: { key: "department", labelAr: "القسم", kind: "multi", params: ["dept"] },
   cycle: { key: "cycle", labelAr: "دورة التقييم", kind: "multi", params: ["cycleId"] },
+  category: { key: "category", labelAr: "التصنيف", kind: "multi", params: ["category"] },
+  priority: { key: "priority", labelAr: "الأولوية", kind: "multi", params: ["priority"] },
+  location: { key: "location", labelAr: "الموقع", kind: "multi", params: ["roomId"] },
   week: { key: "week", labelAr: "الأسبوع", kind: "single", params: ["week"] },
   academicYear: { key: "academicYear", labelAr: "العام الدراسي", kind: "single", params: ["year"] },
   scoreRange: {
@@ -168,6 +174,9 @@ export type ReportFilters = {
   jobTitles?: string[];
   departments?: string[];
   cycleIds?: string[];
+  categories?: string[];
+  priorities?: string[];
+  roomIds?: string[];
   week?: string;
   academicYear?: string;
   minScore?: number;
@@ -277,6 +286,9 @@ export function parseReportFilters(
     jobTitles: readMulti(source, "jobTitle"),
     departments: readMulti(source, "dept"),
     cycleIds: readMulti(source, "cycleId"),
+    categories: readMulti(source, "category"),
+    priorities: readMulti(source, "priority"),
+    roomIds: readMulti(source, "roomId"),
     week: readOne(source, "week"),
     academicYear: readOne(source, "year"),
     minScore: readNumber(source, "minScore", 0, 100),
@@ -312,6 +324,9 @@ const MULTI_PARAMS: [keyof ReportFilters, string][] = [
   ["jobTitles", "jobTitle"],
   ["departments", "dept"],
   ["cycleIds", "cycleId"],
+  ["categories", "category"],
+  ["priorities", "priority"],
+  ["roomIds", "roomId"],
   ["flags", "flag"],
   ["columns", "col"],
 ];
@@ -390,6 +405,7 @@ export type FilterLabelMaps = {
   committees?: Map<string, string>;
   programs?: Map<string, string>;
   cycles?: Map<string, string>;
+  rooms?: Map<string, string>;
 };
 
 export type FilterChip = { key: string; label: string; value: string };
@@ -431,6 +447,9 @@ export function describeFilters(filters: ReportFilters, maps: FilterLabelMaps = 
   push("jobTitle", "المسمى الوظيفي", filters.jobTitles?.join("، ") ?? null);
   push("department", "القسم", filters.departments?.join("، ") ?? null);
   push("cycle", "دورة التقييم", namesOf(filters.cycleIds, maps.cycles));
+  push("category", "التصنيف", filters.categories?.join("، ") ?? null);
+  push("priority", "الأولوية", filters.priorities?.join("، ") ?? null);
+  push("location", "الموقع", namesOf(filters.roomIds, maps.rooms));
   push("week", "الأسبوع", filters.week ?? null);
   push("academicYear", "العام الدراسي", filters.academicYear ?? null);
   push("scoreRange", "مدى النتيجة", rangeText(filters.minScore, filters.maxScore, "٪"));

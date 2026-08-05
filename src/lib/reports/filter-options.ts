@@ -4,11 +4,15 @@ import { db } from "@/db";
 import {
   committees,
   financialItems,
+  floors,
   people,
   perfCycles,
   planYears,
   programs,
+  rooms,
 } from "@/db/schema";
+import { ISSUE_PRIORITIES } from "@/lib/building/maintenance-lifecycle";
+import { MAINTENANCE_CATEGORIES } from "@/lib/building/maintenance-report";
 import { EMPLOYEE_TYPES } from "@/lib/employee-type";
 import { recentWeekKeys } from "@/lib/plan/followup";
 import { orFallback } from "@/lib/format";
@@ -32,6 +36,9 @@ export async function loadFilterOptions(keys: readonly FilterKey[], opts?: { sta
   if (opts?.statuses?.length) out.status = opts.statuses;
   if (need.has("employeeType")) out.employeeTypes = [...EMPLOYEE_TYPES];
   if (need.has("week")) out.weeks = recentWeekKeys(12);
+  // قوائم مغلقة معلَنة — لا قيم حرة من صفوف البيانات (§3، والسبب نفسه في status-options)
+  if (need.has("priority")) out.priorities = [...ISSUE_PRIORITIES];
+  if (need.has("category")) out.categories = [...MAINTENANCE_CATEGORIES];
 
   const jobs: Promise<void>[] = [];
 
@@ -143,6 +150,22 @@ export async function loadFilterOptions(keys: readonly FilterKey[], opts?: { sta
         .from(perfCycles)
         .then((rows) => {
           out.cycles = distinctLabels(rows.map((r) => r.v), null).map((v) => ({ value: v, label: v }));
+        }),
+    );
+  }
+
+  if (need.has("location")) {
+    jobs.push(
+      db
+        .select({ id: rooms.id, name: rooms.nameAr, floor: floors.nameAr })
+        .from(rooms)
+        .leftJoin(floors, eq(rooms.floorId, floors.id))
+        .orderBy(asc(rooms.nameAr))
+        .then((r) => {
+          out.rooms = r.map((x) => ({
+            value: x.id,
+            label: [x.floor, orFallback(x.name, "غرفة بدون اسم")].filter(Boolean).join(" — "),
+          }));
         }),
     );
   }

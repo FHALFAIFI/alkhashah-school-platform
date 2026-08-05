@@ -18,6 +18,13 @@ export const ISSUE_STATUSES = [
 
 export type IssueStatus = (typeof ISSUE_STATUSES)[number];
 
+/**
+ * أولويات البلاغ — القائمة المغلقة نفسها المعروضة في نموذج الإنشاء. عُرّفت هنا في
+ * v2.5.0 لأن مرشّح الأولوية في التقارير يحتاجها، ونسخها في موضعين يفتح باب اختلافهما.
+ */
+export const ISSUE_PRIORITIES = ["عالية", "متوسطة", "منخفضة"] as const;
+export type IssuePriority = (typeof ISSUE_PRIORITIES)[number];
+
 /** الانتقالات المسموحة من كل حالة — تُنفَّذ على الخادم وتُعرض في الواجهة من المصدر نفسه */
 export const ISSUE_TRANSITIONS: Record<string, string[]> = {
   "مسودة": ["معتمد"],
