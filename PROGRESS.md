@@ -2,7 +2,42 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.4.1 DEPLOYED to production (2026-08-04)**
+## Current work in progress — **v2.5.0 scope, PARTIAL (2026-08-05)**
+
+**Verdict: NOT READY FOR DEPLOYMENT.** Full status table: **`docs/DELIVERY_V2_5_0.md`**.
+Branch `scope-v2.5-reporting-workflows`, from the deployed v2.4.1 baseline. **Production is
+untouched** — nothing was built, tagged, restarted or deployed.
+
+**Delivered and green (936/936 vitest, typecheck and lint clean):**
+- **D-053 — the systemic one.** All 202 `revalidatePath` call sites removed from the
+  application layer; clients refresh themselves after the action result settles. This is the
+  most likely cause of the three v2.4.1 field reports ("editing not visible", "individual
+  report does not appear", "deletion does not complete") — all of which write correctly and
+  then show nothing. **Not yet confirmed in a browser on a production image.**
+- §3 unified filter framework (URL + session, multi-select, one/several/all, chips, counts)
+  and §3.4 filter-consistent exports with the filters printed in the report header.
+- §6 weekly follow-up: one source shared by screen and report (parity test), manual
+  percentage removed everywhere, narrative fields added (migration **0031**, additive), the
+  weekly axis no longer overwrites programme progress or state (**D-054**).
+- §5.1 programme editing made visible in all three required places; §5.5/§5.6 by-owner and
+  by-domain reports with one/several/all.
+- §14/§15 reports page reorganised by domain with preview counts and generation warnings.
+- §7 performance reporting rebuilt on one result source, with `/reports/individual` giving
+  the individual report the explicit workflow it lacked, an editable low-performance
+  threshold (default 70 %) and names in every detailed report. A **real permission leak was
+  caught and fixed** here by the existing D-048 guard.
+- §8 evaluation-form deletion moved onto the full permanent-delete surface (typed name,
+  mandatory reason, tombstone, one transaction).
+- §9 three distinct council/committee reports; the detailed registry is one row per member
+  **and per task** — no merged cells.
+
+**Not started or unfinished — see the table in `docs/DELIVERY_V2_5_0.md`:**
+§4 report builder and saved templates · §10 maintenance filters · §11 budget filters and
+cards · §12/§13 optional-field policy · §19.3 the 26 browser scenarios · §20 visual audit ·
+§21 export audit · §22 security review · §23 performance review · §24 clone rehearsal ·
+§26 RC image.
+
+## Deployed baseline — **v2.4.1 DEPLOYED to production (2026-08-04)**
 
 **Verdict: DEPLOYED — HEALTHY.** Full record: **`docs/DEPLOYMENT_V2_4_1.md`**.
 

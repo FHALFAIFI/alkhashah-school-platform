@@ -809,3 +809,76 @@ plus an always-printed approval and signature block. A report created from a fin
 safety impact and requested action by restating the finding's own recorded severity; the
 category stays empty until a human picks it, because the type of fault is not something the
 system knows.
+
+## D-053 — No `revalidatePath` in the application layer at all (2026-08-05)
+
+Supersedes the narrower rule in D-049.
+
+**What D-049 established.** A Server Action must not `revalidatePath` the route the user is
+currently on: the client router refetches that route immediately and cancels the
+still-streaming action response, so the write commits and the screen shows nothing.
+
+**Why the exception could not hold.** Two facts, both found on real builds:
+
+1. Invalidating an *ancestor* path invalidates the open route's tree just the same. That is
+   how the defect returned for inspections in v2.4.1 after the page moved under
+   `/building/maintenance` — `revalidatePath("/building/maintenance")` killed
+   `/building/maintenance/inspect`.
+2. One action is reachable from several routes (`submitInspectionAction` from the room page
+   and from the maintenance page; `updateProgramAction` from the programme page and from the
+   approval queue). The call site cannot know which route is open, so "everything except the
+   current one" is not expressible there.
+
+**Why removing it costs nothing.** Every page in this platform is `dynamic = "force-dynamic"`
+and `experimental.staleTimes` is not configured, so the client router keeps no payload for a
+dynamic route. Navigating to another page always re-renders it from the database.
+Revalidation was buying no freshness at all — only the race.
+
+**The rule.**
+1. No `revalidatePath` anywhere under `src/app`. `lib/revalidate.ts` throws if called.
+2. Forms owning a `useActionState` result call `useRefreshOnSuccess(state)`.
+3. Buttons calling an action inside `useTransition` call `useRefreshAfterTransition(pending)`
+   — which fires once `pending` clears, never inside the transition (D-049 rule 3; refreshing
+   inside is what left the committee task dropdowns disabled).
+4. Actions ending in `redirect()` need no refresh.
+
+`tests/unit/no-revalidate-in-actions.test.ts` pins all four; every allowlist entry states why
+that file is exempt.
+
+**Scope of the v2.5.0 sweep.** 202 call sites removed across 29 files, plus three
+`router.refresh()` calls that sat *inside* a transition. This is the most likely cause of the
+three defects reported against v2.4.1 in production — programme editing "not visible", the
+individual performance report "does not appear", deletions that "do not complete" — all of
+which write correctly and then show nothing.
+
+## D-054 — The weekly follow-up records observation, not progress (2026-08-05)
+
+v2.5.0 §6.2 and §6.4.
+
+**What was wrong.** The weekly follow-up form asked for a completion percentage and wrote it
+over `programs.progress`, and its status field was written over `programs.execution_status`.
+So a programme had two competing progress values — the one the principal reads in reports and
+the one whoever filled the week's note typed — and a weekly observation silently changed the
+programme's operational state.
+
+**The decision.** The weekly follow-up is an *observation of a week*. It records what was
+done, what blocked it, what action is required, what comes next, whether the principal's
+intervention is needed, and a weekly state. It does not carry progress, and it does not
+change the programme's own state. `lastReviewAt` is the only field it updates on the
+programme — "a follow-up was recorded", which is what drives follow-up-due, not progress.
+
+Authoritative progress stays on `programs.progress`, edited from the programme page with a
+recorded reason and a field-level entry in `program_edit_history`.
+
+**What happens to the old column.** `program_followups.progress_snapshot` stays in the
+schema, holding its historical values, unwritten and unread. No production row is rewritten
+(§18). It appears in no report column and no export.
+
+**Vocabulary.** The weekly states adopt the five the brief lists. The two legacy spellings
+already in production rows («في المسار», «متوقف مؤقتاً») are normalised **on read** by
+`normalizeWeeklyStatus`, so the principal sees one vocabulary without any row being updated.
+
+**One source.** `lib/plan/followup-service.ts` is read by both `/plan/followup` and the
+`plan-followups` report. They previously ran different queries and disagreed — the report
+always read *today's* week and ignored the selected one.
+`tests/integration/followup-parity.test.ts` compares the two outputs row by row.
