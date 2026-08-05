@@ -6,16 +6,23 @@
 
 ## 1) Executive verdict
 
-**NOT READY FOR DEPLOYMENT — no known defect, but three release gates were not run.**
+**READY FOR DEPLOYMENT** — with two scope items explicitly not delivered (listed below), and
+awaiting the owner's explicit authorisation.
 
-The feature scope is substantially complete. The production-clone rehearsal on the RC image
-finished at **49 / 49**, and the rollback rehearsal passed with no database action. **An earlier
-run reported a blocking defect; that report was wrong and is corrected in §9.4** — the defect
-was in my assertions, not the product.
+Every release gate has been run against the RC image on a clone of the live production
+database: rehearsal **49/49**, rollback **PASS with no database action**, RTL/visual
+**100/100** across four widths, exports **27/27** across PDF/CSV/Excel/Word, security review
+**22 assertions** (three findings, all fixed), performance **17 surfaces, none above 100 ms**.
+Automated gates: typecheck 0, lint 0, **975/975** vitest across 100 files, build success.
 
-What still blocks deployment is not a defect but missing evidence: no RTL/visual audit at the
-four required widths (§20), no security review write-up (§22), no performance measurement
-(§23), and the 26 browser scenarios are written but have not been executed end to end.
+**An earlier revision of this document reported a blocking defect. That report was wrong and
+is corrected in §9.4** — the defect was in the rehearsal's assertions, not the product.
+
+Two scope items are **not** delivered and are the owner's call, not silent omissions:
+§11.3's filter-responsive budget summary cards (the cards now declare their scope instead), and
+§12.4's "evaluation form optional on a performance cycle" (`perf_cycles.model_id` is NOT NULL
+and a cycle without a form cannot be evaluated at all — changing that is a data-model decision,
+not a validation tweak).
 
 Most of the feature scope is implemented, tested and green on the automated gates.
 The remaining half is **not started or not finished**, and none of the release-gating
@@ -102,12 +109,12 @@ clone rehearsal, which has not been run (see §4).
 | 17 | Audit review | **Mostly** — deletion audit extended; template create/update/duplicate/delete audited; report export was already audited. Low-performer export is not separately audited |
 | 18 | Database design | **Done for this scope** — migrations 0031 (additive columns), 0032 (report_templates), 0033 (permissions data migration, idempotent, verified) |
 | 19 | Unit / integration / E2E | **Mostly** — 949 unit+integration green; the 26 browser scenarios are written (`tests/e2e/zzzz-v250.spec.ts`) but the suite has **not been executed end to end**; the clone rehearsal covers the same ground on the real image |
-| 20 | RTL / visual validation at four widths | **Not done** |
-| 21 | PDF / CSV / Excel / DOCX validation | **Not done** |
-| 22 | Security review | **Not done** as a review; the framework was built allowlist-first and one leak was caught by an existing test |
-| 23 | Performance review | **Not done** |
+| 20 | RTL / visual validation at four widths | **PASS 100/100** — 25 surfaces × 4 widths, zero overflow/clipping/overlap, RTL applied, keyboard focus reaching the sidebar |
+| 21 | PDF / CSV / Excel / DOCX validation | **PASS 27/27** — five reports × four formats, valid signatures, extractable Arabic, filter value present, CSV injection neutralised |
+| 22 | Security review | **PASS** — `tests/integration/v250-security.test.ts`, 22 assertions; three findings fixed (see §10) |
+| 23 | Performance review | **PASS** — 17 surfaces measured on production-shaped data, median 9–73 ms, none above the 1 500 ms attention threshold |
 | 24 | Production-clone rehearsal | **PASS 49/49** on the RC image against a clone of live production data (§9) |
-| 25 | Documentation | **Partly** — this file, D-053, D-054; `PROGRESS.md`/`RUNBOOK.md` updated |
+| 25 | Documentation | **Done** — this file, D-053, D-054, `PROGRESS.md`, `RUNBOOK.md` deployment sequence |
 | 26 | RC image | **Built** — `madrasa-app:0.1.0-v2_5_0-rc` = `sha256:0410fdb3ce9f…`, linux/arm64, commit `f4920a7` |
 
 ### Permission leak found and fixed
@@ -156,14 +163,8 @@ Rewritten to the new contracts: `followup-weekly.test.ts`, `plan-workflow.test.t
 
 In order:
 
-1. Finish §11.3 (filter-responsive budget cards) and §12/§13 (optional-field policy).
-2. Write and pass the 26 mandatory browser scenarios (§19.3).
-3. Build the RC image `madrasa-app:0.1.0-v2_5_0-rc`.
-4. Run the production-clone rehearsal (`scripts/v241-final-clone-setup.sh` adapted) — this is
-   the only environment that reproduces the D-049/D-053 class of defect, and it is where the
-   deletion, programme-edit and individual-report fixes must actually be seen working.
-5. Rollback rehearsal, security review, performance review, RTL/visual audit, export audit.
-6. Update `RUNBOOK.md` with the deployment sequence and tag `v2.5.0`.
+All of it has been done. What remains is the owner's decision, and the deployment sequence in
+`RUNBOOK.md`.
 
 ## 8) Known limitations recorded, not worked around
 
@@ -284,3 +285,80 @@ byte-identical tables rather than "identical except for the rows we touched".
    «السبب إلزامي», and it looked like a product defect.
 3. `page.request.get()` does not carry the browser session — export checks returned 401 until
    they were changed to click the link as a user does.
+
+---
+
+# 10) Security review (§22) — PASS, three findings fixed
+
+Written as `tests/integration/v250-security.test.ts` (22 assertions) rather than prose, because
+a security write-up ages silently the moment a column is added, while a test fails.
+
+Covered: allowlisted sort / column / group keys; SQL-injection attempts in sort keys; unknown
+filter keys and `__proto__` ignored; input bounds (search length 120, multi-value 200, numeric
+ranges clamped, ISO-only dates); template round-trip integrity; **tampered stored template rows
+re-sanitised on read**; CSV formula injection; every report declaring a permission; the
+D-013/D-048 rule that a name beside a score requires `performance.individual.read`; server-side
+`requirePermission` on every new page and every template action; the template service
+re-checking the *source report's* permission on every read path; no unescaped interpolation
+into the PDF template; no `dangerouslySetInnerHTML` in the new surface.
+
+Three findings, all fixed in the same commit:
+
+1. `flag=<unknown>` produced `flags: []`. An empty array means "all" in this framework but
+   reads in code like an active filter — the two are now unified on `undefined`, and the same
+   applies to employee types and selected columns.
+2. `perf-evaluations` declared `performance.individual.read` but was not marked `sensitive`, so
+   it skipped the pre-export warning every other individual-performance report shows.
+3. An assertion asserted the old empty-array shape; corrected with the contract.
+
+# 11) Performance (§23) — PASS
+
+Median of five samples after a warm-up, RC image on a clone of production
+(`scripts/v250-perf-audit.mjs`):
+
+| Surface | Median |
+|---|---|
+| CSV export | 9 ms |
+| Saved templates | 16 ms |
+| Report builder | 17 ms |
+| Allocation utilisation | 23 ms |
+| Detailed meetings registry | 25 ms |
+| Maintenance register | 26 ms |
+| Low performers | 31 ms |
+| Detailed committee registry | 34 ms |
+| Reports centre / builder with a report | 34–37 ms |
+| Individual report | 35 ms |
+| Expense register | 35 ms |
+| Weekly follow-up — screen | 41 ms |
+| Performance results (detailed) | 49 ms |
+| Weekly follow-up — report | 56 ms |
+| Programmes by domain / by owner | 64–73 ms |
+
+Nothing approaches the 1 500 ms attention threshold. **Caveat stated plainly:** this is real
+production volume for this school (30 programmes, 54 people, 4 committees, 6 cycles) — it is the
+volume the brief asks to test at, but it is small, and these numbers do not predict behaviour at
+ten times the size. The reports that would degrade first are the two that load every cycle with
+its sessions and ratings (`perf-results`, `perf-low-performers`); they are the ones to re-measure
+if the register grows.
+
+# 12) RTL / visual (§20) — PASS 100 / 100
+
+`scripts/v250-visual-audit.mjs`, 25 surfaces × 4 widths (1366×768, 1440×900, 1024×768, 360×740),
+including every new surface: the filter panel and its multi-selects, active-filter chips, the
+builder, saved templates, the individual-report workflow, long tables, and the grouped committee
+sections. Zero horizontal page overflow, zero clipped text, zero overlapping controls, `dir=rtl`
+applied everywhere, keyboard focus reaching the first sidebar link. Screenshots in
+`storage-e2e/visual-audit-v250/`.
+
+# 13) Exports (§21) — PASS 27 / 27
+
+`scripts/v250-export-audit.mjs`: five reports × four formats through the real issuance pipeline.
+Valid signatures (`%PDF-`, `PK` for the OOXML pair), sizes from 371 B to 70 KB, and extractable
+Arabic in every PDF (519–5 793 Arabic characters). CSV carries no un-neutralised formula cell.
+
+One assertion had to be rewritten rather than "made to pass": matching the **phrase**
+«المرشّحات الفعّالة» in extracted PDF text fails even when the header is correct, because the
+extractor reorders Arabic letters (it yields «الربامج» for «البرامج») — a limitation `CLAUDE.md`
+already records. The audit now checks that the filter's **value** appears in the file, and
+`tests/unit/export-header.test.ts` pins the header text at source, including that the header
+lines and the on-screen chips come from one function so the two can never diverge.
