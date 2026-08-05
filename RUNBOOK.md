@@ -91,12 +91,13 @@ docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
 | 2026-07-30 | v2.2.1 | — | `ab259dd8` | 23 |
 | 2026-07-31 | v2.3.0 | `b47558c` | `7f5ff14a` | 27 |
 | **2026-08-03** | **v2.4.0** | **`da8db16`** | **`2f69c724`** | **29** |
-| _(مرشَّح)_ | v2.4.1 | _(انظر `docs/DELIVERY_V2_4_1.md`)_ | _(صورة RC)_ | **31** (هجرتان إضافيتان: 0029، 0030) |
+| **2026-08-04** | **v2.4.1** | **`6d7dacf`** | **`4b427c8e`** | **31** |
+| _(مرشَّح)_ | v2.5.0 | _(انظر `docs/DELIVERY_V2_5_0.md`)_ | `0410fdb3` (صورة RC) | **34** (ثلاث هجرات: 0031، 0032، 0033) |
 
 ### التراجع السريع (بلا أي إجراء على القاعدة)
 
 ```bash
-docker tag madrasa-app:0.1.0-prev-v2_4-20260803 madrasa-app:0.1.0
+docker tag madrasa-app:0.1.0-prev-v2_4_1-20260804 madrasa-app:0.1.0
 docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
   up -d --no-deps --force-recreate app
 curl -s http://127.0.0.1:3080/api/health
