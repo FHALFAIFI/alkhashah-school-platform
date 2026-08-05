@@ -12,7 +12,7 @@ import { audit } from "@/lib/audit";
 import { orFallback } from "@/lib/format";
 import { snapshotRecord } from "@/lib/versioning";
 import { MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE } from "@/lib/finance/calc";
-import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
+import { FOLLOWUP_STATUSES, isWeeklyStatus, isoWeekKey } from "@/lib/plan/followup";
 import { PROGRAM_LIFECYCLE, LIFECYCLE_ACTIONS, programLifecycle } from "@/lib/plan/lifecycle";
 import {
   EDITABLE_FIELD_KEYS,
@@ -869,65 +869,78 @@ export async function decideChangeRequestAction(requestId: string, decision: "م
   return null;
 }
 
-/** المتابعة الأسبوعية لبرنامج معتمد — سجل واحد لكل أسبوع ISO (إعادة الإرسال تحدث سجل الأسبوع نفسه).
- *  التقدم يُدخل مباشرةً هنا (D-024) — لا يُشتقّ من الأنشطة. */
+/**
+ * المتابعة الأسبوعية لبرنامج معتمد — سجل واحد لكل أسبوع ISO (إعادة الإرسال تحدّث سجل
+ * الأسبوع نفسه).
+ *
+ * v2.5.0 §6.2 و§6.4 (D-054) — تغييران جوهريان:
+ *
+ *  1. **لا نسبة إنجاز في المتابعة الأسبوعية.** الحقل أُزيل من النموذج ومن هذا المخطط ومن
+ *     الكتابة. كان يُدخل نسبة تُكتب فوق `programs.progress`، فصار للبرنامج مصدرا تقدم
+ *     متنافسان: ما يراه المدير في التقرير وما أدخله المسؤول في متابعة الأسبوع. المصدر
+ *     المعتمد الآن `programs.progress` وحده، ويُحرَّر من صفحة البرنامج بسبب مسجَّل.
+ *  2. **حالة الأسبوع لا تكتب فوق حالة البرنامج الجارية.** محوران منفصلان صراحةً (§6.4):
+ *     «متأخر هذا الأسبوع» ملاحظة أسبوعية، وليست قراراً بتغيير حالة البرنامج.
+ *
+ * ما يُحدَّث على سجل البرنامج هو `lastReviewAt` وحده — أي «سُجّلت متابعة»، وهو ما يقيس
+ * استحقاق المتابعة لا التقدم.
+ */
 const followupSchema = z.object({
-  // نص المتابعة اختياري (تصحيحات v2.1 §H) — يُخزَّن "" عند الفراغ (العمود NOT NULL).
+  // كل الحقول السردية اختيارية (§12) — "" يفي بقيد NOT NULL على عمود الملاحظة
   note: z.string().trim().optional(),
-  executionStatus: z.enum(FOLLOWUP_STATUSES, { message: "حالة التنفيذ غير صحيحة" }),
-  // v2.4: الحقل الفارغ يعني «أبق التقدم كما هو» — z.coerce وحدها تحول "" إلى 0 فتصفر التقدم بصمت
-  progress: z.preprocess(
-    (v) => (v === "" || v == null ? undefined : v),
-    z.coerce.number().int().min(0, "النسبة بين 0 و100").max(100, "النسبة بين 0 و100").optional(),
-  ),
+  weekStatus: z.string().trim().refine(isWeeklyStatus, { message: "حالة الأسبوع غير صحيحة" }),
+  completedWork: z.string().trim().optional(),
+  obstacles: z.string().trim().optional(),
+  requiredAction: z.string().trim().optional(),
+  nextStep: z.string().trim().optional(),
+  evidenceUpdate: z.string().trim().optional(),
+  interventionNeeded: z.string().optional(),
 });
 
 export async function submitFollowupAction(programId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("plan.write");
-  const parsed = followupSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  // حالة البرنامج تُفحص قبل شكل النموذج: «البرنامج مغلق نهائياً» سبب مفهوم للمستخدم،
+  // بينما رسالة تحقّق حقلٍ ما تكون مضلّلة حين لا يكون الحقل هو المشكلة أصلاً.
   const [program] = await db.select().from(programs).where(eq(programs.id, programId));
   if (!program) return { error: "البرنامج غير موجود" };
   if (program.status !== "معتمد") return { error: "المتابعة الأسبوعية للبرامج المعتمدة فقط" };
   if (program.closedAt) return { error: "البرنامج مغلق نهائياً — أعد فتحه أولاً قبل تسجيل متابعة" };
 
-  // التقدم المُدخل مباشرةً إن وُجد، وإلا يبقى تقدم البرنامج كما هو
-  const progress = parsed.data.progress ?? program.progress;
-  // نص المتابعة اختياري (v2.1 §H) — "" يفي بقيد NOT NULL على العمود
-  const note = parsed.data.note ?? "";
+  const parsed = followupSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const d = parsed.data;
+  const note = d.note ?? "";
   const now = new Date();
   const weekKey = isoWeekKey(now);
+  const values = {
+    note,
+    executionStatus: d.weekStatus,
+    completedWork: d.completedWork || null,
+    obstacles: d.obstacles || null,
+    requiredAction: d.requiredAction || null,
+    nextStep: d.nextStep || null,
+    evidenceUpdate: d.evidenceUpdate || null,
+    interventionNeeded: d.interventionNeeded === "on" || d.interventionNeeded === "1",
+    createdBy: user.id,
+  };
   await db
     .insert(programFollowups)
-    .values({
-      programId,
-      weekKey,
-      note,
-      executionStatus: parsed.data.executionStatus,
-      progressSnapshot: progress,
-      createdBy: user.id,
-    })
+    .values({ programId, weekKey, ...values })
     .onConflictDoUpdate({
       target: [programFollowups.programId, programFollowups.weekKey],
       // v2.4: لا يُعاد ضبط createdAt عند تعديل سجل الأسبوع — إعادة ضبطه كانت تجعل أسبوعاً
       // قديماً معدلاً يتقدم على الأسبوع الحالي في الترتيب الزمني
-      set: {
-        note,
-        executionStatus: parsed.data.executionStatus,
-        progressSnapshot: progress,
-        createdBy: user.id,
-      },
+      set: values,
     });
-  await db
-    .update(programs)
-    .set({ progress, lastReviewAt: now, executionStatus: parsed.data.executionStatus, updatedAt: now })
-    .where(eq(programs.id, programId));
+  // `lastReviewAt` فقط: «سُجّلت متابعة». لا تقدم ولا حالة تنفيذ تُكتب من هنا (D-054).
+  await db.update(programs).set({ lastReviewAt: now, updatedAt: now }).where(eq(programs.id, programId));
   await audit({
     actorId: user.id,
     action: "program.followup_recorded",
     entityType: "program",
     entityId: programId,
-    summary: `متابعة أسبوعية ${weekKey} لبرنامج «${program.name}» — ${parsed.data.executionStatus} (${progress}٪)`,
+    summary: `متابعة أسبوعية ${weekKey} لبرنامج «${program.name}» — ${d.weekStatus}`,
+    detail: { weekKey, weekStatus: d.weekStatus, interventionNeeded: values.interventionNeeded },
   });
   return { success: "سجلت المتابعة الأسبوعية" };
 }

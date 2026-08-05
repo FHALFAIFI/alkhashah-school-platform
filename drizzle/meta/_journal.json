@@ -218,6 +218,13 @@
       "when": 1785832128813,
       "tag": "0030_bent_leo",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785949441430,
+      "tag": "0031_unknown_master_chief",
+      "breakpoints": true
     }
   ]
 }

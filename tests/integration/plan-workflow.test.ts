@@ -173,7 +173,7 @@ describe("سير عمل الخطة التشغيلية: اعتماد، إعادة
     expect(again?.error).toBeUndefined();
   });
 
-  it("(د) المتابعة الأسبوعية تسجل lastReviewAt وحالة التنفيذ وتحدث سجل الأسبوع نفسه بلا تكرار", async () => {
+  it("(د) المتابعة الأسبوعية تسجل lastReviewAt وتحدث سجل الأسبوع نفسه بلا تكرار", async () => {
     const { db } = await import("@/db");
     const { programs, programFollowups } = await import("@/db/schema");
     const { submitFollowupAction } = await import("@/app/(app)/plan/actions");
@@ -182,18 +182,19 @@ describe("سير عمل الخطة التشغيلية: اعتماد، إعادة
 
     const fd1 = new FormData();
     fd1.set("note", "بدأ التنفيذ حسب الجدول");
-    fd1.set("executionStatus", "في المسار");
+    fd1.set("weekStatus", "قيد التنفيذ");
     const first = await submitFollowupAction(program.id, null, fd1);
     expect(first?.error).toBeUndefined();
 
     const [afterFirst] = await db.select().from(programs).where(eq(programs.id, program.id));
     expect(afterFirst.lastReviewAt).not.toBeNull();
-    expect(afterFirst.executionStatus).toBe("في المسار");
+    // v2.5.0 §6.4 (D-054): حالة الأسبوع محور مستقل — لا تكتب فوق حالة البرنامج الجارية
+    expect(afterFirst.executionStatus).toBe("لم يبدأ");
 
     // إعادة الإرسال في نفس الأسبوع تحدث السجل ولا تنشئ سجلاً ثانياً
     const fd2 = new FormData();
     fd2.set("note", "ظهر تعثر في التوريد");
-    fd2.set("executionStatus", "متأخر");
+    fd2.set("weekStatus", "متأخر");
     const second = await submitFollowupAction(program.id, null, fd2);
     expect(second?.error).toBeUndefined();
 
@@ -202,8 +203,6 @@ describe("سير عمل الخطة التشغيلية: اعتماد، إعادة
     expect(rows[0].weekKey).toBe(isoWeekKey());
     expect(rows[0].note).toBe("ظهر تعثر في التوريد");
     expect(rows[0].executionStatus).toBe("متأخر");
-    const [afterSecond] = await db.select().from(programs).where(eq(programs.id, program.id));
-    expect(afterSecond.executionStatus).toBe("متأخر");
 
     // المتابعة للبرامج المعتمدة فقط
     const { program: draft } = await seedProgram();

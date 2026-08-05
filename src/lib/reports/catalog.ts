@@ -6,6 +6,8 @@
  * يبني محرّك تقارير خاصاً به.
  */
 
+import type { FilterKey as FilterKeyName, ReportMode as ReportModeName } from "./filters";
+
 /** أعمدة التقرير — النوع يحدّد التنسيق ومحاذاة العرض والتصدير */
 export type ColumnType = "text" | "number" | "money" | "date" | "percent";
 
@@ -15,19 +17,38 @@ export type ReportColumn = {
   type?: ColumnType;
 };
 
-/** مرشّحات موحّدة لكل التقارير — كلها اختيارية */
-export type ReportFilters = {
-  search?: string;
-  dateFrom?: string;
-  dateTo?: string;
-  status?: string;
-  personId?: string;
-  itemId?: string;
-  sort?: string;
-  dir?: "asc" | "desc";
-  page?: number;
-  pageSize?: number;
-};
+/**
+ * المرشّحات الموحّدة عرّفها `./filters` (v2.5.0 §3) — إطار واحد تستعمله الشاشة والتصدير
+ * ومنشئ التقارير معاً. تُعاد هنا كي تبقى الاستيرادات القائمة من `catalog` صالحة.
+ */
+export type { ReportFilters, FilterKey } from "./filters";
+
+/**
+ * مصادر بيانات منشئ التقارير (§4.1) — كل مصدر يقابل مجال أعمال واحداً، ويشترك تقرير
+ * واحد أو أكثر في المصدر نفسه فلا يوجد محرّك تقارير ثانٍ.
+ */
+export const REPORT_SOURCES = {
+  programs: "البرامج التشغيلية",
+  "weekly-followup": "المتابعة الأسبوعية",
+  evidence: "شواهد البرامج",
+  approvals: "اعتمادات البرامج",
+  budget: "الميزانية والمصروفات",
+  employees: "الموظفون",
+  "perf-cycles": "دورات الأداء",
+  "perf-results": "نتائج الأداء",
+  committees: "المجالس واللجان",
+  "committee-tasks": "مهام اللجان",
+  meetings: "الاجتماعات",
+  decisions: "القرارات والتوصيات",
+  maintenance: "الصيانة",
+  inspections: "الفحوصات",
+} as const;
+
+export type ReportSource = keyof typeof REPORT_SOURCES;
+
+export function isReportSource(value: string): value is ReportSource {
+  return Object.prototype.hasOwnProperty.call(REPORT_SOURCES, value);
+}
 
 export type ReportRow = Record<string, string | number | null>;
 
@@ -87,7 +108,18 @@ export type ReportDefinition = {
   permission: string;
   columns: ReportColumn[];
   /** مرشّحات ذات معنى لهذا التقرير — تُعرض وحدها فلا يظهر مرشّح لا أثر له */
-  filters?: ("search" | "dateRange" | "status" | "person" | "item")[];
+  filters?: FilterKeyName[];
+  /**
+   * v2.5.0 §4: مصدر بيانات منشئ التقارير. التقارير التي تحمل مصدراً تظهر في المنشئ
+   * وتقبل اختيار الأعمدة والتجميع والقوالب المحفوظة؛ ما لا يحمله يبقى تقريراً جاهزاً.
+   */
+  source?: ReportSource;
+  /** أنماط العرض المدعومة لهذا التقرير — أولها الافتراضي */
+  modes?: ReportModeName[];
+  /** أعمدة التجميع المسموح بها (§4.2) — مقيَّدة بأعمدة التقرير نفسه */
+  groupBy?: string[];
+  /** التقرير يحمل بيانات أداء فردية حسّاسة (D-013) — يُدقَّق إصداره ويُحذَّر قبل تصديره */
+  sensitive?: boolean;
 };
 
 const col = (key: string, label: string, type: ColumnType = "text"): ReportColumn => ({ key, label, type });
@@ -233,35 +265,58 @@ export const REPORTS: readonly ReportDefinition[] = [
     filters: ["search"],
   },
   {
+    // v2.5.0 §6.1: هذا التقرير عرضٌ للقراءة فوق مصدر الشاشة التشغيلية نفسه. لا «تقدم
+    // أسبوع» بعد اليوم — أُزيل الإدخال اليدوي، والتقدم المعروض هو المعتمد على البرنامج.
     key: "plan-followups",
     category: "plan",
     label: "المتابعة الأسبوعية",
     description:
-      "حالة كل برنامج معتمد في الأسبوع الحالي — لقطة الأسبوع المحفوظة أو «لم يتم التحديث هذا الأسبوع»، مع فصل محور التنفيذ عن الاكتمال والإقفال (v2.4)",
+      "حالة كل برنامج معتمد في الأسبوع المختار — البيانات نفسها التي تعرضها شاشة «المتابعة الأسبوعية» حرفياً، مع فصل حالة الأسبوع عن الحالة الجارية وعن التقدم المعتمد",
     permission: "plan.read",
+    source: "weekly-followup",
+    modes: ["detailed", "grouped", "summary", "exception"],
+    groupBy: ["domain", "owner", "weekStatus", "group"],
     columns: [
       col("seq", "م", "number"),
       col("programName", "البرنامج"),
       col("domain", "المجال"),
       col("owner", "المسؤول"),
+      col("weekKey", "الأسبوع"),
       col("weekStatus", "حالة الأسبوع"),
-      col("weekProgress", "تقدم الأسبوع", "percent"),
+      col("group", "التجميع الأسبوعي"),
+      col("executionStatus", "الحالة الجارية"),
+      col("currentProgress", "التقدم المعتمد", "percent"),
       col("lifecycle", "دورة الحياة"),
-      col("currentProgress", "التقدم الحالي", "percent"),
       col("lastFollowup", "آخر متابعة", "date"),
       col("evidenceCount", "الشواهد", "number"),
-      col("note", "ملاحظة الأسبوع"),
+      col("note", "ملاحظات الأسبوع"),
+      col("completedWork", "ما أُنجز"),
+      col("obstacles", "العوائق"),
+      col("requiredAction", "الإجراء المطلوب"),
+      col("nextStep", "الخطوة التالية"),
+      col("interventionNeeded", "يحتاج تدخّلاً"),
     ],
-    filters: ["search", "status"],
+    filters: ["search", "week", "domain", "owner", "program", "status"],
   },
   {
     key: "plan-followup-log",
     category: "plan",
     label: "سجل المتابعات الأسبوعية",
-    description: "كل ملاحظات المتابعة الأسبوعية تاريخياً مع لقطة التقدم وحالة التنفيذ لكل أسبوع",
+    description: "كل ملاحظات المتابعة الأسبوعية تاريخياً بحالة كل أسبوع وسرده",
     permission: "plan.read",
-    columns: [col("weekKey", "الأسبوع"), col("programName", "البرنامج"), col("executionStatus", "حالة التنفيذ"), col("progressSnapshot", "التقدم", "percent"), col("note", "الملاحظة"), col("createdAt", "التاريخ", "date")],
-    filters: ["search", "dateRange", "status"],
+    source: "weekly-followup",
+    columns: [
+      col("weekKey", "الأسبوع"),
+      col("programName", "البرنامج"),
+      col("executionStatus", "حالة الأسبوع"),
+      col("note", "الملاحظة"),
+      col("completedWork", "ما أُنجز"),
+      col("obstacles", "العوائق"),
+      col("requiredAction", "الإجراء المطلوب"),
+      col("nextStep", "الخطوة التالية"),
+      col("createdAt", "التاريخ", "date"),
+    ],
+    filters: ["search", "dateRange", "status", "program"],
   },
   {
     key: "action-tasks",

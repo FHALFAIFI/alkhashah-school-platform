@@ -354,7 +354,7 @@ describe("سير العمل ثلاثي الحالات §B — الإقفال ا�
     expect(after.progress).toBe(10);
     expect(after.closedAt).not.toBeNull();
 
-    const followup = await submitFollowupAction(p.id, null, fd({ executionStatus: "في المسار" }));
+    const followup = await submitFollowupAction(p.id, null, fd({ weekStatus: "قيد التنفيذ" }));
     expect(followup?.error).toContain("مغلق نهائياً");
 
     const cr = await createChangeRequestAction(p.id, null, fd({ field: "name", fieldLabel: "اسم البرنامج", newValue: "جديد", reason: "سبب موثق" }));

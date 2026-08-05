@@ -1,9 +1,10 @@
 import "server-only";
-import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   programs,
   programClosureHistory,
+  programEditHistory,
   programRisks,
   programKpis,
   programFollowups,
@@ -42,11 +43,12 @@ import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { getSchoolFinance } from "@/lib/finance/service";
 import { amountOrNull, toMinor, fromMinor } from "@/lib/finance/calc";
 import { ALLOCATION_NONE_VALUE, REMAINING_UNAVAILABLE } from "@/lib/finance/allocation";
-import { isoWeekKey, NO_WEEKLY_UPDATE_LABEL } from "@/lib/plan/followup";
+import { normalizeWeeklyStatus } from "@/lib/plan/followup";
 import { programLifecycle } from "@/lib/plan/lifecycle";
 import { programsEvidenceSummary } from "@/lib/plan/program-service";
 import { hijriTextToIso } from "@/lib/dates";
-import { type ReportFilters, type ReportRow, reportByKey, isSortableColumn } from "./catalog";
+import { type ReportRow, reportByKey, isSortableColumn } from "./catalog";
+import { type ReportFilters, type FilterFlag, DEFAULT_LOW_THRESHOLD } from "./filters";
 import { clampPage, clampPageSize, MAX_EXPORT_ROWS } from "./export-safety";
 
 /**
@@ -99,6 +101,45 @@ function paginate(rows: ReportRow[], filters: ReportFilters, reportKey: string):
   const page = clampPage(filters.page ?? 1);
   const pageSize = clampPageSize(filters.pageSize);
   return { rows: sorted.slice((page - 1) * pageSize, page * pageSize), total: sorted.length };
+}
+
+/* ───────────────── أدوات الترشيح الموحّدة (v2.5.0 §3) ───────────────── */
+
+/**
+ * «واحد أو عدّة أو الكل» بمعنى واحد في كل التقارير (§3.3): المصفوفة الفارغة أو الغائبة
+ * تعني **الكل**، وأي قيمة أخرى تعني الانتماء إلى المجموعة. تُطبَّق في الذاكرة للتقارير
+ * المجمَّعة، وبـ`inArray` للاستعلامات المباشرة — بالدلالة نفسها.
+ */
+export function matchesMulti(value: string | null | undefined, selected: string[] | undefined): boolean {
+  if (!selected || selected.length === 0) return true;
+  return value !== null && value !== undefined && selected.includes(value);
+}
+
+/** مرشّح `IN` اختياري — يُسقَط تماماً حين لا يُحدَّد شيء فلا يضيف شرطاً بلا داعٍ */
+function inArrayIf(column: AnyColumn, selected: string[] | undefined): SQL | undefined {
+  return selected && selected.length > 0 ? inArray(column, selected) : undefined;
+}
+
+/** هل طُلبت هذه العلامة؟ */
+function hasFlag(filters: ReportFilters, flag: FilterFlag): boolean {
+  return Boolean(filters.flags?.includes(flag));
+}
+
+/** مدى عددي مغلق الطرفين — أي طرف غائب يعني «بلا حد» */
+function inRange(value: number | null | undefined, min: number | undefined, max: number | undefined): boolean {
+  if (min === undefined && max === undefined) return true;
+  if (value === null || value === undefined) return false;
+  if (min !== undefined && value < min) return false;
+  if (max !== undefined && value > max) return false;
+  return true;
+}
+
+/** بحث نصّي حرّ على عدة حقول — يكفي تطابق واحد */
+function textMatches(term: string | undefined, ...fields: (string | null | undefined)[]): boolean {
+  if (!term) return true;
+  const needle = term.trim();
+  if (!needle) return true;
+  return fields.some((f) => (f ?? "").includes(needle));
 }
 
 /** مرشّح مدى تاريخي على عمود نصي بصيغة ISO */
@@ -185,20 +226,24 @@ async function detailedProgramRows(filters: ReportFilters, groupBy: "domain" | "
     .from(programs)
     .where(and(notSynthetic(programs.id, excluded.programs), isNull(programs.archivedAt)))
     .orderBy(asc(programs.seq));
-  const evidence = await programsEvidenceSummary(rows.map((p) => p.id));
+  const ids = rows.map((p) => p.id);
+  const evidence = await programsEvidenceSummary(ids);
+  // v2.5.0 §5.3: علامة «عُدّل بعد الاعتماد» تُشتقّ من سجل التعديلات لا من عمود حالة موازٍ
+  const editedAfterApproval = await programsEditedAfterApproval(ids);
   const today = new Date().toISOString().slice(0, 10);
 
+  const owner = (p: (typeof rows)[number]) => (p.ownerPosition ?? "").trim() || "بدون مسؤول";
+  const domain = (p: (typeof rows)[number]) => (p.domain ?? "").trim() || "بدون تصنيف";
+
   let out = rows.map((p) => {
-    const groupKey =
-      groupBy === "domain"
-        ? (p.domain ?? "").trim() || "بدون تصنيف"
-        : (p.ownerPosition ?? "").trim() || "بدون مسؤول";
     const endIso = hijriTextToIso(p.hijriEnd);
+    const delayed = endIso !== null && endIso < today && !p.completedAt && !p.closedAt;
     return {
-      group: groupKey,
+      id: p.id,
+      group: groupBy === "domain" ? domain(p) : owner(p),
       seq: p.seq,
       name: p.name,
-      other: groupBy === "domain" ? (p.ownerPosition ?? "").trim() || "بدون مسؤول" : (p.domain ?? "").trim() || "بدون تصنيف",
+      other: groupBy === "domain" ? owner(p) : domain(p),
       approval: p.status,
       lifecycle: programLifecycle(p),
       executionStatus: p.executionStatus,
@@ -206,16 +251,55 @@ async function detailedProgramRows(filters: ReportFilters, groupBy: "domain" | "
       hijriStart: p.hijriStart,
       hijriEnd: p.hijriEnd,
       evidenceCount: evidence.get(p.id)?.count ?? 0,
-      delayed: endIso !== null && endIso < today && !p.completedAt && !p.closedAt ? "متأخر عن نهايته" : "",
+      delayed: delayed ? "متأخر عن نهايته" : "",
+      // §4.4: «مؤشر التعديل بعد الاعتماد» عمود مستقل يمكن اختياره في المنشئ
+      editedAfterApproval: editedAfterApproval.has(p.id) ? "نعم" : "",
+      _domain: domain(p),
+      _owner: owner(p),
+      _delayed: delayed,
     };
   });
-  if (filters.status) out = out.filter((r) => r.approval === filters.status);
-  if (filters.search) {
-    const term = filters.search;
-    out = out.filter((r) => String(r.name ?? "").includes(term) || r.group.includes(term) || r.other.includes(term));
-  }
+
+  // «واحد أو عدّة أو الكل» على المحورين معاً — التقرير حسب المسؤول يقبل ترشيح المجال أيضاً
+  out = out.filter(
+    (r) =>
+      matchesMulti(r._owner, filters.owners) &&
+      matchesMulti(r._domain, filters.domains) &&
+      matchesMulti(r.approval, filters.statuses) &&
+      matchesMulti(r.id, filters.programIds) &&
+      inRange(r.progress, filters.minProgress, filters.maxProgress) &&
+      textMatches(filters.search, r.name, r.group, r.other),
+  );
+
+  if (hasFlag(filters, "delayed")) out = out.filter((r) => r._delayed);
+  if (hasFlag(filters, "approved")) out = out.filter((r) => r.approval === "معتمد");
+  if (hasFlag(filters, "notApproved")) out = out.filter((r) => r.approval !== "معتمد");
+  if (hasFlag(filters, "editedAfterApproval")) out = out.filter((r) => r.editedAfterApproval === "نعم");
+  if (hasFlag(filters, "hasEvidence")) out = out.filter((r) => r.evidenceCount > 0);
+  if (hasFlag(filters, "noEvidence")) out = out.filter((r) => r.evidenceCount === 0);
+
   // التجميع: ترتيب ثابت بالمجموعة ثم تسلسل البرنامج — كل برامج المجموعة متجاورة
-  return out.sort((a, b) => a.group.localeCompare(b.group, "ar") || a.seq - b.seq);
+  const sorted = out.sort((a, b) => a.group.localeCompare(b.group, "ar") || a.seq - b.seq);
+  // الحقول التقنية لا تُصدَّر ولا تُعرض
+  return sorted.map(({ id: _id, _domain, _owner, _delayed, ...rest }) => rest);
+}
+
+/**
+ * البرامج التي تحمل تعديلاً واحداً على الأقل سُجِّل بعد الاعتماد (§5.3).
+ * المصدر هو `program_edit_history` نفسه، فلا يمكن للعلامة أن تخالف السجل.
+ */
+async function programsEditedAfterApproval(programIds: string[]): Promise<Set<string>> {
+  if (programIds.length === 0) return new Set();
+  const rows = await db
+    .selectDistinct({ programId: programEditHistory.programId })
+    .from(programEditHistory)
+    .where(
+      and(
+        inArray(programEditHistory.programId, programIds),
+        ne(programEditHistory.approvalStatusAtEdit, "مسودة"),
+      ),
+    );
+  return new Set(rows.map((r) => r.programId));
 }
 
 async function loadProgramsByDomain(filters: ReportFilters): Promise<ReportRow[]> {
@@ -1029,62 +1113,38 @@ async function loadPlanKpis(filters: ReportFilters): Promise<ReportRow[]> {
  * المحفوظة أو «لم يتم التحديث هذا الأسبوع»، ومحورا التنفيذ والإقفال منفصلان. غياب التحديث
  * لا يُعرَض اكتمالاً أبداً.
  */
+/**
+ * تقرير المتابعة الأسبوعية — **يقرأ المصدر الواحد نفسه الذي تعرضه الشاشة** (§6.1).
+ *
+ * قبل v2.5.0 كان لهذا التقرير استعلامه المستقل، وكان يختلف عن الشاشة في ثلاثة أمور
+ * جوهرية: يقرأ أسبوع اليوم دائماً متجاهلاً الأسبوع المختار، ويصنّف بالحقل الخام بدل
+ * التجميع الصادق، ويعرض «نسبة الأسبوع» المُدخلة يدوياً كأنها تقدم البرنامج. فكان المدير
+ * يرى رقمين للأسبوع نفسه. الآن التقرير عرض للقراءة والتصدير فوق `loadWeeklyFollowup`.
+ */
 async function loadPlanFollowups(filters: ReportFilters): Promise<ReportRow[]> {
-  const excluded = await getExcludedIdSets();
-  const week = isoWeekKey();
-  const years = await db.select().from(planYears).orderBy(asc(planYears.key));
-  const activeYear = years.find((y) => y.status === "نشطة") ?? years[0];
-  if (!activeYear) return [];
-  const programRows = (
-    await db
-      .select()
-      .from(programs)
-      .where(
-        and(
-          eq(programs.planYearId, activeYear.id),
-          notSynthetic(programs.id, excluded.programs),
-          isNull(programs.archivedAt),
-        ),
-      )
-      .orderBy(asc(programs.seq))
-  ).filter((p) => p.status === "معتمد");
-  const ids = programRows.map((p) => p.id);
-  const weekFollowups = ids.length
-    ? await db
-        .select()
-        .from(programFollowups)
-        .where(and(inArray(programFollowups.programId, ids), eq(programFollowups.weekKey, week)))
-    : [];
-  const byProgram = new Map(weekFollowups.map((f) => [f.programId, f]));
-  const evidence = await programsEvidenceSummary(ids);
-
-  let rows = programRows.map((p) => {
-    const f = byProgram.get(p.id);
-    return {
-      seq: p.seq,
-      programName: p.name,
-      domain: p.domain,
-      owner: p.ownerPosition ?? "",
-      weekStatus: f?.executionStatus ?? NO_WEEKLY_UPDATE_LABEL,
-      weekProgress: f ? f.progressSnapshot : null,
-      lifecycle: programLifecycle(p),
-      currentProgress: p.progress,
-      lastFollowup: p.lastReviewAt ? isoDate(p.lastReviewAt) : null,
-      evidenceCount: evidence.get(p.id)?.count ?? 0,
-      note: f?.note ?? "",
-    };
-  });
-  if (filters.status) rows = rows.filter((r) => r.weekStatus === filters.status);
-  if (filters.search) {
-    const term = filters.search;
-    rows = rows.filter(
-      (r) =>
-        String(r.programName ?? "").includes(term) ||
-        String(r.domain ?? "").includes(term) ||
-        String(r.owner ?? "").includes(term),
-    );
-  }
-  return rows;
+  const { loadWeeklyFollowup } = await import("@/lib/plan/followup-service");
+  const result = await loadWeeklyFollowup({ week: filters.week, filters });
+  return result.rows.map((r) => ({
+    seq: r.seq,
+    programName: r.name,
+    domain: r.domain,
+    owner: r.owner,
+    weekKey: result.week,
+    weekStatus: r.weekStatus,
+    group: r.group,
+    // §6.4: التقدم المعتمد من سجل البرنامج — لا «نسبة أسبوع» مُدخلة يدوياً
+    currentProgress: r.progress,
+    executionStatus: r.executionStatus,
+    lifecycle: r.lifecycle,
+    lastFollowup: isoDate(r.lastFollowupAt),
+    evidenceCount: r.evidenceCount,
+    note: r.note,
+    completedWork: r.completedWork,
+    obstacles: r.obstacles,
+    requiredAction: r.requiredAction,
+    nextStep: r.nextStep,
+    interventionNeeded: r.interventionNeeded ? "نعم" : "",
+  }));
 }
 
 /** السجل التاريخي الكامل للمتابعات الأسبوعية (كان `plan-followups` قبل v2.4) */
@@ -1095,7 +1155,10 @@ async function loadPlanFollowupLog(filters: ReportFilters): Promise<ReportRow[]>
     notSynthetic(programs.id, excluded.programs),
     ...dateRangeTs(programFollowups.createdAt, filters),
   ];
-  if (filters.status) where.push(eq(programFollowups.executionStatus, filters.status));
+  const statusFilter = inArrayIf(programFollowups.executionStatus, filters.statuses);
+  if (statusFilter) where.push(statusFilter);
+  const programFilter = inArrayIf(programFollowups.programId, filters.programIds);
+  if (programFilter) where.push(programFilter);
   if (filters.search) where.push(or(ilike(programs.name, likeTerm(filters.search)), ilike(programFollowups.note, likeTerm(filters.search))));
   const rows = await db
     .select({ f: programFollowups, programName: programs.name })
@@ -1103,12 +1166,17 @@ async function loadPlanFollowupLog(filters: ReportFilters): Promise<ReportRow[]>
     .innerJoin(programs, eq(programs.id, programFollowups.programId))
     .where(where.filter(Boolean).length ? and(...where) : undefined)
     .orderBy(desc(programFollowups.weekKey), desc(programFollowups.createdAt));
+  // §6.2: عمود `progress_snapshot` مهجور — لا يُصدَّر ولا يُعرض، وقيمه التاريخية باقية
+  // في القاعدة كما هي (§18).
   return rows.map(({ f, programName }) => ({
     weekKey: f.weekKey,
     programName,
-    executionStatus: f.executionStatus,
-    progressSnapshot: f.progressSnapshot,
+    executionStatus: normalizeWeeklyStatus(f.executionStatus),
     note: f.note,
+    completedWork: f.completedWork,
+    obstacles: f.obstacles,
+    requiredAction: f.requiredAction,
+    nextStep: f.nextStep,
     createdAt: isoDate(f.createdAt),
   }));
 }

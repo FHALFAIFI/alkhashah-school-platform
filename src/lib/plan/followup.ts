@@ -3,9 +3,42 @@
  * البرنامج المعتمد بلا متابعة لأكثر من 14 يوماً يعد «متابعة مستحقة».
  */
 
-/** حالات التنفيذ المتاحة في نموذج المتابعة الأسبوعية */
+/**
+ * حالات التنفيذ المعتمدة على **سجل البرنامج** (`programs.execution_status`).
+ *
+ * هذه المفردات موجودة فعلاً في بيانات الإنتاج منذ v2.1، ولا تُعاد كتابتها (§18). تبقى كما
+ * هي لأنها محور مستقل عن حالة الأسبوع (§6.4).
+ */
 export const FOLLOWUP_STATUSES = ["في المسار", "متأخر", "متوقف مؤقتاً", "مكتمل"] as const;
 export type FollowupStatus = (typeof FOLLOWUP_STATUSES)[number];
+
+/**
+ * حالات **المتابعة الأسبوعية** (v2.5.0 §6.3) — محور مستقل عن حالة البرنامج الجارية.
+ *
+ * الفارق عن القائمة أعلاه مقصود: التكليف يطلب «لم يبدأ» و«قيد التنفيذ» صراحةً. لم تُعد
+ * كتابة أي صف تاريخي: القيم القديمة («في المسار» و«متوقف مؤقتاً» بالرسم القديم) تُطبَّع
+ * عند القراءة عبر `normalizeWeeklyStatus`، فيرى المدير مفردات واحدة على الشاشة وفي
+ * التقرير دون أن تُمسّ قاعدة البيانات.
+ */
+export const WEEKLY_STATUSES = ["لم يبدأ", "قيد التنفيذ", "متأخر", "مكتمل", "متوقف مؤقتًا"] as const;
+export type WeeklyStatus = (typeof WEEKLY_STATUSES)[number];
+
+/** مرادفات تاريخية محفوظة في `program_followups.execution_status` */
+const LEGACY_WEEKLY_STATUS: Record<string, WeeklyStatus> = {
+  "في المسار": "قيد التنفيذ",
+  "متوقف مؤقتاً": "متوقف مؤقتًا",
+};
+
+/** تطبيع حالة أسبوع مقروءة من القاعدة إلى المفردات المعروضة — بلا كتابة */
+export function normalizeWeeklyStatus(stored: string | null | undefined): string | null {
+  if (!stored) return null;
+  return LEGACY_WEEKLY_STATUS[stored] ?? stored;
+}
+
+/** هل النص حالة أسبوع مقبولة للكتابة؟ يقبل المرادف التاريخي كي لا يُرفض تحرير صف قديم */
+export function isWeeklyStatus(value: string): boolean {
+  return (WEEKLY_STATUSES as readonly string[]).includes(value) || value in LEGACY_WEEKLY_STATUS;
+}
 
 /** عدد الأيام التي يعتبر بعدها البرنامج المعتمد بحاجة لمتابعة */
 export const FOLLOWUP_DUE_DAYS = 14;
@@ -100,13 +133,15 @@ export function weeklyGroup(opts: {
 }): WeeklyGroup {
   if (opts.closedAt) return "مغلق";
   if (opts.completedAt) return "مكتمل — بانتظار الإقفال";
-  const s = opts.weekStatus;
+  // يُطبَّع أولاً فيُعامَل الصف التاريخي والصف الجديد بالمعنى نفسه (§6.1)
+  const s = normalizeWeeklyStatus(opts.weekStatus);
   // «مكتمل» في متابعة الأسبوع دون توثيق الاكتمال: يُجمَّع مع المكتمل وتظهر واجهة العرض
   // تنبيهاً بأن الاكتمال غير موثق بعد — لا يُساوى بالبرنامج الجاري
   if (s === "مكتمل") return "مكتمل — بانتظار الإقفال";
   if (s === "متأخر") return "متأخر";
-  if (s === "متوقف مؤقتاً") return "متوقف مؤقتاً";
-  if (s === "في المسار") return "في المسار";
+  if (s === "متوقف مؤقتًا") return "متوقف مؤقتاً";
+  if (s === "قيد التنفيذ") return "في المسار";
+  if (s === "لم يبدأ") return "لم يبدأ";
   // لا سجل متابعة للأسبوع — الحالة الجارية للعرض فقط، وغياب التحديث لا يعني الاكتمال
   if (opts.currentStatus === "لم يبدأ") return "لم يبدأ";
   return "بلا تحديث هذا الأسبوع";

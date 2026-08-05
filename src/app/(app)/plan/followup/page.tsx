@@ -1,31 +1,34 @@
 import Link from "next/link";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
-import { db } from "@/db";
-import { planYears, programs, programFollowups } from "@/db/schema";
-import { PageHeader, Card, Badge, ProgressBar, EmptyState, LinkButton } from "@/components/ui";
+import { PageHeader, Card, Badge, EmptyState, LinkButton } from "@/components/ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
+import { FilterPanel } from "@/components/report-filters";
+import { loadFilterOptions } from "@/lib/reports/filter-options";
+import { parseReportFilters } from "@/lib/reports/filters";
+import { loadWeeklyFollowup, type WeeklyRow } from "@/lib/plan/followup-service";
 import {
   daysSince,
   isFollowupDue,
-  isoWeekKey,
-  isValidWeekKey,
-  previousWeekKey,
   recentWeekKeys,
-  weeklyGroup,
+  WEEKLY_STATUSES,
   NO_WEEKLY_UPDATE_LABEL,
   type WeeklyGroup,
 } from "@/lib/plan/followup";
 import { isProgramInconsistent, NEEDS_REVIEW_LABEL } from "@/lib/plan/consistency";
-import { programsEvidenceSummary } from "@/lib/plan/program-service";
 import { evidenceCountPhrase } from "@/lib/plan/evidence-summary";
-import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
 import { orFallback, orDash } from "@/lib/format";
 import { FollowupDueBadge } from "../followup-badge";
 import { FollowupForm } from "./followup-ui";
 
 export const metadata = { title: "المتابعة الأسبوعية" };
 export const dynamic = "force-dynamic";
+
+/**
+ * الشاشة التشغيلية للمتابعة الأسبوعية (v2.5.0 §6).
+ *
+ * تعرض **المصدر الواحد** في `lib/plan/followup-service` وتحرّره؛ وتقرير «المتابعة
+ * الأسبوعية» يعرض المصدر نفسه ويُصدّره فقط. اختلافهما عيب لا اجتهاد (§6.1).
+ */
 
 /** ترتيب مجموعات العرض (v2.4 §7): الأكثر احتياجاً للانتباه أولاً */
 const GROUP_ORDER: WeeklyGroup[] = [
@@ -38,102 +41,76 @@ const GROUP_ORDER: WeeklyGroup[] = [
   "مغلق",
 ];
 
+const FILTER_KEYS = ["search", "week", "domain", "owner", "program", "status"] as const;
+const FLAGS = ["delayed", "notUpdated", "needsIntervention", "hasEvidence", "noEvidence"] as const;
+
 export default async function FollowupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ اسبوع?: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const user = await requirePermission("plan.read");
   const canWrite = user.permissions.has("plan.write");
+  const sp = await searchParams;
 
-  const currentWeek = isoWeekKey();
-  const requestedWeek = (await searchParams)["اسبوع"];
-  const week = requestedWeek && isValidWeekKey(requestedWeek) ? requestedWeek : currentWeek;
-  const prevWeek = previousWeekKey(week);
-  const isCurrentWeek = week === currentWeek;
-  const weekOptions = recentWeekKeys(8);
+  // «اسبوع» بالعربية بقيت مقبولة: روابط المدير المحفوظة منذ v2.4 تستعملها
+  const legacyWeek = typeof sp["اسبوع"] === "string" ? (sp["اسبوع"] as string) : undefined;
+  const filters = parseReportFilters(sp);
+  const result = await loadWeeklyFollowup({ week: legacyWeek ?? filters.week, filters });
 
-  const years = await db.select().from(planYears).orderBy(asc(planYears.key));
-  const activeYear = years.find((y) => y.status === "نشطة") ?? years[0];
-  const excluded = await getExcludedIdSets();
+  const options = await loadFilterOptions(FILTER_KEYS, {
+    // الحالات المعروضة تشمل مفردات الأسبوع ووسم «بلا تحديث» — وهو مرشّح حقيقي لا فراغ
+    statuses: [...WEEKLY_STATUSES, NO_WEEKLY_UPDATE_LABEL],
+  });
+  options.weeks = recentWeekKeys(12);
 
-  // كل برامج السنة المعتمدة غير المؤرشفة — المغلقة تُعرض في ملخص منفصل (لا تُطالَب بمتابعة)
-  const allApproved = activeYear
-    ? (await db
-        .select()
-        .from(programs)
-        .where(and(
-          eq(programs.planYearId, activeYear.id),
-          notSynthetic(programs.id, excluded.programs),
-          isNull(programs.archivedAt),
-        ))
-        .orderBy(asc(programs.seq)))
-        .filter((p) => p.status === "معتمد")
-    : [];
-  const open = allApproved.filter((p) => !p.closedAt);
-  const closed = allApproved.filter((p) => p.closedAt);
-
-  // سجلات الأسبوع المختار والأسبوع السابق فقط — لا نقرأ كامل التاريخ
-  const weekRows = open.length
-    ? await db
-        .select()
-        .from(programFollowups)
-        .where(
-          and(
-            inArray(programFollowups.programId, open.map((p) => p.id)),
-            inArray(programFollowups.weekKey, prevWeek ? [week, prevWeek] : [week]),
-          ),
-        )
-    : [];
-  const thisWeekByProgram = new Map(weekRows.filter((f) => f.weekKey === week).map((f) => [f.programId, f]));
-  const prevWeekByProgram = new Map(weekRows.filter((f) => f.weekKey === prevWeek).map((f) => [f.programId, f]));
-
-  // الحالة الفعلية للشواهد لكل برنامج — عدد فعلي وأحدث رفع، معلوماتي فقط بلا هدف/حصة (D-025)
-  const evidenceByProgram = await programsEvidenceSummary(open.map((p) => p.id));
-
-  const dueCount = open.filter((p) => !p.completedAt && isFollowupDue(p.lastReviewAt)).length;
-  const updatedCount = open.filter((p) => thisWeekByProgram.has(p.id)).length;
-
-  // التجميع الصادق (v2.4 §7): محور الاعتماد ومحور التنفيذ منفصلان — غياب التحديث لا يعني الاكتمال
-  const grouped = new Map<WeeklyGroup, typeof open>();
-  for (const p of open) {
-    const g = weeklyGroup({
-      closedAt: p.closedAt,
-      completedAt: p.completedAt,
-      weekStatus: thisWeekByProgram.get(p.id)?.executionStatus ?? null,
-      currentStatus: p.executionStatus,
-    });
-    const list = grouped.get(g) ?? [];
-    list.push(p);
-    grouped.set(g, list);
+  const grouped = new Map<WeeklyGroup, WeeklyRow[]>();
+  for (const row of result.rows) {
+    const list = grouped.get(row.group) ?? [];
+    list.push(row);
+    grouped.set(row.group, list);
   }
+  const dueCount = result.rows.filter((r) => !r.completedAt && isFollowupDue(r.lastFollowupAt)).length;
+  const filtered = result.rows.length !== result.totalOpen;
 
   return (
     <div>
       <PageHeader
         title="المتابعة الأسبوعية"
-        subtitle={`أسبوع ${week} — ${open.length} برنامجاً معتمداً مفتوحاً · حُدِّث هذا الأسبوع: ${updatedCount} · مستحق المتابعة: ${dueCount}`}
+        subtitle={`أسبوع ${result.week} — ${result.totalOpen} برنامجاً معتمداً مفتوحاً · حُدِّث هذا الأسبوع: ${result.updatedCount} · مستحق المتابعة: ${dueCount}`}
         actions={<SectionReportsLink category="plan" report="plan-followups" />}
       />
 
       {/* اختيار الأسبوع — الأسابيع السابقة تعرض لقطاتها التاريخية كما سُجلت */}
       <div className="no-print mb-4 flex flex-wrap items-center gap-1.5">
         <span className="text-xs text-gray-500">الأسبوع:</span>
-        {weekOptions.map((w) => (
+        {recentWeekKeys(8).map((w) => (
           <LinkButton
             key={w}
-            href={w === currentWeek ? "/plan/followup" : `/plan/followup?اسبوع=${w}`}
-            variant={w === week ? "primary" : "secondary"}
+            href={w === result.currentWeek ? "/plan/followup" : `/plan/followup?week=${w}`}
+            variant={w === result.week ? "primary" : "secondary"}
           >
-            {w === currentWeek ? `${w} (الحالي)` : w}
+            {w === result.currentWeek ? `${w} (الحالي)` : w}
           </LinkButton>
         ))}
       </div>
 
-      {open.length === 0 && closed.length === 0 ? (
+      <FilterPanel
+        filterKeys={[...FILTER_KEYS]}
+        flags={[...FLAGS]}
+        options={options}
+        resultCount={result.rows.length}
+        storageKey="plan-followup"
+      />
+
+      {result.rows.length === 0 && result.closed.length === 0 ? (
         <EmptyState
-          title="لا برامج معتمدة للمتابعة"
-          hint="تظهر هنا البرامج بعد اعتمادها من صفحة البرنامج — المتابعة الأسبوعية تخص البرامج المعتمدة فقط"
+          title={filtered ? "لا نتائج مطابقة للمرشّحات" : "لا برامج معتمدة للمتابعة"}
+          hint={
+            filtered
+              ? `المرشّحات الفعّالة أخفت ${result.totalOpen} برنامجاً — امسحها لعرض الكل`
+              : "تظهر هنا البرامج بعد اعتمادها من صفحة البرنامج — المتابعة الأسبوعية تخص البرامج المعتمدة فقط"
+          }
         />
       ) : (
         <div className="space-y-6">
@@ -146,130 +123,22 @@ export default async function FollowupPage({
                 </span>
               </h2>
               <div className="space-y-3">
-                {grouped.get(g)!.map((p) => {
-                  const thisWeek = thisWeekByProgram.get(p.id);
-                  const prev = prevWeekByProgram.get(p.id);
-                  const due = !p.completedAt && isFollowupDue(p.lastReviewAt);
-                  const ev = evidenceByProgram.get(p.id) ?? { count: 0, latestAt: null };
-                  const progressDelta = thisWeek && prev ? thisWeek.progressSnapshot - prev.progressSnapshot : null;
-                  const weeklyCompletedUndocumented =
-                    thisWeek?.executionStatus === "مكتمل" && !p.completedAt;
-                  return (
-                    <Card key={p.id}>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1 basis-56">
-                          <Link href={`/plan/${p.id}`} className="font-medium text-brand-700 hover:underline">
-                            {p.seq}. {orFallback(p.name)}
-                          </Link>
-                          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-gray-500">
-                            <span>{orDash(p.domain)}</span>
-                            <span>المسؤول: {orDash(p.ownerPosition)}</span>
-                            <span>
-                              {p.lastReviewAt
-                                ? `آخر متابعة: ${p.lastReviewAt.toLocaleDateString("ar-SA-u-nu-latn")} (قبل ${daysSince(p.lastReviewAt)} يوماً)`
-                                : "لا متابعة مسجلة بعد"}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {/* حالة الأسبوع المختار من لقطته المحفوظة — لا من الحالة الجارية المتغيرة */}
-                          {thisWeek ? (
-                            <>
-                              <Badge value={thisWeek.executionStatus} />
-                              <ProgressBar value={thisWeek.progressSnapshot} />
-                              {progressDelta !== null && progressDelta !== 0 && (
-                                <span
-                                  className={`text-xs tabular-nums ${progressDelta > 0 ? "text-emerald-600" : "text-red-600"}`}
-                                >
-                                  {progressDelta > 0 ? `+${progressDelta}` : progressDelta}٪ عن الأسبوع السابق
-                                </span>
-                              )}
-                            </>
-                          ) : (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-                              {NO_WEEKLY_UPDATE_LABEL}
-                            </span>
-                          )}
-                          {due && <FollowupDueBadge />}
-                        </div>
-                      </div>
-
-                      {/* محورا الحالة منفصلان: التنفيذ الجاري + الاعتماد/الإقفال (v2.4 §7) */}
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                        <span>الحالة الجارية:</span>
-                        <Badge value={p.executionStatus} />
-                        {/* v2.4.1 §5.5: سجل مصدر متناقض لا يُقدَّم كاكتمال نظيف */}
-                        {isProgramInconsistent({
-                          executionStatus: p.executionStatus,
-                          progress: p.progress,
-                          completedAt: p.completedAt,
-                          status: p.status,
-                        }) && (
-                          <Link
-                            href="/plan/consistency"
-                            className="rounded-full bg-red-50 px-2 py-0.5 text-red-800 hover:underline"
-                          >
-                            {NEEDS_REVIEW_LABEL}
-                          </Link>
-                        )}
-                        <span className="text-gray-400">·</span>
-                        <span>التقدم الحالي:</span>
-                        <span className="tabular-nums">{p.progress}٪</span>
-                        {p.completedAt && !p.closedAt && (
-                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-800">
-                            وثق الاكتمال — بانتظار اعتماد الإقفال من المدير
-                          </span>
-                        )}
-                        {weeklyCompletedUndocumented && (
-                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">
-                            سُجل «مكتمل» في المتابعة ولم يوثق الاكتمال بعد — وثقه من صفحة البرنامج
-                          </span>
-                        )}
-                      </div>
-
-                      {thisWeek?.note && (
-                        <p className="mt-2 rounded bg-sand-50 p-2 text-xs text-gray-600">
-                          ملاحظة الأسبوع ({thisWeek.weekKey}): {thisWeek.note}
-                        </p>
-                      )}
-                      {!thisWeek && prev?.note && (
-                        <p className="mt-2 rounded bg-sand-50 p-2 text-xs text-gray-400">
-                          ملاحظة الأسبوع السابق ({prev.weekKey}): {prev.note}
-                        </p>
-                      )}
-
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                        <span>الشواهد: {evidenceCountPhrase(ev.count)}</span>
-                        {ev.latestAt && (
-                          <span className="text-gray-400">· آخر رفع: {ev.latestAt.toLocaleDateString("ar-SA-u-nu-latn")}</span>
-                        )}
-                        <Link href={`/plan/${p.id}#evidence`} className="text-brand-700 hover:underline">فتح شواهد البرنامج</Link>
-                      </div>
-
-                      {/* التسجيل للأسبوع الحالي فقط — لقطات الأسابيع السابقة تاريخية لا تُعدل من هنا */}
-                      {canWrite && isCurrentWeek && (
-                        <FollowupForm
-                          programId={p.id}
-                          defaultStatus={thisWeek?.executionStatus}
-                          defaultProgress={thisWeek?.progressSnapshot ?? p.progress}
-                        />
-                      )}
-                    </Card>
-                  );
-                })}
+                {grouped.get(g)!.map((row) => (
+                  <ProgramCard key={row.programId} row={row} canWrite={canWrite} isCurrentWeek={result.isCurrentWeek} />
+                ))}
               </div>
             </section>
           ))}
 
-          {closed.length > 0 && (
+          {result.closed.length > 0 && (
             <details className="rounded-xl border border-sand-200 bg-sand-50/50">
               <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-700">
-                برامج مغلقة ({closed.length}) — أُقفلت باعتماد المدير ولا تُطالَب بمتابعة
+                برامج مغلقة ({result.closed.length}) — أُقفلت باعتماد المدير ولا تُطالَب بمتابعة
               </summary>
               <ul className="space-y-1 px-4 pb-4 text-sm">
-                {closed.map((p) => (
-                  <li key={p.id} className="flex flex-wrap items-center gap-2">
-                    <Link href={`/plan/${p.id}`} className="text-brand-700 hover:underline">
+                {result.closed.map((p) => (
+                  <li key={p.programId} className="flex flex-wrap items-center gap-2">
+                    <Link href={`/plan/${p.programId}`} className="text-brand-700 hover:underline">
                       {p.seq}. {orFallback(p.name)}
                     </Link>
                     <Badge value="مغلق" />
@@ -284,5 +153,131 @@ export default async function FollowupPage({
         </div>
       )}
     </div>
+  );
+}
+
+function ProgramCard({ row, canWrite, isCurrentWeek }: { row: WeeklyRow; canWrite: boolean; isCurrentWeek: boolean }) {
+  const due = !row.completedAt && isFollowupDue(row.lastFollowupAt);
+  const weeklyCompletedUndocumented = row.weekStatus === "مكتمل" && !row.completedAt;
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-56">
+          <Link href={`/plan/${row.programId}`} className="font-medium text-brand-700 hover:underline">
+            {row.seq}. {orFallback(row.name)}
+          </Link>
+          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-gray-500">
+            <span>{orDash(row.domain)}</span>
+            <span>المسؤول: {orDash(row.owner)}</span>
+            <span>
+              {row.lastFollowupAt
+                ? `آخر متابعة: ${row.lastFollowupAt.toLocaleDateString("ar-SA-u-nu-latn")} (قبل ${daysSince(row.lastFollowupAt)} يوماً)`
+                : "لا متابعة مسجلة بعد"}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* حالة الأسبوع المختار من سجله المحفوظ — لا من الحالة الجارية المتغيرة */}
+          {row.updatedThisWeek ? (
+            <Badge value={row.weekStatus} />
+          ) : (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">{NO_WEEKLY_UPDATE_LABEL}</span>
+          )}
+          {row.interventionNeeded && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-800">يحتاج تدخّل المدير</span>
+          )}
+          {due && <FollowupDueBadge />}
+        </div>
+      </div>
+
+      {/* المحاور الثلاثة منفصلة صراحةً (§6.4): الحالة الجارية · التقدم المعتمد · حالة الأسبوع */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+        <span>الحالة الجارية:</span>
+        <Badge value={row.executionStatus} />
+        {isProgramInconsistent({
+          executionStatus: row.executionStatus,
+          progress: row.progress,
+          completedAt: row.completedAt,
+          status: row.approval,
+        }) && (
+          <Link href="/plan/consistency" className="rounded-full bg-red-50 px-2 py-0.5 text-red-800 hover:underline">
+            {NEEDS_REVIEW_LABEL}
+          </Link>
+        )}
+        <span className="text-gray-400">·</span>
+        {/* §6.4: التقدم من سجل البرنامج — المتابعة الأسبوعية لا تُدخله ولا تكتبه */}
+        <span>التقدم المعتمد (من سجل البرنامج):</span>
+        <span className="tabular-nums">{row.progress}٪</span>
+        {row.completedAt && !row.closedAt && (
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-800">
+            وثق الاكتمال — بانتظار اعتماد الإقفال من المدير
+          </span>
+        )}
+        {weeklyCompletedUndocumented && (
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">
+            سُجل «مكتمل» في المتابعة ولم يوثق الاكتمال بعد — وثقه من صفحة البرنامج
+          </span>
+        )}
+      </div>
+
+      {row.updatedThisWeek ? (
+        <WeeklyNarrative row={row} />
+      ) : (
+        row.previousNote && (
+          <p className="mt-2 rounded bg-sand-50 p-2 text-xs text-gray-400">
+            ملاحظة الأسبوع السابق ({row.previousWeekKey}): {row.previousNote}
+          </p>
+        )
+      )}
+
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+        <span>الشواهد: {evidenceCountPhrase(row.evidenceCount)}</span>
+        {row.evidenceLatestAt && (
+          <span className="text-gray-400">· آخر رفع: {row.evidenceLatestAt.toLocaleDateString("ar-SA-u-nu-latn")}</span>
+        )}
+        <Link href={`/plan/${row.programId}#evidence`} className="text-brand-700 hover:underline">فتح شواهد البرنامج</Link>
+      </div>
+
+      {/* التسجيل للأسبوع الحالي فقط — سجلات الأسابيع السابقة تاريخية لا تُعدل من هنا */}
+      {canWrite && isCurrentWeek && (
+        <FollowupForm
+          programId={row.programId}
+          defaultStatus={row.weekStatus}
+          defaults={{
+            note: row.note,
+            completedWork: row.completedWork,
+            obstacles: row.obstacles,
+            requiredAction: row.requiredAction,
+            nextStep: row.nextStep,
+            evidenceUpdate: row.evidenceUpdate,
+            interventionNeeded: row.interventionNeeded,
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
+/** سرد الأسبوع كما سُجِّل — لا يُعرض حقل فارغ */
+function WeeklyNarrative({ row }: { row: WeeklyRow }) {
+  const lines: [string, string][] = [
+    ["ملاحظات الأسبوع", row.note],
+    ["ما أُنجز", row.completedWork],
+    ["العوائق", row.obstacles],
+    ["الإجراء المطلوب", row.requiredAction],
+    ["الخطوة التالية", row.nextStep],
+    ["تحديث الشواهد", row.evidenceUpdate],
+  ].filter(([, v]) => v.trim() !== "") as [string, string][];
+  if (lines.length === 0) return null;
+  return (
+    <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 rounded bg-sand-50 p-2 text-xs sm:grid-cols-2">
+      {lines.map(([label, value]) => (
+        <div key={label} className="flex gap-1">
+          <dt className="shrink-0 text-gray-500">{label}:</dt>
+          <dd className="min-w-0 text-gray-700">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

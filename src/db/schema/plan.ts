@@ -391,7 +391,12 @@ export const programRoadmapCells = pgTable(
   (t) => [uniqueIndex("roadmap_unique").on(t.programId, t.periodKey)],
 );
 
-/** المتابعة الأسبوعية للبرامج المعتمدة — سجل أسبوعي واحد لكل برنامج (upsert) */
+/**
+ * المتابعة الأسبوعية للبرامج المعتمدة — سجل أسبوعي واحد لكل برنامج (upsert).
+ *
+ * v2.5.0 §6: النموذج صار سردياً بالكامل. أُزيل إدخال نسبة الإنجاز اليدوي من الواجهة ومن
+ * الإجراء ومن كل حساب أو تصدير (D-054)؛ التقدم المعتمد يبقى `programs.progress` وحده.
+ */
 export const programFollowups = pgTable(
   "program_followups",
   {
@@ -399,10 +404,29 @@ export const programFollowups = pgTable(
     programId: uuid("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
     /** أسبوع ISO مثل 2026-W29 */
     weekKey: text("week_key").notNull(),
+    /** الملاحظات العامة على الأسبوع */
     note: text("note").notNull(),
-    /** لقطة التقدم المحسوب وقت المتابعة */
+    /**
+     * **عمود مهجور (D-054).** كان يحمل نسبة إنجاز يُدخلها المستخدم في نموذج المتابعة،
+     * فصار للبرنامج مصدرا تقدم متنافسان. الإدخال أُزيل في v2.5.0 ولم يعد يُكتب ولا يُقرأ
+     * كحقيقة تشغيلية؛ العمود باقٍ فقط كي لا تُمحى قيم السجلات التاريخية (§18). الصفوف
+     * الجديدة تُكتب بالقيمة الافتراضية 0 لأن العمود `NOT NULL`.
+     */
     progressSnapshot: integer("progress_snapshot").notNull().default(0),
-    executionStatus: text("execution_status").notNull(), // في المسار | متأخر | متوقف مؤقتاً | مكتمل
+    /** حالة الأسبوع — مفردات المتابعة الأسبوعية (`WEEKLY_STATUSES`)، والقديمة تُطبَّع عند القراءة */
+    executionStatus: text("execution_status").notNull(),
+    /** ماذا أُنجز هذا الأسبوع (§6.3) */
+    completedWork: text("completed_work"),
+    /** العوائق */
+    obstacles: text("obstacles"),
+    /** الإجراء المطلوب */
+    requiredAction: text("required_action"),
+    /** الخطوة التالية */
+    nextStep: text("next_step"),
+    /** تحديث الشواهد — وصف حرّ لما رُفع أو ما ينقص */
+    evidenceUpdate: text("evidence_update"),
+    /** يحتاج تدخّل المدير — مرشّح تشغيلي صريح لا استنتاج من نص */
+    interventionNeeded: boolean("intervention_needed").notNull().default(false),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
