@@ -7,6 +7,7 @@ import {
 } from "../../../../actions";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
 import { orFallback } from "@/lib/format";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 type IndicatorRow = {
   id: string;
@@ -37,6 +38,8 @@ export function RatingsForm({
   };
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(saveRatingsAction.bind(null, sessionId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
 
   return (
     <form action={formAction} className="space-y-4">
@@ -131,6 +134,8 @@ function IndicatorRowView({ ind, index, editable }: { ind: IndicatorRow; index: 
 
 export function SignedReportUpload({ sessionId }: { sessionId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(uploadSignedReportAction.bind(null, sessionId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -146,6 +151,8 @@ export function SignedReportUpload({ sessionId }: { sessionId: string }) {
 export function CompleteSessionButton({ sessionId, isFinal, disabled }: { sessionId: string; isFinal: boolean; disabled: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div>
       {error && <div role="alert" className="mb-2 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
@@ -170,6 +177,8 @@ export function CompleteSessionButton({ sessionId, isFinal, disabled }: { sessio
 export function ReopenSessionForm({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <form
       action={(fd) =>

@@ -9,21 +9,15 @@
  *  2. الاعتماد والإقفال لا يُمسّان من هنا — لهما إجراءاتهما المدقَّقة في صفحة البرنامج.
  */
 
-import { useActionState, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 import { correctProgramConsistencyAction, bulkCorrectProgramsAction, type ActionState } from "../actions";
 import { FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 
 const selectCls =
   "min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0";
 
-function useRefreshOnSuccess(state: ActionState) {
-  const router = useRouter();
-  useEffect(() => {
-    if (state?.success) router.refresh();
-  }, [state?.success, router]);
-}
 
 export function CorrectProgramForm({
   programId,

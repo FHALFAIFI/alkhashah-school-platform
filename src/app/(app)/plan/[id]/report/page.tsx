@@ -8,7 +8,6 @@ import { ReportActions } from "@/components/report-actions";
 import { generateProgramReport } from "@/lib/reports/program-report";
 import { getSetting } from "@/lib/settings";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
-import { revalidatePath } from "next/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +37,6 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
     const withSignature = formData.get("withSignature") === "on" && u.permissions.has("branding.use");
     const withStamp = formData.get("withStamp") === "on" && u.permissions.has("branding.use");
     await generateProgramReport({ programId: id, withSignature, withStamp, issuedBy: u.id });
-    revalidatePath(`/plan/${id}/report`);
   }
 
   // بطاقة تكليف المنفذ (v2.3 §20) — وثيقة مستقلة تُسلَّم للمكلف بالتنفيذ
@@ -47,7 +45,6 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
     const u = await requirePermission("reports.generate");
     const { generateProgramCard } = await import("@/lib/reports/program-card");
     await generateProgramCard({ programId: id, issuedBy: u.id });
-    revalidatePath(`/plan/${id}/report`);
   }
 
   return (

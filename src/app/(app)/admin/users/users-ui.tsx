@@ -3,9 +3,12 @@
 import { useActionState } from "react";
 import { changePasswordAction, type ActionState } from "./actions";
 import { Field, SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 export function ChangePasswordForm({ usernames }: { usernames: string[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(changePasswordAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}

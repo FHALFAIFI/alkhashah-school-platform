@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
@@ -199,7 +198,6 @@ export async function seedTaskTemplatesAction(): Promise<ActionState> {
   const user = await requirePermission("committees.approve");
   const { seeded } = await seedCommitteeTaskTemplates();
   await audit({ actorId: user.id, action: "committee_task_template.seeded", summary: `بذر ${seeded} قالب مهمة` });
-  revalidatePath("/committees/task-templates");
   return { success: seeded > 0 ? `بُذرت ${seeded} مهمة معرّفة مسبقاً من مهام القوالب` : "قوالب المهام مبذورة بالفعل" };
 }
 
@@ -220,7 +218,6 @@ export async function addTaskTemplateAction(_prev: ActionState, formData: FormDa
     sortOrder: (row?.n ?? -1) + 1,
   });
   await audit({ actorId: user.id, action: "committee_task_template.added", summary: `${parsed.data.templateKey}: ${parsed.data.title ?? ""}` });
-  revalidatePath("/committees/task-templates");
   return { success: "أُضيف قالب المهمة" };
 }
 
@@ -233,7 +230,6 @@ export async function updateTaskTemplateAction(id: string, _prev: ActionState, f
   // تعديل القالب لا يعيد كتابة أي توزيع أو وثيقة صدرت سابقاً (نسخ مستقلة/لقطات ثابتة)
   await db.update(committeeTaskTemplates).set({ title, updatedAt: new Date() }).where(eq(committeeTaskTemplates.id, id));
   await audit({ actorId: user.id, action: "committee_task_template.updated", summary: title });
-  revalidatePath("/committees/task-templates");
   return { success: "حُدّث قالب المهمة (لا يؤثر على التوزيعات الصادرة)" };
 }
 
@@ -243,7 +239,6 @@ export async function toggleTaskTemplateAction(id: string, active: boolean): Pro
   if (!t) return { error: "القالب غير موجود" };
   await db.update(committeeTaskTemplates).set({ active, updatedAt: new Date() }).where(eq(committeeTaskTemplates.id, id));
   await audit({ actorId: user.id, action: active ? "committee_task_template.enabled" : "committee_task_template.disabled", summary: t.title });
-  revalidatePath("/committees/task-templates");
   return null;
 }
 
@@ -262,7 +257,6 @@ export async function moveTaskTemplateAction(id: string, direction: "up" | "down
   const other = siblings[swapWith];
   await db.update(committeeTaskTemplates).set({ sortOrder: other.sortOrder }).where(eq(committeeTaskTemplates.id, t.id));
   await db.update(committeeTaskTemplates).set({ sortOrder: t.sortOrder }).where(eq(committeeTaskTemplates.id, other.id));
-  revalidatePath("/committees/task-templates");
   return null;
 }
 
@@ -272,7 +266,6 @@ export async function deleteTaskTemplateAction(id: string): Promise<ActionState>
   if (!t) return { error: "القالب غير موجود" };
   await db.delete(committeeTaskTemplates).where(eq(committeeTaskTemplates.id, id));
   await audit({ actorId: user.id, action: "committee_task_template.deleted", summary: t.title });
-  revalidatePath("/committees/task-templates");
   return { success: "حُذف قالب المهمة (لا يؤثر على التوزيعات الصادرة)" };
 }
 
@@ -289,6 +282,5 @@ export async function setMeetingTypeSignatureAction(typeId: string, requiresSign
     entityId: typeId,
     summary: `${mt.nameAr}: ${requiresSignature ? "يتطلب توقيعاً" : "لا يتطلب توقيعاً"}`,
   });
-  revalidatePath("/committees/meeting-types");
   return { success: requiresSignature ? "أصبح هذا النوع يتطلب محضراً موقعاً لاكتماله" : "لم يعد هذا النوع يتطلب توقيعاً" };
 }

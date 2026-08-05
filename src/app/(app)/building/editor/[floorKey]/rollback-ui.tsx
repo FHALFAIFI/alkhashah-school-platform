@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { rollbackGeometryAction, publishGeometryAction } from "../../actions";
+import { useRefreshAfterTransition } from "@/components/form-reset";
 
 /** نشر نسخة مسودة بعد تأكيد صريح — لا يستبدل النسخ السابقة (تُؤرشف المنشورة السابقة). */
 export function PublishButton({ versionId, version }: { versionId: string; version: number }) {
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const [msg, setMsg] = useState<string | null>(null);
-  const router = useRouter();
   return (
     <span>
       <button
@@ -19,7 +20,7 @@ export function PublishButton({ versionId, version }: { versionId: string; versi
             setMsg(null);
             const r = await publishGeometryAction(versionId);
             setMsg(r?.error ?? r?.success ?? null);
-            if (r?.success) router.refresh();
+            // D-053: التحديث بعد انتهاء الانتقال لا داخله (useRefreshAfterTransition)
           });
         }}
         className="rounded border border-emerald-300 px-2 py-0.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
@@ -34,6 +35,8 @@ export function PublishButton({ versionId, version }: { versionId: string; versi
 /** تراجع موثق إلى نسخة سابقة — يطلب سبباً إلزامياً ثم يُنشئ مسودة جديدة منها. */
 export function RollbackButton({ versionId, version }: { versionId: string; version: number }) {
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const [msg, setMsg] = useState<string | null>(null);
   return (
     <span>

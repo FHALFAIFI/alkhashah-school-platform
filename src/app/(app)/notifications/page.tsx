@@ -4,7 +4,6 @@ import { requireUser } from "@/lib/auth/session";
 import { db } from "@/db";
 import { notifications } from "@/db/schema";
 import { PageHeader, EmptyState, SubmitButton } from "@/components/ui";
-import { revalidatePath } from "next/cache";
 
 export const metadata = { title: "الإشعارات" };
 export const dynamic = "force-dynamic";
@@ -25,7 +24,6 @@ export default async function NotificationsPage() {
       .update(notifications)
       .set({ readAt: new Date() })
       .where(and(eq(notifications.userId, u.id), isNull(notifications.readAt)));
-    revalidatePath("/notifications");
   }
 
   return (

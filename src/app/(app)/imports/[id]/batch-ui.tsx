@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   commitBatchAction,
   rollbackBatchAction,
@@ -14,6 +13,7 @@ import {
   undoRowDecisionAction,
 } from "../actions";
 import { SubmitButton } from "@/components/ui";
+import { useRefreshAfterTransition } from "@/components/form-reset";
 
 export function BatchActions({
   batchId,
@@ -46,7 +46,8 @@ export function BatchActions({
   const [sessionExpiredHref, setSessionExpiredHref] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
-  const router = useRouter();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
 
   return (
     <div className="mb-4 rounded-xl border border-sand-200 bg-white p-4">
@@ -114,8 +115,8 @@ export function BatchActions({
                         return;
                       }
                       if (res?.code === "ALREADY_EXECUTED") {
-                        // نُفّذت مسبقاً: حالة راهنة ناجحة — أعد التحميل لعرض «تم الاستيراد» بلا خطأ مُفزع
-                        router.refresh();
+                        // نُفّذت مسبقاً: حالة راهنة ناجحة — تُعرض «تم الاستيراد» بلا خطأ مُفزع
+                        // بعد التحديث الذي يلي انتهاء الانتقال (D-053)
                         return;
                       }
                       if (res?.code === "PERMISSION_DENIED") {
@@ -123,20 +124,19 @@ export function BatchActions({
                         return;
                       }
                       if (res?.error) {
-                        // فشل مُبلَّغ من الخادم: أبقِ اللوحة مفتوحة، أظهر الخطأ، وأعد تحميل الحالة
+                        // فشل مُبلَّغ من الخادم: أبقِ اللوحة مفتوحة وأظهر الخطأ — الحالة
+                        // تُعاد قراءتها بالتحديث الذي يلي انتهاء الانتقال (D-053)
                         setError(res.error);
-                        router.refresh();
                         return;
                       }
-                      // نجاح: أعد تحميل الحالة لعرض «تم الاستيراد» (الدفعة صارت «منفذة»)
-                      router.refresh();
+                      // نجاح: «تم الاستيراد» تظهر بعد التحديث الذي يلي انتهاء الانتقال
                     } catch {
                       // استجابة غير مؤكدة (انقطاع/إجهاض): لا تُعِد المحاولة تلقائياً —
                       // أعد تحميل حالة الدفعة أولاً ووجّه المستخدم لمراجعتها قبل أي محاولة ثانية
                       setError(
                         "تعذّر تأكيد نتيجة التنفيذ. أعدنا تحميل حالة الدفعة — راجع الحالة أعلاه: إن ظهرت «منفذة» فقد تم الاستيراد ولا تُعد المحاولة، وإلا فأعد المحاولة.",
                       );
-                      router.refresh();
+                      // التحديث يتم بعد انتهاء الانتقال (D-053) — لا داخله
                     }
                   })
                 }
@@ -260,6 +260,8 @@ export function RowEditor({
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
 
   if (!open) {
     return (

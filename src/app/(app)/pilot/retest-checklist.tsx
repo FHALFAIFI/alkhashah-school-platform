@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { submitFeedbackAction, type FeedbackSubmitState } from "../feedback/actions";
+import { useRefreshAfterTransition } from "@/components/form-reset";
 
 /**
  * Phase 10 — لوحة إعادة اختبار المدير (عربية). لكل مهمة: رابط الصفحة، الحالة، تعليق المدير،
@@ -108,6 +109,8 @@ function RetestItem({
   onChange: (p: Partial<Row>) => void;
 }) {
   const [pending, start] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const [sent, setSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);

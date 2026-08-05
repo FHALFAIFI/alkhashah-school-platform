@@ -11,6 +11,7 @@ import {
   type TemplateItem,
 } from "@/lib/building/inspection-template-defs";
 import type { TemplateActionState } from "../../template-actions";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 type Meta = { nameAr: string; roomType: string; purpose: string; instructions: string };
 
@@ -36,6 +37,8 @@ export function TemplateEditor({
   currentId?: string;
 }) {
   const [state, formAction] = useActionState<TemplateActionState, FormData>(action, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const router = useRouter();
 
   // على النجاح انتقل إلى صفحة القالب (الإصدار الجديد إن وُجد، وإلا القالب الحالي)

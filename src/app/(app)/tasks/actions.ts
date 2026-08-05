@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
@@ -39,7 +38,6 @@ export async function createTaskAction(_prev: ActionState, formData: FormData): 
     createdBy: user.id,
   });
   await audit({ actorId: user.id, action: "task.created", summary: `مهمة جديدة: ${orFallback(parsed.data.title)}` });
-  revalidatePath("/tasks");
   return { success: "أضيفت المهمة" };
 }
 
@@ -58,6 +56,5 @@ export async function updateTaskStatusAction(taskId: string, formData: FormData)
     .set({ status, progress: status === "مكتملة" ? 100 : progress, updatedAt: new Date() })
     .where(eq(actionTasks.id, taskId));
   await audit({ actorId: user.id, action: "task.updated", entityType: "task", entityId: taskId, summary: `تحديث مهمة إلى «${status}»` });
-  revalidatePath("/tasks");
   return { success: "حدثت المهمة" };
 }

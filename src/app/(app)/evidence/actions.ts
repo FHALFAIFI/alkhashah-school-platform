@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, desc, eq, ilike, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
@@ -102,8 +101,7 @@ export async function createEvidenceAction(_prev: ActionState, formData: FormDat
   }
 
   await audit({ actorId: user.id, action: "evidence.created", entityType: "evidence", entityId: item.id, summary: `إضافة شاهد «${item.title || "بدون عنوان"}»` });
-  revalidatePath("/evidence");
-  if (entityType === "program") revalidatePath(`/plan/${entityId}`);
+  // D-053: لوحة الشواهد تُستدعى من صفحة البرنامج نفسها — التحديث من العميل بعد النتيجة
   return { success: "أضيف الشاهد" };
 }
 
@@ -196,7 +194,6 @@ export async function linkEvidenceAction(_prev: ActionState, formData: FormData)
     summary: `ربط شاهد بـ${entityLabelAr(entityType)}: ${ref.labelAr}`,
     detail: { evidenceId, subKey },
   });
-  revalidatePath("/evidence");
   return { success: `رُبط الشاهد بـ${entityLabelAr(entityType)}` };
 }
 
@@ -222,7 +219,6 @@ export async function reviewEvidenceAction(_prev: ActionState, formData: FormDat
     entityId: evidenceId,
     summary: `مراجعة شاهد «${item.title}»: ${decision}`,
   });
-  revalidatePath("/evidence");
   return { success: `سجلت المراجعة: ${decision}` };
 }
 
@@ -236,7 +232,6 @@ export async function acceptFileAction(_prev: ActionState, formData: FormData): 
   const fileId = String(formData.get("fileId") ?? "");
   if (!fileId) return { error: "الملف غير محدد" };
   const result = await acceptStoredFile({ fileId, actorId: user.id });
-  revalidatePath("/evidence");
   return result;
 }
 
@@ -278,7 +273,6 @@ export async function unlinkEvidenceAction(_prev: ActionState, formData: FormDat
     summary: `فك ربط شاهد عن ${entityLabelAr(entityType)}`,
     detail: { evidenceId, subKey },
   });
-  revalidatePath("/evidence");
   return { success: "فُك الربط — الشاهد وبقية روابطه سليمة" };
 }
 
@@ -364,7 +358,6 @@ export async function replaceEvidenceContentAction(_prev: ActionState, formData:
     summary: `استبدال محتوى شاهد «${current.title}» — النسخة ${nextVersion}`,
     detail: { reason, fromVersion: current.version, toVersion: nextVersion },
   });
-  revalidatePath("/evidence");
   return { success: `حُفظت النسخة ${nextVersion} — الروابط القائمة لم تتغير` };
 }
 
@@ -392,7 +385,6 @@ export async function archiveEvidenceAction(_prev: ActionState, formData: FormDa
     summary: `أرشفة شاهد «${item.title}»`,
     detail: { reason },
   });
-  revalidatePath("/evidence");
   return { success: "أُرشف الشاهد — يمكن استعادته في أي وقت" };
 }
 
@@ -414,7 +406,6 @@ export async function restoreEvidenceAction(evidenceId: string): Promise<ActionS
     entityId: evidenceId,
     summary: `استعادة شاهد «${item.title}»`,
   });
-  revalidatePath("/evidence");
   return { success: "استُعيد الشاهد" };
 }
 
@@ -444,6 +435,5 @@ export async function deleteEvidenceAction(evidenceId: string): Promise<ActionSt
     summary: `حذف نهائي لشاهد «${item.title}» بلا أي ارتباط`,
     detail: { snapshot: { title: item.title, kind: item.kind, role: item.role } },
   });
-  revalidatePath("/evidence");
   return { success: "حُذف الشاهد نهائياً (بلا ارتباطات)" };
 }

@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { desc, and, eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, documents } from "@/db/schema";
@@ -27,7 +26,6 @@ export default async function CommitteeReportPage({ params }: { params: Promise<
     "use server";
     const u = await requirePermission("reports.generate");
     await generateCommitteeReport({ committeeId: id, issuedBy: u.id });
-    revalidatePath(`/committees/${id}/report`);
   }
 
   return (

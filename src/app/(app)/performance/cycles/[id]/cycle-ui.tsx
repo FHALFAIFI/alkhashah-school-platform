@@ -3,9 +3,12 @@
 import { useActionState, useState, useTransition } from "react";
 import { createSessionAction, createImprovementPlanAction, advanceImprovementPlanAction, type ActionState } from "../../actions";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 export function NewSessionForm({ cycleId }: { cycleId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createSessionAction.bind(null, cycleId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="mt-3 flex flex-wrap items-end gap-3 border-t border-sand-100 pt-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -29,6 +32,8 @@ export function NewSessionForm({ cycleId }: { cycleId: string }) {
 
 export function ImprovementPlanForm({ cycleId, suggested }: { cycleId: string; suggested: boolean }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createImprovementPlanAction.bind(null, cycleId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="space-y-3 border-t border-sand-100 pt-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -55,6 +60,8 @@ export function ImprovementPlanForm({ cycleId, suggested }: { cycleId: string; s
 export function PlanStatusControl({ planId, status }: { planId: string; status: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const actionLabel = status === "مسودة" ? "بدء التنفيذ" : "إكمال الخطة";
   return (
     <span className="inline-flex items-center gap-2">

@@ -1,7 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState, useState, useTransition } from "react";
 import {
   createEvidenceAction,
   linkEvidenceAction,
@@ -12,6 +11,7 @@ import {
 } from "@/app/(app)/evidence/actions";
 import { Card, Field, SubmitButton, Badge } from "@/components/ui";
 import { orFallback } from "@/lib/format";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 const ROLES = ["خط أساس", "تنفيذ", "مخرج", "أثر", "خارجي"];
 
@@ -34,13 +34,16 @@ export function EvidencePanel({
   subKeyRequired?: boolean;
 }) {
   const subKeyName = new Map((subKeys ?? []).map((s) => [s.value, s.label]));
-  const router = useRouter();
   const [state, formAction] = useActionState<ActionState, FormData>(createEvidenceAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [kind, setKind] = useState("file");
   const [showForm, setShowForm] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(isPending);
 
   // مكتبة الشواهد — ربط شاهد مرفوع سابقاً بدل رفع نسخة ثانية منه
   const [query, setQuery] = useState("");
@@ -48,20 +51,10 @@ export function EvidencePanel({
   const [searching, setSearching] = useState(false);
   const [librarySubKey, setLibrarySubKey] = useState("");
 
-  // After a successful save, re-sync the server data (count header + list) without leaving the
-  // page. `revalidatePath` alone does not guarantee an immediate in-place reflection, so we do a
-  // soft `router.refresh()` (re-renders the host server component only — not a full browser
-  // reload). Two guards keep it cheap and single-shot: (1) a ref so the SAME success state is
-  // never refreshed twice, and (2) `startTransition` so the refresh is a non-urgent transition
-  // that drives the Arabic in-progress indicator instead of blocking the UI. The per-request
-  // memoized synthetic classifier (see src/lib/synthetic.ts) makes each such refresh cheap.
-  const lastRefreshedState = useRef<ActionState>(null);
-  useEffect(() => {
-    if (state?.success && lastRefreshedState.current !== state) {
-      lastRefreshedState.current = state;
-      startTransition(() => router.refresh());
-    }
-  }, [state, router, startTransition]);
+  // D-053: كان هنا تحديث داخل `startTransition` — وهو بالضبط ما تمنعه القاعدة الثالثة
+  // في D-049: التحديث داخل الانتقال يُبقي `pending` مرفوعاً فتظل الأزرار معطّلة. صار
+  // التحديث من `useRefreshOnSuccess` (بعد استقرار حالة الإجراء) ومن
+  // `useRefreshAfterTransition` (بعد انتهاء أي انتقال يحمل إجراءً) أعلاه.
 
   function runSearch(q: string) {
     startTransition(async () => {
@@ -87,7 +80,7 @@ export function EvidencePanel({
       else {
         setNotice({ kind: "ok", text: res?.success ?? "تم الربط" });
         runSearch(query);
-        router.refresh(); // تحديث العدّاد والقائمة بعد الربط
+        // العدّاد والقائمة يُحدَّثان بعد انتهاء الانتقال (useRefreshAfterTransition)
       }
     });
   }
@@ -104,7 +97,7 @@ export function EvidencePanel({
       if (res?.error) setNotice({ kind: "error", text: res.error });
       else {
         setNotice({ kind: "ok", text: res?.success ?? "فُك الربط" });
-        router.refresh(); // تحديث العدّاد والقائمة بعد فك الربط
+        // العدّاد والقائمة يُحدَّثان بعد انتهاء الانتقال (useRefreshAfterTransition)
       }
     });
   }

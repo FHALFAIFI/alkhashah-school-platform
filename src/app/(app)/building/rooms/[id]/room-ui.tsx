@@ -31,6 +31,8 @@ export function RoomEditForm({
   initial: { nameAr: string; roomType: string; lengthM: string | null; widthM: string | null; capacity: number | null; notes: string | null };
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(updateRoomAction.bind(null, roomId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
@@ -68,6 +70,8 @@ export function RoomEditForm({
 /** بلاغ صيانة سريع من صفحة الغرفة نفسها — الصورة ملف من الجهاز (يعمل عبر HTTP دون كاميرا) */
 export function RoomIssueForm({ roomId, people }: { roomId: string; people: { id: string; label: string }[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createIssueAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
@@ -206,6 +210,8 @@ export function InspectionRunForm({
 
 export function ReadinessOverrideForm({ roomId }: { roomId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(overrideReadinessAction.bind(null, roomId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
@@ -254,6 +260,8 @@ function ConvertFindingsOffer({
   onDismiss: () => void;
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createIssuesFromInspectionAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const router = useRouter();
   useEffect(() => {
     if (state?.success) router.refresh();
@@ -294,8 +302,14 @@ export function FindingControls({
   canCreateIssue: boolean;
 }) {
   const [updateState, updateForm, updatePending] = useActionState<ActionState, FormData>(updateFindingAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(updateState);
   const [closeState, closeForm, closePending] = useActionState<ActionState, FormData>(closeFindingAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(closeState);
   const [issueState, issueForm, issuePending] = useActionState<ActionState, FormData>(createIssueFromFindingAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(issueState);
   const anyPending = updatePending || closePending || issuePending;
   const rawSuccess = updateState?.success || closeState?.success || issueState?.success || null;
   // يُعاد التركيب بعد **اكتمال** الانتقال فقط: تفكيك النموذج أثناء تدفّق استجابة الإجراء

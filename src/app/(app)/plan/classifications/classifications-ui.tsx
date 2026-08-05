@@ -5,6 +5,7 @@ import { renameClassificationAction, deleteClassificationAction } from "./action
 import type { ActionState } from "../actions";
 import { SubmitButton } from "@/components/ui";
 import { orFallback } from "@/lib/format";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 /** الرمز الخاص «مسح التصنيف» — يجب أن يطابق قيمة CLEAR_TARGET في actions.ts */
 const CLEAR_TARGET = "__CLEAR__";
@@ -57,10 +58,14 @@ function ClassificationRow({
     renameClassificationAction.bind(null, domain),
     null,
   );
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(renameState);
   const [deleteState, deleteAction] = useActionState<ActionState, FormData>(
     deleteClassificationAction.bind(null, domain),
     null,
   );
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(deleteState);
 
   return (
     <div className="rounded-lg border border-sand-200 p-3">

@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { inspectionTemplates, inspections } from "@/db/schema";
@@ -66,7 +65,6 @@ export async function createTemplateAction(_prev: TemplateActionState, formData:
   // rootId = self لأول إصدار
   await db.update(inspectionTemplates).set({ rootId: created.id }).where(eq(inspectionTemplates.id, created.id));
   await audit({ actorId: user.id, action: "inspection_template.created", entityType: "inspection_template", entityId: created.id, summary: `${code} — ${orFallback(meta.nameAr)}` });
-  revalidatePath("/building/inspections/templates");
   return { success: `أُنشئ القالب ${code} (مسودة)`, newId: created.id };
 }
 
@@ -106,8 +104,6 @@ export async function updateTemplateAction(templateId: string, _prev: TemplateAc
       })
       .where(eq(inspectionTemplates.id, templateId));
     await audit({ actorId: user.id, action: "inspection_template.updated", entityType: "inspection_template", entityId: templateId });
-    revalidatePath("/building/inspections/templates");
-    revalidatePath(`/building/inspections/templates/${templateId}`);
     return { success: "حُفظت المسودة" };
   }
 
@@ -133,7 +129,6 @@ export async function updateTemplateAction(templateId: string, _prev: TemplateAc
     })
     .returning();
   await audit({ actorId: user.id, action: "inspection_template.new_version", entityType: "inspection_template", entityId: created.id, summary: `${t.code} إصدار ${created.version}` });
-  revalidatePath("/building/inspections/templates");
   return { success: `أُنشئ إصدار جديد ${created.version} (مسودة) — التعديل لا يغيّر الإصدار المستخدَم`, newId: created.id };
 }
 
@@ -155,8 +150,6 @@ export async function activateTemplateAction(templateId: string): Promise<Templa
       .where(eq(inspectionTemplates.id, templateId));
   });
   await audit({ actorId: user.id, action: "inspection_template.activated", entityType: "inspection_template", entityId: templateId });
-  revalidatePath("/building/inspections/templates");
-  revalidatePath("/building/inspections");
   return { success: "فُعّل القالب" };
 }
 
@@ -167,8 +160,6 @@ export async function deactivateTemplateAction(templateId: string): Promise<Temp
   if (!t) return { error: "القالب غير موجود" };
   await db.update(inspectionTemplates).set({ status: TEMPLATE_STATUS.deactivated, updatedAt: new Date() }).where(eq(inspectionTemplates.id, templateId));
   await audit({ actorId: user.id, action: "inspection_template.deactivated", entityType: "inspection_template", entityId: templateId });
-  revalidatePath("/building/inspections/templates");
-  revalidatePath("/building/inspections");
   return { success: "أُلغي تفعيل القالب" };
 }
 
@@ -195,7 +186,6 @@ export async function duplicateTemplateAction(templateId: string): Promise<Templ
     .returning();
   await db.update(inspectionTemplates).set({ rootId: created.id }).where(eq(inspectionTemplates.id, created.id));
   await audit({ actorId: user.id, action: "inspection_template.duplicated", entityType: "inspection_template", entityId: created.id, summary: `من ${t.code ?? t.id}` });
-  revalidatePath("/building/inspections/templates");
   return { success: `أُنشئت نسخة جديدة ${code} (مسودة)`, newId: created.id };
 }
 
@@ -208,6 +198,5 @@ export async function deleteTemplateDraftAction(templateId: string): Promise<Tem
   if ((await templateUsageCount(templateId)) > 0) return { error: "لا يمكن حذف قالب استُخدم في فحوصات — عطّله بدلاً من ذلك" };
   await db.delete(inspectionTemplates).where(eq(inspectionTemplates.id, templateId));
   await audit({ actorId: user.id, action: "inspection_template.deleted_draft", entityType: "inspection_template", entityId: templateId, summary: t.code ?? undefined });
-  revalidatePath("/building/inspections/templates");
   return { success: "حُذفت المسودة" };
 }

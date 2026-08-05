@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { requirePermission } from "@/lib/auth/session";
 import {
@@ -25,8 +24,6 @@ export async function updateStatusAction(_prev: FeedbackAdminState, formData: Fo
   const note = String(formData.get("note") ?? "");
   try {
     await updateFeedbackStatus({ id, status, note, actorId: user.id, ip: await clientIp() });
-    revalidatePath(`/admin/feedback/${id}`);
-    revalidatePath("/admin/feedback");
     return { ok: true };
   } catch (e) {
     if (e instanceof FeedbackError) return { error: e.message };
@@ -41,8 +38,6 @@ export async function archiveAction(_prev: FeedbackAdminState, formData: FormDat
   const reason = String(formData.get("reason") ?? "");
   try {
     await archiveFeedback({ id, reason, actorId: user.id, ip: await clientIp() });
-    revalidatePath(`/admin/feedback/${id}`);
-    revalidatePath("/admin/feedback");
     return { ok: true };
   } catch (e) {
     if (e instanceof FeedbackError) return { error: e.message };
@@ -56,8 +51,6 @@ export async function unarchiveAction(_prev: FeedbackAdminState, formData: FormD
   const id = String(formData.get("id") ?? "");
   try {
     await unarchiveFeedback({ id, actorId: user.id, ip: await clientIp() });
-    revalidatePath(`/admin/feedback/${id}`);
-    revalidatePath("/admin/feedback");
     return { ok: true };
   } catch (e) {
     if (e instanceof FeedbackError) return { error: e.message };

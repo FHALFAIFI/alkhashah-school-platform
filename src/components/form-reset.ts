@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 /**
@@ -36,18 +36,59 @@ export function useResetOnSuccess<T extends { success?: string } | null>(state: 
 }
 
 /**
- * تحديث الصفحة الحالية بعد نجاح إجراء الخادم (D-049).
+ * تحديث الصفحة الحالية بعد نجاح إجراء الخادم (D-049 ثم D-053).
  *
- * الإجراءات لم تعد تُبطل مسار الصفحة المفتوحة (انظر `lib/revalidate.ts`)، فالتحديث
- * مسؤولية العميل: طلب واحد يبدأ **بعد** استقرار نتيجة الإجراء، فلا يزاحم تدفّقها.
+ * الإجراءات لم تعد تُبطل أي مسار (انظر `lib/revalidate.ts`)، فالتحديث مسؤولية العميل:
+ * طلب واحد يبدأ **بعد** استقرار نتيجة الإجراء، فلا يزاحم تدفّقها.
+ *
+ * «النجاح» يُقرأ من `success` النصية أو من علم `ok` — بعض الإجراءات القديمة تعيد الثانية
+ * (ملاحظات التشغيل مثلاً). ما يُتعقَّب هو **هوية كائن الحالة** لا نص الرسالة، فنجاحان
+ * متتاليان بالرسالة نفسها يحدّثان الصفحة في المرتين.
  */
-export function useRefreshOnSuccess<T extends { success?: string } | null>(state: T) {
+type RefreshableState = { success?: string; ok?: boolean } | null | undefined;
+
+export function useRefreshOnSuccess(state: RefreshableState) {
   const router = useRouter();
   const seen = useRef<unknown>(null);
   useEffect(() => {
-    if (state?.success && state !== seen.current) {
+    const succeeded = Boolean(state?.success) || state?.ok === true;
+    if (succeeded && state !== seen.current) {
       seen.current = state;
       router.refresh();
     }
   }, [state, router]);
+}
+
+/**
+ * تحديث الصفحة بعد **اكتمال** انتقال يحمل إجراء خادم (D-049 القاعدة 3 · D-053).
+ *
+ * الأزرار التي تنادي إجراءً داخل `useTransition` لا تملك حالة مُعادة يتعقّبها
+ * `useRefreshOnSuccess`، وقد كانت تعتمد على `revalidatePath` داخل الإجراء — وهو ما أُزيل.
+ * التحديث هنا يبدأ حين ينخفض `pending` من true إلى false، أي **بعد** أن استهلك العميل
+ * استجابة الإجراء كاملة؛ استدعاؤه داخل الانتقال يُبقي `pending` مرفوعاً فتظل الأزرار
+ * معطّلة (هذا بالضبط ما شُوهد على قوائم حالات مهام اللجان).
+ */
+export function useRefreshAfterTransition(pending: boolean) {
+  const router = useRouter();
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (pending) {
+      wasPending.current = true;
+      return;
+    }
+    if (wasPending.current) {
+      wasPending.current = false;
+      router.refresh();
+    }
+  }, [pending, router]);
+}
+
+/**
+ * انتقال يحمل إجراء خادم + تحديث تلقائي بعده — الشكل المفضَّل في الشيفرة الجديدة.
+ * يعيد نفس ثنائية `useTransition` فيبقى موضع النداء كما هو.
+ */
+export function useActionTransition(): [boolean, React.TransitionStartFunction] {
+  const [pending, startTransition] = useTransition();
+  useRefreshAfterTransition(pending);
+  return [pending, startTransition];
 }

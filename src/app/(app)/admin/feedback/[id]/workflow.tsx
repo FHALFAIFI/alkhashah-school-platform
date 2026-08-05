@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { updateStatusAction, archiveAction, unarchiveAction, type FeedbackAdminState } from "../actions";
 import { FEEDBACK_STATUSES, statusRequiresNote } from "@/lib/feedback/constants";
 import { useState } from "react";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 const initial: FeedbackAdminState = {};
 
@@ -18,8 +19,14 @@ export function FeedbackWorkflow({
   archived: boolean;
 }) {
   const [statusState, statusFormAction, statusPending] = useActionState(updateStatusAction, initial);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(statusState);
   const [archiveState, archiveFormAction, archivePending] = useActionState(archiveAction, initial);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(archiveState);
   const [unarchiveState, unarchiveFormAction, unarchivePending] = useActionState(unarchiveAction, initial);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(unarchiveState);
   const [selectedStatus, setSelectedStatus] = useState(status);
 
   const inputCls =

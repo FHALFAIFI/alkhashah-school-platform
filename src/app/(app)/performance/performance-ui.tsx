@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { createCycleAction, type ActionState } from "./actions";
 import { Field, SubmitButton } from "@/components/ui";
 import { orFallback } from "@/lib/format";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 export function NewCycleForm({
   people,
@@ -13,6 +14,8 @@ export function NewCycleForm({
   models: { id: string; nameAr: string; audience: string; official: boolean }[];
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createCycleAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [personId, setPersonId] = useState("");
   const person = useMemo(() => people.find((p) => p.id === personId), [people, personId]);
   const cycleType = person?.category === "موظف" ? "موظف" : "معلم";

@@ -1,5 +1,4 @@
 import { desc, and, eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
@@ -21,7 +20,6 @@ export default async function BuildingReportPage() {
     "use server";
     const u = await requirePermission("building.read", "reports.generate");
     await generateBuildingReport({ issuedBy: u.id });
-    revalidatePath("/building/report");
   }
 
   return (

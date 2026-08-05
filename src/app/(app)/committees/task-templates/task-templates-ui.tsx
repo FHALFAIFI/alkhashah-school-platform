@@ -11,12 +11,15 @@ import {
   type ActionState,
 } from "../task-actions";
 import { SubmitButton } from "@/components/ui";
-import { useResetOnSuccess } from "@/components/form-reset";
+import { useResetOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 type Tmpl = { id: string; title: string; active: boolean };
 
 export function SeedButton() {
   const [pending, start] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const [msg, setMsg] = useState<string | null>(null);
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -36,6 +39,8 @@ export function SeedButton() {
 
 export function TaskTemplateManager({ templateKey, tasks, canManage }: { templateKey: string; tasks: Tmpl[]; canManage: boolean }) {
   const [pending, start] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const [msg, setMsg] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -76,6 +81,8 @@ export function TaskTemplateManager({ templateKey, tasks, canManage }: { templat
 
 function AddTemplateForm({ templateKey }: { templateKey: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addTaskTemplateAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
   return (
@@ -92,6 +99,8 @@ function AddTemplateForm({ templateKey }: { templateKey: string }) {
 
 function EditTemplateForm({ id, title, onDone }: { id: string; title: string; onDone: () => void }) {
   const [state, formAction] = useActionState<ActionState, FormData>(updateTaskTemplateAction.bind(null, id), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="mt-2 flex flex-wrap items-end gap-2 border-t border-sand-100 pt-2">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-1.5 text-xs text-red-700">{state.error}</div>}

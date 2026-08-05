@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { createProgramAction, type ActionState } from "./actions";
 import { SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 /**
  * «إضافة برنامج» (v2.2 §A1) — نموذج مطوي يفتح داخل صفحة الخطة التشغيلية.
@@ -17,6 +18,8 @@ import { SubmitButton } from "@/components/ui";
 export function AddProgramPanel() {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState<ActionState, FormData>(createProgramAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const formRef = useRef<HTMLFormElement>(null);
   const headingId = useId();
   const nameId = useId();

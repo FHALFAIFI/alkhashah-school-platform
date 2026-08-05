@@ -9,6 +9,7 @@ import {
   FEEDBACK_MODULES,
   moduleFromPath,
 } from "@/lib/feedback/constants";
+import { useRefreshAfterTransition } from "@/components/form-reset";
 
 /**
  * «إرسال ملاحظة» (v2.3 §19) — زر مدمج في الشريط العلوي الثابت لا زر عائم:
@@ -22,6 +23,8 @@ export function FeedbackDock({ enabled }: { enabled: boolean }) {
   const [done, setDone] = useState<{ ref: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const formRef = useRef<HTMLFormElement>(null);
 
   // قفل تمرير الصفحة أثناء فتح النموذج على الجوال + إغلاق بـ Escape

@@ -4,11 +4,14 @@ import { useActionState } from "react";
 import { submitFollowupAction, type ActionState } from "../actions";
 import { SubmitButton } from "@/components/ui";
 import { FOLLOWUP_STATUSES } from "@/lib/plan/followup";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 /** نموذج المتابعة الأسبوعية المضمن — ملاحظة + نسبة إنجاز مُدخلة مباشرةً + حالة تنفيذ (D-024)،
  *  بلا تمرير أفقي على الجوال */
 export function FollowupForm({ programId, defaultStatus, defaultProgress = 0 }: { programId: string; defaultStatus?: string; defaultProgress?: number }) {
   const [state, formAction] = useActionState<ActionState, FormData>(submitFollowupAction.bind(null, programId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="mt-3 border-t border-sand-100 pt-3">
       {state?.error && <div role="alert" className="mb-2 rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}

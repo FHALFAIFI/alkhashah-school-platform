@@ -1,5 +1,4 @@
 "use server";
-import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { requirePermission } from "@/lib/auth/session";
 import {
@@ -38,7 +37,6 @@ export async function archiveSyntheticAction(formData: FormData): Promise<void> 
     manualSelections,
     ip: await clientIp(),
   });
-  revalidatePath("/admin/cleanup");
 }
 
 /** استرجاع (تراجع) دفعة أرشفة كاملة — يعيد كل سجلاتها للظهور بلا فقد بيان */
@@ -46,5 +44,4 @@ export async function unarchiveBatchAction(formData: FormData): Promise<void> {
   const user = await requirePermission("admin.settings");
   const batchId = String(formData.get("batchId") ?? "");
   await unarchiveBatch({ batchId, actorId: user.id, ip: await clientIp() });
-  revalidatePath("/admin/cleanup");
 }

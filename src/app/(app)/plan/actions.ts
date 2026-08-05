@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
@@ -12,7 +11,6 @@ import { requirePermission } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { orFallback } from "@/lib/format";
 import { snapshotRecord } from "@/lib/versioning";
-import { revalidateOtherPaths } from "@/lib/revalidate";
 import { MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE } from "@/lib/finance/calc";
 import { FOLLOWUP_STATUSES, isoWeekKey } from "@/lib/plan/followup";
 import { PROGRAM_LIFECYCLE, LIFECYCLE_ACTIONS, programLifecycle } from "@/lib/plan/lifecycle";
@@ -104,7 +102,6 @@ export async function updateProgramExecutionAction(programId: string, _prev: Act
     detail: { before, after: { progress: parsed.data.progress, executionStatus: parsed.data.executionStatus }, reason: reason || null },
   });
   // D-049: لا نُبطِل مسار الصفحة المفتوحة
-  revalidateOtherPaths(["/plan", `/plan/${programId}`, "/plan/followup"], { except: `/plan/${programId}` });
   return { success: "حُدّث تقدم البرنامج وحالته" };
 }
 
@@ -199,9 +196,6 @@ export async function correctProgramConsistencyAction(
   });
   // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
   //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
-  revalidatePath("/plan/followup");
-  revalidatePath(`/plan/${programId}`);
-  revalidatePath("/plan");
   return { success: "صُحّحت حالة البرنامج" };
 }
 
@@ -287,8 +281,6 @@ export async function bulkCorrectProgramsAction(_prev: ActionState, formData: Fo
   });
   // D-049: لا نُبطِل مسار الصفحة المفتوحة — إبطالها يُجهض تدفّق استجابة الإجراء.
   //         تحديثها من العميل عبر router.refresh() بعد استقرار النتيجة (lib/revalidate.ts).
-  revalidatePath("/plan/followup");
-  revalidatePath("/plan");
   return { success: `صُحِّح ${changed} برنامج` };
 }
 
@@ -311,10 +303,7 @@ export async function approveProgramAction(programId: string): Promise<ActionSta
     .set({ status: "معتمد", approvedBy: user.id, approvedAt: new Date(), version: program.version + 1 })
     .where(eq(programs.id, programId));
   await audit({ actorId: user.id, action: "program.approved", entityType: "program", entityId: programId, summary: `اعتماد برنامج «${program.name}»` });
-  revalidatePath(`/plan/${programId}`);
-  revalidatePath("/plan");
   // v2.4 §11: طابور الاعتماد على الصفحة الرئيسة يتحدث فور الاعتماد
-  revalidatePath("/dashboard");
   return { success: "تم الاعتماد" };
 }
 
@@ -338,7 +327,6 @@ export async function reopenProgramAction(programId: string, formData: FormData)
     .set({ status: "مسودة", version: program.version + 1, updatedAt: new Date() })
     .where(eq(programs.id, programId));
   await audit({ actorId: user.id, action: "program.reopened", entityType: "program", entityId: programId, summary: `إعادة فتح «${program.name}» — السبب: ${reason}` });
-  revalidatePath(`/plan/${programId}`);
   return { success: "أعيد فتح البرنامج" };
 }
 
@@ -367,11 +355,6 @@ export async function archiveProgramAction(programId: string, _prev: ActionState
     entityId: programId,
     summary: `أرشفة برنامج «${program.name}»${reason ? ` — السبب: ${reason}` : ""}`,
   });
-  revalidatePath("/plan");
-  revalidatePath(`/plan/${programId}`);
-  revalidatePath("/plan/classifications");
-  revalidatePath("/plan/followup");
-  revalidatePath("/dashboard");
   return { success: "أُرشف البرنامج وأُخفي من الاستخدام — يمكن استرجاعه لاحقاً" };
 }
 
@@ -393,24 +376,10 @@ export async function unarchiveProgramAction(programId: string): Promise<ActionS
     entityId: programId,
     summary: `استرجاع برنامج «${program.name}» من الأرشيف`,
   });
-  revalidatePath("/plan");
-  revalidatePath(`/plan/${programId}`);
-  revalidatePath("/plan/classifications");
-  revalidatePath("/plan/followup");
-  revalidatePath("/dashboard");
   return { success: "استُرجع البرنامج" };
 }
 
 /* ────────────────────────── إنشاء البرنامج وإقفاله النهائي (v2.2 §A) ────────────────────────── */
-
-/** المسارات التي تعرض قوائم البرامج — تُحدَّث بعد كل إنشاء/إقفال/إعادة فتح */
-function revalidateProgramLists(programId?: string) {
-  revalidatePath("/plan");
-  revalidatePath("/plan/classifications");
-  revalidatePath("/plan/followup");
-  revalidatePath("/dashboard");
-  if (programId) revalidatePath(`/plan/${programId}`);
-}
 
 /**
  * إضافة برنامج جديد للخطة التشغيلية (v2.2 §A1).
@@ -512,7 +481,6 @@ export async function createProgramAction(_prev: ActionState, formData: FormData
     entityId: createdId,
     summary: `إضافة برنامج «${name || "بدون عنوان"}» إلى ${activeYear.nameAr}`,
   });
-  revalidateProgramLists(createdId);
   return { success: "أُضيف البرنامج" };
 }
 
@@ -563,7 +531,6 @@ export async function completeProgramAction(programId: string, _prev: ActionStat
     entityId: programId,
     summary: `تعليم برنامج «${orFallback(program.name)}» كمكتمل${note ? ` — ${note}` : ""}`,
   });
-  revalidateProgramLists(programId);
   return { success: "عُلّم البرنامج كمكتمل — يبقى قابلاً للتحرير وإضافة الشواهد حتى إقفاله نهائياً" };
 }
 
@@ -608,7 +575,6 @@ export async function resumeProgramAction(programId: string, _prev: ActionState,
     entityId: programId,
     summary: `إعادة برنامج «${orFallback(program.name)}» للتنفيذ${note ? ` — ${note}` : ""}`,
   });
-  revalidateProgramLists(programId);
   return { success: "أُعيد البرنامج للتنفيذ" };
 }
 
@@ -659,7 +625,6 @@ export async function closeProgramAction(programId: string, _prev: ActionState, 
     entityId: programId,
     summary: `إقفال برنامج «${orFallback(program.name)}» نهائياً${note ? ` — ${note}` : ""}`,
   });
-  revalidateProgramLists(programId);
   return { success: "أُقفل البرنامج نهائياً — أصبح للقراءة فقط ويبقى في التقارير والعروض التاريخية" };
 }
 
@@ -712,7 +677,6 @@ export async function reopenClosedProgramAction(programId: string, _prev: Action
     entityId: programId,
     summary: `إعادة فتح برنامج «${orFallback(program.name)}» — عاد بحالة «مكتمل»${note ? ` — ${note}` : ""}`,
   });
-  revalidateProgramLists(programId);
   return { success: "أُعيد فتح البرنامج بحالة «مكتمل» — أعده للتنفيذ إن أردت استئناف العمل عليه" };
 }
 
@@ -812,9 +776,6 @@ export async function updateProgramAction(programId: string, _prev: ActionState,
   });
 
   // D-049: لا نُبطِل مسار الصفحة المفتوحة — العميل يحدّثها بعد استقرار النتيجة
-  revalidateOtherPaths(["/plan", `/plan/${programId}`, "/plan/consistency", "/reports"], {
-    except: `/plan/${programId}`,
-  });
   return { success: `حُفظ التعديل — ${changes.length} حقلاً: ${changesSummaryAr(changes)}` };
 }
 
@@ -869,7 +830,6 @@ export async function createChangeRequestAction(programId: string, _prev: Action
     body: `${program.name} — ${parsed.data.fieldLabel}`,
     link: `/plan/${programId}#change-requests`,
   });
-  revalidatePath(`/plan/${programId}`);
   return { success: "سجل طلب التغيير — بانتظار اعتماد المدير" };
 }
 
@@ -906,8 +866,6 @@ export async function decideChangeRequestAction(requestId: string, decision: "م
       link: `/plan/${req.programId}#change-requests`,
     });
   }
-  revalidatePath(`/plan/${req.programId}`);
-  revalidatePath("/dashboard");
   return null;
 }
 
@@ -971,9 +929,6 @@ export async function submitFollowupAction(programId: string, _prev: ActionState
     entityId: programId,
     summary: `متابعة أسبوعية ${weekKey} لبرنامج «${program.name}» — ${parsed.data.executionStatus} (${progress}٪)`,
   });
-  revalidatePath("/plan/followup");
-  revalidatePath(`/plan/${programId}`);
-  revalidatePath("/plan");
   return { success: "سجلت المتابعة الأسبوعية" };
 }
 
@@ -987,7 +942,6 @@ export async function approvePackageAction(deliverableId: string): Promise<Actio
     .set({ packageStatus: "معتمدة", packageDecision: "معتمد", approvedBy: user.id, approvedAt: new Date() })
     .where(eq(programDeliverables.id, deliverableId));
   await audit({ actorId: user.id, action: "package.approved", entityType: "program_deliverable", entityId: deliverableId, summary: `اعتماد حزمة ${d.packageNumber ?? ""}` });
-  revalidatePath(`/plan/${d.programId}`);
   return { success: "اعتمدت الحزمة" };
 }
 
@@ -1000,6 +954,5 @@ export async function closePlanYearAction(yearId: string): Promise<ActionState> 
   await db.update(programs).set({ status: "مقفل" }).where(and(eq(programs.planYearId, yearId), eq(programs.status, "معتمد")));
   await audit({ actorId: user.id, action: "plan_year.closed", entityType: "plan_year", entityId: yearId, summary: `إقفال ${year.nameAr}` });
   await notifyAll({ title: "أقفلت السنة التخطيطية", body: year.nameAr });
-  revalidatePath("/plan");
   return { success: "أقفلت السنة وأرشفت" };
 }

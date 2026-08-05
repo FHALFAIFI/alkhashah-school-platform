@@ -3,10 +3,13 @@
 import { useActionState, useState } from "react";
 import { reviewEvidenceAction, type ActionState } from "./actions";
 import { SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 /** مراجعة شاهد من سجل الشواهد: قبول مباشر أو رفض مع سبب */
 export function EvidenceReviewControl({ evidenceId }: { evidenceId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(reviewEvidenceAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [rejecting, setRejecting] = useState(false);
 
   return (

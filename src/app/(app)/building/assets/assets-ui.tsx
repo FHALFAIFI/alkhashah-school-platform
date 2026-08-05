@@ -11,9 +11,12 @@ import {
 } from "../actions";
 import { ASSET_DELETE_CONFIRM } from "@/lib/building/asset-constants";
 import { Field, SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 export function NewAssetForm({ rooms }: { rooms: { id: string; label: string }[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createAssetAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [important, setImportant] = useState(false);
   return (
     <form action={formAction} className="space-y-3">
@@ -67,6 +70,8 @@ export function NewAssetForm({ rooms }: { rooms: { id: string; label: string }[]
 /** أرشفة الأصل — الإجراء الافتراضي غير المدمّر (سبب عربي إلزامي، قابل للاستعادة). */
 export function ArchiveAssetControl({ assetId }: { assetId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(archiveAssetAction.bind(null, assetId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
@@ -103,6 +108,8 @@ export function ArchiveAssetControl({ assetId }: { assetId: string }) {
 /** استعادة الأصل المؤرشف. */
 export function RestoreAssetControl({ assetId }: { assetId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(restoreAssetAction.bind(null, assetId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="inline-flex flex-col gap-1">
       {state?.error && <span role="alert" className="text-xs text-red-700">{state.error}</span>}
@@ -125,6 +132,8 @@ export function DeleteAssetControl({
   deps: { labelAr: string; count: number }[];
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(deleteAssetAction.bind(null, assetId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
 
   if (!deletable) {
@@ -173,6 +182,8 @@ export function DeleteAssetControl({
 
 export function AssetConditionControl({ assetId, condition }: { assetId: string; condition: string }) {
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <form action={(fd) => startTransition(() => updateAssetConditionAction(assetId, fd))} className="flex items-center gap-1">
       <select name="condition" defaultValue={condition} className="rounded border border-gray-300 bg-white px-2 py-1 text-xs">

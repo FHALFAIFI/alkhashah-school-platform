@@ -8,7 +8,8 @@ import {
 } from "../../../actions";
 import { MEETING_ATTACHMENT_CATEGORIES } from "@/lib/committees/constants";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
-import { useResetOnSuccess } from "@/components/form-reset";
+import { useResetOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 type MeetingType = { id: string; nameAr: string };
 
@@ -24,6 +25,8 @@ export function MeetingEditForm({
   currentTypeId: string | null;
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(updateMeetingAction.bind(null, meetingId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="space-y-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -52,6 +55,8 @@ export function MeetingEditForm({
 /** إضافة مرفق خاص للاجتماع: عنوان، وصف، فئة، ملف. (ليست حضوراً — لا حضور ولا غياب.) */
 export function MeetingAttachmentForm({ meetingId }: { meetingId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addMeetingAttachmentAction.bind(null, meetingId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
   return (
@@ -79,6 +84,8 @@ export function MeetingAttachmentForm({ meetingId }: { meetingId: string }) {
 /** حذف مرفق اجتماع */
 export function DeleteAttachmentButton({ attachmentId }: { attachmentId: string }) {
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const [error, setError] = useState<string | null>(null);
   return (
     <span>
@@ -96,6 +103,8 @@ export function DeleteAttachmentButton({ attachmentId }: { attachmentId: string 
 
 export function OutcomeForm({ meetingId, people }: { meetingId: string; people: { id: string; fullName: string }[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addOutcomeAction.bind(null, meetingId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [type, setType] = useState("قرار");
   return (
     <form action={formAction} className="mt-3 space-y-3 rounded-lg bg-sand-50 p-3">
@@ -143,6 +152,8 @@ export function OutcomeForm({ meetingId, people }: { meetingId: string; people: 
 
 export function SignedMinutesUpload({ meetingId }: { meetingId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(uploadSignedMinutesAction.bind(null, meetingId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -158,6 +169,8 @@ export function SignedMinutesUpload({ meetingId }: { meetingId: string }) {
 export function CompleteMeetingButton({ meetingId, disabled }: { meetingId: string; disabled: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div>
       {error && <div role="alert" className="mb-2 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}

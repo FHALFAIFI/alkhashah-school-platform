@@ -16,6 +16,8 @@ export function NewIssueForm({
   people: { id: string; label: string }[];
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createIssueAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="space-y-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
@@ -81,6 +83,8 @@ export function IssueWorkflowControl({
   resolution: string | null;
 }) {
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(transitionIssueAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const router = useRouter();
   // بعد نجاح الانتقال: تحديث فوري للعرض — لا شاشة قديمة تحتاج تحديثاً يدوياً
   useEffect(() => {

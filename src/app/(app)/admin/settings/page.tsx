@@ -4,7 +4,6 @@ import { getDocumentIdentity, saveDocumentIdentity } from "@/lib/document-identi
 import { saveUploadedFile, validateUpload } from "@/lib/storage";
 import { PageHeader, Card, SubmitButton, Field, LinkButton } from "@/components/ui";
 import { audit } from "@/lib/audit";
-import { revalidatePath } from "next/cache";
 
 export const metadata = { title: "الإعدادات" };
 export const dynamic = "force-dynamic";
@@ -27,7 +26,6 @@ export default async function SettingsPage() {
     await setSetting("performance.followup_target", Math.max(1, Number(formData.get("followupTarget") ?? 5)), u.id);
     await setSetting("assets.code_prefix", String(formData.get("assetPrefix") ?? "KHS-AST-"), u.id);
     await audit({ actorId: u.id, action: "admin.settings_changed", summary: "تحديث إعدادات النظام" });
-    revalidatePath("/admin/settings");
   }
 
   async function saveIdentity(formData: FormData) {
@@ -70,7 +68,6 @@ export default async function SettingsPage() {
       u.id,
     );
     await audit({ actorId: u.id, action: "admin.identity_changed", summary: "تحديث هوية الوثائق الرسمية" });
-    revalidatePath("/admin/settings");
   }
 
   const appVersion = process.env.APP_VERSION ?? process.env.npm_package_version ?? "0.1.0";

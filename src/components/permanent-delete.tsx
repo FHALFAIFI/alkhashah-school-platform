@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { SubmitButton } from "@/components/ui";
 import type { DeletionImpact } from "@/lib/lifecycle-delete";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 /**
  * لوحة الحذف النهائي (v2.4.1 §1.3) — سطح موحّد لحذف المنسوب وحذف دورة الأداء معاً،
@@ -33,6 +34,8 @@ export function PermanentDeletePanel({
   confirmFieldLabel: string;
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(action, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [reason, setReason] = useState("");

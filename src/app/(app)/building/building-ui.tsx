@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { openRoomByCodeAction, type ActionState } from "./actions";
 import { SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 /**
  * فتح غرفة بالرمز المطبوع — بديل يدوي لمسح QR يعمل عبر HTTP دون كاميرا:
@@ -10,6 +11,8 @@ import { SubmitButton } from "@/components/ui";
  */
 export function OpenRoomByCodeForm() {
   const [state, formAction] = useActionState<ActionState, FormData>(openRoomByCodeAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-2">
       <div className="min-w-0">

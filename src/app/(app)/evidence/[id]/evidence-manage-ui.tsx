@@ -9,6 +9,7 @@ import {
   type ActionState,
 } from "../actions";
 import { Card, Field, SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 /**
  * إدارة الشاهد: استبدال المحتوى (مع حفظ النسخة السابقة)، الأرشفة، الاستعادة، والحذف
@@ -27,7 +28,11 @@ export function EvidenceManageUI({
   canDelete: boolean;
 }) {
   const [replaceState, replaceAction] = useActionState<ActionState, FormData>(replaceEvidenceContentAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(replaceState);
   const [archiveState, archiveAction] = useActionState<ActionState, FormData>(archiveEvidenceAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(archiveState);
   const [kind, setKind] = useState(currentKind);
   const [showReplace, setShowReplace] = useState(false);
   const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);

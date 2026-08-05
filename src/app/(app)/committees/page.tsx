@@ -11,7 +11,6 @@ import { FormCommitteeButton, NewPlcForm } from "./committees-ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
 import { COMMITTEE_REGISTRY_LABEL } from "@/lib/committees/report-labels";
 import { SubmitButton } from "@/components/ui";
-import { revalidatePath } from "next/cache";
 
 export const metadata = { title: "اللجان والفرق" };
 export const dynamic = "force-dynamic";
@@ -54,8 +53,6 @@ export default async function CommitteesPage() {
     const u = await requirePermission("reports.generate", "committees.read");
     const { generateCommitteeRegistry } = await import("@/lib/reports/committee-report");
     await generateCommitteeRegistry({ issuedBy: u.id });
-    revalidatePath("/committees");
-    revalidatePath("/documents");
   }
 
   return (

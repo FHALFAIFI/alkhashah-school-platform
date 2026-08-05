@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { emailDocumentAction, type EmailState } from "@/app/(app)/integrations-actions";
+import { useRefreshAfterTransition } from "@/components/form-reset";
 
 /** لوحة المساعد الذكي — تظهر فقط عند تفعيل الذكاء الاصطناعي؛ مخرجاتها مسودات للمراجعة البشرية */
 
@@ -22,6 +23,8 @@ export function EmailDocumentButton({
   const [state, setState] = useState<EmailState>(null);
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
 
   if (!open) {
     return (

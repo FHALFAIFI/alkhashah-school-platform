@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -92,7 +91,6 @@ export async function createPersonAction(_prev: ActionState, formData: FormData)
     })
     .returning();
   await audit({ actorId: user.id, action: "person.created", entityType: "person", entityId: p.id, summary: `إضافة ${orFallback(p.fullName)} (${employeeType})` });
-  revalidatePath("/people");
   redirect(`/people/${p.id}`);
 }
 
@@ -112,7 +110,6 @@ export async function updatePersonAction(personId: string, _prev: ActionState, f
     .set({ ...rest, fullName: fullName ?? "", employeeType, email: rest.email || null, updatedAt: new Date() })
     .where(eq(people.id, personId));
   await audit({ actorId: user.id, action: "person.updated", entityType: "person", entityId: personId, summary: `تعديل بيانات منسوب (${employeeType})` });
-  revalidatePath(`/people/${personId}`);
   return { success: "تم الحفظ" };
 }
 
@@ -124,14 +121,12 @@ export async function deactivatePersonAction(personId: string, formData: FormDat
     .set({ active: false, deactivatedAt: new Date(), deactivateReason: reason || null })
     .where(eq(people.id, personId));
   await audit({ actorId: user.id, action: "person.deactivated", entityType: "person", entityId: personId, summary: `إيقاف شخص${reason ? ` — السبب: ${reason}` : ""}` });
-  revalidatePath(`/people/${personId}`);
 }
 
 export async function reactivatePersonAction(personId: string): Promise<void> {
   const user = await requirePermission("people.write");
   await db.update(people).set({ active: true, deactivatedAt: null, deactivateReason: null }).where(eq(people.id, personId));
   await audit({ actorId: user.id, action: "person.reactivated", entityType: "person", entityId: personId });
-  revalidatePath(`/people/${personId}`);
 }
 
 /**
@@ -159,7 +154,6 @@ export async function deletePersonAction(personId: string): Promise<ActionState>
     summary: `حذف نهائي للمنسوب «${orFallback(person.fullName)}» — لا سجلات مرتبطة`,
     detail: { snapshot: { fullName: person.fullName, category: person.category, jobNumber: person.jobNumber } },
   });
-  revalidatePath("/people");
   redirect("/people");
 }
 
@@ -185,9 +179,5 @@ export async function purgePersonAction(personId: string, _prev: ActionState, fo
     typedName: String(formData.get("typedName") ?? ""),
   });
   if (result.error) return result;
-  revalidatePath("/people");
-  revalidatePath("/performance");
-  revalidatePath("/performance/analytics");
-  revalidatePath("/committees");
   redirect("/people");
 }

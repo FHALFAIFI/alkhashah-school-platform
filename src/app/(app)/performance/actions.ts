@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -59,7 +58,6 @@ export async function createModelAction(_prev: ActionState, formData: FormData):
     })
     .returning();
   await audit({ actorId: user.id, action: "perf_model.created", entityType: "perf_model", entityId: m.id, summary: `نموذج ${official ? "رسمي" : "داخلي"}: ${m.nameAr}` });
-  revalidatePath("/performance/models");
   redirect(`/performance/models/${m.id}`);
 }
 
@@ -85,7 +83,6 @@ export async function addIndicatorAction(modelId: string, _prev: ActionState, fo
     requiresEvidence: parsed.data.requiresEvidence === "on",
     sortOrder: existing.length,
   });
-  revalidatePath(`/performance/models/${modelId}`);
   return { success: "أضيف المؤشر" };
 }
 
@@ -104,7 +101,6 @@ export async function deleteIndicatorAction(indicatorId: string): Promise<void> 
     summary: `حذف مؤشر «${ind.nameAr}» من نموذج «${model.nameAr}»`,
     detail: { before: { nameAr: ind.nameAr, weight: ind.weight, sortOrder: ind.sortOrder } },
   });
-  revalidatePath(`/performance/models/${ind.modelId}`);
 }
 
 // ————————————————— أرشفة النماذج وحذفها (v2.4 §6) —————————————————
@@ -135,9 +131,6 @@ export async function archiveModelAction(modelId: string, _prev: ActionState, fo
     summary: `أرشفة نموذج «${model.nameAr}»${reason ? ` — ${reason}` : ""}`,
     detail: { linkedRecords: counts, linkedSummary: linkedSummaryAr(counts) },
   });
-  revalidatePath("/performance/models");
-  revalidatePath(`/performance/models/${modelId}`);
-  revalidatePath("/performance");
   return { success: "أُرشف النموذج — تقييماته وتقاريره التاريخية باقية كما هي" };
 }
 
@@ -157,9 +150,6 @@ export async function restoreModelAction(modelId: string): Promise<ActionState> 
     entityId: modelId,
     summary: `استعادة نموذج «${model.nameAr}» من الأرشيف`,
   });
-  revalidatePath("/performance/models");
-  revalidatePath(`/performance/models/${modelId}`);
-  revalidatePath("/performance");
   return { success: "استُعيد النموذج" };
 }
 
@@ -208,8 +198,6 @@ export async function deleteModelAction(modelId: string): Promise<ActionState> {
       linkedRecords: counts,
     },
   });
-  revalidatePath("/performance/models");
-  revalidatePath("/performance");
   return { success: `حُذف النموذج «${model.nameAr}» نهائياً` };
 }
 
@@ -231,7 +219,6 @@ export async function approveModelAction(modelId: string): Promise<ActionState> 
     .set({ status: "معتمد", approvedBy: user.id, approvedAt: new Date(), version: model.version + 1 })
     .where(eq(perfModels.id, modelId));
   await audit({ actorId: user.id, action: "perf_model.approved", entityType: "perf_model", entityId: modelId, summary: `اعتماد نموذج ${model.nameAr}` });
-  revalidatePath(`/performance/models/${modelId}`);
   return { success: "اعتمد النموذج" };
 }
 
@@ -245,7 +232,6 @@ export async function reopenModelAction(modelId: string, formData: FormData): Pr
   await snapshotRecord({ entityType: "perf_model", entityId: modelId, action: "reopened", snapshot: { model, indicators }, reason, actorId: user.id });
   await db.update(perfModels).set({ status: "مسودة", version: model.version + 1 }).where(eq(perfModels.id, modelId));
   await audit({ actorId: user.id, action: "perf_model.reopened", entityType: "perf_model", entityId: modelId, summary: reason });
-  revalidatePath(`/performance/models/${modelId}`);
   return null;
 }
 
@@ -347,7 +333,6 @@ export async function createCycleAction(_prev: ActionState, formData: FormData):
       entityId: cycle.id,
       summary: `دورة ${parsed.data.cycleType} — ${person.fullName} (${parsed.data.yearKey})${audienceMismatch ? ` — اختيار يدوي لنموذج فئة «${model.audience}» لعدم وجود نموذج معتمد للفئة (D-014)` : ""}`,
     });
-    revalidatePath("/performance");
     redirect(`/performance/cycles/${cycle.id}`);
   } catch (e) {
     if (e instanceof Error && e.message.includes("cycles_person_year_unique")) {
@@ -401,7 +386,6 @@ export async function createSessionAction(cycleId: string, _prev: ActionState, f
     await db.insert(perfRatings).values({ sessionId: session.id, indicatorId: ind.id });
   }
   await audit({ actorId: user.id, action: "perf_session.created", entityType: "perf_session", entityId: session.id, summary: `جلسة ${sessionType}` });
-  revalidatePath(`/performance/cycles/${cycleId}`);
   redirect(`/performance/cycles/${cycleId}/sessions/${session.id}`);
 }
 
@@ -460,7 +444,6 @@ export async function saveRatingsAction(sessionId: string, _prev: ActionState, f
     .where(eq(perfSessions.id, sessionId));
 
   await audit({ actorId: user.id, action: "perf_session.ratings_saved", entityType: "perf_session", entityId: sessionId });
-  revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
   return { success: "حفظت التقديرات وحسبت النتيجة" };
 }
 
@@ -514,7 +497,6 @@ export async function uploadSignedReportAction(sessionId: string, _prev: ActionS
     entityId: sessionId,
     summary: isReplacement ? `استبدال التقرير الموقع${reason ? ` — ${reason}` : ""}` : "رفع التقرير الموقع",
   });
-  revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
   return { success: isReplacement ? "استُبدل التقرير الموقع — النسخة السابقة محفوظة" : "رفع التقرير الموقع" };
 }
 
@@ -557,10 +539,7 @@ export async function completeSessionAction(sessionId: string): Promise<ActionSt
   if (session.sessionType === "نهائي") {
     await db.update(perfCycles).set({ status: "مكتملة" }).where(eq(perfCycles.id, session.cycleId));
     await audit({ actorId: user.id, action: "perf_cycle.completed", entityType: "perf_cycle", entityId: session.cycleId, summary: "اكتملت الدورة بإقفال التقييم النهائي" });
-    revalidatePath(`/performance/cycles/${session.cycleId}`);
-    revalidatePath("/performance");
   }
-  revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
   return { success: newStatus === "مقفلة" ? "أقفل التقييم النهائي واكتملت الدورة" : "اكتملت الجلسة" };
 }
 
@@ -591,11 +570,8 @@ export async function reopenSessionAction(sessionId: string, formData: FormData)
     if (cycle && cycle.status === "مكتملة") {
       await db.update(perfCycles).set({ status: "نشطة" }).where(eq(perfCycles.id, session.cycleId));
       await audit({ actorId: user.id, action: "perf_cycle.reactivated", entityType: "perf_cycle", entityId: session.cycleId, summary: `أعيدت الدورة إلى «نشطة» بإعادة فتح التقييم النهائي — ${reason}` });
-      revalidatePath(`/performance/cycles/${session.cycleId}`);
-      revalidatePath("/performance");
     }
   }
-  revalidatePath(`/performance/cycles/${session.cycleId}/sessions/${sessionId}`);
   return null;
 }
 
@@ -628,7 +604,6 @@ export async function createImprovementPlanAction(cycleId: string, _prev: Action
     createdBy: user.id,
   });
   await audit({ actorId: user.id, action: "improvement_plan.created", entityType: "perf_cycle", entityId: cycleId });
-  revalidatePath(`/performance/cycles/${cycleId}`);
   return { success: "أنشئت خطة التحسين" };
 }
 
@@ -643,7 +618,6 @@ export async function advanceImprovementPlanAction(planId: string): Promise<Acti
   if (!next) return { error: "الخطة مكتملة — لا حالة تالية" };
   await db.update(improvementPlans).set({ status: next }).where(eq(improvementPlans.id, planId));
   await audit({ actorId: user.id, action: "improvement_plan.status_advanced", entityType: "perf_cycle", entityId: plan.cycleId, summary: `خطة «${plan.title}»: ${plan.status} → ${next}` });
-  revalidatePath(`/performance/cycles/${plan.cycleId}`);
   return { success: next === "مكتملة" ? "اكتملت الخطة" : "بدأ تنفيذ الخطة" };
 }
 
@@ -673,9 +647,5 @@ export async function deleteCycleAction(cycleId: string, _prev: ActionState, for
     typedConfirm: String(formData.get("typedName") ?? ""),
   });
   if (result.error) return result;
-  revalidatePath("/performance");
-  revalidatePath("/performance/analytics");
-  revalidatePath(`/people/${cycle.personId}`);
-  revalidatePath(`/performance/employees/${cycle.personId}`);
   redirect("/performance");
 }

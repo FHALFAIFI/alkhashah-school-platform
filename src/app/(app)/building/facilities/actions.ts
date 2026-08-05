@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
@@ -45,7 +44,6 @@ export async function addFacilityAction(_prev: ActionState, formData: FormData):
     })
     .returning();
   await audit({ actorId: user.id, action: "facility.added", entityType: "facility", entityId: row.id, summary: `مرفق «${orFallback(facilityType)}»` });
-  revalidatePath("/building/facilities");
   return { success: "أُضيف المرفق إلى القائمة" };
 }
 
@@ -61,7 +59,6 @@ export async function seedStandardFacilitiesAction(): Promise<ActionState> {
     added++;
   }
   await audit({ actorId: user.id, action: "facility.standard_seeded", entityType: "facility", summary: `بذر ${added} مرفقاً معيارياً` });
-  revalidatePath("/building/facilities");
   return { success: `أُضيف ${added} مرفقاً من القائمة المعيارية` };
 }
 
@@ -72,7 +69,6 @@ export async function setFacilityStatusAction(facilityId: string, status: string
   if (!f) return { error: "المرفق غير موجود" };
   await db.update(facilityChecklist).set({ status, updatedAt: new Date() }).where(eq(facilityChecklist.id, facilityId));
   await audit({ actorId: user.id, action: "facility.status_changed", entityType: "facility", entityId: facilityId, summary: `${orFallback(f.facilityType)}: ${status}` });
-  revalidatePath("/building/facilities");
   return { success: "حُدّثت الحالة" };
 }
 
@@ -90,7 +86,6 @@ export async function linkFacilityRoomAction(facilityId: string, _prev: ActionSt
     await db.update(facilityChecklist).set({ status: "موجود", updatedAt: new Date() }).where(eq(facilityChecklist.id, facilityId));
   }
   await audit({ actorId: user.id, action: "facility.room_linked", entityType: "facility", entityId: facilityId, summary: `ربط غرفة بمرفق ${orFallback(f.facilityType)}` });
-  revalidatePath("/building/facilities");
   return { success: "رُبطت الغرفة بالمرفق" };
 }
 
@@ -100,7 +95,6 @@ export async function unlinkFacilityRoomAction(facilityId: string, roomId: strin
     .delete(facilityRoomLinks)
     .where(and(eq(facilityRoomLinks.facilityId, facilityId), eq(facilityRoomLinks.roomId, roomId)));
   await audit({ actorId: user.id, action: "facility.room_unlinked", entityType: "facility", entityId: facilityId });
-  revalidatePath("/building/facilities");
   return { success: "فُك ربط الغرفة" };
 }
 
@@ -111,6 +105,5 @@ export async function deleteFacilityAction(facilityId: string): Promise<ActionSt
   // حذف بند القائمة يزيل روابط الغرف (تعاقبي على الربط فقط) — لا يمس الغرف نفسها
   await db.delete(facilityChecklist).where(eq(facilityChecklist.id, facilityId));
   await audit({ actorId: user.id, action: "facility.deleted", entityType: "facility", entityId: facilityId, summary: `حذف مرفق «${orFallback(f.facilityType)}»` });
-  revalidatePath("/building/facilities");
   return { success: "حُذف المرفق من القائمة" };
 }

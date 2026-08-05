@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { PageHeader, Card, Badge, Table, EmptyState, ProgressBar, SubmitButton } from "@/components/ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
@@ -29,8 +28,6 @@ export default async function PerformanceAnalyticsPage() {
     const u = await requirePermission("reports.generate", "performance.individual.read");
     const { generateOverallPerformanceReport } = await import("@/lib/reports/performance-reports");
     await generateOverallPerformanceReport({ issuedBy: u.id });
-    revalidatePath("/performance/analytics");
-    revalidatePath("/documents");
   }
 
   return (

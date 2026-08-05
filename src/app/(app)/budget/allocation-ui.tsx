@@ -15,6 +15,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { setItemAllocationAction, type ActionState } from "./finance-actions";
 import { ALLOCATION_NONE_VALUE, SET_ALLOCATION_CTA } from "@/lib/finance/allocation";
 import { moneySubtract } from "@/lib/finance/calc";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 export function SetAllocationForm({
   itemId,
@@ -36,6 +37,8 @@ export function SetAllocationForm({
     setItemAllocationAction.bind(null, itemId),
     null,
   );
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [proposed, setProposed] = useState(currentAllocation === null ? "" : String(currentAllocation));
   const [seenSuccess, setSeenSuccess] = useState<string | undefined>(undefined);
   const router = useRouter();

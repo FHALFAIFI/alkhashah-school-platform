@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { planYears, programs } from "@/db/schema";
@@ -59,8 +58,6 @@ export async function renameClassificationAction(
     entityType: "plan",
     summary: `إعادة تسمية تصنيف «${oldDomain || "بدون تصنيف"}» إلى «${newDomain}» — ${updated.length} برنامجاً`,
   });
-  revalidatePath("/plan");
-  revalidatePath("/plan/classifications");
   return { success: `أُعيدت تسمية التصنيف — ${updated.length} برنامجاً` };
 }
 
@@ -99,7 +96,5 @@ export async function deleteClassificationAction(
     entityType: "plan",
     summary: `حذف تصنيف «${domain || "بدون تصنيف"}» بإعادة توزيع ${updated.length} برنامجاً إلى «${targetLabel}»`,
   });
-  revalidatePath("/plan");
-  revalidatePath("/plan/classifications");
   return { success: `أُعيد توزيع ${updated.length} برنامجاً إلى «${targetLabel}»` };
 }

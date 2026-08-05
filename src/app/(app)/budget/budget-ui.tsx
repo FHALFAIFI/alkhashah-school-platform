@@ -26,7 +26,7 @@ import { Field, TextArea, SubmitButton } from "@/components/ui";
 import { formatMoney, orFallback } from "@/lib/format";
 import { overrunWarning } from "@/lib/finance/calc";
 import { ALLOCATION_NONE_HINT, REMAINING_UNAVAILABLE, SET_ALLOCATION_CTA } from "@/lib/finance/allocation";
-import { useResetOnSuccess, useRefreshOnSuccess } from "@/components/form-reset";
+import { useResetOnSuccess, useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 /**
  * واجهة المالية المدرسية (v2.2 §B).
@@ -51,10 +51,10 @@ const itemLabel = (name: string | null) => orFallback(name, "بند بدون ا�
 
 export function AddIncomeForm({ planYearId, items }: { planYearId: string; items: ItemLine[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addIncomeAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
-  // D-049: الصفحة تُحدَّث من العميل بعد استقرار النتيجة — الإجراء لا يُبطل مسارها
-  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -107,10 +107,10 @@ export function AddIncomeForm({ planYearId, items }: { planYearId: string; items
 
 export function AddExpenseForm({ planYearId, items }: { planYearId: string; items: ItemLine[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addExpenseAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
-  // D-049: الصفحة تُحدَّث من العميل بعد استقرار النتيجة — الإجراء لا يُبطل مسارها
-  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   const [itemId, setItemId] = useState("");
   const [amount, setAmount] = useState("");
@@ -227,10 +227,10 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
 export function FinancialItemForm({ item }: { item?: ItemLine & { color?: string | null; notes?: string | null } }) {
   const action = item ? updateFinancialItemAction.bind(null, item.id) : createFinancialItemAction;
   const [state, formAction] = useActionState<ActionState, FormData>(action, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
-  // D-049: الصفحة تُحدَّث من العميل بعد استقرار النتيجة — الإجراء لا يُبطل مسارها
-  useRefreshOnSuccess(state);
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -271,6 +271,8 @@ export function FinancialItemForm({ item }: { item?: ItemLine & { color?: string
 export function CreateDefaultItemsButton() {
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       <button
@@ -294,6 +296,8 @@ export function CreateDefaultItemsButton() {
 export function ItemRowActions({ id, archived }: { id: string; archived: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const run = (fn: () => Promise<ActionState>) =>
     startTransition(async () => {
       const res = await fn();
@@ -323,6 +327,8 @@ export function ItemRowActions({ id, archived }: { id: string; archived: boolean
 export function RecordRowActions({ kind, id, archived }: { kind: "income" | "expense"; id: string; archived: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const run = (fn: () => Promise<ActionState>, confirmText?: string) =>
     startTransition(async () => {
       if (confirmText && !window.confirm(confirmText)) return;

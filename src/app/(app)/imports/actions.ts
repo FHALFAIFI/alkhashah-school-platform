@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requirePermission, getCurrentUser } from "@/lib/auth/session";
 import { saveUploadedFile } from "@/lib/storage";
@@ -92,37 +91,31 @@ export async function correctRowAction(rowId: string, batchId: string, formData:
     if (key.startsWith("f_")) corrections[key.slice(2)] = String(value);
   }
   await applyRowDecision({ rowId, action: "تصحيح", corrections, actorId: user.id, actorName: user.displayName });
-  revalidatePath(`/imports/${batchId}`);
 }
 
 export async function excludeRowAction(rowId: string, batchId: string): Promise<void> {
   const user = await requirePermission("imports.read");
   await applyRowDecision({ rowId, action: "استبعاد", actorId: user.id, actorName: user.displayName });
-  revalidatePath(`/imports/${batchId}`);
 }
 
 export async function markRowReadyAction(rowId: string, batchId: string): Promise<void> {
   const user = await requirePermission("imports.read");
   await applyRowDecision({ rowId, action: "تأكيد كجاهز", actorId: user.id, actorName: user.displayName });
-  revalidatePath(`/imports/${batchId}`);
 }
 
 export async function deferRowAction(rowId: string, batchId: string): Promise<void> {
   const user = await requirePermission("imports.read");
   await applyRowDecision({ rowId, action: "تأجيل", actorId: user.id, actorName: user.displayName });
-  revalidatePath(`/imports/${batchId}`);
 }
 
 export async function returnRowToReviewAction(rowId: string, batchId: string): Promise<void> {
   const user = await requirePermission("imports.read");
   await applyRowDecision({ rowId, action: "إعادة إلى المراجعة", actorId: user.id, actorName: user.displayName });
-  revalidatePath(`/imports/${batchId}`);
 }
 
 export async function undoRowDecisionAction(rowId: string, batchId: string): Promise<void> {
   const user = await requirePermission("imports.read");
   await undoLastRowDecision({ rowId, actorId: user.id, actorName: user.displayName });
-  revalidatePath(`/imports/${batchId}`);
 }
 
 export async function cancelBatchAction(batchId: string): Promise<ImportActionState> {
@@ -132,8 +125,6 @@ export async function cancelBatchAction(batchId: string): Promise<ImportActionSt
   } catch (e) {
     return { error: userFacingError(e, "تعذر إلغاء الدفعة") };
   }
-  revalidatePath(`/imports/${batchId}`);
-  revalidatePath("/imports");
   return null;
 }
 
@@ -219,9 +210,6 @@ export async function commitBatchAction(batchId: string): Promise<ImportActionSt
   } catch {
     // التنفيذ نجح والدفعة «منفذة» — تجاهل فشل الإشعار (غير حرج)
   }
-  revalidatePath(`/imports/${batchId}`);
-  revalidatePath("/imports");
-  revalidatePath("/people");
   return null;
 }
 
@@ -240,7 +228,5 @@ export async function rollbackBatchAction(batchId: string): Promise<ImportAction
   } catch (e) {
     return { error: userFacingError(e, "فشل التراجع") };
   }
-  revalidatePath(`/imports/${batchId}`);
-  revalidatePath("/imports");
   return null;
 }

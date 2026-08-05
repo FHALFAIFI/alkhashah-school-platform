@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { people, perfSessions, perfRatings, evidenceLinks, users } from "@/db/schema";
@@ -93,8 +92,6 @@ export default async function EmployeeKpiPage({
     const u = await requirePermission("reports.generate", "performance.individual.read");
     const { generateEmployeePerformanceReport } = await import("@/lib/reports/performance-reports");
     await generateEmployeePerformanceReport({ personId, cycleId: selectedCycleId, issuedBy: u.id });
-    revalidatePath(`/performance/employees/${personId}`);
-    revalidatePath("/documents");
   }
 
   return (

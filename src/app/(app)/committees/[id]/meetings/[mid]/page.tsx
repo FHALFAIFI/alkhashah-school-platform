@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq, inArray } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { committees, committeeMembers, meetings, meetingOutcomes, people, documents, actionTasks, meetingTypes, meetingAttachments, storedFiles } from "@/db/schema";
@@ -54,7 +53,6 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     "use server";
     const u = await requirePermission("reports.generate");
     await generateMinutesDocument({ meetingId: mid, issuedBy: u.id });
-    revalidatePath(`/committees/${id}/meetings/${mid}`);
   }
 
   // مؤشر المرحلة: الإعداد والنتائج → إصدار المحضر → المحضر الموقع → الاكتمال

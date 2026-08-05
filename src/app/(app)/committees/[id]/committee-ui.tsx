@@ -7,6 +7,7 @@ import {
   generateAssignmentFormAction, uploadSignedAssignmentAction, type ActionState,
 } from "../actions";
 import { Field, SubmitButton, TextArea } from "@/components/ui";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 export function AddMemberForm({
   committeeId,
@@ -18,6 +19,8 @@ export function AddMemberForm({
   isPlc: boolean;
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addMemberAction.bind(null, committeeId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="mt-3 flex flex-wrap items-end gap-2 border-t border-sand-100 pt-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -51,6 +54,8 @@ export function AddMemberForm({
 export function RemoveMemberButton({ memberId }: { memberId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       <button
@@ -88,6 +93,8 @@ export function AssignmentFormCard({
     uploadSignedAssignmentAction.bind(null, committeeId),
     null,
   );
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(uploadState);
   const [, startTransition] = useTransition();
 
   return (
@@ -135,6 +142,8 @@ export function AssignmentFormCard({
 export function ApproveCommitteeButton({ committeeId }: { committeeId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div className="text-end">
       {error && <div role="alert" className="mb-1 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
@@ -156,6 +165,8 @@ export function ApproveCommitteeButton({ committeeId }: { committeeId: string })
 
 export function ReopenCommitteeForm({ committeeId }: { committeeId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(reopenCommitteeAction.bind(null, committeeId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="flex flex-wrap items-center gap-2">
       {state?.error && <span role="alert" className="w-full text-xs text-red-600">{state.error}</span>}
@@ -168,6 +179,8 @@ export function ReopenCommitteeForm({ committeeId }: { committeeId: string }) {
 
 export function NewMeetingForm({ committeeId, types }: { committeeId: string; types: { id: string; nameAr: string }[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createMeetingAction.bind(null, committeeId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="mt-3 space-y-3 border-t border-sand-100 pt-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -197,6 +210,8 @@ export function NewMeetingForm({ committeeId, types }: { committeeId: string; ty
 export function CloseCommitteeButton({ committeeId }: { committeeId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div>
       {error && <span className="me-2 text-xs text-red-600">{error}</span>}

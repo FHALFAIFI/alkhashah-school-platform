@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { createPersonAction, updatePersonAction, type ActionState } from "./actions";
 import { Field, Select, SubmitButton } from "@/components/ui";
 import { employeeTypeOf } from "@/lib/employee-type";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 type Person = {
   id?: string;
@@ -21,6 +22,8 @@ type Person = {
 export function PersonForm({ person }: { person?: Person }) {
   const action = person?.id ? updatePersonAction.bind(null, person.id) : createPersonAction;
   const [state, formAction] = useActionState<ActionState, FormData>(action, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
 
   return (
     <form action={formAction} className="space-y-4">

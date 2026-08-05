@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -135,8 +134,6 @@ export async function updateRoomAction(roomId: string, _prev: ActionState, formD
   });
 
   await audit({ actorId: user.id, action: "room.updated", entityType: "room", entityId: roomId, summary: `تعديل بيانات الغرفة ${room.code}${geometrySync.synced ? ` + مسودة مخطط نسخة ${geometrySync.version}` : ""}` });
-  revalidatePath(`/building/rooms/${roomId}`);
-  revalidatePath("/building");
   return {
     success: geometrySync.synced
       ? `حُفظت بيانات الغرفة وسجل التعديل في مسودة المخطط (نسخة ${geometrySync.version})`
@@ -185,7 +182,6 @@ export async function saveGeometryDraftAction(floorId: string, geometryJson: str
     createdBy: user.id,
   });
   await audit({ actorId: user.id, action: "geometry.draft_saved", entityType: "floor", entityId: floorId, summary: `مسودة هندسة نسخة ${version}` });
-  revalidatePath("/building");
   const warn = check.warnings.length > 0 ? ` — تنبيهات: ${check.warnings.join("؛ ")}` : "";
   return { success: `حفظت مسودة النسخة ${version}${warn}` };
 }
@@ -217,7 +213,6 @@ export async function rollbackGeometryAction(versionId: string, reason: string):
     note: `تراجع موثق إلى النسخة ${target.version}: ${reason.trim()}`,
   });
   await audit({ actorId: user.id, action: "geometry.rolled_back", entityType: "floor", entityId: target.floorId, summary: `تراجع موثق إلى النسخة ${target.version} (نسخة جديدة ${version}) — ${reason.trim()}` });
-  revalidatePath("/building");
   return { success: `أنشئت مسودة نسخة ${version} من النسخة ${target.version} — راجعها ثم انشرها` };
 }
 
@@ -277,7 +272,6 @@ export async function publishGeometryAction(versionId: string): Promise<ActionSt
   });
 
   await audit({ actorId: user.id, action: "geometry.published", entityType: "floor", entityId: version.floorId, summary: `نشر هندسة النسخة ${version.version}` });
-  revalidatePath("/building");
   return { success: `نشرت النسخة ${version.version} وزومن سجل الغرف` };
 }
 
@@ -292,7 +286,6 @@ export async function updateBackgroundTransformAction(backgroundId: string, tran
   }
   await db.update(floorBackgrounds).set({ transform }).where(eq(floorBackgrounds.id, backgroundId));
   await audit({ actorId: user.id, action: "background.transformed", entityType: "floor_background", entityId: backgroundId });
-  revalidatePath("/building");
   return null;
 }
 
@@ -320,7 +313,6 @@ export async function replaceBackgroundAction(floorId: string, _prev: ActionStat
     return { error: userFacingError(e, "تعذر الرفع") };
   }
   await audit({ actorId: user.id, action: "background.replaced", entityType: "floor", entityId: floorId, summary: "استبدال الخلفية دون مساس بالهندسة" });
-  revalidatePath("/building");
   return { success: "استبدلت الخلفية — الهندسة المتجهة لم تتغير" };
 }
 
@@ -383,7 +375,6 @@ export async function createAssetAction(_prev: ActionState, formData: FormData):
     .returning();
   await db.insert(assetHistory).values({ assetId: asset.id, event: "إنشاء", detail: `أضيف في ${orFallback(room.nameAr)}`, actorId: user.id });
   await audit({ actorId: user.id, action: "asset.created", entityType: "asset", entityId: asset.id, summary: `${code} — ${orFallback(asset.nameAr)}` });
-  revalidatePath("/building/assets");
   return { success: `أضيف الأصل ${code}` };
 }
 
@@ -397,7 +388,6 @@ export async function updateAssetConditionAction(assetId: string, formData: Form
     await db.insert(assetHistory).values({ assetId, event: "تغيير حالة", detail: `${asset.condition} ← ${condition}`, actorId: user.id });
     await audit({ actorId: user.id, action: "asset.condition_changed", entityType: "asset", entityId: assetId });
   }
-  revalidatePath("/building/assets");
 }
 
 // ————————————————— دورة حياة الأصل: أرشفة / استعادة / حذف نهائي —————————————————
@@ -429,7 +419,6 @@ export async function archiveAssetAction(assetId: string, _prev: ActionState, fo
     summary: `${asset.code} — ${orFallback(asset.nameAr)}`,
     detail: { before: { active: asset.active }, after: { active: false, archivedReason: reason } },
   });
-  revalidatePath("/building/assets");
   return { success: `أُرشف الأصل ${asset.code} — يمكن استعادته في أي وقت` };
 }
 
@@ -455,7 +444,6 @@ export async function restoreAssetAction(assetId: string, _prev: ActionState, fo
     summary: `${asset.code} — ${orFallback(asset.nameAr)}`,
     detail: { before: { active: false }, after: { active: true } },
   });
-  revalidatePath("/building/assets");
   return { success: `استُعيد الأصل ${asset.code}` };
 }
 
@@ -496,7 +484,6 @@ export async function deleteAssetAction(assetId: string, _prev: ActionState, for
     summary: `${asset.code} — ${orFallback(asset.nameAr)}`,
     detail: { reason: "أُنشئ بالخطأ", snapshot: { code: asset.code, nameAr: asset.nameAr, roomId: asset.roomId } },
   });
-  revalidatePath("/building/assets");
   return { success: `حُذف الأصل ${asset.code} نهائياً (لا تبعيات)` };
 }
 
@@ -511,7 +498,6 @@ export async function approveInspectionTemplateAction(templateId: string): Promi
     .set({ status: "معتمد", approvedBy: user.id, approvedAt: new Date() })
     .where(eq(inspectionTemplates.id, templateId));
   await audit({ actorId: user.id, action: "inspection_template.approved", entityType: "inspection_template", entityId: templateId });
-  revalidatePath("/building/inspections");
   return { success: "اعتمد القالب" };
 }
 
@@ -627,7 +613,6 @@ export async function updateFindingAction(_prev: ActionState, formData: FormData
     .set({ targetDate: targetDate || null, responsibleText: responsibleText || null })
     .where(eq(inspectionFindings.id, findingId));
   await audit({ actorId: user.id, action: "finding.updated", entityType: "inspection_finding", entityId: findingId, summary: `تحديث ملاحظة فحص «${finding.label}»` });
-  revalidatePath(`/building/rooms/${finding.roomId}`);
   return { success: "حُدّثت الملاحظة" };
 }
 
@@ -644,7 +629,6 @@ export async function closeFindingAction(_prev: ActionState, formData: FormData)
     .set({ status: "مغلق", resolutionNote: note || null, closedBy: user.id, closedAt: new Date() })
     .where(eq(inspectionFindings.id, findingId));
   await audit({ actorId: user.id, action: "finding.closed", entityType: "inspection_finding", entityId: findingId, summary: `إغلاق ملاحظة فحص «${finding.label}»` });
-  revalidatePath(`/building/rooms/${finding.roomId}`);
   return { success: "أُغلقت الملاحظة" };
 }
 
@@ -823,7 +807,6 @@ export async function overrideReadinessAction(roomId: string, _prev: ActionState
   if (reason.length < 5) return { error: "سبب التجاوز إلزامي (5 أحرف على الأقل)" };
   await db.insert(readinessOverrides).values({ roomId, overrideValue: value, reason, actorId: user.id });
   await audit({ actorId: user.id, action: "readiness.overridden", entityType: "room", entityId: roomId, summary: `تجاوز الجاهزية إلى ${value}٪ — ${reason}` });
-  revalidatePath(`/building/rooms/${roomId}`);
   return { success: "سجل التجاوز بسببه" };
 }
 
@@ -898,7 +881,6 @@ export async function createIssueAction(_prev: ActionState, formData: FormData):
     .returning();
   await db.insert(maintenanceStatusHistory).values({ issueId: issue.id, fromStatus: null, toStatus: issue.status, actorId: user.id });
   await audit({ actorId: user.id, action: "maintenance.created", entityType: "maintenance", entityId: issue.id, summary: `${code} — ${orFallback(issue.title)}` });
-  revalidatePath("/building/maintenance");
   return { success: `سجل البلاغ ${code} — اعتمده ليتحول من مسودة` };
 }
 
@@ -975,9 +957,7 @@ export async function transitionIssueAction(_prev: ActionState, formData: FormDa
     actorId: user.id,
   });
   await audit({ actorId: user.id, action: "maintenance.status_changed", entityType: "maintenance", entityId: issueId, summary: `${issue.code}: ${issue.status} ← ${toStatus}` });
-  revalidatePath("/building/maintenance");
-  revalidatePath(`/building/maintenance/${issueId}`);
-  if (issue.roomId) revalidatePath(`/building/rooms/${issue.roomId}`);
+  // D-053: لا إبطال — صفحة الغرفة `force-dynamic` وتُقرأ من جديد عند فتحها
   return { success: `انتقل البلاغ إلى «${toStatus}»` };
 }
 
@@ -1017,6 +997,5 @@ export async function updateIssueReportFieldsAction(issueId: string, _prev: Acti
     detail: { before, after: patch, changed },
   });
   // D-049: لا نُبطِل مسار الصفحة المفتوحة — العميل يحدّثها بعد استقرار النتيجة
-  revalidatePath("/building/maintenance");
   return { success: "حُفظت بيانات تقرير الصيانة" };
 }

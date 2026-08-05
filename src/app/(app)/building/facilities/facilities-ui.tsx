@@ -13,6 +13,7 @@ import {
 import { FACILITY_STATUSES } from "./constants";
 import { Field, SubmitButton, Badge } from "@/components/ui";
 import { orFallback } from "@/lib/format";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 type Room = { id: string; label: string };
 export type FacilityView = {
@@ -27,8 +28,12 @@ export type FacilityView = {
 
 export function AddFacilityForm({ hasStandard }: { hasStandard: boolean }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addFacilityAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [seedNotice, setSeedNotice] = useState<string | null>(null);
   const [seedPending, startSeed] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(seedPending);
   return (
     <div className="flex flex-wrap items-start gap-3">
       <form action={formAction} className="flex flex-wrap items-end gap-2">
@@ -65,6 +70,8 @@ export function FacilityRow({ facility, rooms, canWrite }: { facility: FacilityV
   const [linkOpen, setLinkOpen] = useState(false);
   const [, startTransition] = useTransition();
   const [linkState, linkAction] = useActionState<ActionState, FormData>(linkFacilityRoomAction.bind(null, facility.id), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(linkState);
 
   const run = (fn: () => Promise<ActionState>) =>
     startTransition(async () => {

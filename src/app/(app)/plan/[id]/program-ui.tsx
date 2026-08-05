@@ -10,12 +10,14 @@ import {
   type ActionState,
 } from "../actions";
 import { SubmitButton } from "@/components/ui";
-import { useRefreshOnSuccess } from "@/components/form-reset";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 import { FOLLOWUP_STATUSES } from "@/lib/plan/followup";
 
 export function ApproveProgramButton({ programId }: { programId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div>
       {error && <div role="alert" className="mb-2 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
@@ -103,6 +105,8 @@ export function ProgramExecutionForm({
 export function ReopenForm({ programId }: { programId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <form
       action={(fd) =>
@@ -143,6 +147,8 @@ const FIELD_OPTIONS = [
 
 export function ChangeRequestForm({ programId }: { programId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createChangeRequestAction.bind(null, programId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [field, setField] = useState(FIELD_OPTIONS[0].value);
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-2 rounded-lg bg-sand-50 p-3">
@@ -178,6 +184,8 @@ export function ChangeRequestForm({ programId }: { programId: string }) {
 
 export function ChangeRequestDecision({ requestId }: { requestId: string }) {
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div className="mt-2 flex gap-2">
       <button
@@ -200,6 +208,8 @@ export function ChangeRequestDecision({ requestId }: { requestId: string }) {
 
 export function ApprovePackageButton({ deliverableId }: { deliverableId: string }) {
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <button
       disabled={pending}
@@ -224,6 +234,8 @@ export function ArchiveProgramForm({
   hasLinkedData: boolean;
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(archiveProgramAction.bind(null, programId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const confirmText =
     (hasLinkedData
       ? "هذا البرنامج مرتبط بسجلات أخرى. سيتم إخفاؤه من الاستخدام مع الاحتفاظ بالسجلات التاريخية.\n\n"
@@ -253,6 +265,8 @@ export function ArchiveProgramForm({
  */
 export function CompleteProgramForm({ programId, programName }: { programId: string; programName: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(completeProgramAction.bind(null, programId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="space-y-2">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -277,6 +291,8 @@ export function CompleteProgramForm({ programId, programName }: { programId: str
 /** «إعادة البرنامج للتنفيذ» — من «مكتمل» إلى «قيد التنفيذ» مع بقاء تاريخ الاكتمال في السجل */
 export function ResumeProgramForm({ programId, programName }: { programId: string; programName: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(resumeProgramAction.bind(null, programId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="space-y-2">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -303,6 +319,8 @@ export function ResumeProgramForm({ programId, programName }: { programId: strin
  */
 export function CloseProgramForm({ programId, programName }: { programId: string; programName: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(closeProgramAction.bind(null, programId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="space-y-2">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -328,6 +346,8 @@ export function CloseProgramForm({ programId, programName }: { programId: string
 /** «إعادة فتح البرنامج» — يعيد برنامجاً مغلقاً إلى حالة «مكتمل» (لا إلى قيد التنفيذ تلقائياً) */
 export function ReopenClosedProgramForm({ programId, programName }: { programId: string; programName: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(reopenClosedProgramAction.bind(null, programId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="space-y-2">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -353,6 +373,8 @@ export function ReopenClosedProgramForm({ programId, programName }: { programId:
 export function UnarchiveProgramButton({ programId }: { programId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div className="space-y-2">
       {error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}

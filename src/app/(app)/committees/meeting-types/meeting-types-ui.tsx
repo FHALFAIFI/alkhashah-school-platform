@@ -4,10 +4,13 @@ import { useActionState, useState, useTransition } from "react";
 import { addMeetingTypeAction, toggleMeetingTypeActiveAction, deleteMeetingTypeAction, type ActionState } from "../actions";
 import { setMeetingTypeSignatureAction } from "../task-actions";
 import { Field, SubmitButton } from "@/components/ui";
-import { useResetOnSuccess } from "@/components/form-reset";
+import { useResetOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 export function AddMeetingTypeForm() {
   const [state, formAction] = useActionState<ActionState, FormData>(addMeetingTypeAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
   return (
@@ -24,6 +27,8 @@ export function AddMeetingTypeForm() {
 
 export function MeetingTypeRow({ id, active, used, requiresSignature }: { id: string; active: boolean; used: boolean; requiresSignature: boolean }) {
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="flex flex-wrap items-center gap-2">

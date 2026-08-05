@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
@@ -83,7 +82,6 @@ export async function createTemplateAction(_prev: ActionState, formData: FormDat
     entityId: created.template.id,
     summary: `إنشاء قالب «${orFallback(d.nameAr, DOC_TYPE_LABELS[docType])}» لنوع ${DOC_TYPE_LABELS[docType]}`,
   });
-  revalidatePath("/admin/templates");
   return { success: "أُنشئ القالب كمسودة — حرّره ثم انشره" };
 }
 
@@ -141,7 +139,6 @@ export async function saveTemplateConfigAction(templateId: string, _prev: Action
       entityId: templateId,
       summary: `تحديث مسودة القالب (نسخة ${newest.versionNumber})`,
     });
-    revalidatePath("/admin/templates");
     return { success: "حُفظت المسودة" };
   }
 
@@ -159,7 +156,6 @@ export async function saveTemplateConfigAction(templateId: string, _prev: Action
     entityId: templateId,
     summary: `إنشاء نسخة ${version.versionNumber} كمسودة — النسخة المنشورة لم تتغيّر`,
   });
-  revalidatePath("/admin/templates");
   return { success: `أُنشئت النسخة ${version.versionNumber} كمسودة` };
 }
 
@@ -188,7 +184,6 @@ export async function publishVersionAction(versionId: string): Promise<ActionSta
     entityId: version.templateId,
     summary: `نشر النسخة ${version.versionNumber}`,
   });
-  revalidatePath("/admin/templates");
   return { success: `نُشرت النسخة ${version.versionNumber}` };
 }
 
@@ -221,7 +216,6 @@ export async function restoreVersionAction(versionId: string): Promise<ActionSta
     entityId: source.templateId,
     summary: `استعادة النسخة ${source.versionNumber} كنسخة ${copy.versionNumber} (مسودة)`,
   });
-  revalidatePath("/admin/templates");
   return { success: `استُعيدت كنسخة ${copy.versionNumber} — راجعها ثم انشرها` };
 }
 
@@ -251,7 +245,6 @@ export async function resetToDefaultAction(templateId: string): Promise<ActionSt
     entityId: templateId,
     summary: `إعادة تعيين افتراضية كنسخة ${version.versionNumber}`,
   });
-  revalidatePath("/admin/templates");
   return { success: `أُنشئت نسخة افتراضية ${version.versionNumber}` };
 }
 
@@ -292,7 +285,6 @@ export async function duplicateTemplateAction(templateId: string): Promise<Actio
     entityId: copy.id,
     summary: `تكرار قالب ${DOC_TYPE_LABELS[template.docType as TemplateDocType]}`,
   });
-  revalidatePath("/admin/templates");
   return { success: "أُنشئت نسخة من القالب" };
 }
 
@@ -320,7 +312,6 @@ export async function setDefaultTemplateAction(templateId: string): Promise<Acti
     entityId: templateId,
     summary: `تعيين القالب افتراضياً لنوع ${DOC_TYPE_LABELS[template.docType as TemplateDocType]}`,
   });
-  revalidatePath("/admin/templates");
   return { success: "عُيّن القالب افتراضياً" };
 }
 
@@ -342,7 +333,6 @@ export async function archiveTemplateAction(templateId: string): Promise<ActionS
     entityId: templateId,
     summary: "أرشفة القالب — النسخ والوثائق الصادرة محفوظة",
   });
-  revalidatePath("/admin/templates");
   return { success: "أُرشف القالب" };
 }
 
@@ -357,7 +347,6 @@ export async function restoreTemplateAction(templateId: string): Promise<ActionS
     .set({ archivedAt: null, archivedBy: null, updatedAt: new Date() })
     .where(eq(templateDefinitions.id, templateId));
   await audit({ actorId: user.id, action: "template.restored", entityType: "template", entityId: templateId, summary: "استعادة القالب" });
-  revalidatePath("/admin/templates");
   return { success: "استُعيد القالب" };
 }
 
@@ -385,7 +374,6 @@ export async function archiveDraftVersionAction(versionId: string): Promise<Acti
     entityId: version.templateId,
     summary: `أرشفة مسودة النسخة ${version.versionNumber}`,
   });
-  revalidatePath("/admin/templates");
   return { success: "أُرشفت المسودة" };
 }
 
@@ -431,7 +419,6 @@ export async function importTemplateConfigAction(templateId: string, _prev: Acti
     entityId: templateId,
     summary: `استيراد إعداد كنسخة ${versionNumber} (مسودة)`,
   });
-  revalidatePath("/admin/templates");
   return { success: `استُورد الإعداد كنسخة ${versionNumber} — راجعها ثم انشرها` };
 }
 

@@ -1,5 +1,4 @@
 import { desc, eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
@@ -36,7 +35,6 @@ export default async function ExecutiveReportPage() {
       withStamp: formData.get("withStamp") === "on" && u.permissions.has("branding.use"),
       issuedBy: u.id,
     });
-    revalidatePath("/reports/executive");
   }
 
   return (

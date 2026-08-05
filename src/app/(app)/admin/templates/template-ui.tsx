@@ -32,7 +32,8 @@ import {
 import { renderTemplate, sampleValues, sampleTable } from "@/lib/templates/render";
 import { DOC_SECTIONS, columnsFor, resolveColumns, resolveSections } from "@/lib/templates/structure";
 import type { PlaceholderDef } from "@/lib/templates/placeholders";
-import { useResetOnSuccess } from "@/components/form-reset";
+import { useResetOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 /**
  * محرّر القوالب (v2.2 §E2/§E4).
@@ -56,6 +57,8 @@ const DOCNUM_LABELS: Record<string, string> = {
 
 export function CreateTemplateForm({ docTypes }: { docTypes: { value: string; label: string }[] }) {
   const [state, formAction] = useActionState<ActionState, FormData>(createTemplateAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
   const [open, setOpen] = useState(false);
@@ -102,6 +105,8 @@ export function TemplateActions({
 }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const run = (fn: () => Promise<ActionState>, confirmText?: string) =>
     startTransition(async () => {
       if (confirmText && !window.confirm(confirmText)) return;
@@ -159,6 +164,8 @@ export function VersionActions({
 }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const run = (fn: () => Promise<ActionState>, confirmText?: string) =>
     startTransition(async () => {
       if (confirmText && !window.confirm(confirmText)) return;
@@ -213,11 +220,15 @@ export function TemplateEditor({
 }) {
   const [config, setConfig] = useState<TemplateConfig>(() => mergeWithDefaults(initialConfig));
   const [state, formAction] = useActionState<ActionState, FormData>(saveTemplateConfigAction.bind(null, templateId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const [showPreview, setShowPreview] = useState(true);
   const [recordId, setRecordId] = useState("");
   const [recordPreview, setRecordPreview] = useState<{ html: string; recordLabel: string } | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [recordPending, startRecordPreview] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(recordPending);
 
   const setText = (key: string, value: string) => setConfig((c) => ({ ...c, text: { ...(c.text ?? {}), [key]: value } }));
   const setStyle = (key: string, value: string | number | boolean) =>
@@ -653,6 +664,8 @@ export function TemplateEditor({
 /** استيراد إعداد قالب مُتحقَّق منه (§E6) */
 export function ImportConfigForm({ templateId }: { templateId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(importTemplateConfigAction.bind(null, templateId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
   const [open, setOpen] = useState(false);

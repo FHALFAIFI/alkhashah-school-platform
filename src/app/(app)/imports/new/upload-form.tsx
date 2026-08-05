@@ -5,6 +5,8 @@ import { uploadImportAction, type ImportActionState } from "../actions";
 import { SubmitButton } from "@/components/ui";
 
 export function UploadForm({ importType }: { importType: string }) {
+  // D-053: لا تحديث من العميل — الإجراء ينتهي بـ`redirect` إلى صفحة الدفعة عند النجاح،
+  // فالوجهة تُصيَّر من جديد، والحالة المُعادة هنا حالة خطأ فقط.
   const [state, formAction, pending] = useActionState<ImportActionState, FormData>(uploadImportAction, null);
   return (
     <form action={formAction} className="space-y-4">

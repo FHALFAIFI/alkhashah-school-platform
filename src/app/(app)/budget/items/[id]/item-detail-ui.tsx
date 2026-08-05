@@ -6,10 +6,11 @@
  * وبعد النجاح يُحدَّث العرض فوراً (router.refresh — لا شاشة قديمة).
  */
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Field } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 import {
   updateIncomeAction,
   updateExpenseAction,
@@ -23,12 +24,6 @@ type ItemOption = { id: string; name: string | null };
 const selectCls =
   "min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0";
 
-function useRefreshOnSuccess(state: ActionState) {
-  const router = useRouter();
-  useEffect(() => {
-    if (state?.success) router.refresh();
-  }, [state?.success, router]);
-}
 
 export function EditIncomeForm({
   income,

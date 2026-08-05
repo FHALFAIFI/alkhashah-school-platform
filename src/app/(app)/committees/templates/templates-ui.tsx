@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toggleTemplateActiveAction } from "../actions";
+import { useRefreshAfterTransition } from "@/components/form-reset";
 
 /**
  * تفعيل/تعطيل قالب رسمي — لا حذف. زر واحد يقلب الحالة، ويعرض خطأ الخادم إن وُجد.
@@ -9,6 +10,8 @@ import { toggleTemplateActiveAction } from "../actions";
 export function TemplateActiveToggle({ templateId, active }: { templateId: string; active: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div className="flex items-center gap-2">
       <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-emerald-100 text-emerald-800" : "bg-gray-200 text-gray-600"}`}>

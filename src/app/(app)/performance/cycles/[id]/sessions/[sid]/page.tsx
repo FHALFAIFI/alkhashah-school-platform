@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { perfCycles, perfSessions, perfRatings, people, documents } from "@/db/schema";
@@ -53,7 +52,6 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
     const withSignature = formData.get("withSignature") === "on" && u.permissions.has("branding.use");
     const withStamp = formData.get("withStamp") === "on" && u.permissions.has("branding.use");
     await generateSessionReport({ sessionId: sid, withSignature, withStamp, issuedBy: u.id });
-    revalidatePath(`/performance/cycles/${id}/sessions/${sid}`);
   }
 
   return (

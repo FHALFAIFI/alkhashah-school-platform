@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -56,7 +55,6 @@ export async function createCommitteeFromTemplateAction(_prev: ActionState, form
     })
     .returning();
   await audit({ actorId: user.id, action: "committee.formed", entityType: "committee", entityId: c.id, summary: `تشكيل ${c.nameAr} للسنة ${year.nameAr}` });
-  revalidatePath("/committees");
   redirect(`/committees/${c.id}`);
 }
 
@@ -86,7 +84,6 @@ export async function createPlcAction(_prev: ActionState, formData: FormData): P
     })
     .returning();
   await audit({ actorId: user.id, action: "plc.created", entityType: "committee", entityId: c.id, summary: `مجتمع تعلم: ${c.nameAr}` });
-  revalidatePath("/committees");
   redirect(`/committees/${c.id}`);
 }
 
@@ -119,7 +116,6 @@ export async function addMemberAction(committeeId: string, _prev: ActionState, f
     effectiveFrom: new Date().toISOString().slice(0, 10),
   });
   await audit({ actorId: user.id, action: "committee.member_added", entityType: "committee", entityId: committeeId, summary: `إضافة ${person.fullName} (${role})` });
-  revalidatePath(`/committees/${committeeId}`);
   return { success: "أضيف العضو" };
 }
 
@@ -141,7 +137,6 @@ export async function removeMemberAction(memberId: string, formData?: FormData):
     // تشكيل غير معتمد بعد — لا تاريخ يُحفظ، الحذف آمن
     await db.delete(committeeMembers).where(eq(committeeMembers.id, memberId));
     await audit({ actorId: user.id, action: "committee.member_removed", entityType: "committee", entityId: m.committeeId });
-    revalidatePath(`/committees/${m.committeeId}`);
     return { success: "أزيل العضو" };
   }
 
@@ -161,7 +156,6 @@ export async function removeMemberAction(memberId: string, formData?: FormData):
     summary: `إنهاء عضوية بتاريخ ${effectiveTo}${reason ? ` — ${reason}` : ""}`,
     detail: { memberId, effectiveTo, reason },
   });
-  revalidatePath(`/committees/${m.committeeId}`);
   return { success: "أُنهيت العضوية مع حفظ التاريخ — لم يُعد كتابة أي اجتماع أو تقرير سابق" };
 }
 
@@ -188,7 +182,6 @@ export async function generateAssignmentFormAction(committeeId: string): Promise
     entityId: committeeId,
     summary: `توليد نموذج تكليف ${result.docNumber}`,
   });
-  revalidatePath(`/committees/${committeeId}`);
   return { success: `صدر نموذج التكليف ${result.docNumber} — قائمتان: «أعضاء اللجنة» بعمود «التوقيع» و«مهام اللجنة»` };
 }
 
@@ -215,7 +208,6 @@ export async function uploadSignedAssignmentAction(committeeId: string, _prev: A
     return { error: userFacingError(e, "تعذر الرفع") };
   }
   await audit({ actorId: user.id, action: "committee.signed_assignment_uploaded", entityType: "committee", entityId: committeeId });
-  revalidatePath(`/committees/${committeeId}`);
   return { success: "رُفع نموذج التكليف الموقّع" };
 }
 
@@ -238,7 +230,6 @@ export async function approveCommitteeAction(committeeId: string): Promise<Actio
     .set({ status: "معتمدة", approvedBy: user.id, approvedAt: new Date(), version: c.version + 1 })
     .where(eq(committees.id, committeeId));
   await audit({ actorId: user.id, action: "committee.approved", entityType: "committee", entityId: committeeId, summary: `اعتماد تشكيل ${c.nameAr}` });
-  revalidatePath(`/committees/${committeeId}`);
   return { success: "اعتمد التشكيل" };
 }
 
@@ -252,7 +243,6 @@ export async function reopenCommitteeAction(committeeId: string, _prev: ActionSt
   await snapshotRecord({ entityType: "committee", entityId: committeeId, action: "reopened", snapshot: { committee: c, members }, reason, actorId: user.id });
   await db.update(committees).set({ status: "مسودة", version: c.version + 1 }).where(eq(committees.id, committeeId));
   await audit({ actorId: user.id, action: "committee.reopened", entityType: "committee", entityId: committeeId, summary: `إعادة فتح التشكيل — ${reason}` });
-  revalidatePath(`/committees/${committeeId}`);
   return { success: "أعيد فتح التشكيل — عدل الأعضاء ثم اعتمد من جديد" };
 }
 
@@ -291,7 +281,6 @@ export async function createMeetingAction(committeeId: string, _prev: ActionStat
     })
     .returning();
   await audit({ actorId: user.id, action: "meeting.created", entityType: "meeting", entityId: m.id, summary: `اجتماع جديد: ${c.nameAr}` });
-  revalidatePath(`/committees/${committeeId}`);
   redirect(`/committees/${committeeId}/meetings/${m.id}`);
 }
 
@@ -323,7 +312,6 @@ export async function updateMeetingAction(meetingId: string, _prev: ActionState,
     })
     .where(eq(meetings.id, meetingId));
   await audit({ actorId: user.id, action: "meeting.updated", entityType: "meeting", entityId: meetingId });
-  revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);
   return { success: "حفظ" };
 }
 
@@ -388,7 +376,6 @@ export async function addOutcomeAction(meetingId: string, _prev: ActionState, fo
     await db.update(actionTasks).set({ sourceId: outcome.id }).where(eq(actionTasks.id, taskId));
   }
   await audit({ actorId: user.id, action: "meeting.outcome_added", entityType: "meeting", entityId: meetingId, summary: `${parsed.data.outcomeType}: ${text.slice(0, 80)}` });
-  revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);
   return { success: "سجلت النتيجة" };
 }
 
@@ -415,7 +402,6 @@ export async function uploadSignedMinutesAction(meetingId: string, _prev: Action
     return { error: userFacingError(e, "تعذر رفع الملف") };
   }
   await audit({ actorId: user.id, action: "meeting.signed_minutes_uploaded", entityType: "meeting", entityId: meetingId });
-  revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);
   return { success: "رفع المحضر الموقع" };
 }
 
@@ -440,7 +426,6 @@ export async function completeMeetingAction(meetingId: string): Promise<ActionSt
     .set({ status: "مكتمل", completedAt: new Date(), approvedBy: user.id, approvedAt: new Date() })
     .where(eq(meetings.id, meetingId));
   await audit({ actorId: user.id, action: "meeting.completed", entityType: "meeting", entityId: meetingId, summary: "اكتمال اجتماع بمحضر موقع" });
-  revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);
   return { success: "اكتمل الاجتماع" };
 }
 
@@ -460,7 +445,6 @@ export async function closeCommitteeAction(committeeId: string): Promise<ActionS
   await db.update(committees).set({ status: "مقفلة", closedAt: new Date() }).where(eq(committees.id, committeeId));
   await audit({ actorId: user.id, action: "committee.closed", entityType: "committee", entityId: committeeId, summary: `إقفال ${c.nameAr} وأرشفتها` });
   await notifyAll({ title: "أقفلت لجنة", body: c.nameAr, link: `/committees/${committeeId}` });
-  revalidatePath("/committees");
   return { success: "أقفلت اللجنة" };
 }
 
@@ -480,8 +464,6 @@ export async function toggleTemplateActiveAction(templateId: string, active: boo
     entityId: templateId,
     summary: `${active ? "تفعيل" : "تعطيل"} قالب اللجنة «${t.nameAr}»`,
   });
-  revalidatePath("/committees/templates");
-  revalidatePath("/committees");
   return { success: active ? "فُعِّل القالب" : "عُطِّل القالب" };
 }
 
@@ -499,7 +481,6 @@ export async function addMeetingTypeAction(_prev: ActionState, formData: FormDat
   const key = `mt-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
   await db.insert(meetingTypes).values({ key, nameAr, sortOrder: maxOrder + 1 });
   await audit({ actorId: user.id, action: "meeting_type.added", entityType: "meeting_type", summary: `إضافة نوع اجتماع «${nameAr}»` });
-  revalidatePath("/committees/meeting-types");
   return { success: "أُضيف النوع" };
 }
 
@@ -510,7 +491,6 @@ export async function toggleMeetingTypeActiveAction(typeId: string, active: bool
   if (!t) return { error: "النوع غير موجود" };
   await db.update(meetingTypes).set({ active }).where(eq(meetingTypes.id, typeId));
   await audit({ actorId: user.id, action: active ? "meeting_type.enabled" : "meeting_type.disabled", entityType: "meeting_type", entityId: typeId, summary: `${active ? "تفعيل" : "تعطيل"} نوع «${t.nameAr}»` });
-  revalidatePath("/committees/meeting-types");
   return { success: active ? "فُعِّل النوع" : "عُطِّل النوع" };
 }
 
@@ -523,7 +503,6 @@ export async function deleteMeetingTypeAction(typeId: string): Promise<ActionSta
   if (used.length > 0) return { error: "النوع مستخدم في اجتماعات — لا يُحذف نهائياً، يمكن تعطيله فقط" };
   await db.delete(meetingTypes).where(eq(meetingTypes.id, typeId));
   await audit({ actorId: user.id, action: "meeting_type.deleted", entityType: "meeting_type", entityId: typeId, summary: `حذف نوع اجتماع غير مستخدم «${t.nameAr}»` });
-  revalidatePath("/committees/meeting-types");
   return { success: "حُذف النوع" };
 }
 
@@ -561,7 +540,6 @@ export async function addMeetingAttachmentAction(meetingId: string, _prev: Actio
     return { error: userFacingError(e, "تعذر رفع المرفق") };
   }
   await audit({ actorId: user.id, action: "meeting.attachment_added", entityType: "meeting", entityId: meetingId, summary: `مرفق «${title}» (${category})` });
-  revalidatePath(`/committees/${m.committeeId}/meetings/${meetingId}`);
   return { success: "أُضيف المرفق" };
 }
 
@@ -573,7 +551,7 @@ export async function deleteMeetingAttachmentAction(attachmentId: string): Promi
   if (m?.status === "مكتمل") return { error: "الاجتماع مكتمل — لا يُحذف المرفق" };
   await db.delete(meetingAttachments).where(eq(meetingAttachments.id, attachmentId));
   await audit({ actorId: user.id, action: "meeting.attachment_deleted", entityType: "meeting", entityId: a.meetingId });
-  if (m) revalidatePath(`/committees/${m.committeeId}/meetings/${a.meetingId}`);
+  // D-053: هذا هو المسار المفتوح نفسه — التحديث من العميل بعد استقرار النتيجة
   return { success: "حُذف المرفق" };
 }
 

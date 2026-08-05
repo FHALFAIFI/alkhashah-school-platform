@@ -6,9 +6,12 @@ import { useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { acceptFileAction, type ActionState } from "./actions";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 export function AcceptFileButton({ fileId }: { fileId: string }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(acceptFileAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   const router = useRouter();
 
   // تحديث فوري بعد نجاح الإجراء — لا شاشة قديمة تحتاج تحديثاً يدوياً

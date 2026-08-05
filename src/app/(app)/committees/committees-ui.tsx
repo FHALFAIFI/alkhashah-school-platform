@@ -3,9 +3,12 @@
 import { useActionState } from "react";
 import { createCommitteeFromTemplateAction, createPlcAction, type ActionState } from "./actions";
 import { Field, TextArea, SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 export function FormCommitteeButton({ templateId, name }: { templateId: string; name: string }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createCommitteeFromTemplateAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="inline">
       <input type="hidden" name="templateId" value={templateId} />
@@ -22,6 +25,8 @@ export function FormCommitteeButton({ templateId, name }: { templateId: string; 
 
 export function NewPlcForm() {
   const [state, formAction] = useActionState<ActionState, FormData>(createPlcAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="space-y-3">
       {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}

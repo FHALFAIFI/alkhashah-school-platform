@@ -13,7 +13,6 @@ import {
 } from "@/db/schema";
 import { PageHeader, Card, Badge, Table, SubmitButton } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
-import { revalidatePath } from "next/cache";
 import { isUuid } from "@/lib/validation";
 import { orDash, orFallback } from "@/lib/format";
 import { dualNumericCell } from "@/lib/dates";
@@ -90,7 +89,6 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
     } catch {
       // سباق نادر (بلاغ عاد مسودة): الصفحة تعاد وتظهر حالة المسودة وشرحها بدل حد الخطأ
     }
-    revalidatePath("/documents");
     redirect(`/building/maintenance/${id}`);
   }
 
@@ -110,8 +108,6 @@ export default async function MaintenanceIssuePage({ params }: { params: Promise
     } catch {
       // فشل التوليد لا يلغي الاعتماد — زر التوليد يبقى متاحاً بعد إعادة العرض
     }
-    revalidatePath("/building/maintenance");
-    revalidatePath("/documents");
     // D-049: لا إبطال لمسار هذه الصفحة — إعادة توجيه صريحة تعيد التصيير بلا سباق
     redirect(`/building/maintenance/${id}`);
   }

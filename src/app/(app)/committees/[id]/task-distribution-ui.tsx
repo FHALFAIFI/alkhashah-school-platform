@@ -23,6 +23,7 @@ import {
   taskStatusLabel,
 } from "@/lib/committees/task-status";
 import { useResetOnSuccess } from "@/components/form-reset";
+import { useRefreshOnSuccess } from "@/components/form-reset";
 
 type TaskRow = {
   id: string;
@@ -227,6 +228,8 @@ function TaskItem({
 
 function AddTaskForm({ committeeId }: { committeeId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addCommitteeTaskAction.bind(null, committeeId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   // مرجع تفريغ الحقول بعد النجاح — يُستدعى دائماً (قواعد الخطّافات)
   const formRef = useResetOnSuccess(state);
   return (
@@ -247,6 +250,8 @@ function AddTaskForm({ committeeId }: { committeeId: string }) {
 
 function EditTaskForm({ taskId, title, notes, onDone }: { taskId: string; title: string; notes: string | null; onDone: () => void }) {
   const [state, formAction] = useActionState<ActionState, FormData>(updateCommitteeTaskAction.bind(null, taskId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="mt-2 flex flex-wrap items-end gap-2 border-t border-sand-100 pt-2">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}

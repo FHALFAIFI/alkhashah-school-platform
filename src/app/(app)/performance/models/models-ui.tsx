@@ -8,9 +8,12 @@ import {
   type ActionState,
 } from "../actions";
 import { Field, SubmitButton } from "@/components/ui";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 export function NewModelForm() {
   const [state, formAction] = useActionState<ActionState, FormData>(createModelAction, null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-sm text-red-700">{state.error}</div>}
@@ -35,6 +38,8 @@ export function NewModelForm() {
 
 export function IndicatorForm({ modelId }: { modelId: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(addIndicatorAction.bind(null, modelId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="mt-3 flex flex-wrap items-end gap-2 border-t border-sand-100 pt-3">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -55,6 +60,8 @@ export function IndicatorForm({ modelId }: { modelId: string }) {
 
 export function DeleteIndicatorButton({ indicatorId }: { indicatorId: string }) {
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <button
       disabled={pending}
@@ -69,6 +76,8 @@ export function DeleteIndicatorButton({ indicatorId }: { indicatorId: string }) 
 export function ApproveModelButton({ modelId, disabled, total }: { modelId: string; disabled: boolean; total: number }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div className="text-end">
       {error && <div role="alert" className="mb-1 rounded bg-red-50 p-2 text-xs text-red-700">{error}</div>}
@@ -92,6 +101,8 @@ export function ApproveModelButton({ modelId, disabled, total }: { modelId: stri
 /** أرشفة النموذج — المسار الافتراضي للنموذج المستخدم؛ لا تمس التقييمات التاريخية (v2.4 §6) */
 export function ArchiveModelForm({ modelId, modelName }: { modelId: string; modelName: string }) {
   const [state, formAction] = useActionState<ActionState, FormData>(archiveModelAction.bind(null, modelId), null);
+  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
+  useRefreshOnSuccess(state);
   return (
     <form action={formAction} className="flex flex-wrap items-center gap-2">
       {state?.error && <div role="alert" className="w-full rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
@@ -114,6 +125,8 @@ export function ArchiveModelForm({ modelId, modelName }: { modelId: string; mode
 export function RestoreModelButton({ modelId }: { modelId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <div className="flex items-center gap-2">
       {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
@@ -137,6 +150,8 @@ export function RestoreModelButton({ modelId }: { modelId: string }) {
 export function DeleteModelButton({ modelId, modelName }: { modelId: string; modelName: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   const router = useRouter();
   return (
     <div className="text-end">
@@ -168,6 +183,8 @@ export function DeleteModelButton({ modelId, modelName }: { modelId: string; mod
 export function ReopenModelForm({ modelId }: { modelId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
+  useRefreshAfterTransition(pending);
   return (
     <form
       action={(fd) =>
