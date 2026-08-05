@@ -71,6 +71,14 @@ export function safeFileName(name: string, extension: string): string {
 /** الحد الأقصى لعدد الصفوف في تصدير واحد — يمنع التصدير غير المحدود */
 export const MAX_EXPORT_ROWS = 5000;
 
+/**
+ * العتبة التي يُعد التقرير بعدها «كبيراً» فيُحذَّر المستخدم قبل التوليد (v2.5.0 §15).
+ *
+ * ليست حداً ولا منعاً: التقرير يُولَّد كاملاً. الغرض أن يعرف المدير قبل الضغط أن ملف
+ * PDF بمئات الصفحات سيستغرق وقتاً، وأن التصدير يقف عند `MAX_EXPORT_ROWS`.
+ */
+export const LARGE_REPORT_ROWS = 500;
+
 /** الحد الأقصى لحجم صفحة العرض — يمنع طلب صفحة ضخمة عبر معامل URL */
 export const MAX_PAGE_SIZE = 200;
 export const DEFAULT_PAGE_SIZE = 50;

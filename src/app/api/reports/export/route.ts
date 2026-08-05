@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
-import { reportByKey, isSortableColumn, type ReportFilters } from "@/lib/reports/catalog";
+import { reportByKey, isSortableColumn } from "@/lib/reports/catalog";
+import { parseReportFilters, filterHeaderLines, type ReportFilters } from "@/lib/reports/filters";
+import { loadFilterLabelMaps } from "@/lib/reports/filter-options";
 import { runReportForExport } from "@/lib/reports/loaders";
 import { toCsv, safeFileName, sanitizeCell, MAX_EXPORT_ROWS } from "@/lib/reports/export-safety";
 import { dualNumericCell, todayIso } from "@/lib/dates";
@@ -41,18 +43,17 @@ export async function GET(request: NextRequest) {
   const FORMATS = ["csv", "xlsx", "pdf", "docx"] as const;
   const requested = sp.get("format") ?? "csv";
   const format = (FORMATS as readonly string[]).includes(requested) ? (requested as (typeof FORMATS)[number]) : "csv";
-  const sort = sp.get("sort");
-  const filters: ReportFilters = {
-    search: sp.get("search") ?? undefined,
-    dateFrom: sp.get("dateFrom") ?? undefined,
-    dateTo: sp.get("dateTo") ?? undefined,
-    status: sp.get("status") ?? undefined,
-    personId: sp.get("personId") ?? undefined,
-    itemId: sp.get("itemId") ?? undefined,
-    // الترتيب مقيَّد بأعمدة التقرير — لا يمر اسم عمود عشوائي من عنوان URL
-    sort: sort && isSortableColumn(reportKey, sort) ? sort : undefined,
-    dir: sp.get("dir") === "desc" ? "desc" : "asc",
-  };
+  /**
+   * v2.5.0 §3.4: المُصدَّر والشاشة يقرآن **المعاملات نفسها بالمحلّل نفسه**.
+   *
+   * قبل ذلك كان هذا المسار يقرأ ستة مرشّحات بيده بينما الشاشة تعرض أكثر منها، فكان
+   * المدير يرشّح على الشاشة ثم ينزّل ملفاً غير مرشّح دون أن يُنبَّه. الآن أي مرشّح يُضاف
+   * إلى الإطار يسري على التصدير تلقائياً، والقائمة البيضاء نفسها تحرس الترتيب والأعمدة.
+   */
+  const filters: ReportFilters = parseReportFilters(sp, {
+    allowedSort: (k) => isSortableColumn(reportKey, k),
+    allowedColumns: def.columns.map((c) => c.key),
+  });
 
   let rows: Awaited<ReturnType<typeof runReportForExport>>;
   try {
@@ -81,12 +82,13 @@ export async function GET(request: NextRequest) {
     summary: `تصدير «${def.label}» بصيغة ${formatLabel} — ${rows.rows.length} صف${rows.truncated ? ` (اقتُطع عند ${MAX_EXPORT_ROWS})` : ""}`,
   });
 
-  // المرشّحات الفعّالة تُعرض داخل التقرير المولَّد (v2.3 §7)
-  const activeFilters: [string, string][] = [];
-  if (filters.search) activeFilters.push(["بحث", filters.search]);
-  if (filters.dateFrom) activeFilters.push(["من تاريخ", dualNumericCell(filters.dateFrom)]);
-  if (filters.dateTo) activeFilters.push(["إلى تاريخ", dualNumericCell(filters.dateTo)]);
-  if (filters.status) activeFilters.push(["الحالة", filters.status]);
+  /**
+   * ترويسة التقرير المولَّد تحمل **كل** مرشّح فعّال بالنص العربي نفسه الظاهر على الشاشة
+   * (§3.4/§21). المعرّفات تُحوَّل إلى أسماء، فيقرأ المدير «اللجان المختارة: لجنة التوجيه
+   * والإرشاد، اللجنة الإدارية» لا سلسلة معرّفات.
+   */
+  const labelMaps = await loadFilterLabelMaps(filters);
+  const activeFilters: [string, string][] = filterHeaderLines(filters, labelMaps);
 
   // اسم الملف: نوع التقرير + اسم المدرسة + تاريخ التوليد (v2.3 §7)
   const identityHeader = format === "pdf" || format === "docx" ? await getOfficialHeader() : null;

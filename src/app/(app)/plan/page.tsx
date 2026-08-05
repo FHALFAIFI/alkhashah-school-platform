@@ -160,6 +160,10 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
               <td className="px-3 py-2">
                 <span className="inline-flex flex-wrap gap-1">
                   <LinkButton href={`/plan/${p.id}`} variant="secondary">فتح</LinkButton>
+                  {/* v2.5.0 §5.1: التعديل مدخل ظاهر من القائمة أيضاً، في كل حالة */}
+                  {canWrite && !p.archivedAt && (
+                    <LinkButton href={`/plan/${p.id}?تعديل=1#edit`} variant="secondary">تعديل البرنامج</LinkButton>
+                  )}
                   {/* v2.4 §10: وصول مباشر لبطاقة البرنامج وتقريره من القائمة */}
                   {canGenerate && (
                     <LinkButton href={`/plan/${p.id}/report`} variant="secondary">طباعة بطاقة البرنامج</LinkButton>

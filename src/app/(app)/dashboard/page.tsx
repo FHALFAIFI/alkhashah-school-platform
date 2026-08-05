@@ -84,7 +84,22 @@ function WorkSection({
 }
 
 /** صف برنامج في طابور الاعتماد — بيانات الحالة الحقيقية مع فتح مباشر واعتماد مضمّن للمسودات */
-function QueueProgramRow({ p, canApproveInline }: { p: ApprovalQueueProgram; canApproveInline: boolean }) {
+/**
+ * صف برنامج في طابور الاعتماد.
+ *
+ * v2.5.0 §5.1: يحمل «تعديل البرنامج» صراحةً إلى جانب الاعتماد. المدير يراجع البرنامج قبل
+ * اعتماده، وأول ما يحتاجه عند وجود خطأ هو تصحيحه — لا الانتقال إلى صفحة البرنامج ثم
+ * البحث عن زر داخلها. الرابط يفتح نموذج التعديل مباشرةً.
+ */
+function QueueProgramRow({
+  p,
+  canApproveInline,
+  canEdit,
+}: {
+  p: ApprovalQueueProgram;
+  canApproveInline: boolean;
+  canEdit: boolean;
+}) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 py-2">
       <div className="min-w-0 flex-1 basis-64">
@@ -101,6 +116,14 @@ function QueueProgramRow({ p, canApproveInline }: { p: ApprovalQueueProgram; can
       <div className="flex flex-wrap items-center gap-2">
         {p.delayed && <Badge value="متجاوز نهايته المخططة" />}
         <ProgressBar value={p.progress} />
+        {canEdit && (
+          <Link
+            href={`/plan/${p.id}?تعديل=1#edit`}
+            className="rounded-lg border border-sand-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-sand-50"
+          >
+            تعديل البرنامج
+          </Link>
+        )}
         {canApproveInline ? (
           <ApproveProgramButton programId={p.id} />
         ) : (
@@ -126,9 +149,11 @@ function QueueProgramRow({ p, canApproveInline }: { p: ApprovalQueueProgram; can
 function ApprovalQueueSection({
   queue,
   activeTab,
+  canEdit,
 }: {
   queue: NonNullable<Awaited<ReturnType<typeof getPlanApprovalQueue>>>;
   activeTab?: string;
+  canEdit: boolean;
 }) {
   const tabs = [
     { key: "جديد", label: "برامج جديدة بانتظار الاعتماد", count: queue.drafts.length },
@@ -174,7 +199,7 @@ function ApprovalQueueSection({
           ) : (
             <div className="divide-y divide-sand-100">
               {queue.drafts.map((p) => (
-                <QueueProgramRow key={p.id} p={p} canApproveInline />
+                <QueueProgramRow key={p.id} p={p} canApproveInline canEdit={canEdit} />
               ))}
             </div>
           ))}
@@ -184,7 +209,7 @@ function ApprovalQueueSection({
           ) : (
             <div className="divide-y divide-sand-100">
               {queue.completed.map((p) => (
-                <QueueProgramRow key={p.id} p={p} canApproveInline={false} />
+                <QueueProgramRow key={p.id} p={p} canApproveInline={false} canEdit={canEdit} />
               ))}
             </div>
           ))}
@@ -276,7 +301,9 @@ export default async function DashboardPage({
       />
 
       {/* v2.4 §11: طابور «بانتظار اعتماد المدير» — من حالات سير العمل الحقيقية حصراً */}
-      {queue && <ApprovalQueueSection queue={queue} activeTab={approvalTabParam} />}
+      {queue && (
+        <ApprovalQueueSection queue={queue} activeTab={approvalTabParam} canEdit={user.permissions.has("plan.write")} />
+      )}
 
       {/* لوحة المتابعة (v2.3 §13): مؤشرات حيّة كل بطاقة تقود إلى سجلاتها */}
       <section>

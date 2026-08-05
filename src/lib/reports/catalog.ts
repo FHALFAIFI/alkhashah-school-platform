@@ -67,31 +67,52 @@ export type CategoryKey =
   | "imports"
   | "usage";
 
+/**
+ * أقسام صفحة التقارير (v2.5.0 §14) — تجميع مجالي فوق الفئات.
+ *
+ * ثلاث عشرة فئة في صف واحد كانت تُقرأ كقائمة طويلة لا كخريطة. الأقسام تجمعها بالمجال
+ * الذي يفكّر به المدير: البرامج، الأداء، المجالس، المالية، المبنى، ثم المخصص والسجلات
+ * المساندة. الفئات نفسها لم تتغيّر، فالروابط العميقة المحفوظة تبقى صالحة.
+ */
+export const REPORT_SECTIONS = {
+  programs: "البرامج والخطة",
+  performance: "الأداء الوظيفي",
+  councils: "المجالس واللجان",
+  finance: "المالية",
+  building: "المبنى والصيانة",
+  custom: "تقارير مخصصة",
+  records: "سجلات مساندة",
+} as const;
+
+export type SectionKey = keyof typeof REPORT_SECTIONS;
+
 export type ReportCategory = {
   key: CategoryKey;
   label: string;
   description: string;
   /** الصلاحية اللازمة لرؤية هذه الفئة أصلاً */
   permission: string;
+  /** القسم المجالي الذي تظهر تحته في صفحة التقارير (§14) */
+  section: SectionKey;
 };
 
 /** الفئات الثلاث عشرة المطلوبة (§D) */
 export const REPORT_CATEGORIES: readonly ReportCategory[] = [
-  { key: "plan", label: "الخطة والبرامج", description: "البرامج النشطة والمغلقة والمؤرشفة وتقدمها وحالتها وسجل إقفالها", permission: "plan.read" },
-  { key: "evidence", label: "الشواهد", description: "الشواهد حسب البرنامج والنوع وتواريخ الرفع والبرامج بلا شواهد", permission: "evidence.read" },
-  { key: "finance", label: "المالية والميزانية", description: "سجل الإيرادات والمصروفات وبنود الصرف والمخصصات والفواتير والاتجاه الشهري", permission: "budget.read" },
-  { key: "performance", label: "الأداء الوظيفي", description: "جلسات التخطيط والتقييمات والتوصيات ونواقص التقييم", permission: "performance.read" },
-  { key: "committees", label: "اللجان والمجالس", description: "سجل اللجان والأعضاء والمهام ووثائق التكليف الصادرة", permission: "committees.read" },
-  { key: "meetings", label: "الاجتماعات والقرارات", description: "الاجتماعات والمحاضر والقرارات والتوصيات", permission: "committees.read" },
-  { key: "building", label: "المبنى والمرافق", description: "الأدوار والغرف والمرافق والصيانة والأصول والفحوصات", permission: "building.read" },
-  { key: "employees", label: "الموظفون", description: "سجل المنسوبين وحالاتهم وعضوياتهم ونواقص البيانات", permission: "people.read" },
+  { key: "plan", label: "الخطة والبرامج", description: "البرامج النشطة والمغلقة والمؤرشفة وتقدمها وحالتها وسجل إقفالها", permission: "plan.read" , section: "programs" },
+  { key: "evidence", label: "الشواهد", description: "الشواهد حسب البرنامج والنوع وتواريخ الرفع والبرامج بلا شواهد", permission: "evidence.read" , section: "programs" },
+  { key: "finance", label: "المالية والميزانية", description: "سجل الإيرادات والمصروفات وبنود الصرف والمخصصات والفواتير والاتجاه الشهري", permission: "budget.read" , section: "finance" },
+  { key: "performance", label: "الأداء الوظيفي", description: "جلسات التخطيط والتقييمات والتوصيات ونواقص التقييم", permission: "performance.read" , section: "performance" },
+  { key: "committees", label: "اللجان والمجالس", description: "سجل اللجان والأعضاء والمهام ووثائق التكليف الصادرة", permission: "committees.read" , section: "councils" },
+  { key: "meetings", label: "الاجتماعات والقرارات", description: "الاجتماعات والمحاضر والقرارات والتوصيات", permission: "committees.read" , section: "councils" },
+  { key: "building", label: "المبنى والمرافق", description: "الأدوار والغرف والمرافق والصيانة والأصول والفحوصات", permission: "building.read" , section: "building" },
+  { key: "employees", label: "الموظفون", description: "سجل المنسوبين وحالاتهم وعضوياتهم ونواقص البيانات", permission: "people.read" , section: "records" },
   // التحليل الرباعي صار له نموذج بيانات (`plan_swot_items`) يُستورد من ورقة «التحليل الرباعي»
   // الرسمية في مصنف الخطة، فله تقاريره هنا. لا تقرير يُبنى على بيانات غير موجودة.
-  { key: "risks", label: "المخاطر والتحليل الرباعي", description: "سجل المخاطر ودرجاتها ومعالجتها، وعناصر التحليل الرباعي (القوة والضعف والفرص والتهديدات)", permission: "plan.read" },
-  { key: "external", label: "التقييم الخارجي", description: "نتائج التقييم الخارجي ومجالات التحسين وخطط التحسين", permission: "plan.read" },
-  { key: "documents", label: "الوثائق والمرفقات", description: "الوثائق الصادرة والمرفقات وأنواع الملفات والوثائق المجمّدة", permission: "documents.read" },
-  { key: "imports", label: "الاستيراد وجودة البيانات", description: "دفعات الاستيراد وصفوفها وحالات التحقق ونواقص البيانات", permission: "imports.read" },
-  { key: "usage", label: "سجل الاستخدام والعمليات", description: "سجل التدقيق والعمليات الحساسة وتصدير التقارير", permission: "admin.audit.read" },
+  { key: "risks", label: "المخاطر والتحليل الرباعي", description: "سجل المخاطر ودرجاتها ومعالجتها، وعناصر التحليل الرباعي (القوة والضعف والفرص والتهديدات)", permission: "plan.read" , section: "programs" },
+  { key: "external", label: "التقييم الخارجي", description: "نتائج التقييم الخارجي ومجالات التحسين وخطط التحسين", permission: "plan.read" , section: "programs" },
+  { key: "documents", label: "الوثائق والمرفقات", description: "الوثائق الصادرة والمرفقات وأنواع الملفات والوثائق المجمّدة", permission: "documents.read" , section: "records" },
+  { key: "imports", label: "الاستيراد وجودة البيانات", description: "دفعات الاستيراد وصفوفها وحالات التحقق ونواقص البيانات", permission: "imports.read" , section: "records" },
+  { key: "usage", label: "سجل الاستخدام والعمليات", description: "سجل التدقيق والعمليات الحساسة وتصدير التقارير", permission: "admin.audit.read" , section: "records" },
 ] as const;
 
 export function categoryByKey(key: string): ReportCategory | undefined {
@@ -190,8 +211,12 @@ export const REPORTS: readonly ReportDefinition[] = [
     key: "programs-by-domain",
     category: "plan",
     label: "البرامج حسب المجال",
-    description: "برامج كل مجال بالاسم والمسؤول والحالة والتقدم والتواريخ والشواهد — الصفوف متجاورة لكل مجال (v2.4)",
+    description:
+      "برامج كل مجال بالاسم والمسؤول والحالة والتقدم والتواريخ والشواهد — الصفوف متجاورة لكل مجال، ويقبل مجالاً واحداً أو عدة مجالات أو الكل (§5.6)",
     permission: "plan.read",
+    source: "programs",
+    modes: ["detailed", "grouped", "summary", "exception"],
+    groupBy: ["domain", "owner", "approval", "lifecycle", "executionStatus"],
     columns: [
       col("domain", "المجال"),
       col("seq", "م", "number"),
@@ -205,8 +230,9 @@ export const REPORTS: readonly ReportDefinition[] = [
       col("hijriEnd", "النهاية (هـ)"),
       col("evidenceCount", "الشواهد", "number"),
       col("delayed", "التأخر"),
+      col("editedAfterApproval", "عُدّل بعد الاعتماد"),
     ],
-    filters: ["search", "status"],
+    filters: ["search", "status", "domain", "owner", "program", "progressRange"],
   },
   {
     key: "programs-by-domain-summary",
@@ -220,8 +246,12 @@ export const REPORTS: readonly ReportDefinition[] = [
     key: "programs-by-owner",
     category: "plan",
     label: "البرامج حسب المسؤول",
-    description: "برامج كل مسؤول تنفيذ بالاسم والمجال والحالة والتقدم والتواريخ والشواهد — الصفوف متجاورة لكل مسؤول (v2.4)",
+    description:
+      "برامج كل مسؤول تنفيذ بالاسم والمجال والحالة والتقدم والتواريخ والشواهد — الصفوف متجاورة لكل مسؤول، ويقبل مسؤولاً واحداً أو عدة مسؤولين أو الكل (§5.5)",
     permission: "plan.read",
+    source: "programs",
+    modes: ["detailed", "grouped", "summary", "exception"],
+    groupBy: ["owner", "domain", "approval", "lifecycle", "executionStatus"],
     columns: [
       col("owner", "مسؤول التنفيذ"),
       col("seq", "م", "number"),
@@ -235,8 +265,9 @@ export const REPORTS: readonly ReportDefinition[] = [
       col("hijriEnd", "النهاية (هـ)"),
       col("evidenceCount", "الشواهد", "number"),
       col("delayed", "التأخر"),
+      col("editedAfterApproval", "عُدّل بعد الاعتماد"),
     ],
-    filters: ["search", "status"],
+    filters: ["search", "status", "owner", "domain", "program", "progressRange"],
   },
   {
     key: "programs-by-owner-summary",
@@ -762,6 +793,26 @@ export function reportByKey(key: string): ReportDefinition | undefined {
 
 export function reportsInCategory(category: CategoryKey): ReportDefinition[] {
   return REPORTS.filter((r) => r.category === category);
+}
+
+/** الفئات المنتمية لقسم مجالي واحد (§14) — بالترتيب المعلَن في السجل */
+export function categoriesInSection(section: SectionKey): ReportCategory[] {
+  return REPORT_CATEGORIES.filter((c) => c.section === section);
+}
+
+/** التقارير التي يقبلها منشئ التقارير (§4.1) — ما أعلن مصدر بيانات */
+export function builderReports(): ReportDefinition[] {
+  return REPORTS.filter((r) => r.source !== undefined);
+}
+
+/** أنماط العرض المتاحة لتقرير ما — «تفصيلي» دائماً متاح */
+export function modesFor(reportKey: string): ReportModeName[] {
+  return reportByKey(reportKey)?.modes ?? ["detailed"];
+}
+
+/** هل هذا العمود مسموح للتجميع في هذا التقرير؟ قائمة بيضاء كالترتيب تماماً */
+export function isGroupableColumn(reportKey: string, column: string): boolean {
+  return reportByKey(reportKey)?.groupBy?.includes(column) ?? false;
 }
 
 /**

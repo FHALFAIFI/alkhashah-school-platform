@@ -414,16 +414,19 @@ export function EditProgramForm({
   warnings,
   reasonRequired,
   updatedToken,
+  initiallyOpen = false,
 }: {
   programId: string;
   values: { key: string; label: string; value: string | null; multiline: boolean }[];
   warnings: string[];
   reasonRequired: boolean;
   updatedToken: string;
+  /** v2.5.0 §5.1: يصل المستخدم من رابط «تعديل البرنامج» فيجد النموذج مفتوحاً */
+  initiallyOpen?: boolean;
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(updateProgramAction.bind(null, programId), null);
   useRefreshOnSuccess(state);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
 
   const serverValues = useMemo(
     () => Object.fromEntries(values.map((f) => [f.key, f.value ?? ""])) as Record<string, string>,

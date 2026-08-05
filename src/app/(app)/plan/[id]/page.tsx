@@ -39,9 +39,18 @@ import { EvidencePanel } from "@/components/evidence-panel";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProgramPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProgramPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const user = await requirePermission("plan.read");
   const { id } = await params;
+  // v2.5.0 §5.1: فتح نموذج التعديل مباشرةً من أي نقطة دخول (طابور الاعتماد، القوائم،
+  // ترويسة الصفحة) — لا بحث عن زر داخل الصفحة
+  const openEditor = (await searchParams)["تعديل"] === "1";
   const excluded = await getExcludedIdSets();
   const [program] = await db
     .select()
@@ -154,6 +163,12 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
             {isArchived && <Badge value="مؤرشف" />}
             <Badge value={lifecycle} />
             <Badge value={programStatusLabel(program.status)} />
+            {/* v2.5.0 §5.1: «تعديل البرنامج» إجراء رئيسي في أعلى الصفحة — لا زر ثانوي
+                داخل بطاقة في منتصفها. شكوى المدير على v2.4.1 لم تكن أن التعديل ممنوع
+                (لم يكن)، بل أنه غير ظاهر. الرابط يفتح النموذج مباشرةً عبر `?تعديل=1`. */}
+            {canEdit && (
+              <LinkButton href={`/plan/${id}?تعديل=1#edit`}>تعديل البرنامج</LinkButton>
+            )}
             {/* v2.4 §10: نقطة وصول ظاهرة للطباعة — التقرير وبطاقة البرنامج من صفحة واحدة */}
             {user.permissions.has("reports.generate") && (
               <LinkButton href={`/plan/${id}/report`} variant="secondary">طباعة بطاقة البرنامج</LinkButton>
@@ -268,7 +283,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
         </Card>
       )}
 
-      <Card>
+      <Card id="edit">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold text-brand-900">بطاقة البرنامج (القيم الرسمية من المصدر)</h2>
           {/* v2.4.1 §1.6: التعديل متاح في كل حالة — مسودة ومعتمد ومكتمل ومغلق */}
@@ -279,6 +294,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
               warnings={editWarnings}
               reasonRequired={editReasonRequired}
               updatedToken={program.updatedAt.toISOString()}
+              initiallyOpen={openEditor}
             />
           )}
         </div>

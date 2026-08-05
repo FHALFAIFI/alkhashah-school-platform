@@ -1,33 +1,44 @@
-import Link from "next/link";
-import { asc, eq, isNull } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
-import { db } from "@/db";
-import { financialItems, people } from "@/db/schema";
 import { PageHeader, Card, Table, EmptyState, LinkButton, Badge } from "@/components/ui";
-import { formatMoney, orDash, orFallback } from "@/lib/format";
+import { formatMoney, orDash } from "@/lib/format";
 import { dualNumericCell } from "@/lib/dates";
 import {
   REPORT_CATEGORIES,
+  REPORT_SECTIONS,
+  categoriesInSection,
   categoryByKey,
-  reportsInCategory,
+  isGroupableColumn,
   isSortableColumn,
+  reportsInCategory,
   type CategoryKey,
   type ReportColumn,
-  type ReportFilters,
+  type ReportDefinition,
+  type SectionKey,
 } from "@/lib/reports/catalog";
+import { parseReportFilters, describeFilters, REPORT_MODES } from "@/lib/reports/filters";
 import { runReport } from "@/lib/reports/loaders";
-import { clampPage, clampPageSize } from "@/lib/reports/export-safety";
-import { ReportFilterBar } from "./report-filters";
+import { loadFilterOptions, loadFilterLabelMaps } from "@/lib/reports/filter-options";
+import { statusOptionsFor } from "@/lib/reports/status-options";
+import { LARGE_REPORT_ROWS, MAX_EXPORT_ROWS } from "@/lib/reports/export-safety";
+import { FilterPanel } from "@/components/report-filters";
 import { Tutorial } from "@/components/tutorial";
 
 export const metadata = { title: "مركز التقارير" };
 export const dynamic = "force-dynamic";
 
 /**
- * مركز التقارير المركزي (v2.2 §D).
+ * مركز التقارير (v2.2 §D · أُعيد تنظيمه في v2.5.0 §14/§15).
  *
- * محرّك واحد لكل الأقسام: الفئة والتقرير والمرشّحات كلها في عنوان URL، فكل عرض رابط عميق
- * قابل للمشاركة، وزر «تقارير القسم» في أي قسم يفتح فئته مباشرةً بمرشّحاتها.
+ * محرّك واحد لكل الأقسام: القسم والفئة والتقرير والمرشّحات كلها في عنوان URL، فكل عرض
+ * رابط عميق قابل للمشاركة، وزر «تقارير القسم» في أي قسم يفتح فئته مباشرةً بمرشّحاتها.
+ *
+ * ما تغيّر في v2.5.0:
+ *  • **تنظيم مجالي** — ثلاث عشرة فئة صارت ستة أقسام يفكّر بها المدير، ولكل تقرير وصف
+ *    تحت اسمه يوضّح الفرق بينه وبين جاره (§14).
+ *  • **معاينة قبل التوليد** — عدد النتائج وصفوف تمثيلية والمرشّحات الفعّالة، مع تحذيرات
+ *    صريحة: لا نتائج، أعمدة فارغة تماماً، تقرير ضخم، بيانات أداء فردية حسّاسة (§15).
+ *  • **مرشّحات موحّدة** — اللوحة نفسها المستعملة في الشاشات التشغيلية، والتصدير يقرأ
+ *    معاملات العنوان ذاتها فيخرج مطابقاً للشاشة (§3.4).
  *
  * التفويض على حدود الخادم: تُفحص صلاحية الفئة وصلاحية التقرير قبل تشغيل أي استعلام —
  * إخفاء البطاقة ليس تفويضاً.
@@ -51,61 +62,23 @@ function renderCell(value: string | number | null, column: ReportColumn): string
   }
 }
 
-function buildHref(base: Record<string, string | undefined>, overrides: Record<string, string | undefined>): string {
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries({ ...base, ...overrides })) if (v) sp.set(k, v);
-  return `/reports?${sp.toString()}`;
-}
-
-/**
- * خيارات مرشّح «الحالة» — قوائم مغلقة معروفة لكل تقرير، لا قيم حرة من قاعدة البيانات،
- * فلا يتسرّب محتوى غير متوقع إلى عنصر الاختيار.
- */
-function statusOptionsFor(reportKey: string): string[] {
-  switch (reportKey) {
-    case "programs-active":
-      return ["مسودة", "معتمد", "مقفل"];
-    case "income-register":
-      return ["مستلم", "متوقع", "ملغى"];
-    case "committee-register":
-      return ["مسودة", "معتمدة", "مقفلة"];
-    case "meetings-register":
-      return ["مسودة", "مكتمل", "معتمد"];
-    case "maintenance-register":
-      return ["مسودة", "معتمد", "تم الإرسال", "تحت المعالجة", "تم الإصلاح", "لم يتم الإصلاح", "مغلق"];
-    case "import-batches":
-      return ["معاينة", "معتمد", "ملغى"];
-    case "perf-evaluations":
-    case "perf-incomplete":
-      return ["مسودة", "مكتملة", "مقفلة"];
-    case "plan-followups":
-      return ["في المسار", "متأخر", "متوقف مؤقتاً", "مكتمل", "لم يتم التحديث هذا الأسبوع"];
-    case "programs-by-domain":
-    case "programs-by-owner":
-      return ["مسودة", "معتمد", "مقفل"];
-    case "plan-followup-log":
-      return ["في المسار", "متأخر", "متوقف مؤقتاً", "مكتمل"];
-    case "improvement-plans":
-      return ["مقترحة", "معتمدة", "منفذة"];
-    default:
-      return [];
-  }
-}
+const SECTION_ORDER: SectionKey[] = ["programs", "performance", "councils", "finance", "building", "custom", "records"];
 
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ [key: string]: string | undefined }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const user = await requirePermission("reports.read");
   const sp = await searchParams;
+  const first = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
 
   // الفئات المرئية لهذا المستخدم فقط
   const visibleCategories = REPORT_CATEGORIES.filter((c) => user.permissions.has(c.permission));
-  const requested = sp.category ? categoryByKey(sp.category) : undefined;
-  const category = requested && user.permissions.has(requested.permission) ? requested : visibleCategories[0];
+  const requested = first("category") ? categoryByKey(first("category")!) : undefined;
+  const category = requested && user.permissions.has(requested.permission) ? requested : undefined;
 
-  if (!category) {
+  if (visibleCategories.length === 0) {
     return (
       <div className="space-y-4">
         <PageHeader title="مركز التقارير" />
@@ -114,56 +87,40 @@ export default async function ReportsPage({
     );
   }
 
-  const categoryReports = reportsInCategory(category.key as CategoryKey).filter((r) => user.permissions.has(r.permission));
-  const selectedReport = sp.report ? categoryReports.find((r) => r.key === sp.report) : undefined;
+  const categoryReports = category
+    ? reportsInCategory(category.key as CategoryKey).filter((r) => user.permissions.has(r.permission))
+    : [];
+  const selectedReport = first("report") ? categoryReports.find((r) => r.key === first("report")) : undefined;
 
-  // مرشّحات مُطهَّرة: الصفحة وحجمها محصوران، والترتيب مقيَّد بأعمدة التقرير نفسه
-  const filters: ReportFilters = {
-    search: sp.search,
-    dateFrom: sp.dateFrom,
-    dateTo: sp.dateTo,
-    status: sp.status,
-    personId: sp.personId,
-    itemId: sp.itemId,
-    sort: selectedReport && sp.sort && isSortableColumn(selectedReport.key, sp.sort) ? sp.sort : undefined,
-    dir: sp.dir === "desc" ? "desc" : "asc",
-    page: clampPage(sp.page ?? 1),
-    pageSize: clampPageSize(sp.pageSize),
-  };
+  const filters = selectedReport
+    ? parseReportFilters(sp, {
+        allowedSort: (k) => isSortableColumn(selectedReport.key, k),
+        allowedColumns: selectedReport.columns.map((c) => c.key),
+      })
+    : parseReportFilters(sp);
+  if (selectedReport && filters.group && !isGroupableColumn(selectedReport.key, filters.group)) filters.group = undefined;
 
   const result = selectedReport ? await runReport(selectedReport.key, filters) : null;
 
-  // خيارات المرشّحات تُحمَّل فقط حين يعلنها التقرير المعروض — لا استعلام بلا داعٍ
-  const needsItems = selectedReport?.filters?.includes("item") ?? false;
-  const needsPeople = selectedReport?.filters?.includes("person") ?? false;
-  const [itemRows, personRows] = await Promise.all([
-    needsItems
-      ? db
-          .select({ id: financialItems.id, name: financialItems.nameAr })
-          .from(financialItems)
-          .where(isNull(financialItems.archivedAt))
-          .orderBy(asc(financialItems.sortOrder))
-      : Promise.resolve([] as { id: string; name: string | null }[]),
-    needsPeople
-      ? db.select({ id: people.id, name: people.fullName }).from(people).where(eq(people.active, true)).orderBy(asc(people.fullName))
-      : Promise.resolve([] as { id: string; name: string }[]),
+  // خيارات المرشّحات تُحمَّل فقط لما أعلنه التقرير المعروض — لا استعلام بلا داعٍ
+  const filterKeys = selectedReport?.filters ?? [];
+  const [options, labelMaps] = await Promise.all([
+    filterKeys.length
+      ? loadFilterOptions(filterKeys, { statuses: statusOptionsFor(selectedReport!.key) })
+      : Promise.resolve({}),
+    selectedReport ? loadFilterLabelMaps(filters) : Promise.resolve({}),
   ]);
 
   const baseParams: Record<string, string | undefined> = {
-    category: category.key,
+    category: category?.key,
     report: selectedReport?.key,
-    search: sp.search,
-    dateFrom: sp.dateFrom,
-    dateTo: sp.dateTo,
-    status: sp.status,
-    personId: sp.personId,
-    itemId: sp.itemId,
-    sort: filters.sort,
-    dir: filters.dir,
   };
   const exportQuery = (format: "csv" | "xlsx" | "pdf" | "docx") => {
     const p = new URLSearchParams();
-    for (const [k, v] of Object.entries(baseParams)) if (v) p.set(k, v);
+    for (const [k, v] of Object.entries(sp)) {
+      if (typeof v === "string") p.append(k, v);
+      else if (Array.isArray(v)) for (const one of v) p.append(k, one);
+    }
     p.set("format", format);
     return `/api/reports/export?${p.toString()}`;
   };
@@ -172,6 +129,13 @@ export default async function ReportsPage({
   const pageSize = filters.pageSize ?? 50;
   const totalPages = result ? Math.max(1, Math.ceil(result.total / pageSize)) : 1;
   const canExport = user.permissions.has("reports.generate");
+  const activeChips = selectedReport ? describeFilters(filters, labelMaps) : [];
+
+  // §15: الأعمدة الفارغة تماماً على كل النتائج — تحذير قبل توليد تقرير بأعمدة بيضاء
+  const emptyColumns =
+    selectedReport && result && result.rows.length > 0
+      ? selectedReport.columns.filter((c) => result.rows.every((r) => r[c.key] === null || r[c.key] === undefined || r[c.key] === ""))
+      : [];
 
   return (
     <div className="space-y-5">
@@ -179,11 +143,14 @@ export default async function ReportsPage({
         title="مركز التقارير"
         subtitle="محرّك تقارير واحد لكل الأقسام — كل رقم يعود إلى سجله المصدري"
         actions={
-          user.permissions.has("reports.executive") ? (
-            // التسمية كما اعتادها المدير في النسخة السابقة — إعادة تصميم مركز التقارير
-            // لا تستلزم تغيير اسم إجراء قائم يعرفه المستخدم.
-            <LinkButton href="/reports/executive" variant="secondary">إصدار التقرير التنفيذي</LinkButton>
-          ) : undefined
+          <div className="flex flex-wrap gap-2">
+            <LinkButton href="/reports/builder">منشئ التقارير</LinkButton>
+            {user.permissions.has("reports.executive") && (
+              // التسمية كما اعتادها المدير في النسخة السابقة — إعادة تصميم مركز التقارير
+              // لا تستلزم تغيير اسم إجراء قائم يعرفه المستخدم.
+              <LinkButton href="/reports/executive" variant="secondary">إصدار التقرير التنفيذي</LinkButton>
+            )}
+          </div>
         }
       />
 
@@ -191,47 +158,89 @@ export default async function ReportsPage({
         id="reports"
         title="توليد التقارير وتنزيلها"
         steps={[
-          "اختر الفئة ثم التقرير — كل الحالة في الرابط فيمكن مشاركته.",
-          "رشّح بالبحث والتاريخ والحالة — المرشّحات الفعّالة تظهر داخل التقرير المولَّد.",
-          "نزّل PDF أو Word (وExcel للجداول) — الاسم يتضمن التقرير والمدرسة وتاريخ التوليد.",
-          "الوثائق الرسمية المرقّمة تُصدر من صفحات أقسامها وتبقى لقطاتها مجمّدة.",
+          "اختر القسم ثم التقرير — كل الحالة في الرابط فيمكن مشاركته.",
+          "رشّح بما تحتاجه: واحد أو عدة أو الكل — عدد النتائج يظهر فوراً قبل التوليد.",
+          "راجع الصفوف التمثيلية والتحذيرات، ثم نزّل PDF أو Word أو Excel أو CSV بالمرشّحات نفسها.",
+          "لتقرير غير موجود في القائمة: «منشئ التقارير» يبني تقريرك ويحفظه قالباً لإعادة تشغيله.",
         ]}
       />
 
-      <nav aria-label="فئات التقارير" className="flex flex-wrap gap-2 print:hidden">
-        {visibleCategories.map((c) => (
-          <Link
-            key={c.key}
-            href={`/reports?category=${c.key}`}
-            className={`inline-flex min-h-11 items-center rounded-lg border px-3 py-2 text-sm transition lg:min-h-0 ${
-              c.key === category.key
-                ? "border-brand-500 bg-brand-50 font-medium text-brand-800"
-                : "border-sand-200 bg-white text-gray-700 hover:bg-sand-100"
-            }`}
-          >
-            {c.label}
-          </Link>
-        ))}
+      {/* §14: خريطة الأقسام — كل قسم يحمل فئاته ووصف كل فئة تحت اسمها */}
+      <nav aria-label="أقسام التقارير" className="space-y-4 print:hidden">
+        {SECTION_ORDER.map((sectionKey) => {
+          const cats = categoriesInSection(sectionKey).filter((c) => user.permissions.has(c.permission));
+          if (sectionKey === "custom") {
+            return (
+              <section key={sectionKey}>
+                <h2 className="mb-2 text-sm font-bold text-gray-600">{REPORT_SECTIONS.custom}</h2>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  <Card>
+                    <h3 className="font-bold text-brand-900">منشئ التقارير</h3>
+                    <p className="mt-1 text-xs text-gray-500">
+                      ابنِ تقريراً بمصدره ومرشّحاته وأعمدته وترتيبه وتجميعه، ثم شغّله أو احفظه قالباً.
+                    </p>
+                    <div className="mt-3"><LinkButton href="/reports/builder" variant="secondary">فتح المنشئ</LinkButton></div>
+                  </Card>
+                  <Card>
+                    <h3 className="font-bold text-brand-900">القوالب المحفوظة</h3>
+                    <p className="mt-1 text-xs text-gray-500">
+                      إعدادات تقارير محفوظة بأسمائها — شغّلها كما هي أو عدّلها أو انسخها.
+                    </p>
+                    <div className="mt-3"><LinkButton href="/reports/templates" variant="secondary">فتح القوالب</LinkButton></div>
+                  </Card>
+                  <Card>
+                    <h3 className="font-bold text-brand-900">التقارير الصادرة</h3>
+                    <p className="mt-1 text-xs text-gray-500">
+                      الوثائق الرسمية المرقّمة التي صدرت فعلاً بلقطاتها المجمّدة — لا تُعاد كتابتها.
+                    </p>
+                    <div className="mt-3"><LinkButton href="/documents" variant="secondary">سجل الوثائق</LinkButton></div>
+                  </Card>
+                </div>
+              </section>
+            );
+          }
+          if (cats.length === 0) return null;
+          return (
+            <section key={sectionKey}>
+              <h2 className="mb-2 text-sm font-bold text-gray-600">{REPORT_SECTIONS[sectionKey]}</h2>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {cats.map((c) => {
+                  const count = reportsInCategory(c.key).filter((r) => user.permissions.has(r.permission)).length;
+                  const isActive = c.key === category?.key;
+                  return (
+                    <Card key={c.key} className={isActive ? "border-brand-400" : undefined}>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-bold text-brand-900">{c.label}</h3>
+                        <span className="rounded-full bg-sand-100 px-2 py-0.5 text-xs tabular-nums text-gray-600">{count}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">{c.description}</p>
+                      <div className="mt-3">
+                        <LinkButton href={`/reports?category=${c.key}`} variant="secondary">
+                          {isActive ? "معروضة" : "عرض التقارير"}
+                        </LinkButton>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
       </nav>
 
-      <p className="text-sm text-gray-500 print:hidden">{category.description}</p>
-
-      {categoryReports.length === 0 ? (
-        <EmptyState title="لا تقارير متاحة في هذه الفئة" hint="قد لا تملك صلاحية تشغيلها" />
-      ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 print:hidden">
-          {categoryReports.map((r) => (
-            <Card key={r.key} className={r.key === selectedReport?.key ? "border-brand-400" : undefined}>
-              <h3 className="font-bold text-brand-900">{r.label}</h3>
-              <p className="mt-1 text-xs text-gray-500">{r.description}</p>
-              <div className="mt-3">
-                <LinkButton href={`/reports?category=${category.key}&report=${r.key}`} variant="secondary">
-                  {r.key === selectedReport?.key ? "معروض" : "عرض"}
-                </LinkButton>
-              </div>
-            </Card>
-          ))}
-        </div>
+      {category && (
+        <section className="print:hidden">
+          <h2 className="mb-2 text-sm font-bold text-gray-600">{category.label}</h2>
+          {categoryReports.length === 0 ? (
+            <EmptyState title="لا تقارير متاحة في هذه الفئة" hint="قد لا تملك صلاحية تشغيلها" />
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {categoryReports.map((r) => (
+                <ReportCard key={r.key} report={r} category={category.key} active={r.key === selectedReport?.key} />
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {selectedReport && result && (
@@ -239,73 +248,63 @@ export default async function ReportsPage({
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
               <h2 className="text-base font-bold text-brand-900">{selectedReport.label}</h2>
-              <p className="text-xs text-gray-500">
-                {result.total.toLocaleString("ar-SA")} سجل
+              <p className="text-xs text-gray-500">{selectedReport.description}</p>
+              <p className="mt-1 text-xs text-gray-500">
+                عدد النتائج: <span className="font-bold tabular-nums text-brand-900">{result.total.toLocaleString("ar-SA")}</span>
                 {result.total > pageSize ? ` — صفحة ${page} من ${totalPages}` : ""}
+                {filters.mode ? ` · نمط العرض: ${REPORT_MODES[filters.mode]}` : ""}
               </p>
             </div>
             {canExport && (
               <div className="flex flex-wrap items-center gap-2 print:hidden">
-                {/* كل تقرير قابل للتنزيل PDF وWord (v2.3 §7) إضافة إلى CSV/Excel */}
-                <a
-                  href={exportQuery("pdf")}
-                  className="inline-flex min-h-11 items-center rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0"
-                >
-                  تنزيل PDF
-                </a>
-                <a
-                  href={exportQuery("docx")}
-                  className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0"
-                >
-                  تنزيل Word
-                </a>
-                <a
-                  href={exportQuery("xlsx")}
-                  className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0"
-                >
-                  تصدير Excel
-                </a>
-                <a
-                  href={exportQuery("csv")}
-                  className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0"
-                >
-                  CSV
-                </a>
+                {/* §3.4: التصدير يقرأ معاملات العنوان نفسها — المرشّحات الفعّالة تنطبق حرفياً */}
+                <a href={exportQuery("pdf")} className="inline-flex min-h-11 items-center rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0">تنزيل PDF</a>
+                <a href={exportQuery("docx")} className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0">تنزيل Word</a>
+                <a href={exportQuery("xlsx")} className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0">تصدير Excel</a>
+                <a href={exportQuery("csv")} className="inline-flex min-h-11 items-center rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-sand-100 lg:min-h-0">CSV</a>
               </div>
             )}
           </div>
 
-          <div className="print:hidden">
-            <ReportFilterBar
-              report={selectedReport}
-              statusOptions={statusOptionsFor(selectedReport.key)}
-              itemOptions={itemRows.map((i) => ({ id: i.id, label: orFallback(i.name, "بند بدون اسم") }))}
-              personOptions={personRows.map((p) => ({ id: p.id, label: p.name }))}
+          {filterKeys.length > 0 && (
+            <FilterPanel
+              filterKeys={[...filterKeys]}
+              options={options}
+              resultCount={result.total}
+              storageKey={`report:${selectedReport.key}`}
+              keep={baseParams}
             />
-          </div>
+          )}
+
+          {/* §15: التحذيرات قبل التوليد — لا يُولَّد PDF فارغ بصمت */}
+          <ReportWarnings
+            report={selectedReport}
+            total={result.total}
+            emptyColumns={emptyColumns}
+            hasFilters={activeChips.length > 0}
+          />
 
           {result.rows.length === 0 ? (
-            <EmptyState title="لا نتائج مطابقة" hint="جرّب توسيع المرشّحات أو مسحها" />
+            <EmptyState
+              title="لا نتائج مطابقة"
+              hint={
+                activeChips.length > 0
+                  ? `المرشّحات الفعّالة: ${activeChips.map((c) => `${c.label}: ${c.value}`).join(" · ")} — امسحها أو وسّعها`
+                  : "لا توجد سجلات في هذا التقرير بعد"
+              }
+            />
           ) : (
             <>
               <Table
                 headers={selectedReport.columns.map((c) => c.label)}
-                sortLinks={selectedReport.columns.map((c) =>
-                  buildHref(baseParams, {
-                    sort: c.key,
-                    dir: filters.sort === c.key && filters.dir === "asc" ? "desc" : "asc",
-                    page: undefined,
-                  }),
-                )}
+                sortLinks={selectedReport.columns.map((c) => sortHref(sp, c.key, filters.sort === c.key && filters.dir === "asc" ? "desc" : "asc"))}
               >
                 {result.rows.map((row, i) => (
                   <tr key={i}>
                     {selectedReport.columns.map((c) => (
                       <td
                         key={c.key}
-                        className={`px-3 py-2 text-sm ${
-                          c.type === "money" || c.type === "number" || c.type === "percent" ? "tabular-nums" : ""
-                        }`}
+                        className={`px-3 py-2 text-sm ${c.type === "money" || c.type === "number" || c.type === "percent" ? "tabular-nums" : ""}`}
                       >
                         {renderCell(row[c.key] ?? null, c)}
                       </td>
@@ -316,13 +315,9 @@ export default async function ReportsPage({
 
               {totalPages > 1 && (
                 <nav aria-label="تنقّل الصفحات" className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
-                  <LinkButton href={buildHref(baseParams, { page: String(Math.max(1, page - 1)) })} variant="secondary">
-                    السابق
-                  </LinkButton>
+                  <LinkButton href={pageHref(sp, Math.max(1, page - 1))} variant="secondary">السابق</LinkButton>
                   <Badge value={`${page} / ${totalPages}`} />
-                  <LinkButton href={buildHref(baseParams, { page: String(Math.min(totalPages, page + 1)) })} variant="secondary">
-                    التالي
-                  </LinkButton>
+                  <LinkButton href={pageHref(sp, Math.min(totalPages, page + 1))} variant="secondary">التالي</LinkButton>
                 </nav>
               )}
             </>
@@ -331,4 +326,94 @@ export default async function ReportsPage({
       )}
     </div>
   );
+}
+
+function ReportCard({ report, category, active }: { report: ReportDefinition; category: CategoryKey; active: boolean }) {
+  return (
+    <Card className={active ? "border-brand-400" : undefined}>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="font-bold text-brand-900">{report.label}</h3>
+        {report.sensitive && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">بيانات حسّاسة</span>}
+      </div>
+      {/* §14: وصف تحت كل اسم — يفرّق بين تقريرين متجاورين متشابهي الاسم */}
+      <p className="mt-1 text-xs text-gray-500">{report.description}</p>
+      <div className="mt-3">
+        <LinkButton href={`/reports?category=${category}&report=${report.key}`} variant="secondary">
+          {active ? "معروض" : "عرض"}
+        </LinkButton>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * تحذيرات المعاينة (§15).
+ *
+ * لا يُترك أي من هذه الأحوال ليكتشفه المستخدم بعد فتح ملف PDF: صفر نتيجة، أعمدة فارغة
+ * تماماً، تقرير ضخم، أو بيانات أداء فردية حسّاسة يُصدَّر بها ملف قابل للمشاركة.
+ */
+function ReportWarnings({
+  report,
+  total,
+  emptyColumns,
+  hasFilters,
+}: {
+  report: ReportDefinition;
+  total: number;
+  emptyColumns: ReportColumn[];
+  hasFilters: boolean;
+}) {
+  const warnings: string[] = [];
+  if (total === 0) {
+    warnings.push(
+      hasFilters
+        ? "لا سجلات مطابقة للمرشّحات الحالية — التصدير سيُنتج تقريراً فارغاً."
+        : "لا سجلات في هذا التقرير — التصدير سيُنتج تقريراً فارغاً.",
+    );
+  }
+  if (emptyColumns.length > 0) {
+    warnings.push(
+      `أعمدة بلا أي قيمة في كل النتائج: ${emptyColumns.map((c) => c.label).join("، ")} — ستظهر فارغة في المُصدَّر.`,
+    );
+  }
+  if (total > LARGE_REPORT_ROWS) {
+    warnings.push(
+      `تقرير كبير (${total.toLocaleString("ar-SA")} صفاً) — قد يستغرق التوليد وقتاً، والتصدير يقف عند ${MAX_EXPORT_ROWS.toLocaleString("ar-SA")} صف.`,
+    );
+  }
+  if (report.sensitive) {
+    warnings.push("يتضمن هذا التقرير بيانات أداء فردية — الملف المُصدَّر قابل للمشاركة، فتعامل معه وفق سياسة الخصوصية.");
+  }
+  if (warnings.length === 0) return null;
+  return (
+    <ul className="mb-3 space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 print:hidden">
+      {warnings.map((w) => (
+        <li key={w} role="status">⚠ {w}</li>
+      ))}
+    </ul>
+  );
+}
+
+/** روابط الترتيب والصفحات تحافظ على كل معاملات المرشّحات المتعدّدة كما هي */
+function paramsFrom(sp: Record<string, string | string[] | undefined>): URLSearchParams {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (typeof v === "string") p.append(k, v);
+    else if (Array.isArray(v)) for (const one of v) p.append(k, one);
+  }
+  return p;
+}
+
+function sortHref(sp: Record<string, string | string[] | undefined>, column: string, dir: "asc" | "desc"): string {
+  const p = paramsFrom(sp);
+  p.set("sort", column);
+  p.set("dir", dir);
+  p.delete("page");
+  return `/reports?${p.toString()}`;
+}
+
+function pageHref(sp: Record<string, string | string[] | undefined>, page: number): string {
+  const p = paramsFrom(sp);
+  p.set("page", String(page));
+  return `/reports?${p.toString()}`;
 }
