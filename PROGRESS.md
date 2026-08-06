@@ -2,7 +2,44 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.5.0 READY FOR DEPLOYMENT (2026-08-05)**
+## Latest checkpoint — **v2.5.0 DEPLOYED TO PRODUCTION (2026-08-06)**
+
+**Verdict: DEPLOYED — HEALTHY**, after one corrective iteration. Full record:
+**`docs/DEPLOYMENT_V2_5_0.md`** (implementation record: `docs/DELIVERY_V2_5_0.md`).
+Tag `v2.5.0` on `39674ed`; image `madrasa-app:0.1.0` = `sha256:bcd629a54848…`;
+host port **3080** unchanged; ledger **34**, tables **89**; the database container was
+**never restarted** (pid 728, RestartCount 0) at any point.
+
+- **Not one production business record was created, updated or deleted.** The cumulative
+  integrity probe against the pre-deployment baseline differs only by the three migrations'
+  own additive effects — `audit_log` and `sessions` included, because the authenticated smoke
+  ran on a clone rather than on production.
+- **Smoke 26/26** on a disposable clone of post-deployment production data running the deployed
+  image. Interruption ≈1.03 s (migration swap), ≈0.77 s and ≈0.78 s (corrective swaps).
+- **Gold backup `20260806-gold`** restore-verified into an isolated environment — 578 objects,
+  **0 differences** from live production; uploads aggregate digest matches exactly.
+- **Two acceptance requirements failed the first smoke and were fixed forward** (§5 of the
+  deployment record):
+  1. the low-performance threshold had **no on-screen control** — `showLowThreshold` was a prop
+     no page ever passed. It is now a first-class filter key (label «حد الأداء المنخفض»,
+     default 70, range 0–100), applied to screen, count, names, all four export formats and
+     saved templates, and the exported header states it **always**;
+  2. a **blank financial amount saved as `NULL`**. `src/lib/finance/amount.ts` is now the single
+     definition for income, expense and allocation; rejection is **server-side** (proven with
+     forged `FormData`, asserting that neither a business row nor an audit row is written).
+- **Two further defects found while proving the fixes:** `Field` rendered `type="number"` with
+  no `step`, so the browser silently rejected «12.50» — every money input was unable to accept
+  a halalah; and a forged `1e30` was refused with the wrong reason.
+- **Gates:** typecheck 0 · lint 0 · **1042/1042 vitest across 103 files** · build success ·
+  Playwright **9/9** on the new corrective spec.
+- **Outstanding:** the owner's own **authenticated pass on production** (credentials are entered
+  locally, never pasted into a transcript — command in §9 of the deployment record), and the
+  **11 pre-existing Playwright failures** on this branch, which are unrelated to this
+  deployment and were verified unchanged by stashing the fixes.
+
+---
+
+## Previous checkpoint — **v2.5.0 READY FOR DEPLOYMENT (2026-08-05)**
 
 **Verdict: READY — awaiting the owner's explicit authorisation.** Full record:
 **`docs/DELIVERY_V2_5_0.md`**. Branch `scope-v2.5-reporting-workflows`, RC image

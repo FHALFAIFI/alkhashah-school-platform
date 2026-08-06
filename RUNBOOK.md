@@ -2,73 +2,30 @@
 
 > المرجع السريع لتشغيل المنصة وتشخيصها. التفاصيل الكاملة: `docs/INSTALL_MAC_AR.md` (ماك) و`docs/DEPLOY_UBUNTU_AR.md` (أوبنتو).
 
-## المرشَّح الجاهز للنشر (بانتظار تفويض المالك)
+## الإصدار المنشور حالياً (خط الأساس)
 
 | البند | القيمة |
 | --- | --- |
-| الإصدار | **v2.5.0** — جاهز (`docs/DELIVERY_V2_5_0.md`) |
-| الالتزام | `scope-v2.5-reporting-workflows` من خط الأساس `v2.4.1` |
-| صورة المرشَّح | `madrasa-app:0.1.0-v2_5_0-rc` = `sha256:0410fdb3ce9f…` (linux/arm64) |
-| سجل الهجرات | **31 → 34** · الجداول **88 → 89** |
-| البروفة على نسخة الإنتاج | **49/49** · التراجع **ناجح بلا إجراء على القاعدة** |
-| التدقيق البصري / التصدير / الأمن / الأداء | 100/100 · 27/27 · 22 تأكيداً · 17 سطحاً دون 100 ms |
-| التراجع | تبديل صورة فقط — **لا إجراء على قاعدة البيانات** (مُثبَت بالبروفة) |
-| الوسم | `v2.5.0` **لم يُنشأ بعد** — يُنشأ عند النشر كما في v2.3/v2.4 |
+| الإصدار | **v2.5.0** — نُشر 2026-08-06 (`docs/DEPLOYMENT_V2_5_0.md`) |
+| الوسم | `v2.5.0` — الالتزام `39674ed` |
+| الصورة | `madrasa-app:0.1.0` = `sha256:bcd629a54848…` (linux/arm64) |
+| سجل الهجرات | **34** · الجداول **89** |
+| المشروع/المنفذ | `madrasa-prod` · المضيف `3080` (القاعدة غير منشورة) |
+| صور التراجع | `0.1.0-prev-v2_5_0-20260806` = v2.4.1 · `…-fix1-20260806` = المرشَّح · `…-fix2-20260806` = التصحيح الأول |
+| النسخة الذهبية | `backups/gold/*-20260806-gold*` — مُتحقَّق منها باستعادة معزولة (578 كائناً، صفر اختلاف) |
+| فحص الدخان | **26/26** على نسخة من الإنتاج بالصورة المنشورة |
 
-### نشر v2.5.0 (بعد التفويض الصريح — ثلاث هجرات)
+> **التصحيح بعد النشر:** رُفض شرطان في فحص الدخان الأول فصُحِّحا ونُشرا:
+> حدّ الأداء المنخفض صار له عنصر تحكّم على الشاشة (لم يكن `showLowThreshold` يُمرَّر من أي صفحة)،
+> ومبلغ العملية المالية صار إلزامياً على الخادم (كان الفراغ يُخزَّن `NULL`). التفاصيل في
+> `docs/DEPLOYMENT_V2_5_0.md` §5.
 
-> الهجرات: **0031** (ستة أعمدة تقبل الفراغ على `program_followups`) و**0032** (جدول
-> `report_templates`) و**0033** (هجرة بيانات: ثلاث صلاحيات جديدة ومنحها للأدوار القائمة —
-> **ضرورية** لأن خدمة البذر مقيّدة بملف تعريف ولا تعمل على الإنتاج، فالصلاحية المضافة إلى
-> البذرة وحدها لا تصل للمدير أبداً). لا عمود يُحذف أو يُعاد تسميته، ولا صف قائم يُعدَّل أو
-> يُحذف. لهذا يبقى **التراجع بلا أي إجراء على القاعدة**.
+> **لا تبنِ صورة الإصدار على الجهاز الذي يخدم الإنتاج.** أثناء أول بناء تصحيحي قتل النظام حاوية
+> التطبيق **خمس مرات** تحت ضغط الذاكرة، وأعادتها `unless-stopped` خلال 89–393 ms في كل مرة
+> (القاعدة لم تُمسّ). البناء الثاني — بعد هدم نسخة التحقق لتحرير الذاكرة — لم يُسبّب أي إعادة
+> تشغيل. حرِّر الذاكرة أولاً أو ابنِ على جهاز آخر، ولا تبنِ في ساعات العمل.
 
-```bash
-cd "/Users/fahedalfify/Developer/School/Father's File"
-# 1) نسخة ما قبل النشر + تحقّق استعادة
-npm run backup:daily && npm run restore:rehearsal
-
-# 2) وسم صورة التراجع من الصورة العاملة حالياً قبل تحريك أي وسم
-docker tag madrasa-app:0.1.0 madrasa-app:0.1.0-prev-v2_5_0-$(date +%Y%m%d)
-
-# 3) القيَم قبل الترقية — تُقيَّد للمقارنة
-docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
-  "select count(*) from drizzle.__drizzle_migrations"                              # المتوقع 31
-docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
-  "select count(*) from information_schema.tables where table_schema='public'"     # المتوقع 88
-
-# 4) ترقية التطبيق وحده — حاوية القاعدة لا تُعاد تشغيلها
-docker tag madrasa-app:0.1.0-v2_5_0-rc madrasa-app:0.1.0
-docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
-  up -d --no-deps --force-recreate app
-
-# 5) تحقّق
-curl -s http://127.0.0.1:3080/api/health                                            # version=2.5.0
-docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
-  "select count(*) from drizzle.__drizzle_migrations"                              # يصبح 34
-docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
-  "select count(*) from information_schema.tables where table_schema='public'"     # يصبح 89
-# الأعمدة الجديدة فارغة تماماً على البيانات القائمة:
-docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
-  "select count(*) from program_followups where completed_work is not null \
-   or obstacles is not null or required_action is not null or next_step is not null \
-   or evidence_update is not null or intervention_needed = true"                    # يجب أن يكون 0
-# الصلاحيات الجديدة ممنوحة للدورين:
-docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
-  "select count(*) from role_permissions rp join permissions p on p.id = rp.permission_id \
-   where p.key in ('reports.builder','reports.templates.share','reports.templates.global')"  # 6
-```
-
-**التراجع:** أعد وسم `madrasa-app:0.1.0-prev-v2_5_0-<التاريخ>` إلى `madrasa-app:0.1.0` وأعد
-إنشاء `app` وحده. **لا إجراء على القاعدة** — أُثبت بتشغيل صورة v2.4.1 على قاعدة مُهاجَرة
-(سجل 34، جداول 89) فعملت سليمة.
-
-> **لا تبنِ صورة الإصدار على الجهاز الذي يخدم الإنتاج.** أثناء بناء صورة هذا المرشَّح قتل
-> نظام التشغيل عملية تطبيق الإنتاج تحت ضغط الذاكرة، فأعادته سياسة `unless-stopped` خلال
-> ~0.4 ثانية على الصورة نفسها. لا بيانات تأثرت والقاعدة لم تُعد تشغيلها، لكن الانقطاع كان
-> حقيقياً. ابنِ الصورة خارج ساعات العمل أو على جهاز آخر.
-
-## الإصدار المنشور حالياً (خط الأساس)
+## الإصدار السابق
 
 | البند | القيمة |
 | --- | --- |
@@ -92,17 +49,23 @@ docker exec madrasa-prod-db-1 psql -U madrasa -d madrasa -tAc \
 | 2026-07-31 | v2.3.0 | `b47558c` | `7f5ff14a` | 27 |
 | **2026-08-03** | **v2.4.0** | **`da8db16`** | **`2f69c724`** | **29** |
 | **2026-08-04** | **v2.4.1** | **`6d7dacf`** | **`4b427c8e`** | **31** |
-| _(مرشَّح)_ | v2.5.0 | _(انظر `docs/DELIVERY_V2_5_0.md`)_ | `0410fdb3` (صورة RC) | **34** (ثلاث هجرات: 0031، 0032، 0033) |
+| **2026-08-06** | **v2.5.0** | **`39674ed`** | **`bcd629a5`** | **34** |
 
 ### التراجع السريع (بلا أي إجراء على القاعدة)
 
 ```bash
-docker tag madrasa-app:0.1.0-prev-v2_4_1-20260804 madrasa-app:0.1.0
+# العودة إلى v2.4.1 بالكامل (الهجرات 0031–0033 إضافية، فالصورة الأقدم تعمل على السجل 34)
+docker tag madrasa-app:0.1.0-prev-v2_5_0-20260806 madrasa-app:0.1.0
 docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
   up -d --no-deps --force-recreate app
 curl -s http://127.0.0.1:3080/api/health
 ```
-الأوامر الكاملة: `backups/predeploy/ROLLBACK-20260803-065900.txt`.
+
+خطوة واحدة إلى الوراء بدل إصدار كامل:
+`…-prev-v2_5_0-fix2-20260806` (التصحيح الأول) أو `…-prev-v2_5_0-fix1-20260806` (المرشَّح).
+
+**لا إجراء على قاعدة البيانات في أي من الحالات** — أُثبت عملياً: صورة v2.4.1 خدمت الإنتاج سليمةً
+على قاعدة مُهاجَرة (سجل 34، جداول 89) طوال الفترة بين تطبيق الهجرات وتبديل التطبيق.
 
 ## الخدمات وأماكنها
 | الخدمة | العنوان | ملاحظات |
