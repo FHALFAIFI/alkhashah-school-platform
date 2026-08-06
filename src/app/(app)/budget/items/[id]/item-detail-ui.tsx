@@ -63,7 +63,7 @@ export function EditIncomeForm({
       <input type="hidden" name="incomeId" value={income.id} />
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Field label="مصدر الإيراد" name="source" defaultValue={income.source} />
-        <Field label="المبلغ" name="amount" type="number" defaultValue={income.amount ?? undefined} />
+        <Field label="المبلغ" name="amount" type="number" defaultValue={income.amount ?? undefined} required step="0.01" min="0.01" />
         <Field label="التاريخ" name="incomeDate" type="date" defaultValue={income.incomeDate ?? undefined} />
         <Field label="رقم الفاتورة/السند" name="paymentReference" defaultValue={income.paymentReference ?? undefined} />
         <div>
@@ -132,7 +132,7 @@ export function EditExpenseForm({
       {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
       <input type="hidden" name="expenseId" value={expense.id} />
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Field label="المبلغ" name="amount" type="number" defaultValue={expense.amount ?? undefined} />
+        <Field label="المبلغ" name="amount" type="number" defaultValue={expense.amount ?? undefined} required step="0.01" min="0.01" />
         <Field label="التاريخ" name="expenseDate" type="date" defaultValue={expense.expenseDate ?? undefined} />
         <Field label="رقم الفاتورة" name="paymentReference" defaultValue={expense.paymentReference ?? undefined} />
         <Field label="المورّد" name="supplier" defaultValue={expense.supplier ?? undefined} />

@@ -3,7 +3,13 @@ import ExcelJS from "exceljs";
 import { getCurrentUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { reportByKey, isSortableColumn } from "@/lib/reports/catalog";
-import { parseReportFilters, filterHeaderLines, type ReportFilters } from "@/lib/reports/filters";
+import {
+  parseReportFilters,
+  filterHeaderLines,
+  lowThresholdHeaderLine,
+  DEFAULT_LOW_THRESHOLD,
+  type ReportFilters,
+} from "@/lib/reports/filters";
 import { loadFilterLabelMaps } from "@/lib/reports/filter-options";
 import { runReportForExport } from "@/lib/reports/loaders";
 import { toCsv, safeFileName, sanitizeCell, MAX_EXPORT_ROWS } from "@/lib/reports/export-safety";
@@ -94,7 +100,18 @@ export async function GET(request: NextRequest) {
    * والإرشاد، اللجنة الإدارية» لا سلسلة معرّفات.
    */
   const labelMaps = await loadFilterLabelMaps(filters);
-  const activeFilters: [string, string][] = filterHeaderLines(filters, labelMaps);
+  /*
+   * §7.5: التقرير الذي يعلن حد الأداء المنخفض يذكره في ترويسته **دائماً**، حتى عند القيمة
+   * الافتراضية. قائمة أسماء «دون الحد» في ملف لا يذكر حده ليست قابلة للتحقق، ولا يعرف قارئ
+   * الملف — بعد شهر أو في يد جهة أخرى — أي حد وُلّدت به. الشرائح على الشاشة تبقى «ما خرج عن
+   * الافتراضي» فلا يبدو كل تقرير أداء مُرشَّحاً.
+   */
+  const declaresThreshold = (def.filters ?? []).includes("lowThreshold");
+  const chipHasThreshold = filters.lowThreshold !== undefined && filters.lowThreshold !== DEFAULT_LOW_THRESHOLD;
+  const activeFilters: [string, string][] = [
+    ...filterHeaderLines(filters, labelMaps),
+    ...(declaresThreshold && !chipHasThreshold ? [lowThresholdHeaderLine(filters)] : []),
+  ];
 
   // اسم الملف: نوع التقرير + اسم المدرسة + تاريخ التوليد (v2.3 §7)
   const identityHeader = format === "pdf" || format === "docx" ? await getOfficialHeader() : null;
@@ -197,6 +214,20 @@ export async function GET(request: NextRequest) {
   }
 
   const wb = new ExcelJS.Workbook();
+  /*
+   * المرشّحات الفعّالة — ومنها حد الأداء المنخفض — في ورقة مستقلة لا فوق الجدول.
+   * أسطر تمهيدية فوق صف الترويسة تكسر استيراد الملف في كل أداة تتوقع جدولاً يبدأ من الصف
+   * الأول، ولذلك تبقى ورقة «التقرير» جدولاً خالصاً كما كانت.
+   */
+  if (activeFilters.length) {
+    const fs = wb.addWorksheet("المرشّحات الفعّالة", { views: [{ rightToLeft: true }] });
+    fs.columns = [
+      { header: "المرشّح", key: "k", width: 28 },
+      { header: "القيمة", key: "v", width: 60 },
+    ];
+    fs.getRow(1).font = { bold: true };
+    for (const [k, v] of activeFilters) fs.addRow({ k: sanitizeCell(k), v: sanitizeCell(v) });
+  }
   const ws = wb.addWorksheet("التقرير", { views: [{ rightToLeft: true }] });
   ws.columns = columns.map((c) => ({ header: c.label, key: c.key, width: 20 }));
   ws.getRow(1).font = { bold: true };

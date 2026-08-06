@@ -10,16 +10,18 @@ import { orFallback } from "@/lib/format";
 // ملف `"use server"` لا يُصدِّر إلا دوال async — الثوابت تعيش في وحدة عادية
 import { ITEM_COLORS } from "@/lib/finance/colors";
 import { allocationBelowSpentWarning } from "@/lib/finance/allocation";
-import { MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE, moneySubtract } from "@/lib/finance/calc";
+import { moneySubtract } from "@/lib/finance/calc";
+import { optionalPositiveAmountStrict, requiredPositiveAmount } from "@/lib/finance/amount";
 import { isUuid } from "@/lib/validation";
 import { formatMoney } from "@/lib/format";
 
 /**
  * إدارة بنود الصرف المدرسية والعمليات المالية (v2.2 §B).
  *
- * كل الحقول التي يُدخلها المستخدم اختيارية (القاعدة العامة §8): الاسم والمبلغ والملاحظات
- * قد تكون فارغة. ما يبقى إلزامياً هو حقول السلامة والتكامل فقط: الهوية والملكية وبيانات
- * التدقيق. وحين تُدخَل قيمة يُتحقق من صيغتها.
+ * الحقول الوصفية التي يُدخلها المستخدم اختيارية (القاعدة العامة §8): الاسم والملاحظات
+ * واللون قد تكون فارغة. ما يبقى إلزامياً هو حقول السلامة والتكامل — الهوية والملكية وبيانات
+ * التدقيق — **ومبلغ العملية المالية**: تحديد المخصص يرفض الفراغ، والإزالة نيّة صريحة لا
+ * حقل متروك. وحين تُدخَل قيمة يُتحقق من صيغتها.
  */
 
 export type ActionState = {
@@ -30,18 +32,17 @@ export type ActionState = {
 } | null;
 
 
-/**
- * مبلغ اختياري: الفارغ يبقى null، والمُدخَل يجب أن يكون عدداً صحيح الصيغة غير سالب
- * ودون السقف الأعلى (v2.4.1 §5 — عمود `numeric` بلا سقف يقبل قيمة عبثية تفسد كل المجاميع).
+/*
+ * مخصص البند عند إنشائه أو تحرير بياناته: **اختياري الذكر، صارم عند الذكر**.
+ *
+ * البند بلا مخصص حالة مشروعة ومُعلَنة — تقرير «بنود بلا مخصص» موجود لرصدها — فالبند يُنشأ
+ * قبل اعتماد مخصصه. لكن المذكور يخضع لقواعد المال نفسها: موجب تماماً (لا صفر، وكان الصفر
+ * مقبولاً قبل هذا التصحيح فيبدو البند مخصَّصاً بلا مال)، بدقة الهللة، ودون السقف الأعلى.
+ *
+ * تحديد المخصص نفسه (`setItemAllocationAction`) أشد: المبلغ إلزامي هناك، والإزالة تُطلب
+ * صراحةً بعلامة مستقلة لا بترك الحقل فارغاً.
  */
-const optionalAmount = z.preprocess(
-  (v) => (v === "" || v === null || v === undefined ? undefined : v),
-  z.coerce
-    .number({ message: "المبلغ غير صحيح" })
-    .nonnegative("المبلغ لا يكون سالباً")
-    .max(MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE)
-    .optional(),
-);
+const optionalAmount = optionalPositiveAmountStrict;
 
 const itemSchema = z.object({
   nameAr: z.string().trim().max(120, "اسم البند طويل جداً").optional(),
@@ -139,13 +140,34 @@ export async function updateFinancialItemAction(itemId: string, _prev: ActionSta
   return { success: "حُفظ البند" };
 }
 
-/** تحديد/تصحيح المخصص وحده — مع ملاحظة اختيارية وتأكيد صريح عند النزول تحت المصروف */
-const allocationSchema = z.object({
-  allocatedAmount: optionalAmount,
-  note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional(),
-  /** «1» حين أكّد المستخدم صراحةً خفض المخصص إلى ما دون المصروف الفعلي */
-  confirmBelowSpent: z.string().optional(),
-});
+/*
+ * تحديد/تصحيح المخصص وحده.
+ *
+ * المبلغ **إلزامي** هنا (تصحيح ما بعد نشر v2.5.0): كان الحقل الفارغ يُخزَّن `NULL`، فأي
+ * إرسال بالخطأ — أو نموذج أُرسل قبل أن تُكتب القيمة — يمحو مخصص البند بصمت ويظهر البند
+ * فجأةً «بلا مخصص» بلا أثر مقروء غير سجل التدقيق.
+ *
+ * إزالة المخصص تبقى ممكنة لأنها عملية مشروعة، لكنها صارت **نيّة صريحة** (`removeAllocation`)
+ * لا أثراً جانبياً لحقل فارغ. هكذا يُرفض الفراغ ولا تُفقَد قدرة تشغيلية قائمة.
+ */
+const allocationSchema = z
+  .object({
+    allocatedAmount: z.unknown().optional(),
+    note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional(),
+    /** «1» حين أكّد المستخدم صراحةً خفض المخصص إلى ما دون المصروف الفعلي */
+    confirmBelowSpent: z.string().optional(),
+    /** «1» حين طلب المستخدم إزالة المخصص صراحةً — لا يُستنتج من حقل فارغ أبداً */
+    removeAllocation: z.string().optional(),
+  })
+  .transform((raw, ctx) => {
+    if (raw.removeAllocation === "1") return { ...raw, allocation: null as number | null };
+    const parsed = requiredPositiveAmount.safeParse(raw.allocatedAmount);
+    if (!parsed.success) {
+      ctx.addIssue({ code: "custom", message: parsed.error.issues[0].message, path: ["allocatedAmount"] });
+      return z.NEVER;
+    }
+    return { ...raw, allocation: parsed.data as number | null };
+  });
 
 /** مجموع المصروف الجاري المنسوب لبند — لحظة التغيير (يدخل سجل التدقيق) */
 async function spentForItem(itemId: string): Promise<number> {
@@ -180,7 +202,8 @@ export async function setItemAllocationAction(
   if (!item) return { error: "البند غير موجود" };
 
   const previous = item.allocatedAmount === null ? null : Number(item.allocatedAmount);
-  const proposed = d.allocatedAmount === undefined ? null : d.allocatedAmount;
+  // `allocation` نتيجة تحقّق المخطّط: عدد موجب، أو `null` عند طلب الإزالة الصريح وحده
+  const proposed = d.allocation;
   const spent = await spentForItem(itemId);
 
   // خفض المخصص تحت المصروف: مسموح بعد تأكيد صريح — البند يصبح متجاوزاً ولا يُطبَّع رقمه

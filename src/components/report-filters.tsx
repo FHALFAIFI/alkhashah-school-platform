@@ -76,7 +76,6 @@ export function FilterPanel({
   flags = [],
   resultCount,
   storageKey,
-  showLowThreshold = false,
   keep = {},
 }: {
   filterKeys: FilterKey[];
@@ -87,8 +86,6 @@ export function FilterPanel({
   resultCount?: number;
   /** مفتاح حفظ المرشّحات لهذه الجلسة — غيابه يعطّل الاستعادة */
   storageKey?: string;
-  /** عتبة الأداء المنخفض القابلة للتعديل (§7.5) */
-  showLowThreshold?: boolean;
   /** معاملات تبقى كما هي عند تغيير المرشّحات (الفئة، التقرير، القالب) */
   keep?: Record<string, string | undefined>;
 }) {
@@ -238,22 +235,6 @@ export function FilterPanel({
             </fieldset>
           )}
 
-          {showLowThreshold && (
-            <div>
-              <label htmlFor="f-low" className="mb-1 block text-xs text-gray-500">
-                عتبة الأداء المنخفض (٪) — الافتراضي {DEFAULT_LOW_THRESHOLD}
-              </label>
-              <input
-                id="f-low"
-                type="number"
-                min={0}
-                max={100}
-                defaultValue={params.get("lowThreshold") ?? String(DEFAULT_LOW_THRESHOLD)}
-                onBlur={(e) => setScalar("lowThreshold", e.target.value)}
-                className={inputCls}
-              />
-            </div>
-          )}
         </div>
       )}
 
@@ -296,6 +277,49 @@ function FilterControl({
   onSetAll: (name: string, values: string[]) => void;
 }) {
   const def = FILTER_DEFS[filterKey];
+
+  /*
+   * §7.5: الحد قابل للتحرير على الشاشة، لا في العنوان وحده.
+   *
+   * `onBlur` وحده لا يكفي: المدير يكتب الرقم ثم يضغط «توليد» أو ينتقل مباشرةً، فتضيع القيمة
+   * لأن الحقل لم يفقد التركيز قط. لذلك يُلتقط Enter أيضاً. القيمة الفارغة تعني «أعِد الافتراضي»
+   * فتُحذف من العنوان بدل أن تُثبَّت صفراً.
+   */
+  if (filterKey === "lowThreshold") {
+    const commit = (raw: string) => {
+      const trimmed = raw.trim();
+      if (trimmed === "") return onScalar("lowThreshold", "");
+      const n = Number(trimmed);
+      if (!Number.isFinite(n)) return onScalar("lowThreshold", "");
+      onScalar("lowThreshold", String(Math.min(100, Math.max(0, Math.round(n)))));
+    };
+    return (
+      <div>
+        <label htmlFor="f-low" className="mb-1 block text-xs text-gray-500">
+          {def.labelAr} (٪) — الافتراضي {DEFAULT_LOW_THRESHOLD}
+        </label>
+        <input
+          id="f-low"
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={100}
+          step={1}
+          aria-describedby="f-low-hint"
+          defaultValue={params.get("lowThreshold") ?? String(DEFAULT_LOW_THRESHOLD)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit((e.target as HTMLInputElement).value);
+            }
+          }}
+          className={inputCls}
+        />
+        <p id="f-low-hint" className="mt-1 text-xs text-gray-400">{def.hintAr}</p>
+      </div>
+    );
+  }
 
   if (filterKey === "search") {
     return (
@@ -454,7 +478,8 @@ function optionsFor(key: FilterKey, options: FilterOptions): Option[] {
 /** لا يُعرض مرشّح متعدّد بلا خيارات — الحقل الفارغ يوحي بعطل */
 function hasOptionsFor(key: FilterKey, options: FilterOptions): boolean {
   const def = FILTER_DEFS[key];
-  if (def.kind === "text" || def.kind === "dateRange" || def.kind === "numberRange") return true;
+  // العتبة لا تُشتق من البيانات — لها دائماً قيمة صالحة (الافتراضي)، فتُعرض دائماً.
+  if (def.kind === "text" || def.kind === "dateRange" || def.kind === "numberRange" || def.kind === "threshold") return true;
   if (key === "week") return (options.weeks ?? []).length > 0;
   if (key === "academicYear") return (options.years ?? []).length > 0;
   return optionsFor(key, options).length > 0;

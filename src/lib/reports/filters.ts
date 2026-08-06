@@ -46,13 +46,14 @@ export const FILTER_KEYS = [
   "scoreRange",
   "amountRange",
   "progressRange",
+  "lowThreshold",
   "flags",
 ] as const;
 
 export type FilterKey = (typeof FILTER_KEYS)[number];
 
 /** الشكل الذي تُعرض به المرشّحة في الواجهة */
-export type FilterKind = "text" | "dateRange" | "multi" | "numberRange" | "single" | "toggles";
+export type FilterKind = "text" | "dateRange" | "multi" | "numberRange" | "single" | "toggles" | "threshold";
 
 export type FilterDef = {
   key: FilterKey;
@@ -92,6 +93,21 @@ export const FILTER_DEFS: Readonly<Record<FilterKey, FilterDef>> = {
   },
   amountRange: { key: "amountRange", labelAr: "مدى المبلغ", kind: "numberRange", params: ["minAmount", "maxAmount"] },
   progressRange: { key: "progressRange", labelAr: "مدى الإنجاز (٪)", kind: "numberRange", params: ["minProgress", "maxProgress"] },
+  /*
+   * حد الأداء المنخفض (§7.5).
+   *
+   * كان هذا الحد يُقرأ من العنوان وحده: القيمة الافتراضية تعمل والتعديل يعمل، لكن لا عنصر
+   * على الشاشة يعدّله — فلا يكتشفه المدير إطلاقاً. تعريفه هنا كمرشّح من الدرجة الأولى يجعل
+   * اللوحة تعرضه تلقائياً لكل تقرير يعلنه، فيسري على الشاشة والعدد والتصدير والقالب بالمسار
+   * نفسه الذي تسلكه بقية المرشّحات — بلا مسار خاص يُنسى.
+   */
+  lowThreshold: {
+    key: "lowThreshold",
+    labelAr: "حد الأداء المنخفض",
+    kind: "threshold",
+    params: ["lowThreshold"],
+    hintAr: "يعرض الموظفين الذين تقل نتائجهم عن النسبة المحددة",
+  },
   flags: { key: "flags", labelAr: "حالات خاصة", kind: "toggles", params: ["flag"] },
 };
 
@@ -201,6 +217,25 @@ export type ReportFilters = {
 
 /** عتبة الأداء المنخفض الافتراضية (§7.5) — «أقل من 70٪» */
 export const DEFAULT_LOW_THRESHOLD = 70;
+
+/**
+ * الحد الفعّال لهذا التشغيل — مصدر واحد تقرأ منه الشاشة والعدد والجدول والتصدير والقالب.
+ *
+ * القيمة غير الصالحة لا تصل إلى هنا: `readNumber` يُسقط ما ليس عدداً منتهياً (فيعود الافتراضي)
+ * ويحصر الباقي في 0..100. فلا يوجد مسار يُنتج حداً سالباً أو فوق المئة أو `NaN`.
+ */
+export function effectiveLowThreshold(filters: ReportFilters): number {
+  return filters.lowThreshold ?? DEFAULT_LOW_THRESHOLD;
+}
+
+/**
+ * سطر الترويسة الذي يظهر في التقرير المولَّد لكل تقرير يعلن هذا المرشّح — ويظهر **دائماً**،
+ * حتى عند القيمة الافتراضية. قارئ الملف لا يرى العنوان الذي وُلّد منه، فحدٌّ غير مذكور يجعل
+ * قائمة أسماء «الأداء المنخفض» بلا معنى قابل للتحقق.
+ */
+export function lowThresholdHeaderLine(filters: ReportFilters): [string, string] {
+  return [FILTER_DEFS.lowThreshold.labelAr, `أقل من ${effectiveLowThreshold(filters)}٪`];
+}
 
 /* ─────────────────────────── القراءة من العنوان ─────────────────────────── */
 
@@ -466,8 +501,10 @@ export function describeFilters(filters: ReportFilters, maps: FilterLabelMaps = 
   push("amountRange", "مدى المبلغ", rangeText(filters.minAmount, filters.maxAmount, " ريال"));
   push("progressRange", "مدى الإنجاز", rangeText(filters.minProgress, filters.maxProgress, "٪"));
   push("flags", "حالات خاصة", filters.flags?.map((f) => FILTER_FLAGS[f]).join("، ") ?? null);
+  // شريحة «مرشّح فعّال» تظهر عند الخروج عن الافتراضي فقط، فلا يبدو كل تقرير أداء مُرشَّحاً.
+  // الترويسة المُصدَّرة تذكر الحد دائماً — انظر `lowThresholdHeaderLine`.
   if (filters.lowThreshold !== undefined && filters.lowThreshold !== DEFAULT_LOW_THRESHOLD) {
-    push("lowThreshold", "عتبة الأداء المنخفض", `أقل من ${filters.lowThreshold}٪`);
+    push("lowThreshold", FILTER_DEFS.lowThreshold.labelAr, `أقل من ${filters.lowThreshold}٪`);
   }
   push("mode", "نمط العرض", filters.mode ? REPORT_MODES[filters.mode] : null);
   push("group", "التجميع حسب", filters.group ?? null);

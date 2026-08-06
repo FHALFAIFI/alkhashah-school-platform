@@ -598,7 +598,7 @@ export const REPORTS: readonly ReportDefinition[] = [
       col("missingReason", "سبب غياب النتيجة"),
       col("lowPerformer", "أقل من العتبة"),
     ],
-    filters: ["search", "employeeType", "person", "cycle", "jobTitle", "department", "status", "scoreRange"],
+    filters: ["search", "employeeType", "person", "cycle", "jobTitle", "department", "status", "scoreRange", "lowThreshold"],
   },
   {
     key: "perf-low-performers",
@@ -623,7 +623,7 @@ export const REPORTS: readonly ReportDefinition[] = [
       col("recommendations", "التوصيات"),
       col("threshold", "العتبة المستعملة", "percent"),
     ],
-    filters: ["search", "employeeType", "person", "cycle", "jobTitle", "department", "scoreRange"],
+    filters: ["search", "employeeType", "person", "cycle", "jobTitle", "department", "scoreRange", "lowThreshold"],
   },
   {
     key: "perf-strengths-weaknesses",
@@ -645,7 +645,7 @@ export const REPORTS: readonly ReportDefinition[] = [
       col("weakCriteria", "المعايير الضعيفة"),
       col("recommendations", "التوصيات"),
     ],
-    filters: ["search", "employeeType", "person", "cycle", "jobTitle", "department", "scoreRange"],
+    filters: ["search", "employeeType", "person", "cycle", "jobTitle", "department", "scoreRange", "lowThreshold"],
   },
   {
     key: "perf-distribution",
@@ -660,8 +660,10 @@ export const REPORTS: readonly ReportDefinition[] = [
       col("count", "عدد الموظفين", "number"),
       col("teachers", "معلمون", "number"),
       col("admins", "إداريون", "number"),
+      // §7.5: التقرير الإحصائي يجيب عن سؤال الحد أيضاً، وإلا كان مُحدِّد الحد معطَّلاً فيه
+      col("belowThreshold", "دون الحد", "number"),
     ],
-    filters: ["employeeType", "cycle", "department"],
+    filters: ["employeeType", "cycle", "department", "lowThreshold"],
   },
   /* ── المجالس واللجان: ثلاثة تقارير متمايزة (v2.5.0 §9.1) ────────── */
   {

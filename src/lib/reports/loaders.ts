@@ -837,17 +837,26 @@ async function loadPerfResults(filters: ReportFilters, mode: "results" | "low" |
 
 /** التوزيع الإحصائي — الأعداد مبنيّة على المجموعة المرشَّحة نفسها التي تعرضها التقارير التفصيلية */
 async function loadPerfDistribution(filters: ReportFilters): Promise<ReportRow[]> {
-  const { loadEmployeeResults } = await import("@/lib/performance/results-service");
+  const { loadEmployeeResults, effectiveThreshold, isLowPerformer } = await import("@/lib/performance/results-service");
+  const threshold = effectiveThreshold(filters);
   const rows = await loadEmployeeResults(filters);
-  const bands = new Map<string, { count: number; teachers: number; admins: number }>();
+  const bands = new Map<string, { count: number; teachers: number; admins: number; belowThreshold: number }>();
   for (const r of rows) {
-    const cur = bands.get(r.band) ?? { count: 0, teachers: 0, admins: 0 };
+    const cur = bands.get(r.band) ?? { count: 0, teachers: 0, admins: 0, belowThreshold: 0 };
     cur.count += 1;
     if (r.employeeType === "معلم") cur.teachers += 1;
     else cur.admins += 1;
+    // §7.5: الحد يسري على التقرير الإحصائي كما يسري على التفصيلي — رقم واحد لا رقمان
+    if (isLowPerformer(r, threshold)) cur.belowThreshold += 1;
     bands.set(r.band, cur);
   }
-  return [...bands.entries()].map(([band, v]) => ({ band, count: v.count, teachers: v.teachers, admins: v.admins }));
+  return [...bands.entries()].map(([band, v]) => ({
+    band,
+    count: v.count,
+    teachers: v.teachers,
+    admins: v.admins,
+    belowThreshold: v.belowThreshold,
+  }));
 }
 
 async function loadCommitteeRegister(filters: ReportFilters): Promise<ReportRow[]> {

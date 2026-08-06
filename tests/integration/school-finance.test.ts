@@ -107,19 +107,23 @@ describe("B3/B4 — الإيراد والمصروف على مستوى المدر
     expect(row.amount).toBe("300");
   });
 
-  it("يحفظ عملية بمبلغ فارغ تماماً (كل الحقول اختيارية)", async () => {
+  /*
+   * صُحِّح بعد نشر v2.5.0: كان هذا الاختبار يثبّت حفظ الحركة بمبلغ `NULL` بوصفه أثراً
+   * لقاعدة «كل الحقول اختيارية» (v2.1 §H). القاعدة تبقى على الحقول الوصفية، أما المبلغ
+   * فهو الحركة نفسها — وحركة مالية بلا مبلغ لا تدخل مجموعاً ولا رصيداً ولا نسبة إنفاق،
+   * فتختفي من كل رقم مع بقائها في السجل. العقد الآن: تُرفض، ولا يُكتب صف.
+   */
+  it("يرفض حفظ عملية بلا مبلغ — ولا يكتب صفاً", async () => {
     const { addExpenseAction, addIncomeAction } = await import("@/app/(app)/budget/actions");
     const { db } = await import("@/db");
     const { budgetExpenses, budgetIncome } = await import("@/db/schema");
+    const { REQUIRED_AMOUNT_MESSAGE } = await import("@/lib/finance/amount");
 
-    expect((await addExpenseAction(null, fd({ planYearId: yearId })))?.error).toBeUndefined();
-    expect((await addIncomeAction(null, fd({ planYearId: yearId })))?.error).toBeUndefined();
+    expect((await addExpenseAction(null, fd({ planYearId: yearId })))?.error).toBe(REQUIRED_AMOUNT_MESSAGE);
+    expect((await addIncomeAction(null, fd({ planYearId: yearId })))?.error).toBe(REQUIRED_AMOUNT_MESSAGE);
 
-    const [e] = await db.select().from(budgetExpenses);
-    const [i] = await db.select().from(budgetIncome);
-    // المبلغ الفارغ يبقى null ولا يُحوَّل إلى "0" مضلِّل
-    expect(e.amount).toBeNull();
-    expect(i.amount).toBeNull();
+    expect(await db.select().from(budgetExpenses)).toHaveLength(0);
+    expect(await db.select().from(budgetIncome)).toHaveLength(0);
   });
 
   it("يرفض المبلغ غير صحيح الصيغة حين يُدخَل", async () => {

@@ -215,6 +215,8 @@ export function Field({
   dir,
   placeholder,
   hint,
+  step,
+  min,
   autoComplete = "off",
 }: {
   label: string;
@@ -225,6 +227,13 @@ export function Field({
   dir?: "ltr" | "rtl";
   placeholder?: string;
   hint?: string;
+  /**
+   * دقّة الحقل الرقمي. مهم للمبالغ تحديداً: `type="number"` بلا `step` يعني `step=1`، فيرفض
+   * المتصفّح «12.50» صامتاً — بلا رسالة ولا طلب إلى الخادم — فيبدو الحفظ وكأنه لم يحدث.
+   * حقول المال تمرّر `step="0.01"` لتقبل الهللة التي يحسب بها `lib/finance/calc`.
+   */
+  step?: string;
+  min?: string;
   autoComplete?: string;
 }) {
   // كل حقول التاريخ تمر عبر مكوّن التقويم المزدوج (هجري/ميلادي) — D-033
@@ -251,6 +260,8 @@ export function Field({
         type={type}
         defaultValue={defaultValue ?? undefined}
         required={required}
+        step={step}
+        min={min}
         dir={dir}
         placeholder={placeholder}
         // منع حُقن مديري كلمات المرور/المكمّلات عُقَداً بجوار الحقل (سبب insertBefore الثانوي، D-029)

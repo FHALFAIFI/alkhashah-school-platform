@@ -108,14 +108,16 @@ export function SetAllocationForm({
       {/* حقل متحكَّم به — المتبقي الناتج أعلاه يتحدث أثناء الكتابة، فلا يصلح `Field` غير المتحكَّم */}
       <div>
         <label htmlFor="allocatedAmount" className="mb-1 block text-sm font-medium text-gray-700">
-          المخصص المقترح (اتركه فارغاً لإزالة المخصص)
+          المخصص المقترح<span className="text-red-500"> *</span>
         </label>
+        {/* `required` تلميح واجهة فقط — الرفض الحقيقي على الخادم (lib/finance/amount) */}
         <input
           id="allocatedAmount"
           name="allocatedAmount"
           type="number"
           step="0.01"
-          min="0"
+          min="0.01"
+          required
           value={proposed}
           onChange={(e) => setProposed(e.target.value)}
           autoComplete="off"
@@ -123,6 +125,9 @@ export function SetAllocationForm({
           data-lpignore="true"
           className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 lg:min-h-0"
         />
+        <p className="mt-1 text-xs text-gray-400">
+          مبلغ أكبر من صفر. لإزالة المخصص استعمل «إزالة المخصص» أدناه — الحقل الفارغ لم يعد يمحوه.
+        </p>
       </div>
       <div className="mt-2">
         <Field label="ملاحظة التصحيح (اختيارية)" name="note" />
@@ -139,8 +144,24 @@ export function SetAllocationForm({
 
       {state?.error && <p className="mt-2 text-xs text-red-700">{state.error}</p>}
 
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         <SubmitButton>حفظ المخصص</SubmitButton>
+        {/*
+          إزالة المخصص نيّة صريحة لا حقل متروك فارغاً (تصحيح ما بعد نشر v2.5.0).
+          `formNoValidate` مقصود: الحقل صار `required` فيمنع الإرسال، والإزالة لا تُدخل مبلغاً
+          أصلاً. الخادم يتحقق من العلامة نفسها فلا يكفي تجاوز تحقّق المتصفّح لمحو مخصص.
+        */}
+        {currentAllocation !== null && (
+          <button
+            type="submit"
+            name="removeAllocation"
+            value="1"
+            formNoValidate
+            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
+          >
+            إزالة المخصص
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setOpen(false)}

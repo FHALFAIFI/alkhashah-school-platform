@@ -225,7 +225,25 @@ describe("تعديل الإيراد", () => {
     await addIncomeAction(null, fd({ planYearId: yearId, source: "س", amount: "10" }));
     const [row] = await db.select().from(budgetIncome);
 
-    const result = await updateIncomeAction(null, fd({ incomeId: row.id, source: "س", incomeDate: "2026-02-30" }));
+    // المبلغ صار إلزامياً (تصحيح ما بعد v2.5.0) فيُرسَل صالحاً هنا، وإلا حجب خطؤه خطأ التاريخ
+    const result = await updateIncomeAction(null, fd({ incomeId: row.id, source: "س", amount: "10", incomeDate: "2026-02-30" }));
     expect(result?.error).toContain("التاريخ غير صحيح");
+  });
+
+  it("التعديل بمبلغ فارغ يُرفض ولا يمسّ الصف المحفوظ", async () => {
+    const { db } = await import("@/db");
+    const { budgetIncome } = await import("@/db/schema");
+    const { addIncomeAction, updateIncomeAction } = await import("@/app/(app)/budget/actions");
+    const { REQUIRED_AMOUNT_MESSAGE } = await import("@/lib/finance/amount");
+
+    await addIncomeAction(null, fd({ planYearId: yearId, source: "س", amount: "10" }));
+    const [row] = await db.select().from(budgetIncome);
+
+    const result = await updateIncomeAction(null, fd({ incomeId: row.id, source: "س معدّل" }));
+    expect(result?.error).toBe(REQUIRED_AMOUNT_MESSAGE);
+
+    const [after] = await db.select().from(budgetIncome);
+    expect(after.amount).toBe("10");
+    expect(after.source).toBe("س");
   });
 });

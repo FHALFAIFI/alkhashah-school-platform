@@ -12,7 +12,8 @@ import { userFacingError } from "@/lib/user-error";
 import { optionalIsoDate } from "@/lib/dates-zod";
 import { snapshotRecord } from "@/lib/versioning";
 import { expenseSavedMessage } from "@/lib/finance/allocation";
-import { MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE, moneySubtract } from "@/lib/finance/calc";
+import { moneySubtract } from "@/lib/finance/calc";
+import { requiredPositiveAmount } from "@/lib/finance/amount";
 import { formatMoney } from "@/lib/format";
 
 /**
@@ -34,15 +35,17 @@ async function remainingAfterExpense(financialItemId: string | null | undefined)
   return moneySubtract(Number(item.allocated), Number(row?.total ?? 0));
 }
 
-/**
- * مبلغ اختياري (قاعدة v2.1 §H): الحقل الفارغ يُخزَّن null، وإن أُدخلت قيمة وجب أن تكون عدداً
- * موجباً صحيح الصيغة. لا تطبيع صامت.
+/*
+ * مبلغ الحركة المالية **إلزامي** (تصحيح ما بعد نشر v2.5.0).
+ *
+ * كانت قاعدة v2.1 §H — «كل الحقول اختيارية» — تشمل المبلغ نفسه، فكان الإيراد أو المصروف
+ * يُحفظ بمبلغ `NULL`: حركة مالية مقيَّدة لا تدخل أي مجموع ولا رصيد ولا نسبة إنفاق. القاعدة
+ * صحيحة للحقول الوصفية (المصدر، الغرض، رقم الفاتورة، المورّد، الملاحظات، المرفق) وتبقى
+ * سارية عليها؛ أما المبلغ فهو الحركة ذاتها، وغيابه ليس نقصاً في وصفها بل غياب لها.
+ *
+ * التعريف في `lib/finance/amount` ليكون واحداً عبر الإيراد والمصروف والمخصص والاختبارات.
  */
-const optionalPositiveAmount = z.preprocess(
-  (v) => (v === "" || v === null || v === undefined ? undefined : v),
-  // السقف الأعلى (v2.4.1 §5): عمود `numeric` بلا سقف يقبل قيمة عبثية تفسد كل المجاميع والنسب
-  z.coerce.number().positive("المبلغ يجب أن يكون موجباً").max(MAX_MONEY_AMOUNT, MAX_MONEY_MESSAGE).optional(),
-);
+const requiredAmount = requiredPositiveAmount;
 
 export type ActionState = { error?: string; success?: string } | null;
 
@@ -100,7 +103,7 @@ async function attachInvoice(opts: {
 const incomeSchema = z.object({
   planYearId: z.string().uuid(),
   source: z.string().optional(),
-  amount: optionalPositiveAmount,
+  amount: requiredAmount,
   incomeDate: optionalIsoDate,
   purpose: z.string().optional(),
   periodText: z.string().optional(),
@@ -138,8 +141,8 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
       planYearId: d.planYearId,
       // مصدر اختياري: يُخزَّن "" عند الفراغ (العمود notNull) — null-safe في العرض عبر orFallback/orDash
       source: d.source ?? "",
-      // مبلغ اختياري: null عند الفراغ، لا "0" مضلِّل
-      amount: d.amount === undefined ? null : String(d.amount),
+      // المبلغ إلزامي ومُتحقَّق منه في المخطّط — يصل هنا عدداً موجباً بدقة الهللة دائماً
+      amount: String(d.amount),
       incomeDate: d.incomeDate || null,
       purpose: d.purpose || null,
       periodText: d.periodText || null,
@@ -184,7 +187,7 @@ export async function addIncomeAction(_prev: ActionState, formData: FormData): P
  */
 const expenseSchema = z.object({
   planYearId: z.string().uuid(),
-  amount: optionalPositiveAmount,
+  amount: requiredAmount,
   expenseDate: optionalIsoDate,
   programId: z.string().uuid().optional().or(z.literal("")),
   activityId: z.string().uuid().optional().or(z.literal("")),
@@ -232,8 +235,8 @@ export async function addExpenseAction(_prev: ActionState, formData: FormData): 
     .insert(budgetExpenses)
     .values({
       planYearId: d.planYearId,
-      // مبلغ اختياري: null عند الفراغ، لا "0" مضلِّل — null-safe في الحساب والتقارير والتصدير
-      amount: d.amount === undefined ? null : String(d.amount),
+      // المبلغ إلزامي ومُتحقَّق منه في المخطّط — يصل هنا عدداً موجباً بدقة الهللة دائماً
+      amount: String(d.amount),
       expenseDate: d.expenseDate || null,
       programId: d.programId || null,
       activityId: d.activityId || null,
@@ -309,7 +312,7 @@ function expenseAuditView(r: typeof budgetExpenses.$inferSelect): Record<string,
 const incomeUpdateSchema = z.object({
   incomeId: z.string().uuid(),
   source: z.string().optional(),
-  amount: optionalPositiveAmount,
+  amount: requiredAmount,
   incomeDate: optionalIsoDate,
   purpose: z.string().optional(),
   financialItemId: z.string().uuid("البند المالي المختار غير صالح").optional().or(z.literal("")),
@@ -349,7 +352,7 @@ export async function updateIncomeAction(_prev: ActionState, formData: FormData)
     .update(budgetIncome)
     .set({
       source: d.source ?? "",
-      amount: d.amount === undefined ? null : String(d.amount),
+      amount: String(d.amount),
       incomeDate: d.incomeDate || null,
       purpose: d.purpose || null,
       financialItemId: d.financialItemId || null,
@@ -380,7 +383,7 @@ export async function updateIncomeAction(_prev: ActionState, formData: FormData)
 
 const expenseUpdateSchema = z.object({
   expenseId: z.string().uuid(),
-  amount: optionalPositiveAmount,
+  amount: requiredAmount,
   expenseDate: optionalIsoDate,
   financialItemId: z.string().uuid("البند المالي المختار غير صالح").optional().or(z.literal("")),
   category: z.string().optional(),
@@ -415,7 +418,7 @@ export async function updateExpenseAction(_prev: ActionState, formData: FormData
   const [after] = await db
     .update(budgetExpenses)
     .set({
-      amount: d.amount === undefined ? null : String(d.amount),
+      amount: String(d.amount),
       expenseDate: d.expenseDate || null,
       financialItemId: d.financialItemId || null,
       category: d.category || null,

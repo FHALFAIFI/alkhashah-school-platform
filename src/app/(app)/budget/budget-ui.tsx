@@ -66,10 +66,11 @@ export function AddIncomeForm({ planYearId, items }: { planYearId: string; items
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="planYearId" value={planYearId} />
-          <p className="text-xs text-gray-500">كل الحقول اختيارية — يمكن حفظ الإيراد بمعلومات ناقصة.</p>
+          <p className="text-xs text-gray-500">المبلغ مطلوب — وبقية الحقول اختيارية، فيمكن حفظ الإيراد بمعلومات ناقصة عداه.</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="مصدر الإيراد" name="source" />
-            <Field label="المبلغ" name="amount" type="number" />
+            {/* `required` تلميح واجهة فقط — الرفض الحقيقي على الخادم (lib/finance/amount) */}
+            <Field label="المبلغ" name="amount" type="number" required step="0.01" min="0.01" />
             <Field label="التاريخ" name="incomeDate" type="date" />
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="in-status">الحالة</label>
@@ -137,14 +138,20 @@ export function AddExpenseForm({ planYearId, items }: { planYearId: string; item
           {state?.error && <div role="alert" className="rounded bg-red-50 p-2 text-xs text-red-700">{state.error}</div>}
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <input type="hidden" name="planYearId" value={planYearId} />
-          <p className="text-xs text-gray-500">كل الحقول اختيارية — يمكن حفظ المصروف بمعلومات ناقصة.</p>
+          <p className="text-xs text-gray-500">المبلغ مطلوب — وبقية الحقول اختيارية، فيمكن حفظ المصروف بمعلومات ناقصة عداه.</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-amount">المبلغ</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="ex-amount">
+                المبلغ<span className="text-red-500"> *</span>
+              </label>
+              {/* `required` تلميح واجهة فقط — الرفض الحقيقي على الخادم (lib/finance/amount) */}
               <input
                 id="ex-amount"
                 name="amount"
                 type="number"
+                required
+                min="0.01"
+                step="0.01"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm lg:min-h-0"
@@ -243,7 +250,7 @@ export function FinancialItemForm({ item }: { item?: ItemLine & { color?: string
           {state?.success && <div role="status" className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{state.success}</div>}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="اسم البند" name="nameAr" defaultValue={item?.name ?? ""} />
-            <Field label="المبلغ المخصص" name="allocatedAmount" type="number" defaultValue={item?.allocated?.toString() ?? ""} />
+            <Field label="المبلغ المخصص" name="allocatedAmount" type="number" defaultValue={item?.allocated?.toString() ?? ""} step="0.01" min="0.01" />
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor={`c-${item?.id ?? "new"}`}>اللون</label>
               <select

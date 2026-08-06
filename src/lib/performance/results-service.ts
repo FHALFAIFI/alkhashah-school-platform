@@ -8,7 +8,7 @@ import { cycleProgress } from "@/lib/performance/scoring";
 import { loadAnalyticsCycles } from "@/lib/performance/analytics-service";
 import { resultBandLabel } from "@/lib/performance/report-labels";
 import { matchesMulti } from "@/lib/reports/loaders";
-import { DEFAULT_LOW_THRESHOLD, type ReportFilters } from "@/lib/reports/filters";
+import { effectiveLowThreshold, type ReportFilters } from "@/lib/reports/filters";
 import { orFallback } from "@/lib/format";
 
 /**
@@ -53,9 +53,14 @@ export type EmployeeResult = {
   completed: boolean;
 };
 
-/** «أقل من العتبة» — العتبة الفعّالة لهذا التشغيل */
+/**
+ * «أقل من العتبة» — العتبة الفعّالة لهذا التشغيل.
+ *
+ * تفويض إلى `lib/reports/filters` عمداً: الشاشة والتصدير والقالب وترويسة التقرير تقرأ الحد
+ * من هناك، فلو بقي حسابه مكرَّراً هنا لأمكن أن ينحرف الرقمان دون أن يفشل شيء.
+ */
 export function effectiveThreshold(filters: ReportFilters): number {
-  return filters.lowThreshold ?? DEFAULT_LOW_THRESHOLD;
+  return effectiveLowThreshold(filters);
 }
 
 export function isLowPerformer(result: EmployeeResult, threshold: number): boolean {
