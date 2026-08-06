@@ -525,7 +525,9 @@ function activeChips(params: URLSearchParams, options: FilterOptions): Chip[] {
   }
   const low = params.get("lowThreshold");
   if (low && Number(low) !== DEFAULT_LOW_THRESHOLD) {
-    chips.push({ param: "lowThreshold", value: null, label: "عتبة الأداء المنخفض", display: `أقل من ${low}٪` });
+    // التسمية من التعريف المشترك لا مكتوبة هنا: كانت الشريحة تقول «عتبة الأداء المنخفض»
+    // بينما ترويسة الملف المُصدَّر تقول «حد الأداء المنخفض» — اسمان لمرشّح واحد في المنتج نفسه.
+    chips.push({ param: "lowThreshold", value: null, label: FILTER_DEFS.lowThreshold.labelAr, display: `أقل من ${low}٪` });
   }
   return chips;
 }

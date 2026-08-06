@@ -75,8 +75,14 @@ test.describe("issue 1 — the low-performance threshold is reachable on screen"
     await page.locator("#f-low").fill("85");
     await page.locator("#f-low").press("Enter");
     await page.waitForURL(/lowThreshold=85/, { timeout: 30_000 });
-    // and the applied value is reported back as an active filter
-    await expect(page.getByText("حد الأداء المنخفض: أقل من 85٪")).toBeVisible();
+    /*
+     * The applied value is reported back in two places that must agree: the removable chip in
+     * the filters panel, and the "active filters" line that also becomes the exported report's
+     * header. They were briefly worded differently («عتبة» vs «حد») for the same filter, so
+     * both are asserted rather than whichever one a loose selector happens to hit first.
+     */
+    await expect(page.getByRole("button", { name: "حد الأداء المنخفض: أقل من 85٪" })).toBeVisible();
+    await expect(page.getByText("المرشّحات الفعّالة:")).toContainText("حد الأداء المنخفض: أقل من 85٪");
   });
 
   test("an out-of-range value is normalized rather than applied raw", async ({ page }) => {
