@@ -144,7 +144,12 @@ export async function generateOutputsAction(instanceId: string, _prev: ActionSta
   return { success: result.success, instanceId };
 }
 
-/** رفع النسخة الموقّعة بعد التوقيع الخارجي (§B) ثم إعادة تجميع الحزمة لتشملها */
+/**
+ * رفع النسخة الموقّعة (§B) ثم إعادة تجميع الحزمة لتشملها — **بدورة مهمة كاملة لا نداء
+ * يُبتلع فشله** (بلوكر §6): الربط يزيل الحزمة القديمة في المعاملة نفسها فلا حزمة ناقصة
+ * قابلة للتنزيل، ثم تُدرج مهمة إعادة التجميع في سجل المهام — فشلها يُسجَّل بسببه العربي
+ * ويظهر مع زر «إعادة المحاولة» كسائر مهام التوليد.
+ */
 export async function uploadSignedCopyAction(instanceId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requirePermission("reports.read", "documents.issue");
   const upload = formData.get("signedCopy");
@@ -164,13 +169,17 @@ export async function uploadSignedCopyAction(instanceId: string, _prev: ActionSt
     });
     const result = await attachSignedCopy(instanceId, file.id, user);
     if (result.error) return result;
-    // الحزمة تُعاد تجميعاً في الخلفية لتشمل النسخة الموقّعة (D-060)
-    after(async () => {
-      const { rebuildZip } = await import("@/lib/reports/instances/outputs");
-      const fresh = await getInstance(instanceId, user);
-      if (fresh) await rebuildZip(fresh, user.id).catch(() => undefined);
-    });
-    return result;
+
+    const generation = await requestGeneration(instanceId, ["zip"], user);
+    if (generation.jobId) {
+      const jobId = generation.jobId;
+      after(() => runJob(jobId));
+      return result;
+    }
+    // مهمة توليد نشطة قائمة: ستجمّع الحزمة بنفسها في نهايتها من الصف الراهن (§6) —
+    // أما أي رفض آخر فيُقال صراحةً، لا يُبتلع: النسخة محفوظة والحزمة تحتاج «توليد المخرجات»
+    if (generation.error?.includes("جارٍ فعلاً")) return result;
+    return { error: `حُفظت النسخة الموقّعة، لكن جدولة تجميع الحزمة رُفضت: ${generation.error ?? "سبب غير معروف"} — استعمل «توليد المخرجات»` };
   } catch (e) {
     if (e instanceof UploadValidationError) return { error: e.message };
     return { error: userFacingError(e, "تعذر حفظ النسخة الموقّعة") };

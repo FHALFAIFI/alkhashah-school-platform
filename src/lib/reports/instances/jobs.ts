@@ -67,7 +67,8 @@ export async function requestGeneration(
   if (row.sensitive && !viewer.permissions.has("performance.individual.read")) return { error: "التقرير غير موجود" };
   if (row.status === INSTANCE_DRAFT) return { error: "اعتمد التقرير أولاً — مخرجات المسودة تُنزَّل مباشرة ولا تُحفظ" };
 
-  const wanted = [...new Set(formats.filter(isOutputFormat))];
+  // «zip» صيغة قابلة للطلب وحدها: مهمة إعادة تجميع الحزمة بعد النسخة الموقّعة (بلوكر §6)
+  const wanted = [...new Set(formats.filter((f) => isOutputFormat(f) || f === "zip"))];
   if (wanted.length === 0) return { error: "اختر صيغة واحدة على الأقل" };
 
   const [active] = await db
@@ -123,7 +124,8 @@ export async function runJob(jobId: string): Promise<void> {
       await ensureStoredOutput(row, format as OutputFormat, job.requestedBy ?? row.finalizedBy ?? "");
       await beat();
     }
-    await rebuildZip(row, job.requestedBy ?? row.finalizedBy ?? "");
+    // الحزمة تُجمَّع دائماً في نهاية كل مهمة — من الصفّ الراهن في القاعدة لا من صف قديم (§6)
+    await rebuildZip(job.instanceId, job.requestedBy ?? row.finalizedBy ?? "");
 
     await db
       .update(reportJobs)

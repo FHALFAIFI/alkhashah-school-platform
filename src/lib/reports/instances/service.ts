@@ -313,71 +313,85 @@ async function nextReportNumber(tx: typeof db): Promise<string> {
  * اللقطة، وتمنح الرقم. **متكرّر التنفيذ بأمان**: تقرير اعتُمد فعلاً يعيد رقمه القائم
  * بنجاح — فالنقر المزدوج والإعادة بعد انقطاع لا يمنحان رقمين ولا يكتبان لقطتين.
  *
- * اللقطة تُبنى قبل المعاملة (قراءات ثقيلة لا يصح إمساك القفل خلالها)؛ عند تسابق
- * اعتمادين يفوز الأول والثاني يجد الحالة «نهائي» فيعيد رقمها.
+ * ── قفل تفاؤلي على `updated_at` ─────────────────────────────────────────────
+ * اللقطة تُبنى قبل المعاملة (قراءات ثقيلة لا يصح إمساك القفل خلالها) — وهذا يفتح سباقاً:
+ * تعديلُ مسودةٍ يهبط بين بناء اللقطة وقفل الصفّ كان يجعل المعتمَد لقطةً من إعدادات
+ * **أقدم** من المحفوظ. لذلك يُلتقط `updated_at` قبل البناء ويُقارن تحت القفل: إن تغيّر،
+ * تُرمى اللقطة وتُبنى من جديد (بمحاولات محدودة) — فلا يُعتمد أبداً ما لم يُبنَ من آخر
+ * حالةٍ للمسودة. الاختبار الحتمي: `finalize-race.test.ts`.
  */
+const FINALIZE_MAX_ATTEMPTS = 3;
+
 export async function finalizeInstance(id: string, viewer: Viewer): Promise<InstanceResult> {
   if (!viewer.permissions.has("documents.issue")) return { error: "اعتماد التقرير يتطلب صلاحية إصدار الوثائق" };
-  const row = await getInstance(id, viewer);
-  if (!row) return { error: "التقرير غير موجود" };
-  if (row.status === INSTANCE_FINAL || row.status === INSTANCE_ARCHIVED) {
-    return { success: `التقرير معتمد فعلاً برقم ${row.reportNumber}`, instanceId: id, reportNumber: row.reportNumber ?? undefined };
-  }
 
-  let doc: SnapshotDoc;
-  try {
-    doc = await buildSnapshot({
-      instanceId: row.id,
-      typeKey: row.typeKey,
-      title: row.title,
-      storedFilters: row.filters,
-      storedOptions: row.options,
-      periodFrom: row.periodFrom,
-      periodTo: row.periodTo,
-      viewer,
-    });
-  } catch (e) {
-    if (e instanceof SnapshotPermissionError) return { error: e.message };
-    return { error: e instanceof Error ? e.message : "تعذر بناء لقطة التقرير" };
-  }
-
-  let reportNumber = "";
-  const outcome = await db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(reportInstances).where(eq(reportInstances.id, id)).for("update");
-    if (!locked) return { error: "التقرير غير موجود" };
-    if (locked.status !== INSTANCE_DRAFT) {
-      return { success: `التقرير معتمد فعلاً برقم ${locked.reportNumber}`, reportNumber: locked.reportNumber ?? "" };
+  for (let attempt = 1; attempt <= FINALIZE_MAX_ATTEMPTS; attempt++) {
+    const row = await getInstance(id, viewer);
+    if (!row) return { error: "التقرير غير موجود" };
+    if (row.status === INSTANCE_FINAL || row.status === INSTANCE_ARCHIVED) {
+      return { success: `التقرير معتمد فعلاً برقم ${row.reportNumber}`, instanceId: id, reportNumber: row.reportNumber ?? undefined };
     }
-    reportNumber = await nextReportNumber(tx as unknown as typeof db);
-    await tx
-      .update(reportInstances)
-      .set({
-        status: INSTANCE_FINAL,
-        reportNumber,
-        snapshot: doc as unknown as Record<string, unknown>,
-        finalizedAt: new Date(),
-        finalizedBy: viewer.id,
-        updatedBy: viewer.id,
-        updatedAt: new Date(),
-      })
-      .where(eq(reportInstances.id, id));
-    return { reportNumber };
-  });
+    const draftStamp = row.updatedAt.getTime();
 
-  if ("error" in outcome && outcome.error) return { error: outcome.error };
-  if ("success" in outcome && outcome.success) {
-    return { success: outcome.success, instanceId: id, reportNumber: outcome.reportNumber };
+    let doc: SnapshotDoc;
+    try {
+      doc = await buildSnapshot({
+        instanceId: row.id,
+        typeKey: row.typeKey,
+        title: row.title,
+        storedFilters: row.filters,
+        storedOptions: row.options,
+        periodFrom: row.periodFrom,
+        periodTo: row.periodTo,
+        viewer,
+      });
+    } catch (e) {
+      if (e instanceof SnapshotPermissionError) return { error: e.message };
+      return { error: e instanceof Error ? e.message : "تعذر بناء لقطة التقرير" };
+    }
+
+    let reportNumber = "";
+    const outcome = await db.transaction(async (tx) => {
+      const [locked] = await tx.select().from(reportInstances).where(eq(reportInstances.id, id)).for("update");
+      if (!locked) return { error: "التقرير غير موجود" };
+      if (locked.status !== INSTANCE_DRAFT) {
+        return { success: `التقرير معتمد فعلاً برقم ${locked.reportNumber}`, reportNumber: locked.reportNumber ?? "" };
+      }
+      // المسودة تغيّرت بعد بناء اللقطة — لا يُعتمد بناءٌ من إعدادات قديمة (بلوكر §5)
+      if (locked.updatedAt.getTime() !== draftStamp) return { stale: true as const };
+      reportNumber = await nextReportNumber(tx as unknown as typeof db);
+      await tx
+        .update(reportInstances)
+        .set({
+          status: INSTANCE_FINAL,
+          reportNumber,
+          snapshot: doc as unknown as Record<string, unknown>,
+          finalizedAt: new Date(),
+          finalizedBy: viewer.id,
+          updatedBy: viewer.id,
+          updatedAt: new Date(),
+        })
+        .where(eq(reportInstances.id, id));
+      return { reportNumber };
+    });
+
+    if ("stale" in outcome && outcome.stale) continue;
+    if ("error" in outcome && outcome.error) return { error: outcome.error };
+    if ("success" in outcome && outcome.success) {
+      return { success: outcome.success, instanceId: id, reportNumber: outcome.reportNumber };
+    }
+
+    await audit({
+      actorId: viewer.id,
+      action: "report_instance.finalized",
+      entityType: "report_instance",
+      entityId: id,
+      summary: `اعتماد التقرير «${row.title}» برقم ${reportNumber}`,
+      detail: { reportNumber, sections: doc.stats.sectionCount, rows: doc.stats.totalRows, buildAttempt: attempt },
+    });
+    return { success: `اعتُمد التقرير برقم ${reportNumber}`, instanceId: id, reportNumber };
   }
-
-  await audit({
-    actorId: viewer.id,
-    action: "report_instance.finalized",
-    entityType: "report_instance",
-    entityId: id,
-    summary: `اعتماد التقرير «${row.title}» برقم ${reportNumber}`,
-    detail: { reportNumber, sections: doc.stats.sectionCount, rows: doc.stats.totalRows },
-  });
-  return { success: `اعتُمد التقرير برقم ${reportNumber}`, instanceId: id, reportNumber };
+  return { error: "المسودة تتغيّر أثناء الاعتماد — ثبّت التعديلات ثم أعد المحاولة" };
 }
 
 /* ─────────────────────────── الأرشفة والنسخة الموقّعة ─────────────────────────── */
@@ -420,25 +434,37 @@ export async function unarchiveInstance(id: string, viewer: Viewer): Promise<Ins
   return { success: "استُعيد التقرير من الأرشيف" };
 }
 
-/** ربط النسخة الموقّعة بعد التوقيع الخارجي (§B) — الملف محفوظ مسبقاً في التخزين */
+/**
+ * ربط النسخة الموقّعة بعد التوقيع الخارجي (§B) — الملف محفوظ مسبقاً في التخزين.
+ *
+ * **لا حزمة قديمة قابلة للتنزيل ولو للحظة** (بلوكر §6): ربط النسخة وحذف صفّ ZIP القائم
+ * يقعان في معاملة واحدة، فمنذ لحظة الربط لا يوجد إلا «لم تُجمَّع بعد» حتى تكتمل مهمة
+ * إعادة التجميع — التي يدرجها المستدعي في سجل المهام بدورتها الكاملة (فشل مرئي وإعادة).
+ */
 export async function attachSignedCopy(id: string, fileId: string, viewer: Viewer): Promise<InstanceResult> {
   if (!viewer.permissions.has("documents.issue")) return { error: "رفع النسخة الموقّعة يتطلب صلاحية إصدار الوثائق" };
   const row = await getInstance(id, viewer);
   if (!row) return { error: "التقرير غير موجود" };
   if (row.status === INSTANCE_DRAFT) return { error: "النسخة الموقّعة تُرفع بعد اعتماد التقرير" };
-  await db
-    .update(reportInstances)
-    .set({ signedCopyFileId: fileId, updatedBy: viewer.id, updatedAt: new Date() })
-    .where(eq(reportInstances.id, id));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(reportInstances)
+      .set({ signedCopyFileId: fileId, updatedBy: viewer.id, updatedAt: new Date() })
+      .where(eq(reportInstances.id, id));
+    // الحزمة القائمة صارت ناقصة بالتعريف — تُزال فوراً وتُعاد جمعاً بمهمة مسجلة
+    await tx
+      .delete(reportOutputs)
+      .where(and(eq(reportOutputs.instanceId, id), eq(reportOutputs.format, "zip")));
+  });
   await audit({
     actorId: viewer.id,
     action: "report_instance.signed_copy_uploaded",
     entityType: "report_instance",
     entityId: id,
-    summary: `رفع النسخة الموقّعة للتقرير ${row.reportNumber}`,
+    summary: `رفع النسخة الموقّعة للتقرير ${row.reportNumber} — أُزيلت الحزمة القديمة وستُجمَّع من جديد`,
     detail: { fileId, previousFileId: row.signedCopyFileId },
   });
-  return { success: "حُفظت النسخة الموقّعة", instanceId: id };
+  return { success: "حُفظت النسخة الموقّعة — تُجمَّع الحزمة من جديد لتشملها", instanceId: id };
 }
 
 /* ─────────────────────────── مخرجات محفوظة ─────────────────────────── */

@@ -253,6 +253,13 @@
       "when": 1786152126515,
       "tag": "0035_v260_report_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786152127515,
+      "tag": "0036_v260_zip_row_guard",
+      "breakpoints": true
     }
   ]
 }

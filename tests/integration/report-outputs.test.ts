@@ -127,12 +127,12 @@ describe("§I — مهام التوليد الخلفي", () => {
     expect(job!.status).toBe("مكتمل");
 
     const zip = await readOutput(id, "zip");
-    expect(zip).toBeTruthy();
-    const archive = new AdmZip(zip!.data);
+    if (!zip || "corrupt" in zip) throw new Error("حزمة غائبة أو معطوبة");
+    const archive = new AdmZip(zip.data);
     const names = archive.getEntries().map((e) => e.entryName);
     expect(names.some((n) => n.endsWith(".xlsx"))).toBe(true);
     expect(names.some((n) => n.endsWith(".docx"))).toBe(true);
-    expect(verifyZip(zip!.data, names)).toBe(true);
+    expect(verifyZip(zip.data, names)).toBe(true);
 
     // الإعادة: مهمة جديدة تكمل ولا تكرر — عدد المخرجات ثابت
     const { db } = await import("@/db");
@@ -209,10 +209,10 @@ describe("§B/§G — النسخة الموقّعة والحزمة", () => {
     const attached = await attachSignedCopy(id, file.id, viewer());
     expect(attached.error).toBeUndefined();
 
-    const row = await getRow(id);
-    await rebuildZip(row, userId);
+    await rebuildZip(id, userId);
     const zip = await readOutput(id, "zip");
-    const names = new AdmZip(zip!.data).getEntries().map((e) => e.entryName);
+    if (!zip || "corrupt" in zip) throw new Error("حزمة غائبة أو معطوبة");
+    const names = new AdmZip(zip.data).getEntries().map((e) => e.entryName);
     expect(names.some((n) => n.includes("النسخة الموقعة"))).toBe(true);
   });
 });

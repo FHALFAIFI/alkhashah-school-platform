@@ -58,10 +58,23 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
       summary: `تنزيل ${fmt} للتقرير «${row.title}»${row.reportNumber ? ` (${row.reportNumber})` : " (مسودة)"}`,
     });
 
+  // فساد ملف محفوظ (بلوكر §8): البايتات الفعلية خالفت التجزئة المسجلة — يُرفض بصوت ويُدقَّق
+  const corruptionResponse = async (what: string) => {
+    await audit({
+      actorId: user.id,
+      action: "report_instance.output_corrupt",
+      entityType: "report_instance",
+      entityId: row.id,
+      summary: `فشل فحص سلامة ${what} للتقرير «${row.title}» — التجزئة الفعلية تخالف المسجلة`,
+    });
+    return NextResponse.json({ error: "فشل فحص سلامة الملف المحفوظ — أعد توليد المخرجات" }, { status: 500 });
+  };
+
   // النسخة الموقّعة — تقرير معتمد فقط، وتتطلب أن تكون مرفوعة
   if (format === "signed") {
     const signed = await readSignedCopy(row);
     if (!signed) return NextResponse.json({ error: "لا نسخة موقّعة محفوظة" }, { status: 404 });
+    if ("corrupt" in signed) return corruptionResponse("النسخة الموقّعة");
     await logDownload("النسخة الموقّعة");
     return new NextResponse(new Uint8Array(signed.data), {
       headers: {
@@ -78,6 +91,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     }
     const stored = await readOutput(row.id, "zip");
     if (!stored) return NextResponse.json({ error: "لم تُجمَّع الحزمة بعد — ولّد المخرجات أولاً" }, { status: 404 });
+    if ("corrupt" in stored) return corruptionResponse("حزمة ZIP");
     await logDownload("ZIP");
     return new NextResponse(new Uint8Array(stored.data), {
       headers: {
@@ -93,6 +107,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   // المعتمد: المخرج المحفوظ أولاً
   if (row.status !== INSTANCE_DRAFT) {
     const stored = await readOutput(row.id, format);
+    if (stored && "corrupt" in stored) return corruptionResponse(`مخرج ${format.toUpperCase()}`);
     if (stored) {
       await logDownload(format.toUpperCase());
       return new NextResponse(new Uint8Array(stored.data), {

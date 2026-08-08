@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { reportInstances, reportOutputs, storedFiles } from "@/db/schema";
@@ -104,8 +105,13 @@ export async function ensureStoredOutput(
  * تجميع حزمة ZIP من الأجزاء المحفوظة (§G — D-060): المخرجات الثلاث + النسخة الموقّعة +
  * الشواهد المرفقة المجمّدة في اللقطة. تُستبدل الحزمة القائمة (المسموح الوحيد بعد
  * الاعتماد) — وهو ما يجعل وصول النسخة الموقّعة يدخل الحزمة تلقائياً.
+ *
+ * يقرأ الصفّ من القاعدة **لحظة التجميع** لا من معامل مرَّر (بلوكر §6): مرجع النسخة
+ * الموقّعة قد يتبدل بين جدولة المهمة وتنفيذها، والحزمة يجب أن تحمل الحالة الراهنة حتماً.
  */
-export async function rebuildZip(row: InstanceRow, actorId: string): Promise<{ fileId: string }> {
+export async function rebuildZip(instanceId: string, actorId: string): Promise<{ fileId: string }> {
+  const [row] = await db.select().from(reportInstances).where(eq(reportInstances.id, instanceId));
+  if (!row) throw new Error("التقرير غير موجود");
   if (row.status === INSTANCE_DRAFT) throw new Error("حزمة المسودة لا تُحفظ");
   const doc = readSnapshot(row.snapshot);
   if (!doc) throw new Error("لقطة التقرير غير قابلة للقراءة");
@@ -164,8 +170,17 @@ export async function rebuildZip(row: InstanceRow, actorId: string): Promise<{ f
   return { fileId: file.id };
 }
 
-/** قراءة مخرج محفوظ للبثّ — مع فحص سلامة التجزئة المسجلة وقت التوليد */
-export async function readOutput(instanceId: string, format: string) {
+/**
+ * قراءة مخرج محفوظ للبثّ — التجزئة تُحسب من **البايتات الفعلية على القرص** لحظة القراءة
+ * وتُقارن بالمسجلة وقت التوليد (بلوكر §8): عبثٌ بالملف المخزَّن — أو تلفه — يُرفض بنتيجة
+ * «معطوب» صريحة، لا بصمت ولا بمقارنة سجلَّين في القاعدة كلاهما قابل للانحراف عن القرص.
+ */
+export type OutputRead =
+  | { output: typeof reportOutputs.$inferSelect; file: NonNullable<Awaited<ReturnType<typeof readStoredFile>>>["file"]; data: Buffer }
+  | { corrupt: true }
+  | null;
+
+export async function readOutput(instanceId: string, format: string): Promise<OutputRead> {
   const [output] = await db
     .select()
     .from(reportOutputs)
@@ -173,14 +188,20 @@ export async function readOutput(instanceId: string, format: string) {
   if (!output) return null;
   const stored = await readStoredFile(output.fileId);
   if (!stored) return null;
-  if (output.checksum && stored.file.sha256 !== output.checksum) return null;
+  const actualDigest = createHash("sha256").update(stored.data).digest("hex");
+  const expected = output.checksum ?? stored.file.sha256;
+  if (expected && actualDigest !== expected) return { corrupt: true };
   return { output, file: stored.file, data: stored.data };
 }
 
-/** الملف الموقّع المرفوع — للبث والعرض */
-export async function readSignedCopy(row: InstanceRow) {
+/** الملف الموقّع المرفوع — للبث والعرض، بفحص البايتات الفعلية نفسه (§8) */
+export async function readSignedCopy(row: InstanceRow): Promise<{ file: NonNullable<Awaited<ReturnType<typeof readStoredFile>>>["file"]; data: Buffer } | { corrupt: true } | null> {
   if (!row.signedCopyFileId) return null;
   const [file] = await db.select().from(storedFiles).where(eq(storedFiles.id, row.signedCopyFileId));
   if (!file) return null;
-  return readStoredFile(file.id);
+  const stored = await readStoredFile(file.id);
+  if (!stored) return null;
+  const actualDigest = createHash("sha256").update(stored.data).digest("hex");
+  if (file.sha256 && actualDigest !== file.sha256) return { corrupt: true };
+  return stored;
 }
