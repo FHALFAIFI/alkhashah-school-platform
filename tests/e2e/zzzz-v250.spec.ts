@@ -133,10 +133,12 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
 
       // التحذير معلوماتي — والحفظ متاح
       await expect(page.getByText("سيتم تسجيل التعديلات", { exact: false }).first()).toBeVisible();
-      const field = page.locator('input[name="field_principalNotes"], textarea[name="field_principalNotes"]').first();
-      await field.fill(`ملاحظة ${s.label} ${TAG}`);
-      await page.locator('textarea[name="reason"], input[name="reason"]').first().fill(`تصحيح موثّق ${TAG}`);
-      await page.getByRole("button", { name: "حفظ التعديل" }).click();
+      // صفحة البرنامج تحمل خمسة حقول باسم `reason` (أرشفة، إعادة فتح، طلب تغيير، تحديث
+      // تنفيذ، تعديل) — الكتابة تُوجَّه إلى نموذج التعديل نفسه لا إلى أوّل مطابق (v2.5.0 §9.5)
+      const editForm = page.locator("form").filter({ has: page.getByRole("button", { name: "حفظ التعديل" }) });
+      await editForm.locator('input[name="field_principalNotes"], textarea[name="field_principalNotes"]').first().fill(`ملاحظة ${s.label} ${TAG}`);
+      await editForm.locator('textarea[name="reason"], input[name="reason"]').first().fill(`تصحيح موثّق ${TAG}`);
+      await editForm.getByRole("button", { name: "حفظ التعديل" }).click();
       await expect(page.getByText("حُفظ", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
 
       // الحالة لم تتغيّر بالتعديل
