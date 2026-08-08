@@ -1001,3 +1001,79 @@ referenced attachments) and re-assembled when the signed copy arrives after fina
 which is why the immutability trigger (D-055) exempts exactly the ZIP row and nothing
 else. Path safety: entry names are sanitized flat names, never caller paths; integrity is
 verified by reading the archive back before it is stored or served.
+
+## D-061 — Finalization holds an optimistic lock on the draft's `updated_at` (2026-08-08)
+
+v2.6 §A, raised by the independent RC review.
+
+**The race.** `finalizeInstance` builds the snapshot *before* opening its transaction —
+deliberately, because building runs every section's query and holding a row lock across
+that would serialise the whole archive. But that leaves a window: a draft edit landing
+between the build and the lock meant the frozen snapshot could be built from **older**
+settings than the ones stored, and nothing would ever reveal it — the report would simply
+be wrong forever, which §B makes unfixable by design.
+
+**The rule.** `updated_at` is read before the build and compared under `FOR UPDATE`. If it
+moved, the built snapshot is discarded and the whole attempt repeats (bounded at three).
+A finalized report is therefore always built from the last committed state of its draft.
+Idempotency is unchanged: a row already final returns its existing number.
+
+**Why not lock for the whole build.** It would serialise finalization against every other
+reader of those tables for the duration of a full report build — seconds on large reports —
+to prevent a window measured in milliseconds. The compare-and-retry costs one extra read.
+
+`tests/integration/v260-review-blockers.test.ts` proves it by **lock ordering, not timing**:
+the test holds the row lock, lets finalize build and block, edits the title, commits, and
+asserts the frozen snapshot carries the newer title.
+
+## D-062 — The package is never downloadable in a stale state (2026-08-08)
+
+v2.6 §B/§G, raised by the independent RC review.
+
+D-060 allowed the ZIP row to be replaced when a signed copy arrives. The first
+implementation replaced it *after* rebuilding, so between the signed copy landing and the
+rebuild finishing, the previous package — the one missing that signed copy — was still
+downloadable and looked complete.
+
+**The rule.** Attaching a signed copy **deletes** the existing ZIP row in the same
+transaction as the reference update. From that instant the only truthful state is "not
+assembled yet", and the rebuild runs as a recorded `report_jobs` entry like any other
+generation: its failure is stored with an Arabic reason and surfaced with Retry, never
+swallowed by a fire-and-forget catch. `rebuildZip` reloads the instance row at assembly
+time, so a signed copy replaced between scheduling and execution still wins.
+
+Migration 0036 narrows the trigger accordingly: a ZIP row may replace only
+`file_id`/`checksum`/`size`/`created_at` — never its `format`, `instance_id` or `id`.
+
+## D-063 — Integrity is verified against the bytes on disk, not against a second row (2026-08-08)
+
+v2.6 §B/§H, raised by the independent RC review.
+
+`report_outputs.checksum` and `stored_files.sha256` are both recorded at write time, so
+comparing them proves only that two database rows agree — they drift together the moment
+the file itself is altered or truncated underneath. Reads now recompute SHA-256 from the
+bytes actually returned by storage and compare that to the recorded digest, returning an
+explicit `{ corrupt: true }` that the download route turns into an audited refusal.
+
+The cost is one hash per download of an already-in-memory buffer. The alternative —
+serving a silently corrupted official report — is not an acceptable trade at any price.
+
+## D-064 — The report builder is the only authoring surface (2026-08-08)
+
+v2.6 §A, raised by the independent RC review.
+
+The archive shipped with its own reduced editing form, which meant column selection,
+ordering, grouping and display mode were reachable in `/reports/builder` but not when
+editing a saved report — two authoring surfaces with different capabilities over the same
+model.
+
+**The rule.** `/reports/builder` authors both: it gains a "save as report" step, and
+opening it with `instance=<id>` makes it that report's editor. The archive's own form keeps
+only what the builder cannot express — period, output template, output formats, section
+order and visibility, identity overrides. Saved report *settings* (`report_templates`)
+open in the builder as starting points, closing the loop between the two.
+
+Two defects this surfaced, both silent: stored filters were read back without the report's
+whitelist so saved column/sort/group selections vanished on read; and the snapshot ordered
+columns by catalogue definition instead of by the user's selection order, discarding an
+explicitly approved builder capability.
