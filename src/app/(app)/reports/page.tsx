@@ -191,6 +191,7 @@ export default async function ReportsPage({
         actions={
           <div className="flex flex-wrap gap-2">
             <LinkButton href="/reports/builder">منشئ التقارير</LinkButton>
+            <LinkButton href="/reports/archive" variant="secondary">أرشيف التقارير</LinkButton>
             {user.permissions.has("reports.executive") && (
               // التسمية كما اعتادها المدير في النسخة السابقة — إعادة تصميم مركز التقارير
               // لا تستلزم تغيير اسم إجراء قائم يعرفه المستخدم.
@@ -233,6 +234,13 @@ export default async function ReportsPage({
                       إعدادات تقارير محفوظة بأسمائها — شغّلها كما هي أو عدّلها أو انسخها.
                     </p>
                     <div className="mt-3"><LinkButton href="/reports/templates" variant="secondary">فتح القوالب</LinkButton></div>
+                  </Card>
+                  <Card>
+                    <h3 className="font-bold text-brand-900">أرشيف التقارير</h3>
+                    <p className="mt-1 text-xs text-gray-500">
+                      التقارير المحفوظة: مسودات تُبنى وتُعاين، وتقارير نهائية مرقّمة بلقطات لا تتغير، وأرشيف يُبحث فيه.
+                    </p>
+                    <div className="mt-3"><LinkButton href="/reports/archive" variant="secondary">فتح الأرشيف</LinkButton></div>
                   </Card>
                   <Card>
                     <h3 className="font-bold text-brand-900">التقارير الصادرة</h3>

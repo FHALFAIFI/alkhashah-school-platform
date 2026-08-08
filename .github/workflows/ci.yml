@@ -1,0 +1,168 @@
+# v2.6 CI — the platform's first pipeline (v2.6 Phase 10).
+#
+# Every job runs on synthetic data only: the Postgres service starts empty, migrations
+# create the schema, and fixtures fabricate Arabic records. No production data, no
+# secrets beyond the ephemeral test values below, no reference_files.
+#
+# Job map:
+#   quality        — lint + typecheck (fast fail)
+#   tests          — unit + integration against a fresh Postgres 16 service
+#   migrations     — clean-schema install AND upgrade-from-v2.5.0 (ledger 34 → 36)
+#   build          — production next build
+#   artifacts      — representative report generation: DOCX/XLSX/ZIP + PDF + print HTML
+#                    from a synthetic dataset, uploaded for human inspection
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "scope-**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  quality:
+    name: Lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+
+  tests:
+    name: Unit + integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: madrasa
+          POSTGRES_PASSWORD: madrasa_dev
+          POSTGRES_DB: madrasa
+        ports: ["5544:5432"]
+        options: >-
+          --health-cmd "pg_isready -U madrasa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # The test helpers hardcode localhost:5544/madrasa_test and create the DB themselves.
+      - name: Run vitest (unit + integration)
+        run: npm test
+      - name: Upload test summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-output
+          path: |
+            test-results
+          if-no-files-found: ignore
+
+  migrations:
+    name: Migration safety (clean + upgrade from v2.5.0)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: madrasa
+          POSTGRES_PASSWORD: madrasa_dev
+          POSTGRES_DB: madrasa
+        ports: ["5544:5432"]
+        options: >-
+          --health-cmd "pg_isready -U madrasa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # v2.5.0 tag is needed to rehearse the upgrade path
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Drizzle consistency check
+        run: npx drizzle-kit check
+      - name: Clean install — all migrations on an empty database
+        env:
+          DATABASE_URL: postgresql://madrasa:madrasa_dev@localhost:5544/madrasa_clean_test
+        run: |
+          PGPASSWORD=madrasa_dev psql -h localhost -p 5544 -U madrasa -d madrasa -c 'CREATE DATABASE madrasa_clean_test'
+          npx tsx src/db/migrate.ts
+          PGPASSWORD=madrasa_dev psql -h localhost -p 5544 -U madrasa -d madrasa_clean_test -c \
+            "SELECT count(*) AS ledger FROM drizzle.__drizzle_migrations" | grep -q "36" || \
+            (echo 'expected ledger 36' && PGPASSWORD=madrasa_dev psql -h localhost -p 5544 -U madrasa -d madrasa_clean_test -c "SELECT count(*) FROM drizzle.__drizzle_migrations" && exit 1)
+      - name: Upgrade rehearsal — v2.5.0 schema then v2.6 migrations
+        env:
+          DATABASE_URL: postgresql://madrasa:madrasa_dev@localhost:5544/madrasa_upgrade_test
+        run: bash scripts/ci-migration-upgrade-test.sh
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  artifacts:
+    name: Sample artifacts (synthetic data)
+    runs-on: ubuntu-latest
+    needs: [quality]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: madrasa
+          POSTGRES_PASSWORD: madrasa_dev
+          POSTGRES_DB: madrasa
+        ports: ["5544:5432"]
+        options: >-
+          --health-cmd "pg_isready -U madrasa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium for Arabic PDF rendering
+        run: npx playwright install --with-deps chromium
+      - name: Generate representative report artifacts
+        run: npx tsx scripts/v260-ci-artifacts.ts
+      - name: Upload generated samples
+        uses: actions/upload-artifact@v4
+        with:
+          name: v26-report-samples
+          path: storage-ci-artifacts/
+          if-no-files-found: error
+          retention-days: 30
