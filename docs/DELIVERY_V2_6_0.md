@@ -8,21 +8,27 @@
 
 ## 1) Executive verdict
 
-**RC READY — AWAITING DEPLOYMENT AUTHORIZATION.**
+**NOT READY.** The scope is implemented and every automated gate is green, but three
+things must happen before this can be called a release candidate again, and one of them
+has not been attempted at all.
 
-All code-addressable scope is implemented and green: full local suite, first-ever CI
-pipeline fully green (quality, tests, migration safety, production build, synthetic
-artifacts), browser e2e 7/7 twice, migration upgrade rehearsal from the real v2.5.0
-set, DB-level immutability proven by raw-SQL refusal, performance within the §J targets
-at representative and stress scale, and mixed-orientation Arabic output proven in the
-generated files themselves.
+| # | Outstanding | Kind |
+|---|---|---|
+| 1 | **ARM64 runtime smoke has never been run.** The CI smoke runs a *runner-native amd64* build of the same Dockerfile and commit. That proves the code boots, migrates and answers health — it does **not** prove the pushed `linux/arm64` binary runs. First mandatory pre-swap gate in `RUNBOOK.md`; not performed. | Blocking |
+| 2 | **D-066 — an open product defect.** Removing one value from a multi-value report filter while others remain leaves the table and result count stale until reload. Reproduced on the production build. Cause is Next 16.2.12's client router cache; not fixed inside this frozen RC. | Disclosed defect |
+| 3 | Interactive Microsoft Word open of the sample DOCX files, and the owner-authorized deployment with the principal's acceptance. | Human |
 
-Two items remain that genuinely require a human or the deployed environment, and only
-those: **(a)** opening the sample DOCX files in interactive Microsoft Word (Word is
-installed on this workstation but its first-run dialog blocks scripted AppleEvents;
-LibreOffice full-fidelity conversion + OOXML structural inspection stand as automated
-evidence), and **(b)** the owner-authorized deployment itself with the principal's
-acceptance on the deployed environment.
+**Why the verdict moved from RC READY.** The full Playwright suite had never actually run
+to completion: two failures in serial-mode describes were aborting the rest, so 11 tests
+had never executed once. Getting them to run surfaced **six real production defects**
+(§5a) — including one that returns a 500 error page on an ordinary filter click — none of
+which any test had ever reached. A suite that cannot finish is not evidence.
+
+**Do not deploy the `0.1.0-v2_6_0-rc` tag, and do not cite digest
+`sha256:3d331c0374f22fac009e5f3a6a59d4048ccf5997b1a2e409ab4b2e7df6698d98`** — it was built
+from commit `28f007f`, which predates several product fixes. The tag is mutable and is
+re-pushed on every branch push; deployment is by digest only, and only from a digest built
+on the final SHA after every job passes.
 
 **Production was not touched.** Port 3080, the `madrasa-prod` containers, database,
 volumes and configuration were never read from or written to by this work. Every
@@ -135,10 +141,52 @@ empty database). **Rollback is app-only**: the v2.5.0 image ignores the new tabl
 the triggers guard only new tables, exactly like the 0031–0033 precedent. No downtime
 requirement beyond the usual app swap.
 
+## 5a) Six production defects found by making the E2E suite finish
+
+The suite reported "110 passed, 2 failed, 8 skipped, **11 did not run**". Serial-mode
+describes stop at the first failure, so those 11 tests had never executed on this branch.
+Repairing the two failures let them run, and every new failure that appeared was a real
+defect — not a stale expectation. One of them (`D-065d`) had even been *passing* in CI on
+timing luck:
+
+| Defect | What the user saw | Fix |
+|---|---|---|
+| **D-065a** meeting minutes | The official numbered minutes were generated and stored; the download link never appeared and the stage indicator stayed on «إصدار المحضر». The previous fix redirected to the same path with only `#minutes`, which the router treats as a hash scroll and never re-renders. | Redirect carries the issued document number; confirmation is re-read from `documents` |
+| **D-065b** session report | `issueReport` ended with **nothing at all**. Report issued, `report_doc_id` set, screen unchanged — and a second press *replaces* the session's report with a new numbered document | Same pattern |
+| **D-065c** eight more actions | Committee card, programme report, assignment card, committees registry, school performance report, individual performance report, building report, settings save, identity save, mark-all-read — all wrote successfully and showed nothing | All end in a redirect; issuing ones show `IssuedDocumentNotice` |
+| **D-065d** two transitions | Assignment-form generation showed «صدر نموذج التكليف …» but never the download link; evidence restore succeeded and the page kept showing the evidence archived. Both discarded the `pending` flag, so the D-053 rule-3 guard did not match them — and the assignment one had been passing in CI *by luck*, on an unrelated refresh landing first | `useRefreshAfterTransition`; guard broadened to any `useTransition()` |
+| **D-067** id filters crash | Choosing a single committee/person/programme/financial item in **any** report's filter panel replaced the report with the generic error screen. `= any($1)` bound a JS array as one parameter → Postgres `22P02 malformed array literal` | `inArray(...)`; pinned by `report-filter-labels.test.ts` |
+| **D-066** filter removal | Removing one value from a multi-value filter leaves results stale. **Open** — Next router cache, see §1 | Not fixed; scenario kept as `test.fixme` |
+
+D-067 is the clearest illustration of why the suite had to finish: the only scenario that
+touched an id filter used Playwright's `check()` on a controlled checkbox, which fails
+*before* the navigation — so a 500-error page sat behind a mechanically failing test.
+
+**Separately — six stale test expectations**, kept distinct from the defects above because
+the product is right and the test was out of date. Each had never run since the UI changed:
+
+| Scenario | Stale expectation | Reality |
+|---|---|---|
+| ٩–١١ | one heading named «السجل التفصيلي للمجالس واللجان» | since v2.6 the report title appears twice — the card in the list (`h3`) and the opened report's header (`h2`); now targets the `h2` |
+| ١٢–١٣, ١٤–١٥, ١٦–١٧ | a `link` named «تقرير المعلمين» etc. | the performance quick entries are cards titled by name with an «فتح» button; a shared `openQuickReport` helper now clicks the card the principal clicks |
+| ١٢–١٣, ١٦–١٧ | `getByText` on a filter value | the same text renders twice — as the chip and inside the empty-state explanation; now asserts the chip |
+| ١٦–١٧ | «عتبة الأداء المنخفض» | unified to «حد الأداء المنخفض» in v2.5.0 so screen and export agree; the test kept the retired wording. Also raised to 100 % so the table has rows deterministically instead of depending on someone happening to score low |
+| ٢٥–٢٦ | a button named «حفظ» on `/people/new` | creating says «إضافة»; «حفظ التعديلات» is the edit button |
+
+None of these were loosened: each now asserts the same intent against what the screen
+actually renders.
+
 ## 5) Tests
 
 - Baseline at branch: **1042/1042** across 103 files (verified green before work).
-- Final: **1139/1139 across 112 files** (`npm test`, 2026-08-08) plus production build
+- **Current: 1184/1184 across 117 files** (`npm test`, 2026-08-08) — the figure to quote.
+  The +10 over the previous count are the regression tests for the defects in §5a:
+  `minutes-issuance.test.ts` (4 — document row, PDF bytes, `minutes_doc_id`, redirect
+  contract), `report-filter-labels.test.ts` (4 — all four id-valued filters, one id and
+  several, plus the filtered report itself), and two new guards in
+  `no-revalidate-in-actions.test.ts` (no inline action ends without a redirect or a
+  returned result; no `redirect()` target is distinguished only by a fragment).
+- Earlier figure, superseded: **1139/1139 across 112 files** plus production build
   success in the same gate. 97 new tests across 9 new files:
   `report-instances` (13: lifecycle, raw-SQL trigger refusals, snapshot frozen while
   source data changes, filter isolation, D-013, archive search),
@@ -151,6 +199,35 @@ requirement beyond the usual app swap.
   determinism run). The 11 pre-existing Playwright failures documented on the v2.5
   branch are unrelated and untouched.
 
+### Every Playwright test accounted for
+
+The suite is **132 tests in 24 files**. The readiness bar is not "mostly green" — it is
+zero failed, zero *did not run*, and every skip named with its reason:
+
+| Outcome | Count | Which, and why |
+|---|---|---|
+| Passed | 130 | — |
+| Failed | 0 | — |
+| Did not run | 0 | Previously 11. Serial-mode describes abort at the first failure, so a single early failure hid everything after it |
+| Skipped | 2 | Both intentional and named below |
+
+The two skips:
+
+1. `https-pwa.spec.ts` — «عبر HTTPS الفعلي: سياق آمن وعامل الخدمة والكاميرا متاحان (C5)».
+   Guarded by `test.skip(!baseURL?.startsWith("https://"))`. Secure-context APIs cannot be
+   exercised over plain HTTP; the test runs only when the suite is pointed at the Tailscale
+   HTTPS origin. C5 itself is **DEFERRED_BY_PRODUCT_OWNER** (D-018), so this skip is the
+   correct behaviour, not a gap.
+2. `zzzz-v250.spec.ts` — «رفع مرشّح واحد من عدة يحدّث النتائج (D-066 — عطل مفتوح)».
+   A `test.fixme` deliberately kept *in* the suite: it is a written, runnable reproduction
+   of an open defect (§13). Deleting it would erase the evidence; leaving it failing would
+   make the gate meaningless. It is reported as a skip on every run, by design.
+
+The state-dependent `test.skip` guards in `workflows.spec.ts` (`!state.person1Id`, and so
+on) no longer skip anything: they existed to keep the mobile scenarios from failing
+confusingly when an earlier scenario had not produced their data. Now that س1–س7 all pass,
+the data exists and all twelve run. That is why the skip count fell from 8–9 to 2.
+
 ## 6) CI (first pipeline for this repository)
 
 `.github/workflows/ci.yml` — all jobs green on `9d20137`'s predecessor run and the PR
@@ -160,12 +237,19 @@ run (run 31234357345 / 31234359591):
 |---|---|
 | Lint + typecheck | eslint 0, tsc 0 |
 | Unit + integration | full vitest vs a fresh Postgres 16 service; Chromium installed for PDF tests |
-| Migration safety | `drizzle-kit check` + clean install (ledger 36 asserted) + the v2.5.0 upgrade rehearsal |
+| Migration safety | `drizzle-kit check` + clean install (ledger asserted) + the v2.5.0 upgrade rehearsal |
 | Production build | `next build` |
+| End-to-end | the **full** Playwright suite — the job that had never finished |
+| Performance audit | §J targets, fails the job on a miss |
 | Sample artifacts | `scripts/v260-ci-artifacts.ts` — 9 synthetic reports; uploads `v26-report-samples` (~4.7 MB): PDF/DOCX/XLSX/verified-ZIP + print HTML + full-page screenshots per sample |
 
 Artifacts contain only fabricated Arabic data; no secrets are used anywhere in the
 pipeline beyond throwaway service credentials.
+
+The E2E job now also uploads `playwright-report/results.json`. The line reporter's
+"8 skipped" says nothing about *which* tests skipped or why; the readiness criterion is
+that every skip is named and justified, so the machine-readable result list is kept with
+the report artifact.
 
 ## 7) Performance (§J)
 
@@ -194,6 +278,8 @@ pipeline beyond throwaway service credentials.
    its own security test; hardened at the service layer.
 3. Two implementation-time catches (options salvage per key; CSS-class false positive in
    a test) fixed before commit.
+4. **The six defects in §5a**, all found later, by making the E2E suite run to the end.
+   Five are fixed; D-066 is open and disclosed in §13.
 
 ## 9) Word validation status
 
@@ -208,14 +294,32 @@ pipeline beyond throwaway service credentials.
   `storage-ci-artifacts/*/‏*.docx` (or the CI artifact bundle) in Word once and confirm
   layout/editability. The RC explicitly carries this as **pending**.
 
-## 10) RC image
+## 10) RC image — and exactly what has and has not been proven about it
 
-**Deliberately not built in this session.** The production target is linux/arm64 built
-on the Mac mini, and the v2.5.0 deployment record documents the host OOM-killing the
-production app container five times during an RC build on this same machine. The build
-command (with `RELEASE_COMMIT`) is step 1 of the RUNBOOK sequence, to be run at
-deployment time with memory freed — or on another host. CI proves the production build
-compiles; no image digest is therefore recorded yet.
+The image is built **off the production host** by `.github/workflows/rc-image.yml` on a
+GitHub runner (the only machine here with Docker is the one serving 3080, and the v2.5.0
+record documents that building there OOM-killed the production container five times).
+Each push to the branch builds `linux/arm64` from `Dockerfile.production`, pushes it to
+GHCR, and records the immutable digest in the `v26-rc-image-record` artifact.
+
+**Proven** — on a runner-native **amd64** build of the same Dockerfile and the same
+`RELEASE_COMMIT`: migrations apply to ledger 37 on an isolated Postgres, the container
+boots, `/api/health` returns `status ok · db up · version 2.6.0` **and the exact commit**
+(newly enforced — an image built from another commit now fails the job rather than the
+swap), and `/login` renders.
+
+**Not proven, and not claimed** — that the pushed **arm64** binary runs. It has never been
+executed. Proving it is the **first mandatory pre-swap gate**: pull the final digest on the
+Mac mini, confirm `docker inspect` reports `arm64/linux`, run it against an isolated
+database on port 3099, check health and login, and **abort before touching 3080** if pull,
+migration, boot, health or login fails. Commands: `RUNBOOK.md` §«البوابة الأولى الإلزامية».
+Not performed — it requires deployment authorization from Fahad.
+
+**Digest discipline.** `0.1.0-v2_6_0-rc` is a moving tag re-pushed on every branch push, so
+it must never be deployed on its own. The digest recorded earlier
+(`sha256:3d331c…`, commit `28f007f`) is **stale and must not be cited or deployed** — it
+predates the product fixes in §5a. The final digest is regenerated from the final SHA once
+every CI job passes, and deployment pulls that digest by hash.
 
 ## 11) Deployment and rollback (prepared, NOT executed)
 
@@ -228,7 +332,20 @@ preview without «مكتب التعليم», D-013 hiding, D-055 refusals). Roll
 
 ## 12) Remaining manual acceptance
 
-1. Owner authorization to deploy; then the RUNBOOK sequence on the Mac mini.
-2. Interactive Microsoft Word open of the sample DOCX files (§9).
-3. Principal's acceptance pass on the deployed environment (as every release).
-4. Owner's authenticated production smoke from v2.5.0 remains outstanding as before.
+1. **ARM64 runtime gate on the Mac mini** — the first step of the RUNBOOK sequence, before
+   anything touches 3080. Requires deployment authorization. Not performed.
+2. Owner authorization to deploy; then the rest of the RUNBOOK sequence.
+3. Interactive Microsoft Word open of the sample DOCX files (§9).
+4. Principal's acceptance pass on the deployed environment (as every release).
+5. Owner's authenticated production smoke from v2.5.0 remains outstanding as before.
+
+## 13) Known open defects carried by this branch
+
+- **D-066** — removing one value from a multi-value report filter leaves the results stale
+  until reload. Reproduced on the production build; cause is Next 16.2.12's client router
+  cache (no RSC request is issued for the new URL). `router.refresh()` after the push was
+  tried and *aborted the navigation itself*, and `experimental.staleTimes` has no setting
+  that suppresses the reuse. The scenario stays in the suite as `test.fixme` so it is
+  reported on every run. **Workaround for the principal:** «مسح الفلاتر» then re-select, or
+  reload the page.
+- Everything else found in this pass is fixed; see §5a.

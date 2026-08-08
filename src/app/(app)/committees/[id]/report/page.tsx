@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { desc, and, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
@@ -7,10 +7,18 @@ import { PageHeader, Card, SubmitButton, Table } from "@/components/ui";
 import { ReportActions } from "@/components/report-actions";
 import { generateCommitteeReport } from "@/lib/reports/committee-report";
 import { COMMITTEE_CARD_LABEL } from "@/lib/committees/report-labels";
+import { IssuedDocumentNotice, issuedParam } from "@/components/issued-document-notice";
 
 export const dynamic = "force-dynamic";
 
-export default async function CommitteeReportPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CommitteeReportPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const issuedNumber = issuedParam(await searchParams);
   await requirePermission("reports.generate");
   const { id } = await params;
   const [committee] = await db.select().from(committees).where(eq(committees.id, id));
@@ -25,12 +33,15 @@ export default async function CommitteeReportPage({ params }: { params: Promise<
   async function issueReport() {
     "use server";
     const u = await requirePermission("reports.generate");
-    await generateCommitteeReport({ committeeId: id, issuedBy: u.id });
+    const { docNumber } = await generateCommitteeReport({ committeeId: id, issuedBy: u.id });
+    // D-065: الإجراء كان ينتهي بلا شيء، فلا يظهر السطر في «الإصدارات السابقة» ولا رابط التنزيل
+    redirect(`/committees/${id}/report?issued=${encodeURIComponent(docNumber)}`);
   }
 
   return (
     <div className="max-w-3xl space-y-4">
       <PageHeader title={`${COMMITTEE_CARD_LABEL}: ${committee.nameAr}`} subtitle="طباعة لجنة أو مجلس واحد مستقلاً — لقطة ثابتة برقم وثيقة ورمز تحقق، بأعضائها ومهامها وحالاتها واجتماعاتها ونتائجها" />
+      <IssuedDocumentNotice docNumber={issuedNumber} label={`صدر ${COMMITTEE_CARD_LABEL} رقم`} />
       <Card>
         <form action={issueReport} className="space-y-3">
           <SubmitButton>{COMMITTEE_CARD_LABEL} (PDF)</SubmitButton>

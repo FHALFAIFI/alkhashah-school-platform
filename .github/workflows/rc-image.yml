@@ -8,8 +8,13 @@
 # ما ينتجه هذا السير:
 #   1. صورة linux/arm64 (معمارية Mac mini الإنتاجي) مبنية من Dockerfile.production نفسه،
 #      مدفوعة إلى GHCR بوسم الالتزام — و**بصمتها الثابتة** مسجَّلة في مُخرَج ومُرفَق.
-#   2. فحص تشغيل حقيقي: الصورة نفسها (بنسختها المحلية للمعمارية الأصلية) تُشغَّل مقابل
-#      قاعدة Postgres معزولة، تُطبَّق الهجرات، ويُستجوَب /api/health حتى يردّ سليماً.
+#   2. فحص تشغيل بمعمارية العدّاء (amd64) من Dockerfile نفسه ووسم الالتزام نفسه: قاعدة
+#      Postgres معزولة، هجرات، ثم /api/health حتى يردّ سليماً بالإصدار والالتزام المضبوطين.
+#
+# **حدّ هذا الفحص، صريحاً:** هو يثبت أن *الشيفرة* تُقلع وتهاجر وتردّ سليمة، ولا يثبت أن
+# ثنائيّة **arm64** المدفوعة تعمل — فتلك لم تُشغَّل قط هنا. تشغيل الصورة arm64 نفسها على
+# Mac mini مقابل قاعدة معزولة على منفذ مؤقّت هو **البوابة الأولى الإلزامية قبل أي تبديل**،
+# وهي موصوفة في RUNBOOK §«المرشَّح القادم — v2.6.0» ولم تُنفَّذ بعد.
 #
 # لا أسرار مضافة: الدفع يستعمل GITHUB_TOKEN الذي تمنحه المنصة للسير نفسه، والحزمة ترث
 # خصوصية المستودع. لا بيانات مدرسية ولا نسخ احتياطية تدخل الصورة.
@@ -30,7 +35,7 @@ permissions:
 
 jobs:
   rc-image:
-    name: Build linux/arm64 RC + runtime smoke
+    name: Build linux/arm64 RC + amd64 runtime smoke (arm64 runtime NOT proven)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,14 +88,20 @@ jobs:
             echo "short:       ${{ steps.ref.outputs.commit }}"
             echo "digest:      ${{ steps.build.outputs.digest }}"
             echo "built_on:    GitHub Actions runner (NOT the host serving port 3080)"
+            echo "runtime_smoke: amd64 (runner-native) — the pushed arm64 binary has NOT been executed"
+            echo "arm64_gate:  MANDATORY pre-swap: pull this digest on the Mac mini, run it against an"
+            echo "             isolated database on a temporary port, abort before touching 3080 on any failure"
             echo "run_url:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } | tee rc-image-record/DIGEST.txt
 
-      # ── فحص التشغيل: الصورة نفسها مقابل قاعدة معزولة ──────────────────────────
-      # تُبنى نسخة بمعمارية العدّاء من Dockerfile نفسه ووسم الالتزام نفسه، لأن تشغيل
-      # صورة arm64 تحت المحاكاة بطيء ومتقلب. المُنتَج المنشور يبقى arm64؛ هذا الفحص
-      # يثبت أن **الصورة تقلع وتهاجر وتردّ سليمة** بالمحتوى نفسه.
-      - name: Build a runner-native image for the runtime smoke
+      # ── فحص التشغيل: صورة بمعمارية العدّاء مقابل قاعدة معزولة ──────────────────
+      # تُبنى نسخة amd64 من Dockerfile نفسه ووسم الالتزام نفسه، لأن تشغيل صورة arm64 تحت
+      # المحاكاة بطيء ومتقلب. المُنتَج المدفوع يبقى arm64.
+      #
+      # ما يثبته هذا الفحص: أن **الشيفرة** تقلع وتهاجر وتردّ صحةً بالإصدار والالتزام
+      # الصحيحين. وما لا يثبته: أن ثنائيّة arm64 المدفوعة تعمل — لم تُنفَّذ هنا قط.
+      # إثباتها بوابة ما قبل التبديل على Mac mini، ولم تُنفَّذ بعد.
+      - name: Build a runner-native (amd64) image for the runtime smoke
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -105,7 +116,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Runtime smoke against an isolated Postgres
+      - name: Runtime smoke (amd64) against an isolated Postgres
         run: |
           set -euo pipefail
           docker network create rc-smoke-net
@@ -142,6 +153,9 @@ jobs:
           grep -q '"status":"ok"' health.json || { docker logs rc-smoke-app | tail -50; exit 1; }
           grep -q '"db":"up"' health.json     || { docker logs rc-smoke-app | tail -50; exit 1; }
           grep -q '"version":"2.6.0"' health.json || { echo "FAIL: health does not report 2.6.0"; exit 1; }
+          # الالتزام المضمَّن يُطابَق بالضبط: صورة مبنية من التزام آخر تُرفض هنا لا عند التبديل
+          grep -q "\"commit\":\"${{ steps.ref.outputs.commit }}\"" health.json \
+            || { echo "FAIL: health does not report commit ${{ steps.ref.outputs.commit }}"; cat health.json; exit 1; }
 
           echo "== the login page renders (auth gate alive) =="
           curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3099/login | grep -q 200

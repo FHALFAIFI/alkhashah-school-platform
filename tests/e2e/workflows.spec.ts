@@ -517,9 +517,34 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByText("لا يتطلب توقيعاً لاكتماله").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "اعتماد الاكتمال" }).first()).toBeEnabled();
 
-    // إصدار المحضر الرسمي (PDF) — اختياري، لكنه يثبت عمل الزر — ثم اعتماد الاكتمال مباشرةً
+    /*
+     * إصدار المحضر الرسمي (PDF) — D-065.
+     *
+     * لا يكفي أن تنجح الكتابة: المدير لا يرى قاعدة البيانات، يرى الشاشة. فيُثبَّت هنا أن
+     * الصفحة أُعيد تصييرها فعلاً بعد الإجراء — العنوان يحمل رقم الوثيقة الصادرة، والتأكيد
+     * يعرض الرقم نفسه، ورابط التنزيل يفتح ملف PDF حقيقياً، ومؤشر المراحل تقدّم عن «إصدار
+     * المحضر». التحويل بوسم `#minutes` وحده كان يمرّ من كل هذا بشاشة لم تتغير حرفياً.
+     */
     await page.getByRole("button", { name: "إصدار المحضر الرسمي (PDF)" }).click();
-    await expect(page.getByRole("link", { name: /تنزيل المحضر/ })).toBeVisible({ timeout: 120_000 });
+    await page.waitForURL(/\?issued=KHS-DOC-\d{5}/, { timeout: 120_000 });
+    const issuedNumber = decodeURIComponent(new URL(page.url()).searchParams.get("issued")!);
+    await expect(page.getByText(`صدر المحضر الرسمي رقم ${issuedNumber}`)).toBeVisible({ timeout: 120_000 });
+
+    const minutesLink = page.getByRole("link", { name: /تنزيل المحضر/ });
+    await expect(minutesLink).toBeVisible({ timeout: 120_000 });
+    await expect(minutesLink).toHaveText(new RegExp(`تنزيل المحضر\\s+${issuedNumber}`));
+    // الرابط يفتح ملفاً فعلياً — لا عنصر واجهة يشير إلى لا شيء
+    const minutesHref = (await minutesLink.getAttribute("href"))!;
+    expect(minutesHref).toMatch(/^\/api\/files\/[0-9a-f-]{36}$/);
+    const minutesPdf = await page.request.get(minutesHref);
+    expect(minutesPdf.ok()).toBe(true);
+    expect(minutesPdf.headers()["content-type"]).toContain("application/pdf");
+    expect((await minutesPdf.body()).subarray(0, 5).toString()).toBe("%PDF-");
+
+    // مؤشر المراحل تجاوز «إصدار المحضر» إلى «المحضر الموقع» — الصفحة قرأت الحالة الجديدة
+    await expect(page.locator('[aria-current="step"]')).toHaveText("المحضر الموقع");
+    await expect(page.getByText("الخطوة التالية: إصدار المحضر الرسمي (PDF)")).toHaveCount(0);
+
     await page.getByRole("button", { name: "اعتماد الاكتمال" }).first().click();
     await expect(page.getByText("اكتمل الاجتماع واعتمد").first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("مكتمل", { exact: true }).first()).toBeVisible();

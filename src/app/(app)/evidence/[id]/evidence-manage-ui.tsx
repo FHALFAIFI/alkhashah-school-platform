@@ -9,7 +9,7 @@ import {
   type ActionState,
 } from "../actions";
 import { Card, Field, SubmitButton } from "@/components/ui";
-import { useRefreshOnSuccess } from "@/components/form-reset";
+import { useRefreshOnSuccess, useRefreshAfterTransition } from "@/components/form-reset";
 
 /**
  * إدارة الشاهد: استبدال المحتوى (مع حفظ النسخة السابقة)، الأرشفة، الاستعادة، والحذف
@@ -36,7 +36,12 @@ export function EvidenceManageUI({
   const [kind, setKind] = useState(currentKind);
   const [showReplace, setShowReplace] = useState(false);
   const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
+  /*
+   * D-065: الاستعادة كانت تنجح وتُظهر رسالتها، وتبقى الصفحة تعرض الشاهد مؤرشفاً وزر
+   * «استعادة الشاهد» في مكانه — لأن `archived` قيمة من الخادم. التحديث بعد انتهاء الانتقال.
+   */
+  useRefreshAfterTransition(pending);
 
   return (
     <div className="space-y-4">

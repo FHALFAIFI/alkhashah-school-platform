@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth/session";
 import { db } from "@/db";
 import { notifications } from "@/db/schema";
 import { PageHeader, EmptyState, SubmitButton } from "@/components/ui";
+import { redirect } from "next/navigation";
 
 export const metadata = { title: "الإشعارات" };
 export const dynamic = "force-dynamic";
@@ -24,6 +25,11 @@ export default async function NotificationsPage() {
       .update(notifications)
       .set({ readAt: new Date() })
       .where(and(eq(notifications.userId, u.id), isNull(notifications.readAt)));
+    /*
+     * D-065: كان الإجراء ينتهي بلا شيء — تُعلَّم الإشعارات مقروءةً في القاعدة وتبقى الصفحة
+     * تعرضها غير مقروءة، فيضغط المستخدم الزر مرة بعد مرة بلا أثر ظاهر.
+     */
+    redirect("/notifications");
   }
 
   return (

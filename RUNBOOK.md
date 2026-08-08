@@ -13,9 +13,47 @@
 مضيف الإنتاج نفسه، فالبناء يجري على عدّاء GitHub عبر سير `.github/workflows/rc-image.yml`:
 يبني `linux/arm64` من `Dockerfile.production` نفسه، ويدفعها إلى GHCR بوسم الالتزام،
 ويسجّل **البصمة الثابتة** في مُرفَق `v26-rc-image-record`، ثم يفحص تشغيلها مقابل قاعدة
-Postgres معزولة (هجرة فقط، سجل 37، `/api/health` يردّ `2.6.0`).
+Postgres معزولة (هجرة فقط، سجل 37، `/api/health` يردّ `2.6.0` والالتزام المضبوط).
 
-عند النشر تُسحب الصورة بالبصمة لا بالوسم — فما يُنشر هو ما فُحص حرفياً:
+### البوابة الأولى الإلزامية: تشغيل صورة arm64 نفسها قبل أي تبديل (لم تُنفَّذ)
+
+فحص السير يجري بمعمارية العدّاء **amd64**، فهو يثبت أن الشيفرة تُقلع وتهاجر وتردّ سليمة،
+**ولا يثبت أن ثنائيّة arm64 المدفوعة تعمل** — تلك لم تُشغَّل قط. لذلك أول خطوة عند التصريح
+بالنشر — وقبل لمس 3080 بأي شكل — هي تشغيل البصمة نفسها على Mac mini مقابل **قاعدة معزولة
+على منفذ مؤقّت**. أي فشل في السحب أو الهجرة أو الإقلاع أو الصحة أو الدخول = **توقّف تام**،
+والإنتاج لم يُمسّ بعد لأن شيئاً لم يُبدَّل.
+
+```bash
+DIGEST=<sha256:… من DIGEST.txt للالتزام النهائي>
+IMAGE=ghcr.io/fhalfaifi/alkhashah-school-platform/madrasa-app@$DIGEST
+docker pull "$IMAGE"
+
+# المعمارية المسحوبة يجب أن تكون arm64 فعلاً لا amd64
+docker inspect "$IMAGE" --format '{{.Architecture}}/{{.Os}}'   # المتوقع: arm64/linux
+
+# قاعدة معزولة مؤقتة — لا تشترك مع الإنتاج في شبكة ولا حجم ولا منفذ
+docker network create v26-gate-net
+docker run -d --name v26-gate-db --network v26-gate-net \
+  -e POSTGRES_USER=madrasa -e POSTGRES_PASSWORD=gate_pw -e POSTGRES_DB=madrasa_gate postgres:16
+GATE_DB="postgresql://madrasa:gate_pw@v26-gate-db:5432/madrasa_gate"
+
+# هجرة فقط، ثم إقلاع على منفذ 3099 (ليس 3080)
+docker run --rm --network v26-gate-net -e DATABASE_URL="$GATE_DB" -e MADRASA_ENV=production \
+  "$IMAGE" sh -c "npx tsx src/db/migrate.ts"
+docker run -d --name v26-gate-app --network v26-gate-net -p 127.0.0.1:3099:3080 \
+  -e DATABASE_URL="$GATE_DB" -e SESSION_SECRET="$(openssl rand -hex 32)" \
+  -e MADRASA_ENV=production "$IMAGE"
+
+# الصحة تُعرّف الالتزام النهائي بالضبط، وصفحة الدخول تُصيَّر
+curl -s http://127.0.0.1:3099/api/health    # status ok · db up · version 2.6.0 · commit <الالتزام النهائي>
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3099/login   # 200
+
+# تنظيف البوابة قبل الانتقال إلى تسلسل النشر
+docker rm -f v26-gate-app v26-gate-db && docker network rm v26-gate-net
+```
+
+عند النشر تُسحب الصورة بالبصمة لا بالوسم — فما يُنشر هو ما فُحص حرفياً. **الوسم
+`0.1.0-v2_6_0-rc` متحرّك ويعاد استعماله مع كل دفع، فلا يُنشر به وحده أبداً:**
 
 ```bash
 # 1) سحب الصورة المفحوصة ببصمتها الثابتة (من مُرفَق سير RC image)

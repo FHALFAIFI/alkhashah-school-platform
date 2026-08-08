@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth/session";
 import { PageHeader, Card, Badge, Table, EmptyState, ProgressBar, SubmitButton } from "@/components/ui";
@@ -7,6 +8,7 @@ import {
   loadOverallAnalytics,
   MIN_INSIGHT_SAMPLE,
 } from "@/lib/performance/analytics-service";
+import { IssuedDocumentNotice, issuedParam } from "@/components/issued-document-notice";
 
 export const metadata = { title: "لوحة الأداء العام" };
 export const dynamic = "force-dynamic";
@@ -16,7 +18,12 @@ export const dynamic = "force-dynamic";
  * اصطناعي: كل رقم من قواعد معلنة، وكل رؤية تقود إلى السجلات التي حُسبت منها،
  * ولا تُعرض رؤية بعينة أقل من الحد الأدنى المعلن.
  */
-export default async function PerformanceAnalyticsPage() {
+export default async function PerformanceAnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const issuedNumber = issuedParam(await searchParams);
   const user = await requirePermission("performance.read", "performance.individual.read");
   const { analytics, threshold } = await loadOverallAnalytics();
   const a = analytics;
@@ -27,11 +34,14 @@ export default async function PerformanceAnalyticsPage() {
     "use server";
     const u = await requirePermission("reports.generate", "performance.individual.read");
     const { generateOverallPerformanceReport } = await import("@/lib/reports/performance-reports");
-    await generateOverallPerformanceReport({ issuedBy: u.id });
+    const { docNumber } = await generateOverallPerformanceReport({ issuedBy: u.id });
+    // D-065: الإجراء كان ينتهي بلا شيء، فتصدر وثيقة مرقّمة بلا أثر على الشاشة
+    redirect(`/performance/analytics?issued=${encodeURIComponent(docNumber)}`);
   }
 
   return (
     <div className="space-y-4">
+      <IssuedDocumentNotice docNumber={issuedNumber} label="صدر تقرير الأداء التفصيلي رقم" />
       <PageHeader
         title="لوحة الأداء العام"
         subtitle={`رؤى حسابية شفافة — عتبة الضعف ${threshold}٪ (قابلة للضبط من الإعدادات)، وأدنى عينة للرؤية ${MIN_INSIGHT_SAMPLE} تقييمات`}

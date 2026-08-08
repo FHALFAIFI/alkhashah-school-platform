@@ -1077,3 +1077,139 @@ Two defects this surfaced, both silent: stored filters were read back without th
 whitelist so saved column/sort/group selections vanished on read; and the snapshot ordered
 columns by catalogue definition instead of by the user's selection order, discarding an
 explicitly approved builder capability.
+
+## D-065 — A redirect that differs only by a fragment is not a refresh (2026-08-08)
+
+Refines rule 4 of **D-053** ("actions ending in `redirect()` need no refresh").
+
+**What happened.** Issuing the official meeting minutes generated the numbered document,
+stored the PDF, and set `meetings.minutes_doc_id` — and the screen did not change. The
+download link never appeared and the workflow indicator stayed on «إصدار المحضر», so the
+principal's only reasonable reading is that the button did nothing, and re-pressing it issues
+a *second* numbered official document. This is the same harm D-053 rule 4 was written to
+prevent; the fix for it had been applied and did not work.
+
+**Why.** The action ended in `redirect("/committees/{id}/meetings/{mid}#minutes")` — the
+route the user was already on, distinguished only by a fragment. The App Router treats that
+as a hash navigation: it scrolls and reuses the mounted tree, and never requests a new RSC
+payload. Rule 4 assumed "redirect" implies "server render". It does not. The redirect must
+change something the router actually navigates on.
+
+**The rule.** When an action redirects back to its own route, the destination must carry a
+**result-specific query parameter** — not a fragment alone. Here it is the issued document
+number, which does three things at once: it forces a real navigation, it differs on every
+issuance so a second press cannot be mistaken for a no-op, and it names the result on screen.
+
+**The confirmation is read from the database, not from the URL.** The banner renders only
+when the number in the URL equals the `doc_number` actually persisted for this meeting, so a
+hand-edited link cannot claim an issuance that never happened.
+
+**The sweep this exposed.** Auditing every inline `"use server"` action under `src/app` for
+the same shape found **ten more that ended with nothing at all** — no redirect, no returned
+result, so nothing on screen could change:
+
+| Action | What silently succeeded |
+|---|---|
+| `performance/cycles/[id]/sessions/[sid]` `issueReport` | session report issued; button never became «إعادة إصدار» — re-pressing **replaces** the session's report reference |
+| `committees/[id]/report` `issueReport` | committee card issued; «الإصدارات السابقة» unchanged |
+| `plan/[id]/report` `issueReport` + `issueCard` | programme report and assignment card issued |
+| `committees` `issueRegistry` | the councils/committees registry issued |
+| `performance/analytics` `issueOverallReport` | the school-wide performance report issued |
+| `performance/employees/[personId]` `issueReport` | the individual performance report issued |
+| `building/report` `issueReport` | the building report issued |
+| `admin/settings` `save` + `saveIdentity` | settings and document identity saved — the literal "my changes don't show" complaint |
+| `notifications` `markAllRead` | notifications marked read, still listed unread |
+
+All ten now end in a redirect. The document-issuing ones carry the issued number and render
+`IssuedDocumentNotice`, which re-reads the document from `documents` before showing anything.
+`saveIdentity` additionally stopped swallowing a rejected logo upload — it redirected to a
+silent no-op; it now says so.
+
+**A second hole, in rule 3.** The guard for "a transition must refresh when it settles"
+matched only `const [pending, start] = useTransition()`. Two components discard the pending
+flag — `const [, startTransition] = useTransition()` — and slipped past it, both with the
+same visible symptom: the action's own success message appears while the server-derived part
+of the screen does not change.
+
+- **Assignment form** (`committees/[id]/committee-ui.tsx`): «صدر نموذج التكليف …» appeared
+  and «تنزيل نموذج التكليف» never did. This one had been *passing* in CI by luck — an
+  unrelated refresh from the task-distribution panel sometimes landed after the generation
+  — which is exactly how a flaky green hides a real defect.
+- **Evidence restore** (`evidence/[id]/evidence-manage-ui.tsx`): the evidence was restored
+  and the page kept showing it archived, restore button included.
+
+Both now call `useRefreshAfterTransition`, and the guard matches any `useTransition()` use
+regardless of how its result is destructured.
+
+`tests/unit/no-revalidate-in-actions.test.ts` pins both halves: no inline action may end
+without a redirect or a returned result, and no `redirect()` target under `src/app` may carry
+a fragment without also carrying a query string. `tests/integration/minutes-issuance.test.ts`
+pins the persistence (`minutes_doc_id`, the `documents` row, the PDF bytes), and workflows س3
+pins the refreshed screen — URL, download link, document number, and workflow stage.
+
+## D-066 — Open defect: removing one value from a multi-value filter does not refresh the results (2026-08-08)
+
+**Not a decision — a recorded, reproduced, unfixed defect.** Found while rebuilding the
+v2.5.0 §19.3 filter scenario to drive the real UI instead of forcing the checkbox.
+
+**Symptom.** On a report filtered by two values of the same parameter (two domains, two
+owners), removing one of them — from its chip or by unchecking it — updates the URL, the
+chips and the checkboxes, and leaves the table and «عدد النتائج» showing both values' rows.
+The screen only corrects itself on a page reload.
+
+**Reproduced on the production build**, not only on `next dev`: `next build` + `next start`
+against the isolated test database, Next 16.2.12 / React 19.2.7. The other transitions are
+all correct — none → one, one → two, one → none.
+
+**Mechanism.** On the failing transition the browser issues **no RSC request at all** (the
+`_rsc` request counter does not move) while the URL changes; the client Router Cache serves
+the previous tree. So the server is never asked, and the server is not at fault — reloading
+the exact same URL renders the correct single-value result.
+
+**Two remedies tried and rejected.**
+- `router.refresh()` after `router.push()` fixed the staleness in one run, then aborted the
+  navigation itself in the next — the checkbox stopped updating at all. This is the D-049
+  abort class, and it is why D-049 rule 3 exists.
+- `experimental.staleTimes: { dynamic: 0, static: 0 }` is rejected by the build (`static`
+  must be ≥ 30) and `dynamic: 0` is already the default, so there is no configuration that
+  suppresses the reuse.
+
+**Why it is not fixed here.** The cause sits in the framework's client router, not in this
+codebase's filter logic, and the working set is a release candidate under a change freeze. A
+workaround that suppresses the router cache globally would touch every navigation in the
+platform on the eve of a deployment gate.
+
+**Operational workaround for the principal until it is fixed:** press «مسح الفلاتر» and
+re-select, or reload the page — both render the correct result.
+
+`tests/e2e/zzzz-v250.spec.ts` keeps the scenario written and marked `test.fixme`, so the
+defect stays visible in every suite run instead of being deleted. It is listed as an open
+defect in the v2.6.0 readiness report.
+
+## D-067 — Filtering a report by an id crashed the page (2026-08-08)
+
+Found by rebuilding the v2.5.0 §19.3 committee-registry scenario to drive the real filter
+panel. **A production defect, not a test problem.**
+
+**Symptom.** Choosing a single committee — or a single person, financial item, or programme
+— in any report's filter panel replaced the report with the generic error screen
+(«تعذّر إتمام العملية … رمز المرجع»). Every id-valued filter in the platform was affected.
+
+**Cause.** `loadFilterLabelMaps` — which turns filter ids into the names shown in the chips
+and in the exported report header — wrote its conditions as
+``sql`${committees.id} = any(${ids})` ``. Drizzle binds the JavaScript array as a *single*
+parameter, so Postgres receives `= any(($1))` with a lone uuid string and tries to parse it
+as an array literal: `22P02 malformed array literal`. The failure is in the label lookup, not
+in the report query — the rows load correctly, and the page dies while labelling the chips.
+
+**Fix.** `inArray(col, ids)`, which emits `in ($1, $2, …)` with one bind per id. All four
+call sites (person, item, committee, programme) corrected; no other `= any(` binding exists
+in `src`.
+
+**Why no test caught it.** The only scenario that exercised an id filter used Playwright's
+`check()` on a controlled checkbox, which fails *before* the navigation happens — so the
+crash sat behind a failing test and was never reached. This is the concrete cost of a test
+that fails for a mechanical reason: it hides whatever comes after it.
+
+Pinned by `tests/integration/report-filter-labels.test.ts` (all four keys, one id and
+several) and by the repaired browser scenario ٩–١١ in `tests/e2e/zzzz-v250.spec.ts`.

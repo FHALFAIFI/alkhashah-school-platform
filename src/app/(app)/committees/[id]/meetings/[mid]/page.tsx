@@ -12,9 +12,17 @@ import { orFallback, orDash } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function MeetingPage({ params }: { params: Promise<{ id: string; mid: string }> }) {
+export default async function MeetingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string; mid: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requirePermission("committees.read");
   const { id, mid } = await params;
+  const issuedParam = (await searchParams).issued;
+  const issuedNumber = typeof issuedParam === "string" ? issuedParam : null;
   const [meeting] = await db.select().from(meetings).where(eq(meetings.id, mid));
   if (!meeting || meeting.committeeId !== id) notFound();
   const [committee] = await db.select().from(committees).where(eq(committees.id, id));
@@ -52,10 +60,17 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   async function issueMinutes() {
     "use server";
     const u = await requirePermission("reports.generate");
-    await generateMinutesDocument({ meetingId: mid, issuedBy: u.id });
-    // D-053 قاعدة 4: كان ينتهي بلا شيء، فيصدر المحضر المرقّم ولا يظهر رابط تنزيله ولا تتقدم
-    // مراحل الاجتماع — فيُعيد المستخدم الإصدار وتتكرر وثيقة رسمية. التحويل يعيد تصيير الصفحة.
-    redirect(`/committees/${id}/meetings/${mid}#minutes`);
+    const { docNumber } = await generateMinutesDocument({ meetingId: mid, issuedBy: u.id });
+    /*
+     * D-053 قاعدة 4 مُقيَّدة بـ D-065: التحويل يعيد التصيير فقط إن اختلف العنوان بأكثر من الوسم.
+     *
+     * كان الإجراء ينتهي بلا شيء، فتصدر الوثيقة المرقّمة ولا يظهر رابط تنزيلها ولا تتقدم مراحل
+     * الاجتماع — فيُعيد المدير الإصدار وتتكرر وثيقة رسمية. ثم صار ينتهي بتحويل إلى المسار نفسه
+     * بوسم `#minutes` وحده، وهذا انتقال وسم عند الموجّه: يمرّر الصفحة ولا يطلب تصييراً جديداً،
+     * فبقيت الشاشة كما هي حرفياً. رقم الوثيقة الصادرة يجعل العنوان مختلفاً فعلاً، فيُطلب تصيير
+     * جديد من الخادم، ويصير الرقم بذاته إثبات النتيجة على الشاشة.
+     */
+    redirect(`/committees/${id}/meetings/${mid}?issued=${encodeURIComponent(docNumber)}#minutes`);
   }
 
   // مؤشر المرحلة: الإعداد والنتائج → إصدار المحضر → المحضر الموقع → الاكتمال
@@ -190,6 +205,15 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">المحضر والتوقيع والاكتمال</h2>
         <div className="space-y-3 text-sm">
+          {/*
+            * تأكيد الإصدار يُقرأ من الوثيقة المحفوظة لا من العنوان: رقم في العنوان لا يقابل محضر
+            * هذا الاجتماع لا يُعرض إطلاقاً، فلا يمكن لرابط ملفّق أن يدّعي إصداراً لم يحدث.
+            */}
+          {issuedNumber && minutesDoc[0]?.docNumber === issuedNumber && (
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 font-medium text-emerald-800">
+              صدر المحضر الرسمي رقم {issuedNumber}
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <form action={issueMinutes}>
               <SubmitButton variant="secondary">إصدار المحضر الرسمي (PDF)</SubmitButton>

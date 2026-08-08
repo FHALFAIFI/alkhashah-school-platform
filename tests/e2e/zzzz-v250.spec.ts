@@ -24,6 +24,19 @@ const TEST_DB_URL =
 
 const TAG = "v250";
 
+/*
+ * سجلات ترشيح البرامج (٥–٨) تحمل لاحقة خاصة بهذا التشغيل: القاعدة نفسها قد تحمل بقايا
+ * تشغيلات سابقة بالوسم `v250`، فلو تشارك تشغيلان اسم المسؤول لصار «برنامج واحد لهذا
+ * المسؤول» عددين مختلفين بين تشغيل وآخر، ولضاع معنى التوقّع الدقيق.
+ */
+const RUN = Math.random().toString(36).slice(2, 8);
+const OWNER_A = `مسؤول ترشيح ألف ${TAG}-${RUN}`;
+const OWNER_B = `مسؤول ترشيح باء ${TAG}-${RUN}`;
+const DOMAIN_A = `مجال ترشيح ألف ${TAG}-${RUN}`;
+const DOMAIN_B = `مجال ترشيح باء ${TAG}-${RUN}`;
+const PROGRAM_A = `برنامج ترشيح ألف ${TAG}-${RUN}`;
+const PROGRAM_B = `برنامج ترشيح باء ${TAG}-${RUN}`;
+
 function principalCredentials(): { username: string; password: string } {
   const file = path.resolve(process.env.E2E_STORAGE_DIR ?? "storage", "private/initial-credentials.txt");
   const line = readFileSync(file, "utf8").split("\n").find((l) => l.includes("principal"))!;
@@ -83,6 +96,84 @@ async function seedProgram(
     ],
   );
   return res.rows[0].id;
+}
+
+/* ─────────────────── قراءة الأرقام وقيادة لوحة المرشّحات ─────────────────── */
+
+const ARABIC_INDIC = "٠١٢٣٤٥٦٧٨٩";
+
+/** الشاشة تعرض الأعداد بأرقام عربية-هندية (`ar-SA`) — `\d` وحدها تقرأها صفراً */
+function readNumber(text: string): number {
+  const digits = [...text]
+    .map((c) => (ARABIC_INDIC.includes(c) ? String(ARABIC_INDIC.indexOf(c)) : c))
+    .filter((c) => c >= "0" && c <= "9")
+    .join("");
+  return digits === "" ? NaN : Number(digits);
+}
+
+const filterSection = (page: Page) => page.locator('section[aria-label="مرشّحات العرض"]');
+
+/** عدد النتائج كما تعرضه لوحة المرشّحات نفسها (§3.2: يُعرض دائماً ولو كان صفراً) */
+async function resultCount(page: Page): Promise<number> {
+  const text = await filterSection(page).innerText();
+  const found = /عدد النتائج:\s*([\d٠-٩,،]+)/.exec(text);
+  expect(found, `لوحة المرشّحات لا تعرض عدد النتائج — النص: ${text}`).not.toBeNull();
+  return readNumber(found![1]);
+}
+
+/** يفتح لوحة المرشّحات ثم مجموعة مرشّح بعينها — بالنقر على ما يراه المستخدم */
+async function openFilterGroup(page: Page, label: string) {
+  const section = filterSection(page);
+  const group = section.locator("details").filter({ has: page.locator("summary", { hasText: label }) }).first();
+  if (!(await group.isVisible())) {
+    await section.getByRole("button", { name: /المرشّحات/ }).first().click();
+    await expect(group).toBeVisible();
+  }
+  if (!(await group.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await group.locator("summary").click();
+  }
+  return group;
+}
+
+/**
+ * يختار خياراً من مرشّح متعدد ثم ينتظر أثره كاملاً، ويعيد عدد النتائج بعده.
+ *
+ * مربّع الاختيار متحكَّم به: `checked` مشتقّ من العنوان، وتغييره يمرّ بانتقال الموجّه ثم
+ * بإعادة تصيير الصفحة. لذلك `check()` تفشل بحق — تقرأ حالة العنصر قبل أن يكتمل الانتقال
+ * فتجدها لم تتغيّر وتُعلن «النقر لم يغيّر الحالة». والمستخدم لا «يجبر» مربّعاً ولا يكتب
+ * العنوان بيده، بل ينقر السطر المرئي وينتظر النتيجة — وهذا ما يجري هنا حرفياً، ثم يُتتبَّع
+ * الأثر بترتيبه: العنوان، فاستقرار المربّع بعد إعادة التصيير، فالشريحة، فالعدد.
+ */
+async function selectFilterOption(page: Page, groupLabel: string, param: string, label: string, expected?: number) {
+  const group = await openFilterGroup(page, groupLabel);
+  const option = group.locator("label").filter({ hasText: label }).first();
+  await expect(option).toBeVisible();
+  const box = option.locator('input[type="checkbox"]');
+  await expect(box).not.toBeChecked();
+  // العدّ لا القيمة: بعض المرشّحات قيمتها معرّف والمعروض اسمه (اللجان مثلاً)
+  const before = new URL(page.url()).searchParams.getAll(param).length;
+
+  await option.click();
+
+  await page.waitForURL((url) => url.searchParams.getAll(param).length === before + 1, { timeout: 30_000 });
+  await expect(box).toBeChecked();
+  await expect(page.getByText("المرشّحات المطبَّقة")).toBeVisible();
+  // الشريحة تحمل الاسم المعروض — فظهورها يثبت أن القيمة الصحيحة هي التي دخلت العنوان
+  await expect(page.getByRole("button", { name: `${groupLabel}: ${label}` })).toBeVisible();
+  // العدد يُنتظر ولا يُلتقط: شريط العنوان يتغيّر قبل أن يصل التصيير الجديد من الخادم
+  if (expected !== undefined) await expect.poll(() => resultCount(page), { timeout: 30_000 }).toBe(expected);
+}
+
+/**
+ * يفتح مدخل أداء سريعاً من بطاقته في مركز التقارير.
+ *
+ * المدخل بطاقة عنوانها اسم التقرير وزرّها «فتح» — فلا يوجد رابط اسمه «تقرير المعلمين».
+ * البحث يقع على البطاقة بعنوانها ثم على زرّها، وهو ما يفعله المدير على الشاشة.
+ */
+async function openQuickReport(page: Page, title: string) {
+  const card = page.locator(`div.rounded-xl:has(h3:has-text("${title}"))`).first();
+  await expect(card).toBeVisible();
+  await card.getByRole("link", { name: "فتح" }).click();
 }
 
 test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلزامية", () => {
@@ -190,33 +281,89 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
   /* ───────────────── ٥–٨: ترشيح البرامج ───────────────── */
 
   test("٥–٨. ترشيح البرامج بمسؤول واحد ثم عدة، وبمجال واحد ثم عدة", async ({ page }) => {
+    /*
+     * برنامجان يخصّان هذا التشغيل وحده: مسؤولان متمايزان ومجالان متمايزان. فتصير الأعداد
+     * المتوقعة معروفة تماماً (واحد ثم اثنان) بدل «أكبر من أو يساوي» التي تمرّ حتى لو لم
+     * يعمل الترشيح إطلاقاً، ولا تتأثر ببيانات تشغيلات سابقة على القاعدة نفسها.
+     */
+    await withDb(async (pool) => {
+      await seedProgram(pool, { name: PROGRAM_A, domain: DOMAIN_A, owner: OWNER_A, status: "معتمد" });
+      await seedProgram(pool, { name: PROGRAM_B, domain: DOMAIN_B, owner: OWNER_B, status: "معتمد" });
+    });
     await login(page);
+
+    /* ٥ + ٦ — مسؤول واحد ثم عدة، من لوحة المرشّحات لا من العنوان */
     await page.goto("/reports?category=plan&report=programs-by-owner");
-    // لوحة المرشّحات قد تكون مفتوحة أصلاً — الفتح مشروط لا نقر أعمى يغلقها
-    const ownerPanel = page.locator("details", { hasText: "مسؤول التنفيذ" }).first();
-    if (!(await ownerPanel.isVisible())) {
-      await page.getByRole("button", { name: "المرشّحات" }).click();
-    }
-    await ownerPanel.locator("summary").click();
-    const boxes = ownerPanel.locator('input[type="checkbox"]');
-    await boxes.first().check();
-    await expect(page.getByText("المرشّحات المطبَّقة")).toBeVisible();
-    const oneOwner = await page.locator("text=عدد النتائج").first().innerText();
+    const table = page.locator("table").first();
+    const everyProgram = await resultCount(page);
+    expect(everyProgram).toBeGreaterThanOrEqual(2);
 
-    if (!(await boxes.nth(1).isVisible())) {
-      await ownerPanel.locator("summary").click();
-    }
-    await boxes.nth(1).check();
-    const twoOwners = await page.locator("text=عدد النتائج").first().innerText();
-    expect(Number(twoOwners.replace(/\D/g, ""))).toBeGreaterThanOrEqual(Number(oneOwner.replace(/\D/g, "")));
+    await selectFilterOption(page, "مسؤول التنفيذ", "owner", OWNER_A, 1);
+    // §5.5: أسماء البرامج تظهر لا أعداد فقط — وبرنامج المسؤول الآخر خرج فعلاً
+    await expect(table).toContainText(PROGRAM_A);
+    await expect(table).not.toContainText(PROGRAM_B);
 
-    // المجال — التقرير الآخر، بالسلوك نفسه
-    await page.goto("/reports?category=plan&report=programs-by-domain&domain=المجال الأول");
-    await expect(page.getByText("المجال: المجال الأول")).toBeVisible();
-    await page.goto("/reports?category=plan&report=programs-by-domain&domain=المجال الأول&domain=المجال الثاني");
-    await expect(page.getByText("المجال الثاني", { exact: false }).first()).toBeVisible();
-    // أسماء البرامج تظهر — لا أعداد فقط (§5.5)
-    await expect(page.locator("table")).toContainText(TAG);
+    await selectFilterOption(page, "مسؤول التنفيذ", "owner", OWNER_B, 2);
+    await expect(table).toContainText(PROGRAM_A);
+    await expect(table).toContainText(PROGRAM_B);
+    // المرشّحان يجتمعان ولا يحل أحدهما محل الآخر — في العنوان وفي الشرائح معاً
+    expect(new URL(page.url()).searchParams.getAll("owner")).toEqual([OWNER_A, OWNER_B]);
+    await expect(page.getByRole("button", { name: `مسؤول التنفيذ: ${OWNER_A}` })).toBeVisible();
+    await expect(page.getByRole("button", { name: `مسؤول التنفيذ: ${OWNER_B}` })).toBeVisible();
+
+    /* ٧ + ٨ — مجال واحد ثم عدة، التقرير الآخر بالسلوك نفسه */
+    await page.goto("/reports?category=plan&report=programs-by-domain");
+    const everyDomain = await resultCount(page);
+    expect(everyDomain).toBeGreaterThanOrEqual(2);
+
+    await selectFilterOption(page, "المجال", "domain", DOMAIN_A, 1);
+    await expect(table).toContainText(PROGRAM_A);
+    await expect(table).not.toContainText(PROGRAM_B);
+
+    await selectFilterOption(page, "المجال", "domain", DOMAIN_B, 2);
+    await expect(table).toContainText(PROGRAM_A);
+    await expect(table).toContainText(PROGRAM_B);
+    expect(new URL(page.url()).searchParams.getAll("domain")).toEqual([DOMAIN_A, DOMAIN_B]);
+    await expect(page.getByRole("button", { name: `المجال: ${DOMAIN_A}` })).toBeVisible();
+    await expect(page.getByRole("button", { name: `المجال: ${DOMAIN_B}` })).toBeVisible();
+
+  });
+
+  /**
+   * D-066 — عطل مفتوح: رفع قيمة من مرشّح متعدد مع بقاء قيم أخرى لا يُحدّث النتائج.
+   *
+   * مثبَّت على بناء الإنتاج لا على خادم التطوير وحده: عند الانتقال من قيمتين إلى قيمة
+   * واحدة يتغيّر العنوان وتتغيّر الشرائح والمربّعات، ولا يُرسَل طلب تصيير جديد إطلاقاً
+   * (عدّاد طلبات `_rsc` لا يتحرّك)، فيبقى الجدول والعدد على حال القيمتين حتى إعادة تحميل
+   * الصفحة. الانتقالات الأخرى كلها سليمة: من صفر إلى واحدة، ومن واحدة إلى اثنتين، ومن
+   * واحدة إلى صفر.
+   *
+   * السبب في ذاكرة موجّه Next 16.2.12 لا في هذه الشيفرة: `router.refresh()` بعد الدفع
+   * يجهض الانتقال نفسه فيزيد الأمر سوءاً، و`experimental.staleTimes` لا يملك ضبطاً يمنعه.
+   * لذلك يبقى الاختبار مكتوباً ومعلَّماً `fixme` — عطل معلن في تقرير الجاهزية لا اختبار
+   * محذوف — ولا يُصلَح داخل مرشّح إصدار مغلق.
+   *
+   * التوصية للمدير حتى يُصلَح: «مسح الفلاتر» ثم إعادة الاختيار، أو تحديث الصفحة.
+   */
+  test.fixme("رفع مرشّح واحد من عدة يحدّث النتائج (D-066 — عطل مفتوح)", async ({ page }) => {
+    await withDb(async (pool) => {
+      await seedProgram(pool, { name: PROGRAM_A, domain: DOMAIN_A, owner: OWNER_A, status: "معتمد" });
+      await seedProgram(pool, { name: PROGRAM_B, domain: DOMAIN_B, owner: OWNER_B, status: "معتمد" });
+    });
+    await login(page);
+    await page.goto("/reports?category=plan&report=programs-by-domain");
+    const table = page.locator("table").first();
+
+    await selectFilterOption(page, "المجال", "domain", DOMAIN_A, 1);
+    await selectFilterOption(page, "المجال", "domain", DOMAIN_B, 2);
+
+    // الشريحة عنصر تحكّم لا زينة: رفعها يجب أن يعيد العرض إلى برنامج واحد
+    await page.getByRole("button", { name: `المجال: ${DOMAIN_A}` }).click();
+    await page.waitForURL((url) => !url.searchParams.getAll("domain").includes(DOMAIN_A), { timeout: 30_000 });
+    await expect(page.getByRole("button", { name: `المجال: ${DOMAIN_A}` })).toHaveCount(0);
+    await expect.poll(() => resultCount(page), { timeout: 30_000 }).toBe(1);
+    await expect(table).toContainText(PROGRAM_B);
+    await expect(table).not.toContainText(PROGRAM_A);
   });
 
   /* ───────────────── ٩–١١: اللجان والاجتماعات ───────────────── */
@@ -224,23 +371,41 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
   test("٩–١١. السجل التفصيلي للجنة واحدة ثم عدة، وسجل الاجتماعات", async ({ page }) => {
     await login(page);
     await page.goto("/reports?category=committees&report=committee-registry-detailed");
-    await expect(page.getByRole("heading", { name: "السجل التفصيلي للمجالس واللجان" })).toBeVisible();
+    // هذا السيناريو يقرأ لجان سيناريو س3 في `workflows.spec` — ولذلك ترتيب `zzzz-`
+    // اسم التقرير يظهر مرتين منذ v2.6: بطاقته في القائمة (h3) وترويسة التقرير المفتوح (h2)
+    await expect(page.getByRole("heading", { name: "السجل التفصيلي للمجالس واللجان", level: 2 })).toBeVisible();
     // الترويسة كما طلبها المدير
     for (const header of ["العضو", "الصفة", "المهمة", "حالة التنفيذ"]) {
       await expect(page.locator("th", { hasText: header }).first()).toBeVisible();
     }
 
-    await page.getByRole("button", { name: "المرشّحات" }).click();
-    const panel = page.locator("details", { hasText: "المجلس أو اللجنة" }).first();
-    await panel.click();
-    const boxes = panel.locator('input[type="checkbox"]');
-    if ((await boxes.count()) > 0) {
-      await boxes.first().check();
-      await expect(page.getByText("المرشّحات المطبَّقة")).toBeVisible();
+    /*
+     * لجنة واحدة ثم عدة — من اللوحة نفسها بنقر المستخدم.
+     *
+     * قيمة هذا المرشّح معرّف واسمه هو المعروض، فالتحقق يقع على الشريحة والجدول: بعد اختيار
+     * لجنة واحدة يجب أن تختفي صفوف اللجنة الأخرى، وبعد ضمّها تعودان معاً.
+     */
+    const table = page.locator("table").first();
+    /*
+     * تُؤخذ اللجان من الجدول نفسه لا من أول خيار في القائمة: لجنة بلا أعضاء ولا مهام لا
+     * صفوف لها، فترشيحها يعطي جدولاً فارغاً لا يثبت شيئاً عن «واحدة ثم عدة».
+     */
+    const shown = (await table.locator("tbody tr td:first-child").allInnerTexts()).map((t) => t.trim());
+    const names = [...new Set(shown.filter(Boolean))];
+    expect(names.length, "السجل التفصيلي بلا صفوف — يعتمد على لجان سيناريو س3").toBeGreaterThan(0);
+
+    await selectFilterOption(page, "المجلس أو اللجنة", "committeeId", names[0]);
+    await expect(table).toContainText(names[0]);
+
+    if (names.length > 1) {
+      await expect(table).not.toContainText(names[1]);
+      await selectFilterOption(page, "المجلس أو اللجنة", "committeeId", names[1]);
+      await expect(table).toContainText(names[0]);
+      await expect(table).toContainText(names[1]);
     }
 
     await page.goto("/reports?category=meetings&report=meetings-registry-detailed");
-    await expect(page.getByRole("heading", { name: "سجل الاجتماعات التفصيلي" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "سجل الاجتماعات التفصيلي", level: 2 })).toBeVisible();
     for (const header of ["رقم الاجتماع", "جدول الأعمال", "القرارات", "التوصيات"]) {
       await expect(page.locator("th", { hasText: header }).first()).toBeVisible();
     }
@@ -253,20 +418,21 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
     await page.getByRole("link", { name: "التقارير", exact: false }).first().click();
     await page.waitForURL("**/reports**");
 
-    await page.getByRole("link", { name: "تقرير المعلمين" }).click();
-    await expect(page.getByText("نوع الموظف: معلم")).toBeVisible();
+    await openQuickReport(page, "تقرير المعلمين");
+    // الشريحة هي إثبات الترشيح — والنص نفسه يرد أيضاً في تفسير الحالة الفارغة
+    await expect(page.getByRole("button", { name: "نوع الموظف: معلم" })).toBeVisible();
     const table = page.locator("table").first();
     if (await table.isVisible()) await expect(table).not.toContainText("موظف إداري");
 
     await page.goto("/reports");
-    await page.getByRole("link", { name: "تقرير الموظفين الإداريين" }).click();
-    await expect(page.getByText("نوع الموظف: موظف إداري")).toBeVisible();
+    await openQuickReport(page, "تقرير الموظفين الإداريين");
+    await expect(page.getByRole("button", { name: "نوع الموظف: موظف إداري" })).toBeVisible();
   });
 
   test("١٤–١٥. التقرير الفردي يظهر ويعمل، وتقرير الجميع يعرض الأسماء", async ({ page }) => {
     await login(page);
     await page.goto("/reports");
-    await page.getByRole("link", { name: "التقرير التفصيلي الفردي", exact: false }).click();
+    await openQuickReport(page, "التقرير التفصيلي الفردي");
     await page.waitForURL("**/reports/individual**");
 
     // الخطوات الخمس ظاهرة ومرقّمة
@@ -284,26 +450,38 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
     }
 
     await page.goto("/reports");
-    await page.getByRole("link", { name: "تقرير جميع الموظفين" }).click();
+    await openQuickReport(page, "تقرير جميع الموظفين");
     await expect(page.locator("th", { hasText: "الموظف" }).first()).toBeVisible();
   });
 
   test("١٦–١٧. تغيير عتبة الأداء المنخفض ورؤية الأسماء", async ({ page }) => {
     await login(page);
     await page.goto("/reports");
-    await page.getByRole("link", { name: "الأداء المنخفض بالأسماء" }).click();
-    await expect(page.getByRole("heading", { name: "الأداء المنخفض بالأسماء" })).toBeVisible();
-    // الأسماء أعمدة أصيلة في التقرير — لا نسب مجرّدة
-    await expect(page.locator("th", { hasText: "الموظف" }).first()).toBeVisible();
-    await expect(page.locator("th", { hasText: "المعايير الضعيفة" }).first()).toBeVisible();
+    await openQuickReport(page, "الأداء المنخفض بالأسماء");
+    // ترويسة التقرير المفتوح (h2) لا بطاقته في القائمة (h3)
+    await expect(page.getByRole("heading", { name: "الأداء المنخفض بالأسماء", level: 2 })).toBeVisible();
 
     // العتبة الافتراضية 70 وقابلة للتعديل
-    await page.getByRole("button", { name: "المرشّحات" }).click();
+    await filterSection(page).getByRole("button", { name: /المرشّحات/ }).first().click();
     const threshold = page.locator("#f-low");
     await expect(threshold).toHaveValue("70");
     await threshold.fill("85");
     await threshold.blur();
-    await expect(page.getByText("عتبة الأداء المنخفض: أقل من 85٪")).toBeVisible();
+    // التسمية موحّدة منذ v2.5.0: «حد الأداء المنخفض» على الشريحة وفي ترويسة المُصدَّر معاً
+    await expect(page.getByRole("button", { name: "حد الأداء المنخفض: أقل من 85٪" })).toBeVisible();
+
+    /*
+     * الأسماء أعمدة أصيلة في التقرير — لا نسب مجرّدة.
+     *
+     * الجدول لا يُصيَّر إلا بصفوف، ومَن دون 85٪ قد لا يوجد في بيانات هذا التشغيل. رفع
+     * العتبة إلى 100 يُدخل كل مُقيَّم تحتها، فيثبت الاختبار ما قصده فعلاً — أن التقرير
+     * يعرض الأسماء والمعايير الضعيفة — لا أن أحداً صادف أن يكون ضعيفاً.
+     */
+    await threshold.fill("100");
+    await threshold.blur();
+    await expect(page.getByRole("button", { name: "حد الأداء المنخفض: أقل من 100٪" })).toBeVisible();
+    await expect(page.locator("th", { hasText: "الموظف" }).first()).toBeVisible();
+    await expect(page.locator("th", { hasText: "المعايير الضعيفة" }).first()).toBeVisible();
   });
 
   /* ───────────────── ١٨–٢٠: الحذف ───────────────── */
@@ -389,7 +567,8 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
     // موظف بالاسم وحده (§12.3)
     await page.goto("/people/new");
     await page.locator('input[name="fullName"]').fill(`موظف اختياري ${TAG}`);
-    await page.getByRole("button", { name: "حفظ", exact: false }).first().click();
+    // زر الإنشاء «إضافة» — «حفظ التعديلات» زر التحرير لا الإنشاء
+    await page.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(page.getByText(`موظف اختياري ${TAG}`).first()).toBeVisible({ timeout: 30_000 });
     // مؤشّر الاكتمال معلوماتي وموسوم صراحةً — لا حالة سير عمل
     await expect(page.getByText("اكتمال البيانات", { exact: false }).first()).toBeVisible();
