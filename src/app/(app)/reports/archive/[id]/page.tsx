@@ -4,6 +4,8 @@ import { requirePermission } from "@/lib/auth/session";
 import { PageHeader, Card, Table, Badge, LinkButton } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { FilterPanel } from "@/components/report-filters";
+import { EvidencePanel } from "@/components/evidence-panel";
+import { evidenceForEntity } from "@/lib/evidence";
 import { loadFilterOptions } from "@/lib/reports/filter-options";
 import { reportByKey, isSortableColumn, type FilterKey } from "@/lib/reports/catalog";
 import { parseReportFilters, filtersToStored, serializeReportFilters } from "@/lib/reports/filters";
@@ -113,6 +115,8 @@ export default async function ReportInstancePage({
       })();
 
   const templates = await templateChoices();
+  // الشواهد والمرفقات المختارة لهذا التقرير (§A/§F) — تُجمَّد قائمتها في اللقطة عند الاعتماد
+  const evidence = user.permissions.has("evidence.read") ? await evidenceForEntity("report_instance", row.id) : [];
 
   const downloadHref = (format: string) => `/api/reports/instances/${row.id}/download?format=${format}`;
 
@@ -147,6 +151,15 @@ export default async function ReportInstancePage({
       <Card>
         <h2 className="mb-2 text-sm font-bold text-brand-900">الإجراءات</h2>
         {isDraft ? <DraftActions instanceId={row.id} /> : <FinalActions instanceId={row.id} archived={row.status === INSTANCE_ARCHIVED} />}
+        {isDraft && options.reportKey ? (
+          <p className="mt-3 border-t border-sand-100 pt-3 text-xs text-gray-500">
+            لتعديل الأعمدة وترتيبها والتجميع ونمط العرض:{" "}
+            <Link className="text-brand-700 underline" href={`/reports/builder?report=${options.reportKey}&instance=${row.id}&${query}`}>
+              افتح هذا التقرير في منشئ التقارير
+            </Link>
+            .
+          </p>
+        ) : null}
       </Card>
 
       {/* إعدادات المسودة والمرشّحات */}
@@ -176,6 +189,7 @@ export default async function ReportInstancePage({
               hiddenSections={options.hiddenSections ?? []}
               templates={templates}
               identityOverrides={(options.identityOverrides ?? {}) as Record<string, string>}
+              outputFormats={options.outputFormats ?? ["pdf", "docx", "xlsx"]}
             />
           </Card>
         </>
@@ -195,6 +209,28 @@ export default async function ReportInstancePage({
               </li>
             ))}
           </ul>
+        </Card>
+      ) : null}
+
+      {/* الشواهد والمرفقات (§A/§F) */}
+      {user.permissions.has("evidence.read") ? (
+        <Card>
+          <h2 className="mb-1 text-sm font-bold text-brand-900">الشواهد والمرفقات</h2>
+          <p className="mb-2 text-xs text-gray-500">
+            ما يُربط هنا يظهر في قائمة «الشواهد والمرفقات المستعملة» داخل التقرير، ويدخل حزمة ZIP بعد الاعتماد.
+          </p>
+          <EvidencePanel
+            entityType="report_instance"
+            entityId={row.id}
+            items={evidence.map((e) => ({
+              id: e.item.id,
+              title: e.item.title,
+              kind: e.item.kind,
+              role: e.item.role,
+              fileId: e.item.fileId,
+            }))}
+            canWrite={isDraft && user.permissions.has("evidence.write")}
+          />
         </Card>
       ) : null}
 

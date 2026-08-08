@@ -49,6 +49,8 @@ function optionsFrom(formData: FormData): Record<string, unknown> {
   const templateKey = String(formData.get("templateKey") ?? "");
   if (templateKey) options.templateKey = templateKey;
   if (formData.get("showEmpty") === "1") options.showEmpty = true;
+  const formats = formData.getAll("outputFormat").map(String).filter((f) => ["pdf", "docx", "xlsx"].includes(f));
+  if (formats.length) options.outputFormats = formats;
   const order = formData.getAll("sectionOrder").map(String).filter(Boolean);
   if (order.length) options.sectionOrder = order;
   const hidden = formData.getAll("hiddenSection").map(String).filter(Boolean);
@@ -71,6 +73,14 @@ function inputFrom(formData: FormData) {
     periodFrom: String(formData.get("periodFrom") ?? "") || null,
     periodTo: String(formData.get("periodTo") ?? "") || null,
   };
+}
+
+/** الصيغ المختارة لهذا التقرير — الفراغ يعني الثلاث كلها (دلالة «الفراغ يعني الكل») */
+async function selectedFormats(instanceId: string, user: { id: string; permissions: Set<string> }): Promise<string[]> {
+  const row = await getInstance(instanceId, user);
+  const { parseInstanceOptions } = await import("@/lib/reports/instances/options");
+  const chosen = row ? parseInstanceOptions(row.options).outputFormats : undefined;
+  return chosen?.length ? chosen : ["pdf", "docx", "xlsx"];
 }
 
 export async function createInstanceAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -116,7 +126,8 @@ export async function finalizeInstanceAction(instanceId: string, _prev: ActionSt
   if (String(formData.get("confirm") ?? "") !== "1") return { error: "أكّد الاعتماد النهائي — بعده لا يُعدَّل التقرير" };
   const result = await finalizeInstance(instanceId, user);
   if (result.error) return result;
-  const generation = await requestGeneration(instanceId, ["pdf", "docx", "xlsx"], user);
+  // الصيغ المختارة والمحفوظة في التقرير هي ما يُولَّد — لا ثلاثتها دائماً (بلوكر §2)
+  const generation = await requestGeneration(instanceId, await selectedFormats(instanceId, user), user);
   if (generation.jobId) {
     const jobId = generation.jobId;
     after(() => runJob(jobId));
@@ -137,7 +148,7 @@ export async function unarchiveInstanceAction(instanceId: string, _prev: ActionS
 /** توليد المخرجات يدوياً (أو إعادة المحاولة بعد فشل) — المهمة في الخلفية عبر `after()` */
 export async function generateOutputsAction(instanceId: string, _prev: ActionState, _formData: FormData): Promise<ActionState> {
   const user = await requirePermission("reports.read", "reports.generate");
-  const result = await requestGeneration(instanceId, ["pdf", "docx", "xlsx"], user);
+  const result = await requestGeneration(instanceId, await selectedFormats(instanceId, user), user);
   if (result.error) return result;
   const jobId = result.jobId!;
   after(() => runJob(jobId));

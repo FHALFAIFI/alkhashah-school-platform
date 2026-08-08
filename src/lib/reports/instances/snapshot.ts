@@ -82,8 +82,10 @@ function visibleColumns(
   rows: Record<string, string | number | null>[],
   showEmpty: boolean,
 ): ReportColumn[] {
+  // ترتيب الأعمدة هو ترتيب **اختيار المستخدم** لا ترتيب التعريف: المنشئ يُلحق العمود عند
+  // تحديده، فلو رتّبناها بالتعريف ضاع أحد اختيارات §4.4 صامتاً في اللقطة المجمّدة.
   const chosen = filters.columns?.length
-    ? def.columns.filter((c) => filters.columns!.includes(c.key))
+    ? filters.columns.flatMap((key) => def.columns.filter((c) => c.key === key))
     : def.columns;
   if (showEmpty || rows.length === 0) return chosen;
   const nonEmpty = chosen.filter((c) => rows.some((r) => !cellEmpty(r[c.key])));

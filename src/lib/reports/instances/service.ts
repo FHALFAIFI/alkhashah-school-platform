@@ -5,12 +5,14 @@ import { reportCounters, reportInstances, reportOutputs } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { getSetting } from "@/lib/settings";
 import { hijriPartsOf, isValidIsoDate } from "@/lib/dates";
+import { reportByKey, isSortableColumn } from "../catalog";
 import { filtersToStored, parseReportFilters, storedToParams, type ReportFilters } from "../filters";
 import { buildSnapshot, SnapshotPermissionError } from "./snapshot";
 import {
   instanceTypeByKey,
   isSensitiveType,
   requiredPermissions,
+  sectionsOf,
   INSTANCE_DRAFT,
   INSTANCE_FINAL,
   INSTANCE_ARCHIVED,
@@ -473,7 +475,19 @@ export async function instanceOutputs(instanceId: string) {
   return db.select().from(reportOutputs).where(eq(reportOutputs.instanceId, instanceId));
 }
 
-/** قراءة مرشّحات صفّ مخزَّن بتطهير كامل — الواجهة والتصدير يقرآن من هنا فقط */
+/**
+ * قراءة مرشّحات صفّ مخزَّن بتطهير كامل — الواجهة والتصدير يقرآن من هنا فقط.
+ *
+ * القوائم البيضاء تُمرَّر من **تقرير التقرير نفسه**: بدونها كان `parseReportFilters` يُسقط
+ * الأعمدة والترتيب والتجميع بصمت (يعيدها `undefined` ما لم تُعلَن أعمدة مسموحة)، فتضيع
+ * اختيارات المنشئ عند كل قراءة رجوع. عيبٌ كشفه اختبار بقاء الاختيارات.
+ */
 export function instanceFilters(row: InstanceRow): ReportFilters {
-  return parseReportFilters(storedToParams(row.filters));
+  const options = parseInstanceOptions(row.options);
+  const primary = sectionsOf(row.typeKey, options)[0]?.reportKey ?? options.reportKey ?? "";
+  const def = reportByKey(primary);
+  return parseReportFilters(storedToParams(row.filters), {
+    allowedSort: (k) => isSortableColumn(primary, k),
+    allowedColumns: def?.columns.map((c) => c.key),
+  });
 }

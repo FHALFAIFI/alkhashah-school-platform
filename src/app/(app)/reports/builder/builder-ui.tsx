@@ -4,7 +4,13 @@ import { useActionState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SubmitButton } from "@/components/ui";
 import { useRefreshOnSuccess } from "@/components/form-reset";
-import { saveTemplateAction, updateTemplateAction, type ActionState } from "./actions";
+import {
+  saveTemplateAction,
+  updateTemplateAction,
+  createInstanceFromBuilderAction,
+  updateInstanceFromBuilderAction,
+  type ActionState,
+} from "./actions";
 
 /**
  * عناصر تأليف التقرير (v2.5.0 §4.2).
@@ -230,6 +236,101 @@ export function SaveTemplateForm({
         يمسّ أي بيانات ولا أي تقرير صدر منه.
       </p>
       <SubmitButton>{editing ? "حفظ التعديل" : "حفظ كقالب"}</SubmitButton>
+    </form>
+  );
+}
+
+/**
+ * حفظ ما بُني هنا **تقريراً محفوظاً** (v2.6 §A — بلوكر §2): المنشئ واجهة التأليف الوحيدة،
+ * والتقرير المحفوظ يأخذ اختياراته كما هي (التقرير والمرشّحات والأعمدة وترتيبها والتجميع
+ * ونمط العرض) عبر نص الاستعلام نفسه. عند فتح تقرير قائم من الأرشيف (`instance=<id>`)
+ * يصير الزر **تحديثاً** لذلك التقرير لا إنشاءً لثانٍ.
+ */
+export function SaveAsInstanceForm({
+  reportKey,
+  query,
+  instanceId,
+  defaultTitle,
+  templates,
+  currentTemplateKey,
+  currentFormats,
+  periodFrom,
+  periodTo,
+}: {
+  reportKey: string;
+  query: string;
+  instanceId?: string;
+  defaultTitle: string;
+  templates: { key: string; label: string }[];
+  currentTemplateKey?: string;
+  currentFormats?: string[];
+  periodFrom?: string | null;
+  periodTo?: string | null;
+}) {
+  const action = instanceId
+    ? updateInstanceFromBuilderAction.bind(null, instanceId)
+    : createInstanceFromBuilderAction;
+  const [state, formAction] = useActionState(action, null);
+  useRefreshOnSuccess(state);
+  const formats = currentFormats?.length ? currentFormats : ["pdf", "docx", "xlsx"];
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <input type="hidden" name="reportKey" value={reportKey} />
+      <input type="hidden" name="query" value={query} />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="instanceTitle">
+            عنوان التقرير الكامل
+          </label>
+          <input id="instanceTitle" name="title" defaultValue={defaultTitle} maxLength={200} className={inputCls} />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="instanceTemplate">
+            قالب الإخراج
+          </label>
+          <select id="instanceTemplate" name="templateKey" defaultValue={currentTemplateKey ?? ""} className={inputCls}>
+            <option value="">القالب الافتراضي للنوع</option>
+            {templates.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="instancePeriodFrom">
+            الفترة من
+          </label>
+          <input id="instancePeriodFrom" name="periodFrom" type="date" defaultValue={periodFrom ?? ""} className={inputCls} />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="instancePeriodTo">
+            الفترة إلى
+          </label>
+          <input id="instancePeriodTo" name="periodTo" type="date" defaultValue={periodTo ?? ""} className={inputCls} />
+        </div>
+      </div>
+
+      <fieldset>
+        <legend className="mb-1 text-sm font-medium text-gray-700">صيغ الإخراج المطلوبة</legend>
+        <div className="flex flex-wrap gap-4 text-sm text-gray-700">
+          {[
+            ["pdf", "PDF"],
+            ["docx", "Word"],
+            ["xlsx", "Excel"],
+          ].map(([value, label]) => (
+            <label key={value} className="flex items-center gap-1">
+              <input type="checkbox" name="outputFormat" value={value} defaultChecked={formats.includes(value)} />
+              {label}
+            </label>
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-gray-400">تُولَّد تلقائياً بعد الاعتماد، وتدخل حزمة ZIP</p>
+      </fieldset>
+
+      <SubmitButton>{instanceId ? "تحديث التقرير المحفوظ" : "حفظ كتقرير محفوظ"}</SubmitButton>
+      {state?.error ? <p className="rounded-lg bg-red-50 p-2 text-xs text-red-800">{state.error}</p> : null}
     </form>
   );
 }

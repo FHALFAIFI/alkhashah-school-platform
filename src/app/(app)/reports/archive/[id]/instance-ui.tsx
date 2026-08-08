@@ -46,6 +46,7 @@ export function DraftSettingsForm({
   hiddenSections,
   templates,
   identityOverrides,
+  outputFormats,
 }: {
   instanceId: string;
   typeKey: string;
@@ -60,6 +61,7 @@ export function DraftSettingsForm({
   hiddenSections: string[];
   templates: { key: string; label: string }[];
   identityOverrides: Record<string, string>;
+  outputFormats: string[];
 }) {
   const action = updateInstanceAction.bind(null, instanceId);
   const [state, formAction] = useActionState(action, null);
@@ -141,6 +143,23 @@ export function DraftSettingsForm({
         <input type="checkbox" name="showEmpty" value="1" defaultChecked={showEmpty} />
         إظهار الحقول والأقسام الفارغة بدل إخفائها التلقائي
       </label>
+
+      <fieldset>
+        <legend className="mb-1 text-sm font-medium text-gray-700">صيغ الإخراج المطلوبة</legend>
+        <div className="flex flex-wrap gap-4 text-sm text-gray-700">
+          {[
+            ["pdf", "PDF"],
+            ["docx", "Word"],
+            ["xlsx", "Excel"],
+          ].map(([value, label]) => (
+            <label key={value} className="flex items-center gap-1">
+              <input type="checkbox" name="outputFormat" value={value} defaultChecked={outputFormats.includes(value)} />
+              {label}
+            </label>
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-gray-400">هي وحدها ما يُولَّد بعد الاعتماد، وتدخل حزمة ZIP</p>
+      </fieldset>
 
       {sections.length > 1 && (
         <div>

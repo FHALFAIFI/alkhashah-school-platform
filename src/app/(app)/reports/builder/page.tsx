@@ -18,7 +18,10 @@ import { LARGE_REPORT_ROWS } from "@/lib/reports/export-safety";
 import { allowedVisibilities, getTemplate } from "@/lib/reports/templates";
 import { formatMoney, orDash } from "@/lib/format";
 import { dualNumericCell } from "@/lib/dates";
-import { BuilderControls, SaveTemplateForm } from "./builder-ui";
+import { getInstance } from "@/lib/reports/instances/service";
+import { parseInstanceOptions } from "@/lib/reports/instances/options";
+import { templateChoices } from "@/lib/reports/instances/style-templates";
+import { BuilderControls, SaveTemplateForm, SaveAsInstanceForm } from "./builder-ui";
 
 export const metadata = { title: "منشئ التقارير" };
 export const dynamic = "force-dynamic";
@@ -58,6 +61,10 @@ export default async function ReportBuilderPage({
   const selected = first("report") ? available.find((r) => r.key === first("report")) : undefined;
   const editingId = first("template");
   const editing = editingId ? await getTemplate(editingId, user) : null;
+  // v2.6: المنشئ هو محرّر التقرير المحفوظ أيضاً — `instance=<id>` يفتحه للتعديل هنا
+  const instanceId = first("instance");
+  const instance = instanceId ? await getInstance(instanceId, user) : null;
+  const instanceOptions = instance ? parseInstanceOptions(instance.options) : null;
 
   const filters = selected
     ? parseReportFilters(sp, {
@@ -136,7 +143,7 @@ export default async function ReportBuilderPage({
                 filterKeys={[...filterKeys]}
                 options={options}
                 resultCount={result?.total}
-                keep={{ report: selected.key, template: editingId }}
+                keep={{ report: selected.key, template: editingId, instance: instanceId }}
               />
             )}
           </Card>
@@ -209,10 +216,38 @@ export default async function ReportBuilderPage({
             </div>
           </Card>
 
-          {/* ٥ — الحفظ كقالب */}
+          {/* ٥ — الحفظ تقريراً محفوظاً (v2.6 §A) */}
+          <Card>
+            <h2 className="mb-1 text-sm font-bold text-brand-900">
+              ٥. {instance ? `تحديث التقرير المحفوظ «${instance.title}»` : "حفظ كتقرير محفوظ"}
+            </h2>
+            <p className="mb-2 text-xs text-gray-500">
+              التقرير المحفوظ يأخذ اختياراتك كما هي — المرشّحات والأعمدة وترتيبها والتجميع ونمط العرض — ثم يُعتمد
+              برقم لا يتكرر ولقطة لا تتغير.
+            </p>
+            {instance && instance.status !== "مسودة" ? (
+              <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+                هذا التقرير معتمد ولا يُعدَّل — أنشئ منه نسخة جديدة من صفحته.
+              </p>
+            ) : (
+              <SaveAsInstanceForm
+                reportKey={selected.key}
+                query={query.toString()}
+                instanceId={instance?.id}
+                defaultTitle={instance?.title ?? selected.label}
+                templates={await templateChoices()}
+                currentTemplateKey={instanceOptions?.templateKey}
+                currentFormats={instanceOptions?.outputFormats}
+                periodFrom={instance?.periodFrom}
+                periodTo={instance?.periodTo}
+              />
+            )}
+          </Card>
+
+          {/* ٦ — الحفظ كقالب إعدادات */}
           <Card>
             <h2 className="mb-2 text-sm font-bold text-brand-900">
-              ٥. {editing ? `تعديل القالب «${editing.name}»` : "حفظ كقالب"}
+              ٦. {editing ? `تعديل القالب «${editing.name}»` : "حفظ كقالب إعدادات"}
             </h2>
             <SaveTemplateForm
               reportKey={selected.key}
