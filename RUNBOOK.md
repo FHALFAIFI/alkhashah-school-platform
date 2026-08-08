@@ -5,16 +5,24 @@
 ## المرشَّح القادم — v2.6.0 «منصة التقارير» (لم يُنشر — بانتظار تصريح المالك)
 
 > الفرع `feat/v2.6-reporting-platform`. النطاق والقرارات: `docs/requirements/v2.6-reporting-platform-specification.md`
-> وD-055…D-060. **لا شيء مما يلي نُفِّذ على الإنتاج** — هذا التسلسل يُنفَّذ فقط بعد تصريح صريح.
+> وD-055…D-064. **لا شيء مما يلي نُفِّذ على الإنتاج** — هذا التسلسل يُنفَّذ فقط بعد تصريح صريح.
 
-### تسلسل النشر (متى صُرِّح به)
+### صورة المرشَّح تُبنى خارج مضيف الإنتاج (بلوكر §10)
+
+**لا تُبنَ صورة الإصدار على الجهاز الذي يخدم 3080.** الجهاز الوحيد الذي يملك Docker هنا هو
+مضيف الإنتاج نفسه، فالبناء يجري على عدّاء GitHub عبر سير `.github/workflows/rc-image.yml`:
+يبني `linux/arm64` من `Dockerfile.production` نفسه، ويدفعها إلى GHCR بوسم الالتزام،
+ويسجّل **البصمة الثابتة** في مُرفَق `v26-rc-image-record`، ثم يفحص تشغيلها مقابل قاعدة
+Postgres معزولة (هجرة فقط، سجل 37، `/api/health` يردّ `2.6.0`).
+
+عند النشر تُسحب الصورة بالبصمة لا بالوسم — فما يُنشر هو ما فُحص حرفياً:
 
 ```bash
-# 0) الشروط: تصريح المالك؛ ذاكرة حرة كافية (لا بناء على جهاز الإنتاج في ساعات العمل — درس v2.5.0)
-# 1) بناء صورة المرشَّح من الالتزام النهائي وتسجيل بصمتها
-COMMIT=$(git rev-parse --short HEAD)
-docker build -f Dockerfile.production --build-arg RELEASE_COMMIT=$COMMIT -t madrasa-app:0.1.0-v2_6_0-rc .
-docker inspect madrasa-app:0.1.0-v2_6_0-rc --format '{{.Id}}'
+# 1) سحب الصورة المفحوصة ببصمتها الثابتة (من مُرفَق سير RC image)
+DIGEST=<sha256:… من DIGEST.txt>
+docker pull ghcr.io/fhalfaifi/alkhashah-school-platform/madrasa-app@$DIGEST
+docker tag  ghcr.io/fhalfaifi/alkhashah-school-platform/madrasa-app@$DIGEST madrasa-app:0.1.0-v2_6_0-rc
+docker inspect madrasa-app:0.1.0-v2_6_0-rc --format '{{.Id}}'   # يجب أن تطابق البصمة أعلاه
 
 # 2) نسخة احتياطية مشفَّرة قبل النشر + تحقق استعادة معزول (كما v2.5.0)
 bash scripts/backup-daily.sh && bash scripts/restore-rehearsal.sh
@@ -22,8 +30,9 @@ bash scripts/backup-daily.sh && bash scripts/restore-rehearsal.sh
 # 3) وسم صورة التراجع من الصورة الخادمة حالياً
 docker tag madrasa-app:0.1.0 madrasa-app:0.1.0-prev-v2_6_0-$(date +%Y%m%d)
 
-# 4) الهجرات عبر خدمة init (هجرة فقط — القاعدة لا يُعاد تشغيلها): السجل 34 → 36
-#    0034 خمسة جداول جديدة إضافية؛ 0035 قادحا ثبات وفهرس جزئي — لا صف قائم يُكتب أو يُحذف
+# 4) الهجرات عبر خدمة init (هجرة فقط — القاعدة لا يُعاد تشغيلها): السجل 34 → 37
+#    0034 خمسة جداول إضافية؛ 0035 قادحا ثبات وفهرس جزئي؛ 0036 تضييق قادح صفّ ZIP
+#    — لا صف قائم يُكتب أو يُحذف في أيٍّ منها
 docker tag madrasa-app:0.1.0-v2_6_0-rc madrasa-app:0.1.0
 docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod run --rm init
 
@@ -45,8 +54,8 @@ curl -s http://127.0.0.1:3080/api/health
 ### التراجع (لم يُنفَّذ — جاهز فقط)
 
 ```bash
-# تراجع التطبيق وحده — لا إجراء على القاعدة: هجرات v2.6 إضافية كلها (جداول جديدة + قادحان
-# على الجداول الجديدة حصراً)، فصورة v2.5.0 تعمل على السجل 36 كما عملت v2.4.1 على السجل 34
+# تراجع التطبيق وحده — لا إجراء على القاعدة: هجرات v2.6 إضافية كلها (جداول جديدة + قوادح
+# على الجداول الجديدة حصراً)، فصورة v2.5.0 تعمل على السجل 37 كما عملت v2.4.1 على السجل 34
 docker tag madrasa-app:0.1.0-prev-v2_6_0-<التاريخ> madrasa-app:0.1.0
 docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
   up -d --no-deps --force-recreate app
