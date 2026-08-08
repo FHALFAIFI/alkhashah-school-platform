@@ -882,3 +882,122 @@ already in production rows («في المسار», «متوقف مؤقتاً») 
 `plan-followups` report. They previously ran different queries and disagreed — the report
 always read *today's* week and ignored the selected one.
 `tests/integration/followup-parity.test.ts` compares the two outputs row by row.
+
+## D-055 — A report instance is a third artifact class: numbered, immutable, lifecycled (2026-08-08)
+
+v2.6 §A/§B. The platform already distinguishes a *saved template* (a recipe,
+`report_templates`), an *issued document* (a frozen HTML snapshot, `documents`) and a
+*built-in report definition* (`lib/reports/catalog`). v2.6 adds the fourth thing the owner
+actually asked for: **a report the school keeps** — built in the builder, saved as a draft,
+finalized into an immutable numbered snapshot, archived, and searchable years later.
+
+**The model.** New tables (all additive, migration 0034; guards in 0035):
+
+- `report_instances` — title, catalog `report_key` or composite type, Arabic lifecycle
+  status «مسودة | نهائي | مؤرشف», recipe columns while draft (filters/columns/options),
+  a `snapshot` jsonb written **exactly once** inside the finalization transaction,
+  `report_number` unique and NULL until finalized, `version_of_id` self-reference for
+  "new version", `signed_copy_file_id`, finalized/archived/created/updated audit columns.
+- `report_outputs` — one row per (instance, format) pointing at `stored_files`; the
+  preserved PDF/DOCX/XLSX (+ ZIP) of the finalized report.
+- `report_jobs` — DB-backed generation jobs (D-059).
+- `report_counters` — per-year counter row locked with `SELECT … FOR UPDATE` at
+  finalization. `documents.ts`'s count-based numbering has a documented race; report
+  numbers must never collide or skip, so they take the locked-counter path. Number format:
+  `<prefix><year>-<seq>` with prefix from setting `reports.number_prefix`
+  (default «KHS-RPT-»).
+
+**Lifecycle rules (§A):** only drafts may be edited or deleted; finalization is
+transactional and idempotent (a second submit returns the same number); a "new version"
+creates a new draft carrying `version_of_id`; archiving flips status only. The archive
+search reads titles/numbers/types/periods — never inside snapshots.
+
+**Immutability is enforced in the database, not just the service.** Migration 0035
+installs triggers: `report_instances` rows that are not «مسودة» reject UPDATEs to
+anything except the archive transition, the signed-copy reference and updater metadata,
+and reject DELETE outright; `report_outputs` of a finalized instance reject
+UPDATE/DELETE (ZIP excepted — D-060 explains why). Application code, background jobs,
+cascades and future migrations all hit the same wall. Regression tests prove it from both
+sides (service refusal and raw-SQL refusal).
+
+**Permissions:** no new keys. Draft authoring = `reports.builder`; export =
+`reports.generate`; finalization and signed-copy upload = `documents.issue` (finalizing
+*is* issuing an official numbered artifact). Sensitive instances (any section marked
+`sensitive` in the catalog) additionally require `performance.individual.read` on every
+read/export path — the report archive must not reopen what D-013 closed.
+
+## D-056 — Composite report types are presets over the one catalog, not a second engine (2026-08-08)
+
+v2.6 §A/§C. The builder gains multi-section reports (التقرير الدوري، التقرير الختامي،
+الملخص التنفيذي…) without a second report engine: a composite type is an ordered list of
+**sections, each bound to a catalog report key**, sharing the instance's period/scope
+filters with optional per-section additions. Everything the catalog already guarantees —
+permission per report, whitelisted columns/sort/group, filter isolation, sensitivity —
+applies per section by construction. Sections can be reordered and hidden; empty sections
+are omitted automatically with an explicit «إظهار الأقسام الفارغة» override. A
+single-source instance is the degenerate case: one section.
+
+The registry lives in `src/lib/reports/instances/types.ts` (pure module, unit-testable,
+same style as `catalog.ts`). No report is fabricated from data the platform does not
+hold; a section whose data model lacks a concept states that rather than inventing it
+(the v2.5.0 attendance precedent).
+
+## D-057 — «إدارة التعليم» is the addressee; «مكتب التعليم» leaves the identity (2026-08-08)
+
+v2.6 §E. The office line is removed from: `DocumentIdentity` rendering (`resolveHeader`
+no longer emits it), the identity settings screen, the document-template identity block
+and its placeholder (`education_office`), the hard-coded fallback org lines in
+`lib/pdf.ts`, and every generated filename/label. The stored `document.identity` settings
+row keeps any old `educationOffice` value (settings are jsonb; ignoring a key is free) —
+nothing rewrites user data.
+
+**Boundary:** official source data is untouched. The committee-duty texts in
+`src/db/seed-data/committee-templates.ts` mention «مكتب التعليم» because the ministry's
+own wording does; the language policy forbids paraphrasing it. The pinning test therefore
+scopes to identity, templates, reports, letters and labels — not to verbatim source data.
+
+## D-058 — Five protected base templates in code; customized copies in the database (2026-08-08)
+
+v2.6 §E. The five base templates (رسمي إلى إدارة التعليم، إداري داخلي، تنفيذي موجز،
+تحليلي مفصّل، طباعة أولية بلا هوية) are a **pure registry**
+(`src/lib/reports/instances/base-templates.ts`): they cannot be deleted or destructively
+modified because they are not rows. A customized copy is a `report_style_templates` row
+referencing its base key with a whitelisted config diff (colors, header/footer text,
+cover/TOC defaults, identity toggles) — the same closed-config philosophy as
+`template_versions`, and explicitly **not** a general-purpose template designer. Default
+template per report type lives in the settings store (`reports.default_templates`);
+per-instance overrides live in the instance options and are frozen into the snapshot at
+finalization. The existing dark document-template engine (`template_definitions`) is left
+untouched: entangling a live release with dark code buys nothing.
+
+## D-059 — Background generation: DB-backed jobs executed with `after()`, at-least-once, idempotent (2026-08-08)
+
+v2.6 §I. There is no worker infrastructure and this release does not invent a daemon.
+A generation request inserts a `report_jobs` row and schedules the work with Next's
+`after()` — it runs on the server after the action's response has streamed, so it can
+never abort the response (the D-049/D-053 failure class is structurally impossible).
+The UI polls job status with the existing client-refresh idiom.
+
+Reliability rules: one **active** job per instance (partial unique index on the two
+Arabic active statuses); job execution re-checks state before writing; outputs are
+upserted per (instance, format) so a retry after a crash cannot duplicate files or rows;
+a job stuck in «قيد التنفيذ» past its heartbeat window is retryable — «إعادة المحاولة»
+re-enqueues, it never edits the stuck row's history. Failures preserve the draft and
+store an Arabic failure reason on the job row. This is the house `client_op_id` idempotency
+pattern applied server-side.
+
+## D-060 — One snapshot document renders everywhere; ZIP is assembled from preserved parts (2026-08-08)
+
+v2.6 §B/§F/§G. Finalization freezes a single self-contained `SnapshotDoc` (schema
+versioned, `version: 1`): title, type, period, resolved filter description, sections with
+their columns and rows, the resolved identity (org lines, principal, logos by file id),
+the resolved template config, and generation metadata. Every consumer — app preview,
+paginated print preview, PDF, DOCX, XLSX — renders from this one structure, which is what
+makes "the PDF matches the approved preview" testable rather than aspirational.
+
+The preserved outputs are PDF/DOCX/XLSX files in `stored_files` (scope `reports`).
+The ZIP is **assembled deterministically from preserved parts** (outputs + signed copy +
+referenced attachments) and re-assembled when the signed copy arrives after finalization —
+which is why the immutability trigger (D-055) exempts exactly the ZIP row and nothing
+else. Path safety: entry names are sanitized flat names, never caller paths; integrity is
+verified by reading the archive back before it is stored or served.
