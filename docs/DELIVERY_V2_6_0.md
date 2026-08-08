@@ -32,8 +32,24 @@ and re-pushed on every branch push, so it must never be deployed on its own.
 | `sha256:3d331c03…` | `28f007f` | predates every product fix in §5a |
 | `sha256:8d4c032f…` | `0503cea` | that commit's CI was green on the push trigger and red twice on the pull-request trigger (see below); it is not a commit where every job passed |
 
-The deployable digest is the one built from the final SHA **after every job passes on every
-trigger**, recorded in the `v26-rc-image-record` artifact of that run.
+**The current RC image**, built from the final SHA after every job passed on both triggers
+([run 31272025536](https://github.com/FHALFAIFI/alkhashah-school-platform/actions/runs/31272025536)):
+
+```
+image:   ghcr.io/fhalfaifi/alkhashah-school-platform/madrasa-app:0.1.0-v2_6_0-rc
+platform: linux/arm64
+commit:  cac78d518757b1240290b9dba700962656893cdb  (cac78d5)
+digest:  sha256:4101f25a8911870ff4e3c3becfbc539a375add3adf7a88c2207be10e80709627
+```
+
+Its embedded `RELEASE_COMMIT` is verified, not assumed — the job fails if health reports a
+different commit, and it returned:
+
+```json
+{"status":"ok","db":"up","version":"2.6.0","commit":"cac78d5","environment":"production"}
+```
+
+Deploy by that digest. Never by the tag.
 
 **Production was not touched.** Port 3080, the `madrasa-prod` containers, database,
 volumes and configuration were never read from or written to by this work. Every
@@ -47,7 +63,9 @@ one read-only health GET used for this verification being the session's only con
 ## 2) Branch and commits
 
 Base `0488f1a` (= `main` = v2.5.0 docs tip; tag `v2.5.0` @ `39674ed`).
-62 files changed, ~32,700 insertions across 11 commits:
+Final SHA **`cac78d5`** — **111 files changed, +49,105 / −178 across 31 commits**.
+The eleven that built the scope are listed below; the twenty that follow are the CI
+repairs, the six product defects of §5a, and this documentation.
 
 | Commit | Subject |
 |---|---|
@@ -252,8 +270,16 @@ the data exists and all twelve run. That is why the skip count fell from 8–9 t
 
 ## 6) CI (first pipeline for this repository)
 
-`.github/workflows/ci.yml` — all jobs green on `9d20137`'s predecessor run and the PR
-run (run 31234357345 / 31234359591):
+`.github/workflows/ci.yml` — **all seven jobs green on the final SHA `cac78d5`, on both
+triggers**, which is the bar this release now holds itself to:
+
+| Trigger | Run | E2E | Vitest |
+|---|---|---|---|
+| `push` | [31272025498](https://github.com/FHALFAIFI/alkhashah-school-platform/actions/runs/31272025498) | 130 passed · 0 failed · 0 did not run · 2 skipped (10.8 m) | 1181 passed · 3 skipped (1184) |
+| `pull_request` | [31272027010](https://github.com/FHALFAIFI/alkhashah-school-platform/actions/runs/31272027010) | 130 passed · 0 failed · 0 did not run · 2 skipped (11.7 m) | 1181 passed · 3 skipped (1184) |
+
+Both triggers are recorded deliberately: on the previous commit they disagreed, and a
+release verified on only one of them is a release verified by luck.
 
 | Job | Contents |
 |---|---|
@@ -338,10 +364,13 @@ migration, boot, health or login fails. Commands: `RUNBOOK.md` §«البواب�
 Not performed — it requires deployment authorization from Fahad.
 
 **Digest discipline.** `0.1.0-v2_6_0-rc` is a moving tag re-pushed on every branch push, so
-it must never be deployed on its own. The digest recorded earlier
-(`sha256:3d331c…`, commit `28f007f`) is **stale and must not be cited or deployed** — it
-predates the product fixes in §5a. The final digest is regenerated from the final SHA once
-every CI job passes, and deployment pulls that digest by hash.
+it must never be deployed on its own. Three digests now exist; only the last is deployable:
+
+| Digest | Commit | Status |
+|---|---|---|
+| `sha256:3d331c03…` | `28f007f` | dead — predates every product fix in §5a |
+| `sha256:8d4c032f…` | `0503cea` | dead — that commit was green on the push trigger and red twice on the pull-request trigger |
+| **`sha256:4101f25a…`** | **`cac78d5`** | **current** — all seven jobs green on **both** triggers; health reports `commit: cac78d5` |
 
 ## 11) Deployment and rollback (prepared, NOT executed)
 

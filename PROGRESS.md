@@ -2,7 +2,25 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.6.0 REPORTING PLATFORM — RC ON BRANCH (2026-08-08), NOT DEPLOYED**
+## Latest checkpoint — **v2.6.0 — NOT READY (2026-08-08), NOT DEPLOYED**
+
+Final SHA **`cac78d5`**. All seven CI jobs green on **both** triggers
+([push 31272025498](https://github.com/FHALFAIFI/alkhashah-school-platform/actions/runs/31272025498),
+[pull_request 31272027010](https://github.com/FHALFAIFI/alkhashah-school-platform/actions/runs/31272027010)):
+Playwright **130 passed · 0 failed · 0 did not run · 2 skipped**, vitest 1181+3 skipped
+(1184) across 117 files. RC image `sha256:4101f25a…` (linux/arm64, health reports
+`commit: cac78d5`).
+
+**Why NOT READY, in three lines.** The Playwright suite had never finished — two failures in
+serial describes hid eleven tests that had never executed. Making them run surfaced **six
+real production defects** (five fixed, D-066 open): official documents issued with nothing
+shown on screen — so the principal presses again and duplicates a numbered document — and a
+**500 error page** on an ordinary report filter click (D-067). The arm64 binary has still
+never been executed; that is the first mandatory pre-swap gate and it awaits authorization.
+
+Full account: `docs/DELIVERY_V2_6_0.md` §1, §5a, §10, §13; decisions D-065…D-067.
+
+## Superseded checkpoint — **v2.6.0 REPORTING PLATFORM — RC ON BRANCH (2026-08-08), NOT DEPLOYED**
 
 Branch `feat/v2.6-reporting-platform` (base `0488f1a` = main = v2.5.0 docs tip), Draft PR #1.
 Spec: `docs/requirements/v2.6-reporting-platform-specification.md`; decisions **D-055…D-060**.
