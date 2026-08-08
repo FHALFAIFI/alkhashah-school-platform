@@ -52,17 +52,25 @@ export default async function SettingsPage() {
         logoPatch[key] = stored.id;
       }
     }
+    // ألوان الهوية (v2.6 §E): لا يُقبل إلا لون سداسي عشري صالح — القيمة غير الصالحة تُتجاهل
+    // فتبقى القيمة المخزّنة الحالية كما هي (التحقق على الخادم لا في المتصفح)
+    const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+    const colorPatch: Record<string, string> = {};
+    for (const name of ["primaryColor", "accentColor"] as const) {
+      const value = String(formData.get(name) ?? "").trim();
+      if (HEX_COLOR.test(value)) colorPatch[name] = value;
+    }
     await saveDocumentIdentity(
       {
         ministryName: String(formData.get("ministryName") ?? ""),
         educationDepartment: String(formData.get("educationDepartment") ?? ""),
-        educationOffice: String(formData.get("educationOffice") ?? ""),
         schoolName: String(formData.get("schoolName") ?? ""),
         principalName: String(formData.get("principalName") ?? ""),
         principalTitle: String(formData.get("principalTitle") ?? ""),
         academicYear: String(formData.get("academicYear") ?? ""),
         headerNote: String(formData.get("headerNote") ?? ""),
         footerNote: String(formData.get("footerNote") ?? ""),
+        ...colorPatch,
         ...logoPatch,
       },
       u.id,
@@ -86,13 +94,15 @@ export default async function SettingsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="سطر الوزارة" name="ministryName" defaultValue={identity.ministryName} />
             <Field label="إدارة التعليم" name="educationDepartment" defaultValue={identity.educationDepartment} />
-            <Field label="مكتب التعليم" name="educationOffice" defaultValue={identity.educationOffice} />
             <Field label="اسم المدرسة/المجمع" name="schoolName" defaultValue={identity.schoolName} />
             <Field label="اسم مدير المدرسة" name="principalName" defaultValue={identity.principalName} hint="مثال: حسين بن جابر أحمد الفيفي" />
             <Field label="المسمى الوظيفي" name="principalTitle" defaultValue={identity.principalTitle} />
             <Field label="العام الدراسي" name="academicYear" defaultValue={identity.academicYear} />
             <Field label="ملاحظة الترويسة (اختياري)" name="headerNote" defaultValue={identity.headerNote} />
             <Field label="نص التذييل" name="footerNote" defaultValue={identity.footerNote} />
+            {/* ألوان الهوية (v2.6 §E) — مركزية لكل الوثائق والتقارير المولّدة */}
+            <Field label="اللون الأساسي للهوية" name="primaryColor" defaultValue={identity.primaryColor} dir="ltr" hint="لون سداسي عشري مثل ‎#1f5244" />
+            <Field label="لون التمييز" name="accentColor" defaultValue={identity.accentColor} dir="ltr" hint="لون سداسي عشري مثل ‎#348066" />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>

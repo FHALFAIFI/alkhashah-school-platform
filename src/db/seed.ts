@@ -69,10 +69,10 @@ async function seedUsers(): Promise<string[]> {
 async function seedSchool() {
   const existing = await db.select().from(school);
   if (existing.length === 0) {
+    // D-057: «إدارة التعليم» هي الجهة المخاطَبة — لا يُزرع حقل المكتب (العمود يبقى للبيانات المخزّنة)
     await db.insert(school).values({
       nameAr: "مجمع الخشعة التعليمي للبنين",
       region: "إدارة التعليم في محافظة صبيا",
-      office: "مكتب تعليم العيدابي",
       lat: "17.2484051",
       lng: "43.0609594",
     });

@@ -55,7 +55,6 @@ const IDENTITY_LABELS: Record<string, string> = {
   schoolName: "اسم المدرسة",
   ministryText: "نص الوزارة",
   departmentText: "إدارة التعليم",
-  officeText: "مكتب التعليم",
   logoFileId: "الشعار",
 };
 

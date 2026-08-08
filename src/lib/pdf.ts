@@ -54,7 +54,7 @@ export function officialPageHtml(opts: {
     ? opts.identity.orgLines
         .map((l, i) => (i === opts.identity!.orgLines.length - 1 ? `<strong>${escapeHtml(l)}</strong>` : escapeHtml(l)))
         .join("<br>")
-    : "المملكة العربية السعودية<br>وزارة التعليم<br>إدارة التعليم في محافظة صبيا<br>مكتب تعليم العيدابي<br><strong>مجمع الخشعة التعليمي للبنين</strong>";
+    : "المملكة العربية السعودية<br>وزارة التعليم<br>إدارة التعليم في محافظة صبيا<br><strong>مجمع الخشعة التعليمي للبنين</strong>";
   const metaNote = escapeHtml(opts.identity?.footerNote ?? "منصة الإدارة المدرسية المتكاملة");
   const headerNote = opts.identity?.headerNote ? `<br>${escapeHtml(opts.identity.headerNote)}` : "";
   const yearLine = opts.identity?.academicYear ? `<br>العام الدراسي: ${escapeHtml(opts.identity.academicYear)}` : "";

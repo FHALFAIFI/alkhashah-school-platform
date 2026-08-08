@@ -16,6 +16,7 @@ const KEY = "document.identity";
 export type DocumentIdentity = {
   ministryName: string;
   educationDepartment: string;
+  /** مهجور — D-057 أخرجه من العرض نهائياً؛ يبقى الحقل لتوافق الإعدادات المخزّنة القديمة ولا يقرؤه أحد */
   educationOffice: string;
   schoolName: string;
   principalName: string;
@@ -25,6 +26,9 @@ export type DocumentIdentity = {
   gregorianYear: string;
   headerNote: string;
   footerNote: string;
+  /** ألوان الهوية (v2.6 §E) — مركزية لكل الوثائق والتقارير المولّدة */
+  primaryColor: string;
+  accentColor: string;
   /** معرّفات ملفات مخزّنة للشعارات والتوقيع والختم (اختيارية) */
   ministryLogoFileId: string | null;
   schoolLogoFileId: string | null;
@@ -40,7 +44,8 @@ export type DocumentIdentity = {
 export const DEFAULT_IDENTITY: DocumentIdentity = {
   ministryName: "المملكة العربية السعودية — وزارة التعليم",
   educationDepartment: "إدارة التعليم في محافظة صبيا",
-  educationOffice: "مكتب تعليم العيدابي",
+  // D-057: «إدارة التعليم» هي الجهة المخاطَبة — الحقل المهجور يبقى فارغاً ولا يُصيَّر
+  educationOffice: "",
   schoolName: "مجمع الخشعة التعليمي للبنين",
   principalName: "",
   principalTitle: "مدير مجمع الخشعة للبنين",
@@ -48,6 +53,8 @@ export const DEFAULT_IDENTITY: DocumentIdentity = {
   gregorianYear: "2026-2027م",
   headerNote: "",
   footerNote: "منصة الإدارة المدرسية المتكاملة",
+  primaryColor: "#1f5244",
+  accentColor: "#348066",
   ministryLogoFileId: null,
   schoolLogoFileId: null,
   signatureFileId: null,
@@ -60,7 +67,6 @@ export type IdentityToggles = {
   schoolLogo: boolean;
   ministryName: boolean;
   educationDepartment: boolean;
-  educationOffice: boolean;
   schoolName: boolean;
   principalName: boolean;
   academicYear: boolean;
@@ -75,7 +81,6 @@ export const DEFAULT_TOGGLES: IdentityToggles = {
   schoolLogo: true,
   ministryName: true,
   educationDepartment: true,
-  educationOffice: true,
   schoolName: true,
   principalName: true,
   academicYear: true,
@@ -84,6 +89,13 @@ export const DEFAULT_TOGGLES: IdentityToggles = {
   signature: false,
   stamp: false,
 };
+
+/** لون سداسي عشري صالح (v2.6 §E) — أي قيمة أخرى مخزّنة تسقط إلى اللون الافتراضي */
+const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+
+function safeColor(value: unknown, fallback: string): string {
+  return typeof value === "string" && HEX_COLOR.test(value) ? value : fallback;
+}
 
 export async function getDocumentIdentity(): Promise<DocumentIdentity> {
   const stored = await getSetting<Partial<DocumentIdentity> | null>(KEY, null);
@@ -108,10 +120,10 @@ export function resolveHeader(
 ): ResolvedHeader {
   const t = { ...DEFAULT_TOGGLES, ...toggles };
   const v = { ...identity, ...overrides };
+  // D-057: «إدارة التعليم» هي الجهة المخاطَبة — لا سطر للمكتب في الترويسة
   const orgLines = [
     t.ministryName ? v.ministryName : null,
     t.educationDepartment ? v.educationDepartment : null,
-    t.educationOffice ? v.educationOffice : null,
     t.schoolName ? v.schoolName : null,
   ].filter((x): x is string => !!x && x.trim() !== "");
 
@@ -123,6 +135,8 @@ export function resolveHeader(
     academicYear: t.academicYear ? v.academicYear : "",
     headerNote: t.headerNote ? v.headerNote : "",
     footerNote: t.footerNote ? v.footerNote : "",
+    primaryColor: safeColor(v.primaryColor, DEFAULT_IDENTITY.primaryColor),
+    accentColor: safeColor(v.accentColor, DEFAULT_IDENTITY.accentColor),
     showSignature: t.signature,
     showStamp: t.stamp,
     ministryLogoFileId: t.ministryLogo ? v.ministryLogoFileId : null,
@@ -140,6 +154,9 @@ export type ResolvedHeader = {
   academicYear: string;
   headerNote: string;
   footerNote: string;
+  /** ألوان الهوية (v2.6 §E) — بعد التحقق من صلاحيتها كلون سداسي عشري */
+  primaryColor: string;
+  accentColor: string;
   showSignature: boolean;
   showStamp: boolean;
   ministryLogoFileId: string | null;

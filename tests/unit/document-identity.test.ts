@@ -5,12 +5,12 @@ describe("هوية الوثائق المركزية (§6)", () => {
   it("القيم الافتراضية تنتج ترويسة المجمع الرسمية كاملة", () => {
     const h = resolveHeader(DEFAULT_IDENTITY);
     expect(h.orgLines).toContain("مجمع الخشعة التعليمي للبنين");
-    expect(h.orgLines.length).toBe(4);
+    // D-057: ثلاثة أسطر — الوزارة وإدارة التعليم والمجمع؛ لا سطر لمكتب التعليم
+    expect(h.orgLines.length).toBe(3);
   });
 
   it("الاستبعاد يحذف العنصر من الترويسة", () => {
-    const h = resolveHeader(DEFAULT_IDENTITY, { educationOffice: false, schoolName: false });
-    expect(h.orgLines).not.toContain("مكتب تعليم العيدابي");
+    const h = resolveHeader(DEFAULT_IDENTITY, { schoolName: false });
     expect(h.orgLines).not.toContain("مجمع الخشعة التعليمي للبنين");
     expect(h.orgLines.length).toBe(2);
   });
