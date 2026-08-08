@@ -636,9 +636,15 @@ test("س12: دورة حياة نموذج التقييم — «حذف النمو�
   await page.fill('input[name="nameAr"]', `${TAG} نموذج للحذف`);
   await page.getByRole("button", { name: "إنشاء", exact: true }).click();
   await page.waitForURL("**/performance/models/**", { timeout: 25_000 });
-  await expect(page.getByRole("button", { name: "حذف النموذج" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "حذف النموذج نهائياً" })).toBeVisible();
+  // v2.4.1 §8/§12.9: الحذف النهائي بلوحة (اسم حرفي + سبب + إقرار) لا بزر ونافذة تأكيد
+  await page.getByRole("button", { name: "حذف النموذج نهائياً" }).click();
+  const expectedName = (await page.locator("#pd-typed").locator("xpath=../label//span").last().innerText()).trim();
+  await page.locator("#pd-typed").fill(expectedName);
+  await page.locator("#pd-reason").fill("حذف تجريبي موثّق للنموذج");
+  await page.locator('input[name="confirm"]').check();
   page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "حذف النموذج" }).click();
+  await page.getByRole("button", { name: "حذف النموذج نهائياً" }).click();
   await page.waitForURL("**/performance/models", { timeout: 25_000 });
   await expect(page.getByText(`${TAG} نموذج للحذف`)).toHaveCount(0);
 

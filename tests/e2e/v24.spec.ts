@@ -24,6 +24,21 @@ async function login(page: Page) {
   await page.waitForURL("**/dashboard", { timeout: 20_000 });
 }
 
+/**
+ * الحذف النهائي منذ v2.4.1 §8/§12.9 يمرّ بلوحة «الحذف النهائي»: فتحها، ثم كتابة الاسم
+ * حرفياً، ثم سبب إلزامي، ثم إقرار صريح — لا زر واحد بنافذة تأكيد كما كان.
+ */
+async function permanentlyDelete(page: import("@playwright/test").Page, cta: string, reason: string) {
+  await page.getByRole("button", { name: cta }).click();
+  // الاسم المطلوب حرفياً تعلنه اللوحة نفسها — يُقرأ منها لا يُفترض
+  const expected = (await page.locator("#pd-typed").locator("xpath=../label//span").last().innerText()).trim();
+  await page.locator("#pd-typed").fill(expected);
+  await page.locator("#pd-reason").fill(reason);
+  await page.locator('input[name="confirm"]').check();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: cta }).click();
+}
+
 test("القائمة الجانبية: تمرير مستقل يبقى محفوظاً أثناء التنقل وبعد التحديث، والأقسام قابلة للطي وتتذكر حالتها", async ({ page }) => {
   test.setTimeout(90_000);
   await login(page);
@@ -88,10 +103,9 @@ test("نماذج الأداء: حذف نهائي لنموذج غير مستخد�
   // بطاقة الإدارة تعرض السجلات المرتبطة وخيار الحذف لغير المستخدم
   await expect(page.getByRole("heading", { name: "إدارة النموذج" })).toBeVisible();
   await expect(page.getByText("غير مرتبط بأي تقييم")).toBeVisible();
-  page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "حذف النموذج" }).click();
+  await permanentlyDelete(page, "حذف النموذج نهائياً", "حذف تجريبي موثّق للنموذج");
   // بعد الحذف يُعاد التوجيه لقائمة النماذج (لا نجاح صامت) والنموذج غير موجود فيها
-  await page.waitForURL("**/performance/models", { timeout: 15_000 });
+  await page.waitForURL("**/performance/models", { timeout: 20_000 });
   await expect(page.getByRole("link", { name: "نموذج حذف تجريبي v24" })).toHaveCount(0);
 
   // أرشفة نموذج آخر ثم استعادته من مرشح الأرشيف
