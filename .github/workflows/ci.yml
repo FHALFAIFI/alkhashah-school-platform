@@ -173,3 +173,84 @@ jobs:
           path: storage-ci-artifacts/
           if-no-files-found: error
           retention-days: 30
+
+  e2e:
+    name: End-to-end (Playwright, full suite)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: madrasa
+          POSTGRES_PASSWORD: madrasa_dev
+          POSTGRES_DB: madrasa
+        ports: ["5544:5432"]
+        options: >-
+          --health-cmd "pg_isready -U madrasa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      # playwright.config starts its own isolated dev server on :3081 against madrasa_test
+      - name: Run the full Playwright suite
+        run: npm run test:e2e
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+  performance:
+    name: Performance audit (§J targets)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: madrasa
+          POSTGRES_PASSWORD: madrasa_dev
+          POSTGRES_DB: madrasa
+        ports: ["5544:5432"]
+        options: >-
+          --health-cmd "pg_isready -U madrasa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium (PDF timing is measured, not skipped)
+        run: npx playwright install --with-deps chromium
+      # The audit seeds its own synthetic database via the artifacts script, then measures
+      - name: Seed synthetic dataset
+        run: npx tsx scripts/v260-ci-artifacts.ts
+        env:
+          NODE_OPTIONS: --conditions=react-server
+      - name: Measure against §J targets (fails if a target is missed)
+        run: npx tsx scripts/v260-perf-audit.ts | tee performance-report.txt
+        env:
+          NODE_OPTIONS: --conditions=react-server
+      - name: Upload performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v26-performance-report
+          path: performance-report.txt
+          if-no-files-found: ignore
