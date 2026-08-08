@@ -20,6 +20,8 @@ export const identityOverridesSchema = z
     academicYear: z.string().max(60).optional(),
     headerNote: z.string().max(300).optional(),
     footerNote: z.string().max(300).optional(),
+    /** بيانات الاتصال لهذا التقرير وحده — المركزية في هوية الوثائق (§E) */
+    contactInfo: z.string().max(300).optional(),
   })
   .strict();
 
@@ -43,6 +45,11 @@ export const instanceOptionsSchema = z
     identityOverrides: identityOverridesSchema.optional(),
     /** تضمين قائمة الشواهد والمرفقات المستعملة في ذيل التقرير (§F) */
     attachmentsList: z.boolean().optional(),
+    /**
+     * صيغ الإخراج المختارة (§A/§G) — يحترمها التوليد التلقائي بعد الاعتماد.
+     * الفراغ يعني الثلاث كلها، كدلالة «الفراغ يعني الكل» في إطار المرشّحات.
+     */
+    outputFormats: z.array(z.enum(["pdf", "docx", "xlsx"])).max(3).optional(),
   })
   .strict();
 
@@ -92,6 +99,8 @@ export type SnapshotIdentity = {
   academicYear: string;
   headerNote: string;
   footerNote: string;
+  /** بيانات الاتصال المركزية أو المتجاوزة لهذا التقرير (§E) — قد تكون فارغة */
+  contactInfo?: string;
   /** معرّفا ملفّي الشعارين وقت الاعتماد — الملفات المخزَّنة لا تُعاد كتابتها */
   ministryLogoFileId: string | null;
   schoolLogoFileId: string | null;
