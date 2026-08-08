@@ -9,3 +9,4 @@ export * from "./ai";
 export * from "./feedback";
 export * from "./budget";
 export * from "./reports";
+export * from "./report-instances";
