@@ -2,6 +2,57 @@
 
 > المرجع السريع لتشغيل المنصة وتشخيصها. التفاصيل الكاملة: `docs/INSTALL_MAC_AR.md` (ماك) و`docs/DEPLOY_UBUNTU_AR.md` (أوبنتو).
 
+## المرشَّح القادم — v2.6.0 «منصة التقارير» (لم يُنشر — بانتظار تصريح المالك)
+
+> الفرع `feat/v2.6-reporting-platform`. النطاق والقرارات: `docs/requirements/v2.6-reporting-platform-specification.md`
+> وD-055…D-060. **لا شيء مما يلي نُفِّذ على الإنتاج** — هذا التسلسل يُنفَّذ فقط بعد تصريح صريح.
+
+### تسلسل النشر (متى صُرِّح به)
+
+```bash
+# 0) الشروط: تصريح المالك؛ ذاكرة حرة كافية (لا بناء على جهاز الإنتاج في ساعات العمل — درس v2.5.0)
+# 1) بناء صورة المرشَّح من الالتزام النهائي وتسجيل بصمتها
+COMMIT=$(git rev-parse --short HEAD)
+docker build -f Dockerfile.production --build-arg RELEASE_COMMIT=$COMMIT -t madrasa-app:0.1.0-v2_6_0-rc .
+docker inspect madrasa-app:0.1.0-v2_6_0-rc --format '{{.Id}}'
+
+# 2) نسخة احتياطية مشفَّرة قبل النشر + تحقق استعادة معزول (كما v2.5.0)
+bash scripts/backup-daily.sh && bash scripts/restore-rehearsal.sh
+
+# 3) وسم صورة التراجع من الصورة الخادمة حالياً
+docker tag madrasa-app:0.1.0 madrasa-app:0.1.0-prev-v2_6_0-$(date +%Y%m%d)
+
+# 4) الهجرات عبر خدمة init (هجرة فقط — القاعدة لا يُعاد تشغيلها): السجل 34 → 36
+#    0034 خمسة جداول جديدة إضافية؛ 0035 قادحا ثبات وفهرس جزئي — لا صف قائم يُكتب أو يُحذف
+docker tag madrasa-app:0.1.0-v2_6_0-rc madrasa-app:0.1.0
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod run --rm init
+
+# 5) تبديل التطبيق وفحص الصحة
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  up -d --no-deps --force-recreate app
+curl -s http://127.0.0.1:3080/api/health
+```
+
+### فحص الدخان بعد النشر (قائمة v2.6)
+
+- `/reports/archive` يفتح ويعرض «تقرير جديد»؛ إنشاء مسودة «تقرير مجال واحد» يعمل والمعاينة الحية تتغير بالمرشّحات.
+- «اعتماد نهائي وترقيم» يمنح رقم `KHS-RPT-…` ويجمّد اللقطة؛ الاعتماد الثاني يعيد الرقم نفسه.
+- المخرجات تتولّد في الخلفية (حالة التوليد «مكتمل») وتنزيل PDF/Word/Excel/ZIP يعمل، واسم الملف «العنوان - التاريخ».
+- «معاينة الطباعة» تعرض الوثيقة نفسها؛ ترويستها **بلا** «مكتب التعليم» (D-057).
+- تقرير حسّاس (أداء فردي) لا يظهر لمسؤول النظام في الأرشيف (D-013).
+- تعديل تقرير نهائي أو حذفه يُرفض (خدمةً وقاعدةً — D-055).
+
+### التراجع (لم يُنفَّذ — جاهز فقط)
+
+```bash
+# تراجع التطبيق وحده — لا إجراء على القاعدة: هجرات v2.6 إضافية كلها (جداول جديدة + قادحان
+# على الجداول الجديدة حصراً)، فصورة v2.5.0 تعمل على السجل 36 كما عملت v2.4.1 على السجل 34
+docker tag madrasa-app:0.1.0-prev-v2_6_0-<التاريخ> madrasa-app:0.1.0
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  up -d --no-deps --force-recreate app
+curl -s http://127.0.0.1:3080/api/health
+```
+
 ## الإصدار المنشور حالياً (خط الأساس)
 
 | البند | القيمة |

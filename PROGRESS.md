@@ -2,7 +2,50 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.5.0 DEPLOYED TO PRODUCTION (2026-08-06)**
+## Latest checkpoint — **v2.6.0 REPORTING PLATFORM — RC ON BRANCH (2026-08-08), NOT DEPLOYED**
+
+Branch `feat/v2.6-reporting-platform` (base `0488f1a` = main = v2.5.0 docs tip), Draft PR #1.
+Spec: `docs/requirements/v2.6-reporting-platform-specification.md`; decisions **D-055…D-060**.
+**Production and port 3080 untouched throughout.** Deployment sequence and rollback prepared
+in `RUNBOOK.md` («المرشَّح القادم — v2.6.0») — awaiting explicit owner authorization.
+
+- **What v2.6 adds:** report *instances* — a fourth artifact class over the one catalog:
+  draft → **finalized with a unique locked-counter number** (`KHS-RPT-<hijri>-NNNN`) and a
+  frozen `SnapshotDoc` → archived. DB-level immutability **triggers** (migration 0035)
+  reject any content mutation or deletion of a non-draft instance; ZIP is the sole
+  replaceable output (signed copy arrives late — D-060). Composite types (periodic /
+  final-term / executive) are ordered sections bound to catalog reports (D-056). Five
+  protected base templates in code + custom copies in DB (D-058). «مكتب التعليم» removed
+  from identity/templates/rendering; ministry source data untouched (D-057). Exports:
+  RTL DOCX with real editable header/footer and **mixed portrait/landscape sections**
+  (proven: both MediaBoxes in one PDF via named CSS pages + preferCSSPageSize), XLSX with
+  summary+per-section sheets and safe sheet names, verified flat-name ZIP. Background
+  generation via `after()` + `report_jobs` (one active job per instance, stale takeover,
+  Arabic failure reasons, idempotent outputs — D-059). Archive UI at `/reports/archive`
+  with search, live draft preview off the same SnapshotDoc, signed-copy upload, print
+  preview serving the *exact* PDF HTML.
+- **Migrations 34 → 36** (0034 five additive tables; 0035 hand-written triggers+index,
+  idempotent). Upgrade rehearsal scripted (`scripts/ci-migration-upgrade-test.sh`):
+  v2.5.0 ledger 34 → 36 with byte-checked markers and a live trigger-rejection probe —
+  PASS locally. Rollback stays app-only (new tables ignored by the older image).
+- **Real v2.5.0 defect found and fixed by the v2.6 stress audit:** every export beyond
+  200 rows silently lost the rest (`runReportForExport` → `paginate` → `clampPageSize`
+  capped at the screen page size; truncation flag only raises at 5000). Fixed; pinned by
+  `tests/integration/export-full-rows.test.ts`.
+- **First CI pipeline** (`.github/workflows/ci.yml`): lint/typecheck, vitest with a
+  Postgres 16 service, clean + upgrade migration jobs, production build, and a synthetic
+  sample-artifacts job (9 reports × PDF/DOCX/XLSX/ZIP + print HTML + screenshots — all
+  five base templates over a 60-row/13-column landscape table, multi-section periodic,
+  chart, and empty-report samples; `scripts/v260-ci-artifacts.ts`).
+- **Perf (§J)** `scripts/v260-perf-audit.ts`: preview 11–27 ms, archive search 3 ms,
+  frozen-snapshot render <1 ms, docx 17 ms, xlsx 5 ms, pdf 1 241 ms (background); 5 100-row
+  stress case truncates *declaredly* — all within targets.
+- **Tests:** baseline 1042/103 green → v2.6 adds ~100 more (lifecycle+trigger refusals,
+  snapshot frozen while source data changes, filter isolation, D-013 hiding, outputs/job
+  idempotency, stale retry, signed-copy ZIP, exporter XML/structure inspection, render
+  injection, catalog-wide privacy pin, identity D-057 pins incl. filesystem scan).
+- **Pending:** real-Microsoft-Word acceptance of DOCX (structural validation done; a
+  human must open the files in Word), owner-authorized deployment, principal acceptance.
 
 **Verdict: DEPLOYED — HEALTHY**, after one corrective iteration. Full record:
 **`docs/DEPLOYMENT_V2_5_0.md`** (implementation record: `docs/DELIVERY_V2_5_0.md`).
