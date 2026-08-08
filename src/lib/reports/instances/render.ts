@@ -205,6 +205,10 @@ export async function instanceHtml(doc: SnapshotDoc, opts: InstanceHtmlOptions =
   const headerNote = showIdentity && (style.headerText || doc.identity.headerNote)
     ? `<br>${escapeHtml(style.headerText || doc.identity.headerNote)}`
     : "";
+  // بيانات الاتصال المركزية أو المتجاوزة لهذا التقرير (§E) — تُهرَّب كسائر قيم الهوية
+  const contactLine = showIdentity && doc.identity.contactInfo
+    ? `<br><span class="contact">${escapeHtml(doc.identity.contactInfo)}</span>`
+    : "";
 
   const cover = wantsCover(doc, style)
     ? `
@@ -259,7 +263,7 @@ export async function instanceHtml(doc: SnapshotDoc, opts: InstanceHtmlOptions =
   <div class="header">
     <div style="display:flex;align-items:flex-start;gap:6px;">
       ${ministryLogo ? `<div class="logo-box"><img class="logo" src="${escapeHtml(ministryLogo)}" alt="شعار وزارة التعليم"></div>` : ""}
-      <div class="org">${orgHtml}${headerNote}</div>
+      <div class="org">${orgHtml}${headerNote}${contactLine}</div>
     </div>
     <div class="title-box">
       <h1>${escapeHtml(doc.title)}</h1>
@@ -294,6 +298,7 @@ ${getFontCss()}
 body { font-family: 'IBM Plex Sans Arabic', sans-serif; color: #1a1a1a; margin: 0; font-size: ${style.density === "مضغوط" ? "11px" : "12px"}; line-height: 1.7; }
 .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid ${escapeHtml(style.primaryColor)}; padding-bottom: 8px; margin-bottom: 16px; }
 .header .org { font-size: 10px; line-height: 1.6; }
+.header .contact { color: #555; }
 .title-box { text-align: center; }
 .plain-header { display: block; text-align: center; }
 .logo { max-height: 58px; max-width: 90px; object-fit: contain; display: block; margin: 0 auto 4px; }

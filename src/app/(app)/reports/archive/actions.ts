@@ -54,7 +54,7 @@ function optionsFrom(formData: FormData): Record<string, unknown> {
   const hidden = formData.getAll("hiddenSection").map(String).filter(Boolean);
   if (hidden.length) options.hiddenSections = hidden;
   const overrides: Record<string, string> = {};
-  for (const key of ["schoolName", "principalName", "principalTitle", "academicYear", "headerNote", "footerNote"]) {
+  for (const key of ["schoolName", "principalName", "principalTitle", "academicYear", "headerNote", "footerNote", "contactInfo"]) {
     const value = String(formData.get(`identity_${key}`) ?? "").trim();
     if (value) overrides[key] = value;
   }

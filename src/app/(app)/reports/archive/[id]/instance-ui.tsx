@@ -187,6 +187,7 @@ export function DraftSettingsForm({
               ["academicYear", "العام الدراسي"],
               ["headerNote", "نص الترويسة"],
               ["footerNote", "نص التذييل"],
+              ["contactInfo", "بيانات الاتصال"],
             ] as const
           ).map(([key, label]) => (
             <div key={key}>

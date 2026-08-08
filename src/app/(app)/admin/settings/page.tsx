@@ -70,6 +70,7 @@ export default async function SettingsPage() {
         academicYear: String(formData.get("academicYear") ?? ""),
         headerNote: String(formData.get("headerNote") ?? ""),
         footerNote: String(formData.get("footerNote") ?? ""),
+        contactInfo: String(formData.get("contactInfo") ?? "").trim().slice(0, 300),
         ...colorPatch,
         ...logoPatch,
       },
@@ -100,6 +101,7 @@ export default async function SettingsPage() {
             <Field label="العام الدراسي" name="academicYear" defaultValue={identity.academicYear} />
             <Field label="ملاحظة الترويسة (اختياري)" name="headerNote" defaultValue={identity.headerNote} />
             <Field label="نص التذييل" name="footerNote" defaultValue={identity.footerNote} />
+            <Field label="بيانات الاتصال" name="contactInfo" defaultValue={identity.contactInfo} hint="هاتف أو بريد أو عنوان — تظهر في ترويسة الوثائق والتقارير" />
             {/* ألوان الهوية (v2.6 §E) — مركزية لكل الوثائق والتقارير المولّدة */}
             <Field label="اللون الأساسي للهوية" name="primaryColor" defaultValue={identity.primaryColor} dir="ltr" hint="لون سداسي عشري مثل ‎#1f5244" />
             <Field label="لون التمييز" name="accentColor" defaultValue={identity.accentColor} dir="ltr" hint="لون سداسي عشري مثل ‎#348066" />

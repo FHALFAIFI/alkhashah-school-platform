@@ -11,7 +11,7 @@ import { getInstance, instanceOutputs } from "@/lib/reports/instances/service";
 import { buildSnapshot, SnapshotPermissionError } from "@/lib/reports/instances/snapshot";
 import { readSnapshot, parseInstanceOptions, type SnapshotDoc } from "@/lib/reports/instances/options";
 import { sectionsOf, instanceTypeByKey, INSTANCE_DRAFT, INSTANCE_ARCHIVED } from "@/lib/reports/instances/types";
-import { BASE_TEMPLATES } from "@/lib/reports/instances/base-templates";
+import { templateChoices } from "@/lib/reports/instances/style-templates";
 import { validateDocument } from "@/lib/reports/instances/validation";
 import { linkForCell } from "@/lib/reports/instances/links";
 import { latestJob, JOB_FAILED, JOB_DONE, JOB_PENDING, JOB_RUNNING, isStale } from "@/lib/reports/instances/jobs";
@@ -112,9 +112,7 @@ export default async function ReportInstancePage({
         return p.toString();
       })();
 
-  const templates = [
-    ...BASE_TEMPLATES.map((t) => ({ key: t.key, label: t.labelAr })),
-  ];
+  const templates = await templateChoices();
 
   const downloadHref = (format: string) => `/api/reports/instances/${row.id}/download?format=${format}`;
 

@@ -15,6 +15,7 @@ import {
 import { runReportForExport } from "../loaders";
 import { loadFilterLabelMaps } from "../filter-options";
 import { resolveStyleConfig, isBaseTemplateKey } from "./base-templates";
+import { resolveTemplateKey } from "./style-templates";
 import { sectionsOf, instanceTypeByKey, type InstanceSectionDef } from "./types";
 import {
   parseInstanceOptions,
@@ -106,12 +107,15 @@ export async function instanceAttachments(instanceId: string): Promise<SnapshotA
     .map((i) => ({ fileId: i.fileId!, name: i.title, source: "شاهد مرفق بالتقرير" }));
 }
 
-/** حلّ إعداد القالب: مفتاح أساسي كما هو، أو معرّف نسخة مخصصة يُقرأ صفّها ويُطهَّر */
-export async function resolveTemplate(templateKey: string | undefined, fallbackKey: string) {
-  const key = templateKey ?? fallbackKey;
+/**
+ * حلّ إعداد القالب (D-058): الصريح ← افتراضي النوع من الإعدادات ← قالب تعريف النوع.
+ * المفتاح الأساسي يُحلّ من الشيفرة، ومعرّف النسخة المخصصة يُقرأ صفّه ويُطهَّر إعداده.
+ */
+export async function resolveTemplate(templateKey: string | undefined, typeKey: string) {
+  const key = await resolveTemplateKey(templateKey, typeKey);
   if (isBaseTemplateKey(key)) return { templateKey: key, style: resolveStyleConfig(key) };
   const [row] = await db.select().from(reportStyleTemplates).where(eq(reportStyleTemplates.id, key));
-  if (!row || row.archivedAt) return { templateKey: fallbackKey, style: resolveStyleConfig(fallbackKey) };
+  if (!row || row.archivedAt) return { templateKey: key, style: resolveStyleConfig(key) };
   return { templateKey: key, style: resolveStyleConfig(row.baseKey, row.config) };
 }
 
@@ -175,7 +179,7 @@ export async function buildSnapshot(opts: {
 
   const identity = await getDocumentIdentity();
   const resolved = resolveHeader(identity, {}, options.identityOverrides ?? {});
-  const { templateKey, style } = await resolveTemplate(options.templateKey, typeDef.defaultTemplateKey);
+  const { templateKey, style } = await resolveTemplate(options.templateKey, opts.typeKey);
 
   const attachments =
     options.attachmentsList !== false && opts.instanceId ? await instanceAttachments(opts.instanceId) : [];
@@ -205,6 +209,7 @@ export async function buildSnapshot(opts: {
       academicYear: resolved.academicYear,
       headerNote: resolved.headerNote,
       footerNote: resolved.footerNote,
+      contactInfo: options.identityOverrides?.contactInfo ?? resolved.contactInfo ?? "",
       ministryLogoFileId: resolved.ministryLogoFileId,
       schoolLogoFileId: resolved.schoolLogoFileId,
     },

@@ -26,6 +26,8 @@ export type DocumentIdentity = {
   gregorianYear: string;
   headerNote: string;
   footerNote: string;
+  /** بيانات الاتصال المركزية (هاتف/بريد/عنوان) — تظهر في ترويسة الوثائق (v2.6 §E) */
+  contactInfo: string;
   /** ألوان الهوية (v2.6 §E) — مركزية لكل الوثائق والتقارير المولّدة */
   primaryColor: string;
   accentColor: string;
@@ -53,6 +55,7 @@ export const DEFAULT_IDENTITY: DocumentIdentity = {
   gregorianYear: "2026-2027م",
   headerNote: "",
   footerNote: "منصة الإدارة المدرسية المتكاملة",
+  contactInfo: "",
   primaryColor: "#1f5244",
   accentColor: "#348066",
   ministryLogoFileId: null,
@@ -135,6 +138,7 @@ export function resolveHeader(
     academicYear: t.academicYear ? v.academicYear : "",
     headerNote: t.headerNote ? v.headerNote : "",
     footerNote: t.footerNote ? v.footerNote : "",
+    contactInfo: v.contactInfo ?? "",
     primaryColor: safeColor(v.primaryColor, DEFAULT_IDENTITY.primaryColor),
     accentColor: safeColor(v.accentColor, DEFAULT_IDENTITY.accentColor),
     showSignature: t.signature,
@@ -154,6 +158,8 @@ export type ResolvedHeader = {
   academicYear: string;
   headerNote: string;
   footerNote: string;
+  /** بيانات الاتصال المعروضة — من الهوية المركزية أو تجاوز الوثيقة (v2.6 §E) */
+  contactInfo: string;
   /** ألوان الهوية (v2.6 §E) — بعد التحقق من صلاحيتها كلون سداسي عشري */
   primaryColor: string;
   accentColor: string;

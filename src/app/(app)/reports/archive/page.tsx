@@ -59,7 +59,14 @@ export default async function ReportArchivePage({
       <PageHeader
         title="أرشيف التقارير"
         subtitle="التقارير المحفوظة: مسودات تُبنى، وتقارير نهائية مرقّمة لا تتغير، وأرشيف يُبحث فيه"
-        actions={canBuild ? <LinkButton href="/reports/archive/new">تقرير جديد</LinkButton> : undefined}
+        actions={
+          canBuild ? (
+            <div className="flex flex-wrap gap-2">
+              <LinkButton href="/reports/archive/new">تقرير جديد</LinkButton>
+              <LinkButton href="/reports/archive/styles" variant="secondary">قوالب الإخراج</LinkButton>
+            </div>
+          ) : undefined
+        }
       />
 
       <Card>

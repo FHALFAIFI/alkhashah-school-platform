@@ -2,7 +2,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { PageHeader, Card } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { INSTANCE_TYPES } from "@/lib/reports/instances/types";
-import { BASE_TEMPLATES } from "@/lib/reports/instances/base-templates";
+import { templateChoices } from "@/lib/reports/instances/style-templates";
 import { REPORTS, categoryByKey, reportByKey } from "@/lib/reports/catalog";
 import { NewInstanceForm } from "./new-ui";
 
@@ -50,7 +50,7 @@ export default async function NewInstancePage() {
         <NewInstanceForm
           types={types}
           reportChoices={reportChoices}
-          templates={BASE_TEMPLATES.map((t) => ({ key: t.key, label: t.labelAr }))}
+          templates={await templateChoices()}
         />
       </Card>
     </div>
