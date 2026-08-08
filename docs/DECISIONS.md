@@ -1147,44 +1147,87 @@ a fragment without also carrying a query string. `tests/integration/minutes-issu
 pins the persistence (`minutes_doc_id`, the `documents` row, the PDF bytes), and workflows س3
 pins the refreshed screen — URL, download link, document number, and workflow stage.
 
-## D-066 — Open defect: removing one value from a multi-value filter does not refresh the results (2026-08-08)
+## D-066 — A repeated query parameter makes the router believe the page did not change (2026-08-09)
 
-**Not a decision — a recorded, reproduced, unfixed defect.** Found while rebuilding the
-v2.5.0 §19.3 filter scenario to drive the real UI instead of forcing the checkbox.
+**Recorded on 2026-08-08 as an open, reproduced defect; root-caused and fixed on 2026-08-09.**
 
 **Symptom.** On a report filtered by two values of the same parameter (two domains, two
-owners), removing one of them — from its chip or by unchecking it — updates the URL, the
-chips and the checkboxes, and leaves the table and «عدد النتائج» showing both values' rows.
-The screen only corrects itself on a page reload.
+owners), removing one of them — from its chip or by unchecking it — updated the URL, the
+chips and the checkboxes, and left the table and «عدد النتائج» showing both values' rows.
+The screen only corrected itself on a page reload. The first record stopped here and called
+it a framework cache defect with no configuration that suppresses it. That was wrong: the
+cause is the **shape of the URL this codebase writes**, and it is ours to fix.
 
-**Reproduced on the production build**, not only on `next dev`: `next build` + `next start`
-against the isolated test database, Next 16.2.12 / React 19.2.7. The other transitions are
-all correct — none → one, one → two, one → none.
+**Root cause.** The App Router identifies a page cache node by a segment key built from
+`JSON.stringify(searchParams)` — `addSearchParamsIfPageSegment` in
+`next/dist/shared/lib/segment`, and on the client
+`segment-cache/scheduler` and `router-reducer/ppr-navigations`, both of which build that
+object with `Object.fromEntries(new URLSearchParams(search))`. **`Object.fromEntries` keeps
+only the last occurrence of a repeated key.** So
 
-**Mechanism.** On the failing transition the browser issues **no RSC request at all** (the
-`_rsc` request counter does not move) while the URL changes; the client Router Cache serves
-the previous tree. So the server is never asked, and the server is not at fault — reloading
-the exact same URL renders the correct single-value result.
+    ?domain=أ&domain=ب   →   __PAGE__?{"domain":"ب"}
+    ?domain=ب            →   __PAGE__?{"domain":"ب"}
 
-**Two remedies tried and rejected.**
-- `router.refresh()` after `router.push()` fixed the staleness in one run, then aborted the
-  navigation itself in the next — the checkbox stopped updating at all. This is the D-049
-  abort class, and it is why D-049 rule 3 exists.
-- `experimental.staleTimes: { dynamic: 0, static: 0 }` is rejected by the build (`static`
-  must be ≥ 30) and `dynamic: 0` is already the default, so there is no configuration that
-  suppresses the reuse.
+are the *same page* as far as the router is concerned. It reuses the mounted tree, issues no
+RSC request at all, and the server is never asked — which is exactly what the first
+investigation measured and mis-attributed to a cache.
 
-**Why it is not fixed here.** The cause sits in the framework's client router, not in this
-codebase's filter logic, and the working set is a release candidate under a change freeze. A
-workaround that suppresses the router cache globally would touch every navigation in the
-platform on the eve of a deployment gate.
+This also explains the asymmetry that made the defect look erratic. Only a change that moves
+the **last** occurrence changes the key:
 
-**Operational workaround for the principal until it is fixed:** press «مسح الفلاتر» and
-re-select, or reload the page — both render the correct result.
+| transition | key before → after | result |
+|---|---|---|
+| none → one | `{}` → `{"domain":"أ"}` | refreshes |
+| one → two | `{"domain":"أ"}` → `{"domain":"ب"}` | refreshes |
+| two → **first removed** | `{"domain":"ب"}` → `{"domain":"ب"}` | **stale** |
+| three → **middle removed** | `{"domain":"ج"}` → `{"domain":"ج"}` | **stale** |
+| three → last removed | `{"domain":"ج"}` → `{"domain":"ب"}` | refreshes |
 
-`tests/e2e/zzzz-v250.spec.ts` keeps the scenario written and marked `test.fixme`, so the
-defect stays visible in every suite run instead of being deleted. It is listed as an open
-defect in the v2.6.0 readiness report.
+**The fix — the platform never writes a repeated key.** A multi-value filter is one
+parameter whose value is the list, separated by U+001F: `?domain=أ<US>ب`. Then
+`Object.fromEntries` is faithful, every distinct selection has a distinct page segment key,
+and the router asks the server every time. `LIST_SEPARATOR`, `encodeListParam`,
+`decodeListParam`, `readListParam` and `writeListParam` in `src/lib/reports/filters.ts` are
+the single definition; `serializeReportFilters`, the filter panel, the report builder,
+`templateRunHref` and `storedToParams` all go through them.
+
+**Why a control character and not a comma.** The values are Arabic domain, owner, job-title
+and department names typed by the principal, and UUIDs. Any printable delimiter could occur
+inside a value; U+001F cannot occur in typed text or in a UUID, so no value can be split by
+accident and **no pre-existing link breaks** — reading still accepts repeated keys.
+
+**Legacy URLs are canonicalised on the server, not in an effect.** A bookmark or saved link
+written before this change still carries repeated keys, and until it is rewritten the very
+first removal falls into the same hole. `/reports`, `/reports/builder` and `/plan/followup`
+therefore `redirect()` to the canonical query before rendering. This was first written as a
+`router.replace` in a client effect; that version raced with the user's own navigation and
+occasionally cancelled it. A server redirect cannot: it happens before hydration exists.
+
+**A second, unrelated hole this closed.** The session-filter restore ran once per *mount*.
+After «مسح الفلاتر» — or after removing the last filter — the URL has no meaningful
+parameters, so a remount re-applied the saved filters and `router.replace`d a filter the user
+had just removed. It now runs once per key per browsing session.
+
+**The stored shape did not change.** `filtersToStored` still writes arrays, so saved
+templates and frozen report instances are byte-identical to before; no migration.
+
+**Coverage.** `tests/unit/report-filter-list-params.test.ts` — encoding round-trip including
+values containing commas, pipes and colons; the collapse itself asserted against
+`Object.fromEntries`; every removal position producing a distinct key; no writer emits a
+repeated key; and a source scan that fails on `for (… of values) sp.append(…)`, the exact
+shape that caused this. `tests/e2e/zzzzz-v260-filters.spec.ts` — nine browser scenarios:
+owner and domain single→zero, multi→single (first, middle, last), multi→zero, chip and
+checkbox, both filters together, back/forward, direct URL load in both the new and the legacy
+shape, and column reorder/hide in the builder. Every scenario also asserts the document was
+never reloaded. The scenario in `tests/e2e/zzzz-v250.spec.ts` that carried `test.fixme` for
+this defect is enabled and passing.
+
+**One harness note, recorded rather than hidden.** Under machine-speed clicking, a pointer
+event is occasionally lost while the server-rendered tree is being replaced — the URL simply
+does not change. The browser scenarios click once, wait up to eight seconds for the URL, and
+click at most one more time; every assertion after that is unchanged. This is a property of
+driving a server-rendered tree at machine speed, not of the filters: it predates this fix and
+is not reachable at human clicking speed.
 
 ## D-067 — Filtering a report by an id crashed the page (2026-08-08)
 
@@ -1213,3 +1256,35 @@ that fails for a mechanical reason: it hides whatever comes after it.
 
 Pinned by `tests/integration/report-filter-labels.test.ts` (all four keys, one id and
 several) and by the repaired browser scenario ٩–١١ in `tests/e2e/zzzz-v250.spec.ts`.
+
+## D-068 — «التصنيف» is a filter; `category` is navigation (2026-08-09)
+
+Found while proving D-066: after removing the last real filter, one chip refused to go away —
+«التصنيف: plan».
+
+**The collision.** The reports centre carries the *report category* in `?category=…`
+(`?category=building&report=maintenance-register`). The «التصنيف» filter — a record-level
+classification — declared the **same** parameter name. So every report opened from the centre
+was silently filtered by a value nobody chose.
+
+**What it cost.** Only one report in the catalogue declares that filter, and it is the one the
+principal opens after every inspection round: **«بلاغات الصيانة»**. Opened from the reports
+centre it was filtered to `category = "building"` — a report-category key that no maintenance
+issue can ever carry — so it returned **an empty register no matter how many issues existed**,
+with a meaningless «التصنيف: building» chip above the emptiness explaining it. Saving that view
+as a template stored the bogus value too.
+
+**Why no test caught it.** The e2e database has zero maintenance issues, so the report was
+empty in the tests for an unrelated reason and the filter never mattered. The unit tests
+exercised `parseReportFilters` with filter parameters, never with a reports-centre URL.
+
+**The decision.** Two meanings may not share one parameter name. The **filter** moved to
+`recordCategory`; `category` stays what it has been since v2.2 — navigation. The filter is
+reached only from the reports centre, the builder and the archive draft, so nothing outside
+those surfaces reads it, and no operational screen changes. Stored templates that carry the
+bogus `category` array are no longer read as a filter, which repairs them rather than
+preserving a value that was never chosen.
+
+Pinned in `tests/unit/report-filter-list-params.test.ts`: a reports-centre URL yields no
+category filter, `recordCategory` yields the real one, and writing a category filter does not
+touch the navigation parameter.
