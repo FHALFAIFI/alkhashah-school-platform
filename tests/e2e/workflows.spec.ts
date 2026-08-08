@@ -311,17 +311,17 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.waitForURL("**/plan/followup");
     const fuNote = `متابعة تجريبي آلي ${TAG} — سير منتظم`;
     await page.fill(`#fu-note-${state.programId}`, fuNote);
-    await page.selectOption(`#fu-status-${state.programId}`, "في المسار");
+    await page.selectOption(`#fu-status-${state.programId}`, "قيد التنفيذ");
     const fuCard = page.locator("div.rounded-xl", { hasText: plan.prog1 });
     await fuCard.getByRole("button", { name: "تسجيل المتابعة" }).click();
-    // v2.4: بعد التسجيل ينتقل البرنامج لمجموعته الصادقة («في المسار») ويظهر سجل الأسبوع نفسه
+    // v2.5.0 D-054: المفردات الأسبوعية الخمس المعتمدة — «في المسار» تسمية تاريخية تُطبَّع عند القراءة
     await expect(page.getByText(fuNote)).toBeVisible({ timeout: 20_000 });
 
     // سجل المتابعة يظهر على صفحة البرنامج
     await page.locator(`a[href="/plan/${state.programId}"]`).first().click();
     await page.waitForURL(`**/plan/${state.programId}`);
     await expect(page.getByText(fuNote)).toBeVisible();
-    await expect(page.getByText("في المسار", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("قيد التنفيذ", { exact: true }).first()).toBeVisible();
 
     // طلب تغيير على برنامج معتمد ثم اعتماده
     const crForm = page.locator('form:has(input[name="fieldLabel"])');
@@ -825,7 +825,7 @@ test.describe("سيناريوهات سير العمل — 390×844", () => {
     await expectNoOverflow(page, "/plan/followup");
     const note = `متابعة جوال تجريبي آلي ${TAG}`;
     await page.fill(`#fu-note-${state.programId}`, note);
-    await page.selectOption(`#fu-status-${state.programId}`, "في المسار");
+    await page.selectOption(`#fu-status-${state.programId}`, "قيد التنفيذ");
     const card = page.locator("div.rounded-xl", { hasText: state.programName! });
     await card.getByRole("button", { name: "تسجيل المتابعة" }).click();
     // v2.4: يظهر سجل الأسبوع المحفوظ (البطاقة تنتقل لمجموعتها الصادقة)

@@ -1,4 +1,5 @@
 import { desc, eq } from "drizzle-orm";
+import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
@@ -35,6 +36,14 @@ export default async function ExecutiveReportPage() {
       withStamp: formData.get("withStamp") === "on" && u.permissions.has("branding.use"),
       issuedBy: u.id,
     });
+    /*
+     * D-053 قاعدة 4: الإجراء ينتهي بانتقال فلا يحتاج تحديثاً.
+     *
+     * كان ينتهي بلا شيء: الوثيقة تصدر فعلاً برقمها، والصفحة لا تُعاد فلا يظهر السطر في
+     * «الإصدارات السابقة» — فيظن المدير أن شيئاً لم يحدث ويُصدر ثانيةً، فتتكرر وثيقة رسمية
+     * مرقّمة. التحويل إلى الصفحة نفسها يعيد تصييرها بالسطر الجديد.
+     */
+    redirect("/reports/executive");
   }
 
   return (
