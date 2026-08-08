@@ -2,23 +2,40 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.6.0 — NOT READY (2026-08-08), NOT DEPLOYED**
+## Latest checkpoint — **v2.6.0 — RC READY, AWAITING DEPLOYMENT AUTHORIZATION (2026-08-09), NOT DEPLOYED**
 
-Final SHA **`cac78d5`**. All seven CI jobs green on **both** triggers
-([push 31272025498](https://github.com/FHALFAIFI/alkhashah-school-platform/actions/runs/31272025498),
-[pull_request 31272027010](https://github.com/FHALFAIFI/alkhashah-school-platform/actions/runs/31272027010)):
-Playwright **130 passed · 0 failed · 0 did not run · 2 skipped**, vitest 1181+3 skipped
-(1184) across 117 files. RC image `sha256:4101f25a…` (linux/arm64, health reports
-`commit: cac78d5`).
+Final SHA: the head of `feat/v2.6-reporting-platform` (the commit carrying this checkpoint).
+All seven CI jobs green on **both** triggers; run URLs, counts and the immutable arm64
+digest are recorded in **PR #1** — per-run values cannot live inside the commit that
+produced them. Vitest **1203/1203** across 118 files locally (1200 + 3 CI skips);
+Playwright **140 passed · 0 failed · 0 did not run · 1 skipped** across 141 tests.
 
-**Why NOT READY, in three lines.** The Playwright suite had never finished — two failures in
-serial describes hid eleven tests that had never executed. Making them run surfaced **six
-real production defects** (five fixed, D-066 open): official documents issued with nothing
-shown on screen — so the principal presses again and duplicates a numbered document — and a
-**500 error page** on an ordinary report filter click (D-067). The arm64 binary has still
-never been executed; that is the first mandatory pre-swap gate and it awaits authorization.
+**What changed since the NOT READY checkpoint.** D-066 was filed as an unfixable framework
+defect with an operational workaround. It was neither. The App Router identifies a page by a
+key built from `Object.fromEntries(new URLSearchParams(search))`, which keeps only the **last**
+occurrence of a repeated query key — so `?domain=أ&domain=ب` and `?domain=ب` are the same page
+to the router, and it never asks the server. The platform now writes a multi-value filter as
+**one** parameter with a U+001F-separated list, so every distinct selection is a distinct
+page. Reading still accepts the old shape and the stored shape is unchanged, so no link,
+template or instance breaks and no migration is needed.
 
-Full account: `docs/DELIVERY_V2_6_0.md` §1, §5a, §10, §13; decisions D-065…D-067.
+Root-causing it exposed two more real defects in the approved scope, both fixed:
+**D-068** — «التصنيف» shared the parameter name `category` with the reports centre's
+navigation, so **«بلاغات الصيانة» came back empty however many issues existed** whenever it
+was opened from the centre; and the session-filter restore re-applied a filter the user had
+just removed. Column reordering and hiding in the report builder failed by the same
+mechanism as D-066 and are fixed with it.
+
+**Open product defects: none.** The `test.fixme` that held D-066's reproduction is now a
+passing test.
+
+**The arm64 binary has still never been executed.** The CI runtime smoke is a runner-native
+amd64 build of the same Dockerfile and commit: it proves the code migrates, boots and answers
+`/api/health` with the right version and commit, not that the pushed arm64 image runs. Running
+it on the Mac mini against an isolated database on a temporary port is the **first mandatory
+pre-swap gate** and it awaits Fahad's authorization.
+
+Full account: `docs/DELIVERY_V2_6_0.md` §1, §5a, §5b, §5, §10; decisions D-065…D-068.
 
 ## Superseded checkpoint — **v2.6.0 REPORTING PLATFORM — RC ON BRANCH (2026-08-08), NOT DEPLOYED**
 
