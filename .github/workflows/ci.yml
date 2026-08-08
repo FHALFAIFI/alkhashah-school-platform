@@ -63,6 +63,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      # PDF-generating integration tests launch Chromium; install the browser build that
+      # matches the locked playwright version (never `npx playwright@1` — RUNBOOK lesson).
+      - name: Install Chromium for PDF tests
+        run: npx playwright install --with-deps chromium
       # The test helpers hardcode localhost:5544/madrasa_test and create the DB themselves.
       - name: Run vitest (unit + integration)
         run: npm test
@@ -159,6 +163,9 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Generate representative report artifacts
         run: npx tsx scripts/v260-ci-artifacts.ts
+        env:
+          # tsx scripts importing server-only modules need the react-server condition (CLAUDE.md)
+          NODE_OPTIONS: --conditions=react-server
       - name: Upload generated samples
         uses: actions/upload-artifact@v4
         with:

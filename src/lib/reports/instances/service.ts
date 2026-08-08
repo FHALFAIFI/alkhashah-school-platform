@@ -84,6 +84,10 @@ export type ArchiveSearch = {
 export const ARCHIVE_PAGE_SIZE = 25;
 
 export async function searchInstances(criteria: ArchiveSearch, viewer: Viewer) {
+  // دفاع في العمق: الخدمة نفسها ترفض بلا صلاحية الاطلاع — لا اعتماداً على حارس الصفحة وحده
+  if (!viewer.permissions.has("reports.read")) {
+    return { rows: [] as InstanceRow[], total: 0, page: 1, pageSize: ARCHIVE_PAGE_SIZE };
+  }
   const conds = [];
   const term = criteria.search?.trim().slice(0, 120);
   if (term) {

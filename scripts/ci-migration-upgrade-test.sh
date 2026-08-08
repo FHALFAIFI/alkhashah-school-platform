@@ -23,14 +23,17 @@ rm -rf .ci-v25 && mkdir -p .ci-v25
 git archive v2.5.0 drizzle | tar -x -C .ci-v25
 
 echo "==> applying v2.5.0 migrations (expected ledger 34)"
-DATABASE_URL="$DB_URL" npx tsx -e '
-  import { drizzle } from "drizzle-orm/node-postgres";
-  import { migrate } from "drizzle-orm/node-postgres/migrator";
-  import { Pool } from "pg";
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  await migrate(drizzle(pool), { migrationsFolder: "./.ci-v25/drizzle" });
-  await pool.end();
-'
+# ملف مؤقت لا `tsx -e`: التقييم السطري يفشل في تحويل الاستيرادات وawait العلوي على CI
+cat > .ci-v25-migrate.mts <<'EOF'
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Pool } from "pg";
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+await migrate(drizzle(pool), { migrationsFolder: "./.ci-v25/drizzle" });
+await pool.end();
+EOF
+DATABASE_URL="$DB_URL" npx tsx .ci-v25-migrate.mts
+rm -f .ci-v25-migrate.mts
 LEDGER25=$($PSQL_T -t -A -c "SELECT count(*) FROM drizzle.__drizzle_migrations")
 [ "$LEDGER25" = "34" ] || { echo "FAIL: v2.5.0 ledger is ${LEDGER25}, expected 34"; exit 1; }
 
