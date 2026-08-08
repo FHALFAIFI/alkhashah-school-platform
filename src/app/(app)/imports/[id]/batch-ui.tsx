@@ -46,8 +46,10 @@ export function BatchActions({
   const [sessionExpiredHref, setSessionExpiredHref] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
-  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
-  useRefreshAfterTransition(pending);
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار.
+  // يُستثنى انتهاء الجلسة: التحديث حينها يُحوّل إلى صفحة الدخول فيمحو رسالة «انتهت الجلسة»
+  // ورابط العودة إلى الدفعة قبل أن يراهما المستخدم — وهو بالضبط ما يحتاجه ليكمل.
+  useRefreshAfterTransition(pending, { skip: sessionExpiredHref !== null });
 
   return (
     <div className="mb-4 rounded-xl border border-sand-200 bg-white p-4">

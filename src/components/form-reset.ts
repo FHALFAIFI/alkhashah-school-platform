@@ -68,9 +68,10 @@ export function useRefreshOnSuccess(state: RefreshableState) {
  * استجابة الإجراء كاملة؛ استدعاؤه داخل الانتقال يُبقي `pending` مرفوعاً فتظل الأزرار
  * معطّلة (هذا بالضبط ما شُوهد على قوائم حالات مهام اللجان).
  */
-export function useRefreshAfterTransition(pending: boolean) {
+export function useRefreshAfterTransition(pending: boolean, opts?: { skip?: boolean }) {
   const router = useRouter();
   const wasPending = useRef(false);
+  const skip = opts?.skip ?? false;
   useEffect(() => {
     if (pending) {
       wasPending.current = true;
@@ -78,9 +79,11 @@ export function useRefreshAfterTransition(pending: boolean) {
     }
     if (wasPending.current) {
       wasPending.current = false;
-      router.refresh();
+      // `skip`: انتهى الانتقال إلى رسالة نهائية يملكها العميل (انتهاء جلسة مثلاً). التحديث
+      // حينها يُعيد جلب المسار فيمسح الرسالة — أو يُحوّل إلى الدخول — قبل أن يقرأها المستخدم.
+      if (!skip) router.refresh();
     }
-  }, [pending, router]);
+  }, [pending, skip, router]);
 }
 
 /**
