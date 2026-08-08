@@ -738,15 +738,16 @@ test("س14: القائمة الجانبية — عجلة الفأرة والتم
   expect(mobileOverflow).toBeLessThanOrEqual(1);
 });
 
-test("س15: هوية الإصدار — «الإصدار 2.4.1» في الغلاف و/api/health بلا أي سر", async ({ page, request }) => {
+test("س15: هوية الإصدار — «الإصدار 2.6.0» في الغلاف و/api/health بلا أي سر", async ({ page, request }) => {
   test.setTimeout(90_000);
   await login(page);
-  await expect(page.locator("aside")).toContainText("الإصدار 2.4.1");
+  // الإصدار الحالي 2.6.0 — الرقم يُقرأ من `RELEASE_VERSION` ويُثبته اختبار الوحدة
+  await expect(page.locator("aside")).toContainText("الإصدار 2.6.0");
 
   const health = await request.get("/api/health");
   expect(health.ok()).toBe(true);
   const body = await health.json();
-  expect(body).toMatchObject({ status: "ok", db: "up", version: "2.4.1" });
+  expect(body).toMatchObject({ status: "ok", db: "up", version: "2.6.0" });
   expect(body).toHaveProperty("commit");
   expect(body).toHaveProperty("environment");
 
