@@ -71,7 +71,18 @@ async function login(page: Page) {
   sessionCookies = await page.context().cookies();
 }
 
-/** تنقّل عبر القائمة الجانبية (سطح المكتب — القائمة ظاهرة عند 1280px) */
+/**
+ * تنقّل عبر القائمة الجانبية (سطح المكتب — القائمة ظاهرة عند 1280px).
+ *
+ * ── لماذا ميزانية هذه السيناريوهات عشر دقائق ──────────────────────────────
+ * المجموعة تعمل على `next dev`، فأول زيارة لكل مسار تُترجم عند الطلب. أثقلها مسار
+ * المبنى (Konva وthree.js)، وأول `nav` إليه في س5 قد يستغرق دقائق على عدّاء مزدحم.
+ * وقد ظهر ذلك فعلاً: التزام واحد بعينه مرّ في تشغيل استغرق 10.6 دقيقة، وسقط مرتين في
+ * تشغيلين استغرقا 15.4 و16.2 دقيقة — الشيفرة نفسها والعمل نفسه، وعدّاء أبطأ وحده.
+ *
+ * المرفوع هو الصبر لا التوقّع: لم يُغيَّر أي ادّعاء، ولا يُستهلك من الميزانية إلا ما
+ * يلزم فعلاً. بوابة تنقلب حمراء بحسب سرعة العدّاء ليست بوابة.
+ */
 async function nav(page: Page, label: string, urlPart: string) {
   await page.locator("aside").getByRole("link", { name: label, exact: true }).click();
   await page.waitForURL(`**${urlPart}`);
@@ -180,7 +191,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test("س1: استيراد الموظفين — معاينة وتصحيح وتنفيذ، ثم دفعة ثانية وتراجع كامل", async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     await login(page);
 
@@ -223,7 +234,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س2: الخطة التشغيلية — استيراد واعتماد ومتابعة وطلب تغيير وتقرير تنفيذي", async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     await login(page);
 
@@ -356,7 +367,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س2ب: الميزانية — تسمية «البند»، رفع إيصال إيراد ومصروف مباشرةً، والإيصال اختياري (D-026)", async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     await login(page);
     await page.goto("/budget");
@@ -427,7 +438,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س3: اللجان — تشكيل واعتماد واجتماع وقرار إلزامي ومحضر واكتمال ولوحة العمل", async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     test.skip(!state.person1Id || !state.person2Id, "يتطلب أشخاص السيناريو الأول");
     await login(page);
@@ -593,7 +604,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س4: الأداء الوظيفي — دورة معلم: تخطيط ثم تقييم نهائي بشواهد لكل مؤشر حتى اكتمال الدورة", async ({ page }) => {
-    test.setTimeout(420_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     test.skip(!state.person1Id, "يتطلب أشخاص السيناريو الأول");
     await login(page);
@@ -667,7 +678,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س5: التوأم الرقمي — نشر المخطط وسجل الغرف وفحص وبلاغ صيانة حتى الإغلاق المتحقق", async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     test.skip(!state.person1Id, "يتطلب أشخاص السيناريو الأول");
     await login(page);

@@ -24,11 +24,16 @@ had never executed once. Getting them to run surfaced **six real production defe
 (§5a) — including one that returns a 500 error page on an ordinary filter click — none of
 which any test had ever reached. A suite that cannot finish is not evidence.
 
-**Do not deploy the `0.1.0-v2_6_0-rc` tag, and do not cite digest
-`sha256:3d331c0374f22fac009e5f3a6a59d4048ccf5997b1a2e409ab4b2e7df6698d98`** — it was built
-from commit `28f007f`, which predates several product fixes. The tag is mutable and is
-re-pushed on every branch push; deployment is by digest only, and only from a digest built
-on the final SHA after every job passes.
+**Superseded digests — do not deploy or cite either.** The tag `0.1.0-v2_6_0-rc` is mutable
+and re-pushed on every branch push, so it must never be deployed on its own.
+
+| Digest | Commit | Why it is dead |
+|---|---|---|
+| `sha256:3d331c03…` | `28f007f` | predates every product fix in §5a |
+| `sha256:8d4c032f…` | `0503cea` | that commit's CI was green on the push trigger and red twice on the pull-request trigger (see below); it is not a commit where every job passed |
+
+The deployable digest is the one built from the final SHA **after every job passes on every
+trigger**, recorded in the `v26-rc-image-record` artifact of that run.
 
 **Production was not touched.** Port 3080, the `madrasa-prod` containers, database,
 volumes and configuration were never read from or written to by this work. Every
@@ -222,6 +227,23 @@ The two skips:
    A `test.fixme` deliberately kept *in* the suite: it is a written, runnable reproduction
    of an open defect (§13). Deleting it would erase the evidence; leaving it failing would
    make the gate meaningless. It is reported as a skip on every run, by design.
+
+**One CI-only flake, found and closed.** Commit `0503cea` passed the push-triggered run
+(130/0/0/2 in 10.6 min) and *failed twice* on the pull-request-triggered run of the same
+commit — both times on س5's first navigation to `/building`, both times exceeding the 300 s
+per-test cap, in runs that took 15.4 and 16.2 minutes doing identical work. The cause is the
+runner, not the product: CI runs `next dev`, so the first visit to each route compiles on
+demand, and the building route (Konva + three.js) is the heaviest in the platform. All six
+desktop scenario budgets are now 600 s. **No assertion changed** — only the patience. A gate
+that turns red on runner contention is not a gate, and "it passed on the other trigger" is
+not an answer.
+
+**Vitest skips, also accounted for.** Locally `npm test` reports **1184 passed**; in CI it
+reports **1181 passed | 3 skipped**. The three are one `describe.skipIf(!hasFares)` block in
+`official-models.test.ts` that parses the *real* «بيانات الموظفين في فارس.xlsx». That file
+lives in git-ignored `reference_files/` because school and personal data is never committed,
+so CI cannot have it and correctly skips the block; on this workstation the file is present
+and all three run. The skip is the safety rule working, not a coverage gap.
 
 The state-dependent `test.skip` guards in `workflows.spec.ts` (`!state.person1Id`, and so
 on) no longer skip anything: they existed to keep the mobile scenarios from failing
