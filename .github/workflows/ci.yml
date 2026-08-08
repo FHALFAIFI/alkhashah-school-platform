@@ -7,7 +7,7 @@
 # Job map:
 #   quality        — lint + typecheck (fast fail)
 #   tests          — unit + integration against a fresh Postgres 16 service
-#   migrations     — clean-schema install AND upgrade-from-v2.5.0 (ledger 34 → 36)
+#   migrations     — clean-schema install AND upgrade-from-v2.5.0 (ledger 34 → 37)
 #   build          — production next build
 #   artifacts      — representative report generation: DOCX/XLSX/ZIP + PDF + print HTML
 #                    from a synthetic dataset, uploaded for human inspection
@@ -114,8 +114,8 @@ jobs:
           PGPASSWORD=madrasa_dev psql -h localhost -p 5544 -U madrasa -d madrasa -c 'CREATE DATABASE madrasa_clean_test'
           npx tsx src/db/migrate.ts
           PGPASSWORD=madrasa_dev psql -h localhost -p 5544 -U madrasa -d madrasa_clean_test -c \
-            "SELECT count(*) AS ledger FROM drizzle.__drizzle_migrations" | grep -q "36" || \
-            (echo 'expected ledger 36' && PGPASSWORD=madrasa_dev psql -h localhost -p 5544 -U madrasa -d madrasa_clean_test -c "SELECT count(*) FROM drizzle.__drizzle_migrations" && exit 1)
+            "SELECT count(*) AS ledger FROM drizzle.__drizzle_migrations" | grep -q "37" || \
+            (echo 'expected ledger 37' && PGPASSWORD=madrasa_dev psql -h localhost -p 5544 -U madrasa -d madrasa_clean_test -c "SELECT count(*) FROM drizzle.__drizzle_migrations" && exit 1)
       - name: Upgrade rehearsal — v2.5.0 schema then v2.6 migrations
         env:
           DATABASE_URL: postgresql://madrasa:madrasa_dev@localhost:5544/madrasa_upgrade_test

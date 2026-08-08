@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # v2.6 CI — upgrade rehearsal: a database at the deployed v2.5.0 schema (ledger 34)
-# migrated forward with the current tree (ledger 36), proving:
+# migrated forward with the current tree (ledger 37), proving:
 #   1. the new migrations apply cleanly on top of the real production baseline;
 #   2. no pre-existing row is lost or altered (marker rows checked byte-for-byte);
 #   3. the immutability trigger is installed and actually rejects a forbidden UPDATE;
@@ -47,10 +47,10 @@ VALUES ('22222222-2222-2222-2222-222222222222', 'قالب ما قبل الترق
 SQL
 MARKER_BEFORE=$($PSQL_T -t -A -c "SELECT md5(string_agg(name || report_key || filters::text || columns::text, '|' ORDER BY id)) FROM report_templates")
 
-echo "==> applying the current tree's migrations (expected ledger 36)"
+echo "==> applying the current tree's migrations (expected ledger 37)"
 DATABASE_URL="$DB_URL" npx tsx src/db/migrate.ts
 LEDGER26=$($PSQL_T -t -A -c "SELECT count(*) FROM drizzle.__drizzle_migrations")
-[ "$LEDGER26" = "36" ] || { echo "FAIL: post-upgrade ledger is ${LEDGER26}, expected 36"; exit 1; }
+[ "$LEDGER26" = "37" ] || { echo "FAIL: post-upgrade ledger is ${LEDGER26}, expected 37"; exit 1; }
 
 echo "==> verifying pre-existing data is untouched"
 MARKER_AFTER=$($PSQL_T -t -A -c "SELECT md5(string_agg(name || report_key || filters::text || columns::text, '|' ORDER BY id)) FROM report_templates")
@@ -72,5 +72,5 @@ if $PSQL_T -c "UPDATE report_instances SET title = 'عبث' WHERE report_number 
   echo "FAIL: the immutability trigger did not reject a forbidden UPDATE"; exit 1
 fi
 
-echo "==> upgrade rehearsal PASS (34 → 36, markers intact, trigger armed)"
+echo "==> upgrade rehearsal PASS (34 → 37, markers intact, trigger armed)"
 rm -rf .ci-v25
