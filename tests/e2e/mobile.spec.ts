@@ -65,6 +65,33 @@ test("كل المسارات الرئيسية بلا تمرير أفقي عند 3
   }
 });
 
+/*
+ * ── لماذا لا تُنتظر مدّة ثابتة لانزلاق القائمة ──────────────────────────────
+ * كان الانتظار `waitForTimeout(350)` ثم تُقاس حدود القائمة. المدّة تكفي على جهاز مرتاح
+ * وتخذل على عدّاء مزدحم: التُقطت القائمة مرة وهي في منتصف الانزلاق فجاءت حافتها 402
+ * بدل 390، فسقطت البوابة على سرعة العدّاء لا على عيب في المنتج.
+ *
+ * البديل انتظار الاستقرار نفسه: يُعاد القياس حتى يثبت الموضع المطلوب. التوقّع لم يتغيّر
+ * — الحافة نفسها والحدود نفسها — تغيّر الصبر فقط.
+ */
+
+/** ينتظر استقرار القائمة مفتوحةً ملتصقةً بالحافة اليمنى (390px) */
+async function drawerSettledOpen(page: Page) {
+  await expect(async () => {
+    const box = (await page.locator("aside").boundingBox())!;
+    expect(Math.round(box.x + box.width)).toBeGreaterThanOrEqual(389);
+    expect(Math.round(box.x + box.width)).toBeLessThanOrEqual(391);
+  }).toPass({ timeout: 15_000 });
+}
+
+/** ينتظر استقرار القائمة مغلقةً خارج الشاشة */
+async function drawerSettledClosed(page: Page) {
+  await expect(async () => {
+    const box = (await page.locator("aside").boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(389);
+  }).toPass({ timeout: 15_000 });
+}
+
 test("القائمة الجانبية على الجوال: ضمن الشاشة، بخلفية معتمة، تقفل التمرير، وتغلق (C2)", async ({ page }) => {
   await login(page);
 
@@ -73,12 +100,10 @@ test("القائمة الجانبية على الجوال: ضمن الشاشة،
   expect(before!.x).toBeGreaterThanOrEqual(389);
 
   await page.getByRole("button", { name: "فتح القائمة" }).click();
-  await page.waitForTimeout(350);
+  await drawerSettledOpen(page);
 
   // مفتوحة: داخل الشاشة بالكامل وملتصقة بالحافة اليمنى، وبعرض لا يتجاوز min(86vw, 360px)
   const box = (await page.locator("aside").boundingBox())!;
-  expect(Math.round(box.x + box.width)).toBeGreaterThanOrEqual(389);
-  expect(Math.round(box.x + box.width)).toBeLessThanOrEqual(391);
   expect(box.width).toBeLessThanOrEqual(Math.min(0.86 * 390, 360) + 1);
   expect(box.x).toBeGreaterThanOrEqual(0);
 
@@ -92,25 +117,21 @@ test("القائمة الجانبية على الجوال: ضمن الشاشة،
 
   // زر إغلاق داخل القائمة يعمل
   await page.locator("aside").getByRole("button", { name: "إغلاق القائمة" }).click();
-  await page.waitForTimeout(350);
-  const closed = await page.locator("aside").boundingBox();
-  expect(closed!.x).toBeGreaterThanOrEqual(389);
+  await drawerSettledClosed(page);
   expect(await page.evaluate(() => document.body.style.overflow)).not.toBe("hidden");
 
   // الإغلاق عند الضغط على الخلفية المعتمة
   await page.getByRole("button", { name: "فتح القائمة" }).click();
-  await page.waitForTimeout(350);
+  await drawerSettledOpen(page);
   await page.locator('button[aria-label="إغلاق القائمة"].fixed').click({ position: { x: 10, y: 500 } });
-  await page.waitForTimeout(350);
-  expect((await page.locator("aside").boundingBox())!.x).toBeGreaterThanOrEqual(389);
+  await drawerSettledClosed(page);
 
   // الإغلاق بعد التنقل
   await page.getByRole("button", { name: "فتح القائمة" }).click();
-  await page.waitForTimeout(350);
+  await drawerSettledOpen(page);
   await page.locator("aside").getByText("الشواهد").click();
   await page.waitForURL("**/evidence");
-  await page.waitForTimeout(350);
-  expect((await page.locator("aside").boundingBox())!.x).toBeGreaterThanOrEqual(389);
+  await drawerSettledClosed(page);
 });
 
 test("حقول الإدخال بخط 16px على الجوال لمنع تكبير سفاري (C3)", async ({ page }) => {
@@ -122,7 +143,7 @@ test("حقول الإدخال بخط 16px على الجوال لمنع تكبي�
 test("أهداف اللمس في القائمة لا تقل عن 44px", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "فتح القائمة" }).click();
-  await page.waitForTimeout(350);
+  await drawerSettledOpen(page);
   const heights = await page.locator("aside nav a").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
   for (const h of heights) expect(h).toBeGreaterThanOrEqual(43.5);
 });

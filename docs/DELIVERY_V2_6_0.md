@@ -246,7 +246,17 @@ The two skips:
    of an open defect (§13). Deleting it would erase the evidence; leaving it failing would
    make the gate meaningless. It is reported as a skip on every run, by design.
 
-**One CI-only flake, found and closed.** Commit `0503cea` passed the push-triggered run
+**Two CI-only flakes, both found and closed** — the same failure mode twice: a fixed
+duration standing in for a real signal, which holds on a fast machine and breaks on a
+contended one. Neither is a product defect and neither expectation was weakened.
+
+*Second one:* the mobile drawer test waited `waitForTimeout(350)` for the slide-in
+animation, then measured the panel. On a loaded runner it caught the drawer mid-slide —
+right edge at 402 px instead of ≤ 391 — and failed the gate on runner speed. Every such
+sleep in `mobile.spec.ts` is now a settle wait (`expect(...).toPass`) that re-measures until
+the panel is actually at rest. Same edge, same bounds, same assertions.
+
+*First one:* Commit `0503cea` passed the push-triggered run
 (130/0/0/2 in 10.6 min) and *failed twice* on the pull-request-triggered run of the same
 commit — both times on س5's first navigation to `/building`, both times exceeding the 300 s
 per-test cap, in runs that took 15.4 and 16.2 minutes doing identical work. The cause is the
