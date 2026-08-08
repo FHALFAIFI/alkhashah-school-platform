@@ -524,9 +524,21 @@ test("س9: تقريرا «البرامج حسب المسؤول» و«البرا�
   await seedConsistencyFixtures();
   await login(page);
 
-  await page.locator("aside").getByRole("link", { name: "التقارير", exact: true }).click();
+  // v2.3: أقسام القائمة الجانبية قابلة للطي وتتذكر حالتها — يُفتح القسم إن كان مطوياً
+  const sidebar = page.locator("aside");
+  const reportsLink = sidebar.getByRole("link", { name: "التقارير", exact: true });
+  if (!(await reportsLink.isVisible())) {
+    await sidebar.getByRole("button", { name: /الأشخاص والتقارير/ }).click();
+  }
+  await reportsLink.click();
   await page.waitForURL("**/reports**");
-  await page.getByRole("link", { name: "الخطة والبرامج", exact: true }).first().click();
+  // v2.5.0 §14: الفئة بطاقة بعنوانها ورابطها «عرض التقارير»
+  await page
+    .locator("div.rounded-xl")
+    .filter({ hasText: "الخطة والبرامج" })
+    .first()
+    .getByRole("link", { name: "عرض التقارير" })
+    .click();
 
   // كلا التقريرين معلنان بالاسم في قائمة الفئة — لا يُفتحان إلا بمعرفة مفتاحهما
   for (const label of ["البرامج حسب المسؤول", "البرامج حسب المجال"]) {
@@ -534,10 +546,11 @@ test("س9: تقريرا «البرامج حسب المسؤول» و«البرا�
   }
 
   const openReport = async (label: string) => {
+    // بطاقة التقرير نفسها لا أعمق `div` يحوي العنوان — الأخيرة لا تحمل الرابط بعد §14
     const card = page
-      .locator("div")
+      .locator("div.rounded-xl")
       .filter({ has: page.getByRole("heading", { name: label, exact: true }) })
-      .last();
+      .first();
     await card.getByRole("link", { name: "عرض", exact: true }).click();
     await page.waitForLoadState("networkidle");
   };
