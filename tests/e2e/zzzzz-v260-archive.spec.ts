@@ -77,6 +77,13 @@ const UUID_PATH = /\/reports\/archive\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 let instanceId = "";
 let reportNumber = "";
 
+/**
+ * شارة حالة التقرير في ترويسة الصفحة. تُقصد الشارة تحديداً لا أي نص مطابق: جدول المعاينة
+ * يعرض حالات البرامج نفسها («مسودة»/«معتمد»)، فمطابقة النص وحدها تلتقط خلايا الجدول أيضاً.
+ */
+const statusBadge = (page: import("@playwright/test").Page, value: string) =>
+  page.locator("span.rounded-full").filter({ hasText: new RegExp(`^${value}$`) });
+
 test.describe("v2.6 — التقرير المحفوظ: من المسودة إلى الأرشيف", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -100,7 +107,7 @@ test.describe("v2.6 — التقرير المحفوظ: من المسودة إل�
     instanceId = page.url().split("/").pop()!;
 
     await expect(page.getByRole("heading", { name: DRAFT_TITLE })).toBeVisible();
-    await expect(page.getByText("مسودة", { exact: true })).toBeVisible();
+    await expect(statusBadge(page, "مسودة").first()).toBeVisible();
     await expect(page.getByText("معاينة حية — تتغير بالمرشّحات")).toBeVisible();
     // Live preview really reads live data: the seeded program is on screen
     await expect(page.getByText(PROGRAM_NAME).first()).toBeVisible();
@@ -134,7 +141,7 @@ test.describe("v2.6 — التقرير المحفوظ: من المسودة إل�
     await page.getByRole("button", { name: "اعتماد نهائي وترقيم" }).click();
 
     // useRefreshOnSuccess re-renders the page as final
-    await expect(page.getByText("نهائي", { exact: true })).toBeVisible({ timeout: 90_000 });
+    await expect(statusBadge(page, "نهائي").first()).toBeVisible({ timeout: 90_000 });
 
     const subtitle = await page.getByText(/رقم التقرير:/).innerText();
     const match = subtitle.match(/KHS-RPT-\d{4}-\d{4}/);
@@ -152,7 +159,7 @@ test.describe("v2.6 — التقرير المحفوظ: من المسودة إل�
     await login(page);
     await page.goto(`/reports/archive/${instanceId}`);
 
-    await expect(page.getByText("نهائي", { exact: true })).toBeVisible();
+    await expect(statusBadge(page, "نهائي").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "حذف المسودة" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "اعتماد نهائي وترقيم" })).toHaveCount(0);
   });
@@ -214,7 +221,7 @@ test.describe("v2.6 — التقرير المحفوظ: من المسودة إل�
     const newId = page.url().split("/").pop()!;
     expect(newId).not.toBe(instanceId);
 
-    await expect(page.getByText("مسودة", { exact: true })).toBeVisible();
+    await expect(statusBadge(page, "مسودة").first()).toBeVisible();
     await expect(page.getByText("هذا التقرير نسخة جديدة من")).toBeVisible();
     const originalLink = page.getByRole("link", { name: "تقرير أصلي سابق" });
     await expect(originalLink).toBeVisible();
