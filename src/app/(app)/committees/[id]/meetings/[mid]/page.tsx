@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { asc, eq, inArray } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
@@ -53,6 +53,9 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
     "use server";
     const u = await requirePermission("reports.generate");
     await generateMinutesDocument({ meetingId: mid, issuedBy: u.id });
+    // D-053 قاعدة 4: كان ينتهي بلا شيء، فيصدر المحضر المرقّم ولا يظهر رابط تنزيله ولا تتقدم
+    // مراحل الاجتماع — فيُعيد المستخدم الإصدار وتتكرر وثيقة رسمية. التحويل يعيد تصيير الصفحة.
+    redirect(`/committees/${id}/meetings/${mid}#minutes`);
   }
 
   // مؤشر المرحلة: الإعداد والنتائج → إصدار المحضر → المحضر الموقع → الاكتمال

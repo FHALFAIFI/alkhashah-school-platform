@@ -161,7 +161,10 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
       seedProgram(pool, { name: `برنامج متابعة ${TAG}`, domain: "المجال الأول", owner: "وكيل الشؤون التعليمية", status: "معتمد" }),
     );
     await login(page);
-    await page.getByRole("link", { name: "المتابعة الأسبوعية" }).first().click();
+    // المتابعة الأسبوعية صفحة ابنة لـ/plan ولا ترد في القائمة الجانبية، والاسم نفسه يظهر
+    // على لوحة العمل لرابط يقصد /plan — فالانتقال المباشر أصدق من مطابقة اسم ملتبس.
+    // ما يفحصه هذا الاختبار هو محتوى الصفحة (§6.2: لا حقل نسبة)، لا مسار الوصول إليها.
+    await page.goto("/plan/followup");
     await page.waitForURL("**/plan/followup**");
 
     await expect(page.getByText(`برنامج متابعة ${TAG}`)).toBeVisible();
@@ -189,17 +192,20 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
   test("٥–٨. ترشيح البرامج بمسؤول واحد ثم عدة، وبمجال واحد ثم عدة", async ({ page }) => {
     await login(page);
     await page.goto("/reports?category=plan&report=programs-by-owner");
-    await page.getByRole("button", { name: "المرشّحات" }).click();
-
+    // لوحة المرشّحات قد تكون مفتوحة أصلاً — الفتح مشروط لا نقر أعمى يغلقها
     const ownerPanel = page.locator("details", { hasText: "مسؤول التنفيذ" }).first();
-    await ownerPanel.click();
+    if (!(await ownerPanel.isVisible())) {
+      await page.getByRole("button", { name: "المرشّحات" }).click();
+    }
+    await ownerPanel.locator("summary").click();
     const boxes = ownerPanel.locator('input[type="checkbox"]');
     await boxes.first().check();
     await expect(page.getByText("المرشّحات المطبَّقة")).toBeVisible();
     const oneOwner = await page.locator("text=عدد النتائج").first().innerText();
 
-    await page.getByRole("button", { name: "المرشّحات" }).click();
-    await ownerPanel.click();
+    if (!(await boxes.nth(1).isVisible())) {
+      await ownerPanel.locator("summary").click();
+    }
     await boxes.nth(1).check();
     const twoOwners = await page.locator("text=عدد النتائج").first().innerText();
     expect(Number(twoOwners.replace(/\D/g, ""))).toBeGreaterThanOrEqual(Number(oneOwner.replace(/\D/g, "")));
