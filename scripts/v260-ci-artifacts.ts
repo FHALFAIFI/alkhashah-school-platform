@@ -95,7 +95,7 @@ async function main() {
 
   const [person] = await db
     .insert(people)
-    .values({ fullName: "معلم تجريبي أول", category: "معلم", jobTitle: "معلم", status: "على رأس العمل" })
+    .values({ fullName: "معلم تجريبي أول", category: "معلم", jobTitle: "معلم", employmentStatus: "على رأس العمل" })
     .returning();
   for (const [i, name] of ["اللجنة الاصطناعية الأولى", "لجنة العينات الثانية"].entries()) {
     const [c] = await db
