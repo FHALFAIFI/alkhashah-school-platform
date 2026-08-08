@@ -4,7 +4,8 @@ import { PageHeader, Card, Badge, EmptyState, LinkButton } from "@/components/ui
 import { SectionReportsLink } from "@/components/section-reports-link";
 import { FilterPanel } from "@/components/report-filters";
 import { loadFilterOptions } from "@/lib/reports/filter-options";
-import { parseReportFilters } from "@/lib/reports/filters";
+import { parseReportFilters, canonicalListQuery } from "@/lib/reports/filters";
+import { redirect } from "next/navigation";
 import { loadWeeklyFollowup, type WeeklyRow } from "@/lib/plan/followup-service";
 import {
   daysSince,
@@ -52,6 +53,14 @@ export default async function FollowupPage({
   const user = await requirePermission("plan.read");
   const canWrite = user.permissions.has("plan.write");
   const sp = await searchParams;
+
+  /*
+   * D-066: عنوانٌ بمفاتيح مكرّرة (رابط أو إشارة مرجعية من قبل هذا الإصدار) يُوحَّد هنا قبل
+   * أي تصيير. لولاه لبقي مفتاح جزء الصفحة عند موجّه Next محسوباً من آخر تكرار وحده، فيقع
+   * أول رفعٍ لقيمة في العطل نفسه. العنوان الموحَّد أصلاً لا يمرّ من هنا.
+   */
+  const canonicalQuery = canonicalListQuery(sp);
+  if (canonicalQuery !== null) redirect(`/plan/followup?${canonicalQuery}`);
 
   // «اسبوع» بالعربية بقيت مقبولة: روابط المدير المحفوظة منذ v2.4 تستعملها
   const legacyWeek = typeof sp["اسبوع"] === "string" ? (sp["اسبوع"] as string) : undefined;

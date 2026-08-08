@@ -15,7 +15,14 @@ import {
   type ReportDefinition,
   type SectionKey,
 } from "@/lib/reports/catalog";
-import { parseReportFilters, describeFilters, REPORT_MODES } from "@/lib/reports/filters";
+import {
+  parseReportFilters,
+  describeFilters,
+  writeListParam,
+  canonicalListQuery,
+  REPORT_MODES,
+} from "@/lib/reports/filters";
+import { redirect } from "next/navigation";
 import { runReport } from "@/lib/reports/loaders";
 import { loadFilterOptions, loadFilterLabelMaps } from "@/lib/reports/filter-options";
 import { statusOptionsFor } from "@/lib/reports/status-options";
@@ -110,6 +117,14 @@ export default async function ReportsPage({
 }) {
   const user = await requirePermission("reports.read");
   const sp = await searchParams;
+
+  /*
+   * D-066: عنوانٌ بمفاتيح مكرّرة (رابط أو إشارة مرجعية من قبل هذا الإصدار) يُوحَّد هنا قبل
+   * أي تصيير. لولاه لبقي مفتاح جزء الصفحة عند موجّه Next محسوباً من آخر تكرار وحده، فيقع
+   * أول رفعٍ لقيمة في العطل نفسه. العنوان الموحَّد أصلاً لا يمرّ من هنا.
+   */
+  const canonicalQuery = canonicalListQuery(sp);
+  if (canonicalQuery !== null) redirect(`/reports?${canonicalQuery}`);
   const first = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
 
   // الفئات المرئية لهذا المستخدم فقط
@@ -165,7 +180,7 @@ export default async function ReportsPage({
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(sp)) {
       if (typeof v === "string") p.append(k, v);
-      else if (Array.isArray(v)) for (const one of v) p.append(k, one);
+      else if (Array.isArray(v)) writeListParam(p, k, v);
     }
     p.set("format", format);
     return `/api/reports/export?${p.toString()}`;
@@ -466,7 +481,7 @@ function paramsFrom(sp: Record<string, string | string[] | undefined>): URLSearc
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) {
     if (typeof v === "string") p.append(k, v);
-    else if (Array.isArray(v)) for (const one of v) p.append(k, one);
+    else if (Array.isArray(v)) writeListParam(p, k, v);
   }
   return p;
 }

@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { readListParam, writeListParam } from "@/lib/reports/filters";
 import { SubmitButton } from "@/components/ui";
 import { useRefreshOnSuccess } from "@/components/form-reset";
 import {
@@ -49,25 +50,23 @@ export function BuilderControls({
 
   function toggleColumn(key: string) {
     const next = new URLSearchParams(params);
-    const current = next.getAll("col");
+    const current = readListParam(next, "col");
     // بلا اختيار صريح: كل الأعمدة ضمنياً — أول نقرة تُثبّتها ثم تُزيل المنقور
     const base = current.length > 0 ? current : columns.map((c) => c.key);
     const after = base.includes(key) ? base.filter((k) => k !== key) : [...base, key];
-    next.delete("col");
-    for (const k of after) next.append("col", k);
+    writeListParam(next, "col", after);
     push(next);
   }
 
   function moveColumn(key: string, delta: number) {
     const next = new URLSearchParams(params);
-    const current = next.getAll("col");
+    const current = readListParam(next, "col");
     const base = current.length > 0 ? [...current] : columns.map((c) => c.key);
     const i = base.indexOf(key);
     const j = i + delta;
     if (i < 0 || j < 0 || j >= base.length) return;
     [base[i], base[j]] = [base[j], base[i]];
-    next.delete("col");
-    for (const k of base) next.append("col", k);
+    writeListParam(next, "col", base);
     push(next);
   }
 
@@ -78,7 +77,7 @@ export function BuilderControls({
     push(next);
   }
 
-  const selected = params.getAll("col");
+  const selected = readListParam(params, "col");
   const effective = selected.length > 0 ? selected : columns.map((c) => c.key);
   const ordered = effective.map((k) => columns.find((c) => c.key === k)).filter(Boolean) as typeof columns;
   const unselected = columns.filter((c) => !effective.includes(c.key));

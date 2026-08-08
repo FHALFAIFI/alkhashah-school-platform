@@ -113,6 +113,20 @@ function readNumber(text: string): number {
 
 const filterSection = (page: Page) => page.locator('section[aria-label="مرشّحات العرض"]');
 
+/**
+ * قيم مرشّح متعدّد كما يحملها العنوان.
+ *
+ * منذ D-066 تُكتب في معامل واحد مفصول بمحرف تحكّم بدل مفاتيح مكرّرة — فمفتاح مكرَّر يجعل
+ * موجّه Next يرى الصفحة نفسها ولا يطلب تصييراً جديداً. القراءة هنا تفكّ الفاصل وتقبل
+ * الشكلين معاً.
+ */
+function selectedValues(page: Page, param: string): string[] {
+  return new URL(page.url())
+    .searchParams.getAll(param)
+    .flatMap((v) => v.split("\u001f"))
+    .filter(Boolean);
+}
+
 /** عدد النتائج كما تعرضه لوحة المرشّحات نفسها (§3.2: يُعرض دائماً ولو كان صفراً) */
 async function resultCount(page: Page): Promise<number> {
   const text = await filterSection(page).innerText();
@@ -151,11 +165,11 @@ async function selectFilterOption(page: Page, groupLabel: string, param: string,
   const box = option.locator('input[type="checkbox"]');
   await expect(box).not.toBeChecked();
   // العدّ لا القيمة: بعض المرشّحات قيمتها معرّف والمعروض اسمه (اللجان مثلاً)
-  const before = new URL(page.url()).searchParams.getAll(param).length;
+  const before = selectedValues(page, param).length;
 
   await option.click();
 
-  await page.waitForURL((url) => url.searchParams.getAll(param).length === before + 1, { timeout: 30_000 });
+  await expect.poll(() => selectedValues(page, param).length, { timeout: 30_000 }).toBe(before + 1);
   await expect(box).toBeChecked();
   await expect(page.getByText("المرشّحات المطبَّقة")).toBeVisible();
   // الشريحة تحمل الاسم المعروض — فظهورها يثبت أن القيمة الصحيحة هي التي دخلت العنوان
@@ -307,7 +321,7 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
     await expect(table).toContainText(PROGRAM_A);
     await expect(table).toContainText(PROGRAM_B);
     // المرشّحان يجتمعان ولا يحل أحدهما محل الآخر — في العنوان وفي الشرائح معاً
-    expect(new URL(page.url()).searchParams.getAll("owner")).toEqual([OWNER_A, OWNER_B]);
+    expect(selectedValues(page, "owner")).toEqual([OWNER_A, OWNER_B]);
     await expect(page.getByRole("button", { name: `مسؤول التنفيذ: ${OWNER_A}` })).toBeVisible();
     await expect(page.getByRole("button", { name: `مسؤول التنفيذ: ${OWNER_B}` })).toBeVisible();
 
@@ -323,33 +337,26 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
     await selectFilterOption(page, "المجال", "domain", DOMAIN_B, 2);
     await expect(table).toContainText(PROGRAM_A);
     await expect(table).toContainText(PROGRAM_B);
-    expect(new URL(page.url()).searchParams.getAll("domain")).toEqual([DOMAIN_A, DOMAIN_B]);
+    expect(selectedValues(page, "domain")).toEqual([DOMAIN_A, DOMAIN_B]);
     await expect(page.getByRole("button", { name: `المجال: ${DOMAIN_A}` })).toBeVisible();
     await expect(page.getByRole("button", { name: `المجال: ${DOMAIN_B}` })).toBeVisible();
 
   });
 
   /**
-   * D-066 — عطل مفتوح: رفع قيمة من مرشّح متعدد مع بقاء قيم أخرى لا يُحدّث النتائج.
+   * D-066 — رفع قيمة من مرشّح متعدّد مع بقاء قيم أخرى يُحدّث النتائج. **أُصلح.**
    *
-   * مثبَّت على بناء الإنتاج لا على خادم التطوير وحده: عند الانتقال من قيمتين إلى قيمة
-   * واحدة يتغيّر العنوان وتتغيّر الشرائح والمربّعات، ولا يُرسَل طلب تصيير جديد إطلاقاً
-   * (عدّاد طلبات `_rsc` لا يتحرّك)، فيبقى الجدول والعدد على حال القيمتين حتى إعادة تحميل
-   * الصفحة. الانتقالات الأخرى كلها سليمة: من صفر إلى واحدة، ومن واحدة إلى اثنتين، ومن
-   * واحدة إلى صفر.
+   * كان العطل في شكل العنوان لا في منطق الترشيح: القيم كانت تُكتب مفاتيح مكرّرة، ويبني
+   * موجّه Next مفتاح جزء الصفحة من `Object.fromEntries` التي تُبقي آخر تكرار وحده — فكان
+   * `?domain=أ&domain=ب` و`?domain=ب` مفتاحاً واحداً، فلا يطلب الموجّه تصييراً جديداً.
+   * القيم الآن في معامل واحد مفصول، فلكل اختيار مفتاحه.
    *
-   * السبب في ذاكرة موجّه Next 16.2.12 لا في هذه الشيفرة: `router.refresh()` بعد الدفع
-   * يجهض الانتقال نفسه فيزيد الأمر سوءاً، و`experimental.staleTimes` لا يملك ضبطاً يمنعه.
-   * لذلك يبقى الاختبار مكتوباً ومعلَّماً `fixme` — عطل معلن في تقرير الجاهزية لا اختبار
-   * محذوف — ولا يُصلَح داخل مرشّح إصدار مغلق.
-   *
-   * التوصية للمدير حتى يُصلَح: «مسح الفلاتر» ثم إعادة الاختيار، أو تحديث الصفحة.
+   * التغطية الكاملة (الأولى والوسطى والأخيرة، والمربّع والشريحة، والرجوع والتقدّم، وفتح
+   * العنوان مباشرةً، وأعمدة المنشئ) في `tests/e2e/zzzzz-v260-filters.spec.ts`؛ ويبقى هذا
+   * السيناريو هنا لأنه موضع اكتشاف العطل.
    */
-  test.fixme("رفع مرشّح واحد من عدة يحدّث النتائج (D-066 — عطل مفتوح)", async ({ page }) => {
-    await withDb(async (pool) => {
-      await seedProgram(pool, { name: PROGRAM_A, domain: DOMAIN_A, owner: OWNER_A, status: "معتمد" });
-      await seedProgram(pool, { name: PROGRAM_B, domain: DOMAIN_B, owner: OWNER_B, status: "معتمد" });
-    });
+  test("رفع مرشّح واحد من عدة يحدّث النتائج (D-066)", async ({ page }) => {
+    // البرنامجان أنشأهما السيناريو ٥–٨ قبله في المجموعة نفسها؛ إعادة بذرهما تضاعف العدد
     await login(page);
     await page.goto("/reports?category=plan&report=programs-by-domain");
     const table = page.locator("table").first();
@@ -359,7 +366,7 @@ test.describe("v2.5.0 §19.3 — سيناريوهات المتصفح الإلز�
 
     // الشريحة عنصر تحكّم لا زينة: رفعها يجب أن يعيد العرض إلى برنامج واحد
     await page.getByRole("button", { name: `المجال: ${DOMAIN_A}` }).click();
-    await page.waitForURL((url) => !url.searchParams.getAll("domain").includes(DOMAIN_A), { timeout: 30_000 });
+    await expect.poll(() => selectedValues(page, "domain"), { timeout: 30_000 }).toEqual([DOMAIN_B]);
     await expect(page.getByRole("button", { name: `المجال: ${DOMAIN_A}` })).toHaveCount(0);
     await expect.poll(() => resultCount(page), { timeout: 30_000 }).toBe(1);
     await expect(table).toContainText(PROGRAM_B);

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { Pool } from "pg";
 import { eq } from "drizzle-orm";
 import { ensureTestDb, truncateAll, TEST_DB_URL } from "../helpers/test-db";
+import { readListParam } from "@/lib/reports/filters";
 
 /**
  * v2.5.0 §4.5 / §16 / §17 — قوالب التقارير المحفوظة.
@@ -113,8 +114,9 @@ describe("§4.5 — الذهاب والعودة", () => {
     const t = await getTemplate(created.templateId!, me);
     const href = templateRunHref(t!);
     const sp = new URLSearchParams(href.split("?")[1]);
-    expect(sp.getAll("domain")).toEqual(["المجال الأول", "المجال الثاني"]);
-    expect(sp.getAll("col")).toEqual(["domain", "name"]);
+    // D-066: القيم في معامل واحد مفصول لا في مفاتيح مكرّرة
+    expect(readListParam(sp, "domain")).toEqual(["المجال الأول", "المجال الثاني"]);
+    expect(readListParam(sp, "col")).toEqual(["domain", "name"]);
     expect(sp.get("report")).toBe("programs-by-domain");
   });
 

@@ -8,7 +8,7 @@ import { EvidencePanel } from "@/components/evidence-panel";
 import { evidenceForEntity } from "@/lib/evidence";
 import { loadFilterOptions } from "@/lib/reports/filter-options";
 import { reportByKey, isSortableColumn, type FilterKey } from "@/lib/reports/catalog";
-import { parseReportFilters, filtersToStored, serializeReportFilters } from "@/lib/reports/filters";
+import { parseReportFilters, filtersToStored, serializeReportFilters, storedToParams } from "@/lib/reports/filters";
 import { getInstance, instanceOutputs } from "@/lib/reports/instances/service";
 import { buildSnapshot, SnapshotPermissionError } from "@/lib/reports/instances/snapshot";
 import { readSnapshot, parseInstanceOptions, type SnapshotDoc } from "@/lib/reports/instances/options";
@@ -104,15 +104,7 @@ export default async function ReportInstancePage({
   // النص المسلسل للمرشّحات الحالية — يحمله نموذج «حفظ المسودة»
   const query = workingFilters
     ? serializeReportFilters(workingFilters).toString()
-    : (() => {
-        const p = new URLSearchParams();
-        if (row.filters && typeof row.filters === "object") {
-          for (const [k, v] of Object.entries(row.filters as Record<string, unknown>)) {
-            if (Array.isArray(v)) for (const item of v) p.append(k, String(item));
-          }
-        }
-        return p.toString();
-      })();
+    : storedToParams(row.filters).toString();
 
   const templates = await templateChoices();
   // الشواهد والمرفقات المختارة لهذا التقرير (§A/§F) — تُجمَّد قائمتها في اللقطة عند الاعتماد

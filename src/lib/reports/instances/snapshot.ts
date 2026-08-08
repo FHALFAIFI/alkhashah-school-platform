@@ -10,6 +10,9 @@ import {
   filterHeaderLines,
   lowThresholdHeaderLine,
   storedToParams,
+  readListParam,
+  writeListParam,
+  MULTI_PARAM_NAMES,
   type ReportFilters,
 } from "../filters";
 import { runReportForExport } from "../loaders";
@@ -65,7 +68,17 @@ export function sectionFilters(
   const def = reportByKey(section.reportKey);
   const params = storedToParams(storedInstanceFilters ?? {});
   const extra = storedToParams(options.sectionFilters?.[section.key] ?? {});
-  for (const [k, v] of extra) params.append(k, v);
+  /*
+   * الدمج بلا تكرار مفاتيح (D-066): المتعدّد يتّحد مع ما ورثه القسم، والمفرد يبقى لمرشّح
+   * التقرير — وهو السلوك نفسه الذي كان ينتج عن الإلحاق ثم قراءة أول قيمة.
+   */
+  for (const key of new Set(extra.keys())) {
+    if (MULTI_PARAM_NAMES.has(key)) {
+      writeListParam(params, key, [...new Set([...readListParam(params, key), ...readListParam(extra, key)])]);
+    } else if (!params.has(key)) {
+      params.set(key, extra.get(key)!);
+    }
+  }
   // فترة التقرير تسري على كل قسم يقبل مدة — من غير أن تمحو مدةً أدق حدّدها القسم
   if (period.from && !params.get("dateFrom")) params.set("dateFrom", period.from);
   if (period.to && !params.get("dateTo")) params.set("dateTo", period.to);
