@@ -48,18 +48,27 @@ replacement multi-platform image (now amd64+arm64 in one manifest list, smoke ru
 pushed digest itself), nine regenerated DOCX samples, and the complete repeated ARM64 gate
 follow this checkpoint.
 
-**Follow-up in the same round — Next.js 16.3.0.** Commit `3c4a156` validated fully green
-locally (external ×3 147 passed each, vitest 1203/1203, dev suite 147/1-skip) but went red
-on **both** CI triggers at one step: a sidebar navigation right after the login action,
-CI runners only. That is the second half of the D-069 upstream defect — a navigation
-dispatched while a server action is settling is discarded by the router's action queue —
-fixed upstream only in Next 16.3.0 (vercel/next.js#95391); removing `loading.tsx` widens
-the vulnerable window on slow machines, which is why only CI (and potentially the school's
-slowest clients) could hit it. Upgraded next + eslint-config-next to 16.3.0 (stable,
-2026-08-03), kept every app-level change and the `loading.tsx` removal, replaced one
-`window.location.href` internal navigation with `router.push` for the new 16.3 lint rule
-(evidence manage UI). See the D-069 addendum in `docs/DECISIONS.md`. Full validation
-repeats on 16.3.0 before the replacement candidate is cut.
+**Follow-up in the same round — Next.js 16.3.0, then `loading.tsx` restored.** Commit
+`3c4a156` validated fully green locally (external ×3 147 passed each, vitest 1203/1203,
+dev suite 147/1-skip) but went red on **both** CI triggers at one step — a sidebar
+navigation right after the login action, CI runners only — and stayed red on the 16.3.0
+upgrade commit (`73ddf1f`). The uploaded Playwright snapshot settled it: at timeout the
+sidebar already marks the target link active while `<main>` still renders the previous
+page — a navigation **half-committed forever**, its on-demand route-data fetch aborted
+(`destination stream closed early`) and never retried. This round's own `prefetch={false}`
+exposed the window (for 36 commits the sidebar's data was always prefetched before any
+click); only slow CI runners sit in it. The durable guard for primary navigation is the
+**loading boundary**: with `loading.tsx` present the navigation commits instantly and the
+data streams in afterwards — and restoring it is safe *only because of 16.3*, which fixes
+the refresh-discard defect the boundary triggered on 16.2 (#86151; re-measured after
+restoration: post-action refreshes applied 6/6 with the boundary in place; probes ×3 all
+green). 16.3 also ships #95391. Also: eslint-config-next 16.3 required replacing one
+`window.location.href` internal navigation with `router.push` (evidence manage UI), and
+Next 16.3's `next dev` self-appends a maintained agent-rules block to `CLAUDE.md`
+(committed — removing it just recreates a dirty tree). Final state, each piece justified
+by a measured failure: **16.3.0 + `loading.tsx` + `prefetch={false}` + verified refresh +
+refresh-independent visible outcomes + lightweight JSON job polling.** See the two D-069
+addenda in `docs/DECISIONS.md`.
 
 ## Superseded checkpoint — **v2.6.0 — RC READY, AWAITING DEPLOYMENT AUTHORIZATION (2026-08-09), NOT DEPLOYED**
 

@@ -281,14 +281,21 @@ category; unknown report key; report/category mismatch — the safe existing beh
 Pinned by a dedicated e2e block proving, for each rendering case, the register title, a
 seeded row, the exact count, and the absence of any phantom «التصنيف» chip.
 
-**Framework: Next.js 16.2.12 → 16.3.0.** The first corrective commit went red on both CI
-triggers at a plain sidebar navigation issued right after a login action — CI runners only,
-never locally. That is the second half of the D-069 upstream defect: a navigation
-dispatched while a server action is settling is discarded by the router's action queue,
-fixed upstream only in 16.3.0 (vercel/next.js#95391) and unhittable on fast machines. The
-upgrade takes the real fixes for both halves; every app-level change of this round is
-retained on top of it, and `loading.tsx` stays removed this release to keep the validated
-delta minimal. Full record: the addendum under D-069 in `docs/DECISIONS.md`.
+**Framework: Next.js 16.2.12 → 16.3.0, and `loading.tsx` restored.** The first corrective
+commit went red on both CI triggers at a plain sidebar navigation — CI runners only, never
+locally in five full-suite runs. The uploaded snapshot shows a navigation **half-committed
+forever**: the sidebar already marks the target active while the page still renders the
+previous route — the on-demand route-data fetch was aborted and never retried. The round's
+own `prefetch={false}` exposed it (for 36 commits the sidebar's data was always prefetched
+before any click). The durable guard for primary navigation is a **loading boundary** —
+with it the navigation commits instantly and data streams in afterwards — and restoring it
+is safe only because 16.3 fixes the refresh-discard defect that the boundary triggered on
+16.2 (#86151): re-measured after restoration, post-action refreshes applied 6/6 with the
+boundary in place. 16.3 also ships #95391 (navigation reverted while a server action
+settles). Final state, each piece justified by a measured failure: **16.3.0 +
+`loading.tsx` + `prefetch={false}` + verified refresh + refresh-independent visible
+outcomes + lightweight job polling.** Full record: the two addenda under D-069 in
+`docs/DECISIONS.md`.
 
 ## 5) Tests
 

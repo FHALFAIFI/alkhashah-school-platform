@@ -1391,3 +1391,22 @@ removed this release to keep the validated delta minimal (restoring it may be ev
 after deployment). One new 16.3 lint rule was satisfied by replacing a
 `window.location.href` internal navigation with `router.push` in the evidence manage UI.
 The full validation battery and the complete ARM64 gate run against the upgraded framework.
+
+**Second addendum — `loading.tsx` restored; the CI-only navigation hang, root-caused with a
+snapshot (2026-08-09, same round).** The 16.3.0 commit still went red on both CI triggers,
+same single step: a sidebar `Link` navigation to `/building`. The uploaded Playwright
+snapshot is decisive: at timeout the sidebar marks «مخطط المبنى» as the **active** entry
+(the router's client state has moved) while `<main>` still renders the dashboard — a
+navigation **half-committed forever**, its route-data fetch aborted (`⨯ The destination
+stream closed early` in the dev-server log) and never retried. The trigger was this round's
+own `prefetch={false}`: for 36 commits the sidebar's route data was always prefetched
+before any click, so the vulnerable on-demand fetch never happened; only slow CI runners
+sit in the window long enough to hit it. Two conclusions follow. First, the correct guard
+for primary navigation is a **loading boundary**, not prefetch: with `loading.tsx` present
+the navigation commits instantly (URL, spinner) and data streams in afterwards — no
+half-committed state exists. Second, restoring `loading.tsx` is safe **only because of the
+16.3 upgrade**: the boundary was the trigger of the refresh-discard defect on 16.2
+(#86151), which is fixed in 16.3 — re-measured after restoration: post-action refreshes
+applied **6/6** with the boundary in place. Final state of the round, each piece justified
+by a measured failure: Next 16.3.0 + `loading.tsx` restored + `prefetch={false}` everywhere
++ verified refresh + refresh-independent visible outcomes + lightweight job polling.
