@@ -1337,6 +1337,8 @@ environment quirk; dev timing and HTTP/2 multiplexing masked it.
 
 1. **`(app)/loading.tsx` is removed** (the issue-confirmed workaround). The upstream fix
    arrives with a future framework upgrade — deliberately *not* taken on this RC branch.
+   *(Superseded the same day — see the addendum below: the upgrade **was** taken, forced by
+   evidence, and the removal is retained regardless.)*
 2. **`prefetch={false}` on every application `<Link>`** (84 sites + `LinkButton`
    centrally). Next 16 eagerly refetches every in-viewport link on each refresh and after
    each server action (vercel/next.js#93210) — ~20 full SSR renders per action against a
@@ -1364,3 +1366,28 @@ in `tests/e2e/zzzzz-v260-archive.spec.ts`, and the D-068 block in
 `tests/e2e/zzzzz-v260-filters.spec.ts`. The definitive transport evidence is the full
 Playwright suite executed against the production build over plain HTTP/1.1
 (`E2E_EXTERNAL=1` against `next start`) — previously impossible (v2.3 note), now required.
+
+**Addendum — Next.js 16.2.12 → 16.3.0 (2026-08-09, same corrective round).** The first
+corrective commit (`3c4a156`) went red on **both** CI triggers at the same step: a sidebar
+navigation to `/building` in the digital-twin scenario never completed within the 600 s test
+timeout — on CI runners only; five full local suite runs (dev mode and production mode over
+HTTP/1.1, including a cold-cache run) stayed green. The step is a plain `Link` click issued
+immediately after a login server action. That is precisely the remaining sibling of D-069's
+upstream defect: **a navigation dispatched while a server action is still settling is
+discarded and reverted by the router's action queue** — fixed upstream in Next 16.3.0
+("Fix navigation getting reverted when a Server Action is in flight", vercel/next.js#95391),
+never backported to 16.2.x. Removing `loading.tsx` (which this round did for the refresh
+half of the bug) also *widens* that window on slow machines: without a loading boundary the
+navigation commits only when the server response completes. A slow CI runner sits in that
+window for seconds; this workstation never does — which is why the race was only observable
+in CI, and would equally threaten the school's slowest client devices in production.
+
+The upgrade to **16.3.0** (stable, released 2026-08-03; `eslint-config-next` moved with it)
+takes the actual fixes for both halves (#95391 and the #86151 loading.js discard) instead of
+depending on timing. Every app-level change of this round is retained on top of it — the
+lightweight job polling, the client-confirmed row status, the prefetch trim and the verified
+refresh are correct designs regardless of the framework's bugs, and `loading.tsx` stays
+removed this release to keep the validated delta minimal (restoring it may be evaluated
+after deployment). One new 16.3 lint rule was satisfied by replacing a
+`window.location.href` internal navigation with `router.push` in the evidence manage UI.
+The full validation battery and the complete ARM64 gate run against the upgraded framework.

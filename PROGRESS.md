@@ -48,6 +48,19 @@ replacement multi-platform image (now amd64+arm64 in one manifest list, smoke ru
 pushed digest itself), nine regenerated DOCX samples, and the complete repeated ARM64 gate
 follow this checkpoint.
 
+**Follow-up in the same round — Next.js 16.3.0.** Commit `3c4a156` validated fully green
+locally (external ×3 147 passed each, vitest 1203/1203, dev suite 147/1-skip) but went red
+on **both** CI triggers at one step: a sidebar navigation right after the login action,
+CI runners only. That is the second half of the D-069 upstream defect — a navigation
+dispatched while a server action is settling is discarded by the router's action queue —
+fixed upstream only in Next 16.3.0 (vercel/next.js#95391); removing `loading.tsx` widens
+the vulnerable window on slow machines, which is why only CI (and potentially the school's
+slowest clients) could hit it. Upgraded next + eslint-config-next to 16.3.0 (stable,
+2026-08-03), kept every app-level change and the `loading.tsx` removal, replaced one
+`window.location.href` internal navigation with `router.push` for the new 16.3 lint rule
+(evidence manage UI). See the D-069 addendum in `docs/DECISIONS.md`. Full validation
+repeats on 16.3.0 before the replacement candidate is cut.
+
 ## Superseded checkpoint — **v2.6.0 — RC READY, AWAITING DEPLOYMENT AUTHORIZATION (2026-08-09), NOT DEPLOYED**
 
 Final SHA: the head of `feat/v2.6-reporting-platform` (the commit carrying this checkpoint).

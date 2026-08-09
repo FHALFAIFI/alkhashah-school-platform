@@ -281,6 +281,15 @@ category; unknown report key; report/category mismatch — the safe existing beh
 Pinned by a dedicated e2e block proving, for each rendering case, the register title, a
 seeded row, the exact count, and the absence of any phantom «التصنيف» chip.
 
+**Framework: Next.js 16.2.12 → 16.3.0.** The first corrective commit went red on both CI
+triggers at a plain sidebar navigation issued right after a login action — CI runners only,
+never locally. That is the second half of the D-069 upstream defect: a navigation
+dispatched while a server action is settling is discarded by the router's action queue,
+fixed upstream only in 16.3.0 (vercel/next.js#95391) and unhittable on fast machines. The
+upgrade takes the real fixes for both halves; every app-level change of this round is
+retained on top of it, and `loading.tsx` stays removed this release to keep the validated
+delta minimal. Full record: the addendum under D-069 in `docs/DECISIONS.md`.
+
 ## 5) Tests
 
 - Baseline at branch: **1042/1042** across 103 files (verified green before work).
