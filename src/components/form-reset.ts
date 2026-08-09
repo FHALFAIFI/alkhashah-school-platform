@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useTransition } from "react";
+import { useCallback, useEffect, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 /**
@@ -36,10 +36,76 @@ export function useResetOnSuccess<T extends { success?: string } | null>(state: 
 }
 
 /**
- * تحديث الصفحة الحالية بعد نجاح إجراء الخادم (D-049 ثم D-053).
+ * تحديث مُتحقَّق منه (D-069).
+ *
+ * ثبت بالقياس على بناء الإنتاج (`next start`) أن التحديث الذي يلي إجراء الخادم كان يضيع
+ * بانتظام: يصل رد الخادم كاملاً ولا يطبّقه الموجّه — ينجح الإجراء في القاعدة ولا تتغير
+ * الشاشة (عرَض «الواجهة لا تتحدث بعد الحفظ» الملاحق للمنصة منذ v2.2.1). السبب الجذري عيب
+ * في Next ‏16.2 يُسقط تحديث ما بعد الإجراء حين تحمل الشجرة حدود `loading.tsx`
+ * (vercel/next.js#86151؛ عولج في 16.3 بـ#95391) — وقد أُزيل `(app)/loading.tsx` لذلك،
+ * فصار التحديث يصل ويُطبَّق في كل قياس معاد.
+ *
+ * يبقى هذا التحقق صمام أمان محدوداً لا اعتماداً: تخطيط التطبيق يصيّر ختماً
+ * (`data-render-stamp`) يتغير مع كل تصيير من الخادم؛ بعد كل `router.refresh()` يُفحص
+ * الختم، فإن لم يتغير خلال المهلة أُعيدت المحاولة — حتى ثلاث محاولات ثم يُتوقف (لا تراكم
+ * طلبات بلا حد). الحالة المرئية الحرِجة لا تعتمد عليه أصلاً (تُعرض من نتيجة الإجراء
+ * مباشرة)؛ هو يصون مصالحة بقية الصفحة: العدادات والبوابات والقوائم.
+ */
+const REFRESH_VERIFY_DELAY_MS = 2000;
+const REFRESH_MAX_ATTEMPTS = 3;
+
+function readRenderStamp(): string | null {
+  return document.querySelector("[data-render-stamp]")?.getAttribute("data-render-stamp") ?? null;
+}
+
+/** يبدأ تحديثاً مُتحقَّقاً منه ويعيد دالة إلغاء (تنظيف عند مغادرة الصفحة) */
+function startVerifiedRefresh(router: { refresh: () => void }): () => void {
+  const before = readRenderStamp();
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let attempts = 0;
+  const attempt = () => {
+    if (cancelled) return;
+    attempts += 1;
+    router.refresh();
+    // صفحة بلا ختم (خارج تخطيط التطبيق): لا وسيلة تحقق — نداء واحد كما كان
+    if (before === null) return;
+    timer = setTimeout(() => {
+      if (cancelled) return;
+      const now = readRenderStamp();
+      if (now !== null && now !== before) return; // وصل التحديث وطُبّق
+      if (attempts < REFRESH_MAX_ATTEMPTS) attempt();
+    }, REFRESH_VERIFY_DELAY_MS);
+  };
+  attempt();
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+  };
+}
+
+/** كخطاطيف الاستعمال أدناه — للنداء اليدوي من مراقبي المهام (مؤشر التوليد §I) */
+export function useVerifiedRefresh(): () => void {
+  const router = useRouter();
+  const cancelRef = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      cancelRef.current?.();
+    },
+    [],
+  );
+  return useCallback(() => {
+    cancelRef.current?.();
+    cancelRef.current = startVerifiedRefresh(router);
+  }, [router]);
+}
+
+/**
+ * تحديث الصفحة الحالية بعد نجاح إجراء الخادم (D-049 ثم D-053، تحقق D-069).
  *
  * الإجراءات لم تعد تُبطل أي مسار (انظر `lib/revalidate.ts`)، فالتحديث مسؤولية العميل:
- * طلب واحد يبدأ **بعد** استقرار نتيجة الإجراء، فلا يزاحم تدفّقها.
+ * طلب واحد يبدأ **بعد** استقرار نتيجة الإجراء، فلا يزاحم تدفّقها — ويُتحقق من وصوله
+ * ويُعاد محدوداً إن ضاع (D-069).
  *
  * «النجاح» يُقرأ من `success` النصية أو من علم `ok` — بعض الإجراءات القديمة تعيد الثانية
  * (ملاحظات التشغيل مثلاً). ما يُتعقَّب هو **هوية كائن الحالة** لا نص الرسالة، فنجاحان
@@ -50,11 +116,19 @@ type RefreshableState = { success?: string; ok?: boolean } | null | undefined;
 export function useRefreshOnSuccess(state: RefreshableState) {
   const router = useRouter();
   const seen = useRef<unknown>(null);
+  const cancelRef = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      cancelRef.current?.();
+    },
+    [],
+  );
   useEffect(() => {
     const succeeded = Boolean(state?.success) || state?.ok === true;
     if (succeeded && state !== seen.current) {
       seen.current = state;
-      router.refresh();
+      cancelRef.current?.();
+      cancelRef.current = startVerifiedRefresh(router);
     }
   }, [state, router]);
 }
@@ -71,7 +145,14 @@ export function useRefreshOnSuccess(state: RefreshableState) {
 export function useRefreshAfterTransition(pending: boolean, opts?: { skip?: boolean }) {
   const router = useRouter();
   const wasPending = useRef(false);
+  const cancelRef = useRef<(() => void) | null>(null);
   const skip = opts?.skip ?? false;
+  useEffect(
+    () => () => {
+      cancelRef.current?.();
+    },
+    [],
+  );
   useEffect(() => {
     if (pending) {
       wasPending.current = true;
@@ -81,7 +162,10 @@ export function useRefreshAfterTransition(pending: boolean, opts?: { skip?: bool
       wasPending.current = false;
       // `skip`: انتهى الانتقال إلى رسالة نهائية يملكها العميل (انتهاء جلسة مثلاً). التحديث
       // حينها يُعيد جلب المسار فيمسح الرسالة — أو يُحوّل إلى الدخول — قبل أن يقرأها المستخدم.
-      if (!skip) router.refresh();
+      if (!skip) {
+        cancelRef.current?.();
+        cancelRef.current = startVerifiedRefresh(router);
+      }
     }
   }, [pending, skip, router]);
 }

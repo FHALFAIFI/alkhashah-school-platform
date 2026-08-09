@@ -1288,3 +1288,79 @@ preserving a value that was never chosen.
 Pinned in `tests/unit/report-filter-list-params.test.ts`: a reports-centre URL yields no
 category filter, `recordCategory` yields the real one, and writing a category filter does not
 touch the navigation parameter.
+
+**Addendum (2026-08-09, corrective round — acceptance condition).** An explicitly supplied
+but **empty** `category` (`/reports?category=&report=maintenance-register`, in either
+parameter order) previously fell through to the bare reports centre: the empty string made
+the category unresolvable and the report selector only searched inside a resolved category.
+The selector now resolves an explicit `report` key **independently** against the catalog,
+derives its declared category when the supplied one is empty or absent, and redirects to the
+canonical URL — so no downstream link (sort, pagination, export) ever carries an empty
+`category=`, and no phantom «التصنيف» chip can appear (the filter parameter is
+`recordCategory`, per the main entry above). Five cases are distinguished explicitly: no
+report selected; a valid report with its normal category; a valid report with empty
+category (derive + canonical redirect); an unknown report key (no derivation — the centre
+renders untouched); and a report/category mismatch (the requested category renders alone,
+without the report — the user's intent is not guessed). Permission checks are unchanged:
+both the report's and the derived category's permissions gate the derivation. Pinned by the
+«D-068 — بلاغات الصيانة بفئة فارغة» block in `tests/e2e/zzzzz-v260-filters.spec.ts`: both
+orderings, direct load, the real reports-centre path, explicit normal category, unknown
+report, and mismatch — each proving the register title, a seeded row, the exact count, and
+the absence of any phantom chip.
+
+## D-069 — A `loading.tsx` boundary silently swallowed every post-action refresh in production (2026-08-09)
+
+The ARM64 gate found three browser scenarios failing over direct HTTP/1.1 while passing over
+HTTP/2 (Tailscale): the finalize badge never appeared without a manual reload, «مستبعد»
+never became visible after a row exclusion, and an in-app navigation to a batch page
+stalled. All three reproduced locally against `next start` on an isolated port.
+
+**Forensics.** The server action POST always succeeded (the response value arrived and the
+row was persisted). The client-driven `router.refresh()` (D-053) then fired; the server
+answered 200 with a complete, well-formed flight body (proven by replaying the exact request
+headers — 22–23 KB, intact under a deliberately slow reader, so no server-side truncation).
+The client router **received and discarded** it: the DOM never updated, Chrome logged
+`net::ERR_ABORTED` for the cancelled stream tail, and no retry followed. Application was
+ambient luck (2/6 across repetitions). In `next dev` the same flow works every time.
+
+**Root cause.** Upstream Next.js 16.2 defect — production-only: with a `loading.tsx`
+boundary in the tree, a soft navigation/refresh whose response arrives while a server action
+is settling gets stuck or discarded (vercel/next.js#86151; the action-queue fix #95391
+landed in 16.3 only, not backported to 16.2.x). This platform had exactly one
+`loading.tsx`, at `(app)/` — covering **every** application page. Removing it made the
+refresh apply **5/5**, then the full probe battery 3/3 green. It also rewrites history:
+the v2.2.1 «UI does not refresh after save» complaint and the v2.3 "never e2e against host
+`next start` — aborts Server-Action streams (env quirk)" note were this same defect, not an
+environment quirk; dev timing and HTTP/2 multiplexing masked it.
+
+**The decision — four parts, all shipped together:**
+
+1. **`(app)/loading.tsx` is removed** (the issue-confirmed workaround). The upstream fix
+   arrives with a future framework upgrade — deliberately *not* taken on this RC branch.
+2. **`prefetch={false}` on every application `<Link>`** (84 sites + `LinkButton`
+   centrally). Next 16 eagerly refetches every in-viewport link on each refresh and after
+   each server action (vercel/next.js#93210) — ~20 full SSR renders per action against a
+   Mac mini serving the whole school, saturating HTTP/1.1's six connections. Every app page
+   is `force-dynamic`, so prefetch bought nothing; first-click latency on the school LAN is
+   milliseconds.
+3. **Refreshes are now verified.** The app layout renders a per-render
+   `data-render-stamp`; the `useRefresh*` hooks re-attempt `router.refresh()` up to three
+   times (2 s apart) if the stamp does not change, then stop. A bounded safety net over an
+   upstream behaviour we do not control — not the primary mechanism.
+4. **User-visible action outcomes no longer depend on any refresh.** Import row decisions
+   return the resulting status in the action response; a client-side store publishes it to
+   both renderings of the row (mobile card and desktop table) the moment the action
+   settles (~60 ms observed). The §I generation watcher no longer refreshes the whole page
+   every 4 s: it polls a lightweight authenticated JSON endpoint
+   (`/api/reports/instances/[id]/job`) with no overlapping requests, explicit timeout and
+   error states, cleanup on unmount, and exactly **one** verified refresh when the job
+   reaches a terminal state — rendering the outcome (download links or the Arabic failure
+   reason with a retry button) client-side from the poll payload itself.
+
+Pinned by: the «الاستبعاد يظهر فوراً بلا إعادة تحميل» scenario in
+`tests/e2e/import-decisions.spec.ts` (visible badge without reload + server-counter
+reconciliation + persistence across revisit), the no-reload guard on the finalize scenario
+in `tests/e2e/zzzzz-v260-archive.spec.ts`, and the D-068 block in
+`tests/e2e/zzzzz-v260-filters.spec.ts`. The definitive transport evidence is the full
+Playwright suite executed against the production build over plain HTTP/1.1
+(`E2E_EXTERNAL=1` against `next start`) — previously impossible (v2.3 note), now required.

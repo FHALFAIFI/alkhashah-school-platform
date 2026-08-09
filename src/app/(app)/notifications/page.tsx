@@ -59,7 +59,7 @@ export default async function NotificationsPage() {
               </div>
               {n.body && <p className="mt-1 text-sm text-gray-600">{n.body}</p>}
               {n.link && (
-                <Link href={n.link} className="mt-1 inline-block text-xs text-brand-700 underline">
+                <Link prefetch={false} href={n.link} className="mt-1 inline-block text-xs text-brand-700 underline">
                   فتح
                 </Link>
               )}

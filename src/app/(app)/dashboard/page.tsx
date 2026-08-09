@@ -24,7 +24,7 @@ const SECTION_LIMIT = 8;
 
 function WorkItemRow({ item }: { item: WorkItem }) {
   return (
-    <Link
+    <Link prefetch={false}
       href={item.href}
       className="flex flex-col gap-1 rounded-lg border border-transparent px-2 py-2 transition hover:border-brand-200 hover:bg-sand-50"
     >
@@ -75,7 +75,7 @@ function WorkSection({
         </div>
       )}
       {items.length > SECTION_LIMIT && moreHref && (
-        <Link href={moreHref} className="mt-2 block text-center text-xs font-medium text-brand-700 hover:underline">
+        <Link prefetch={false} href={moreHref} className="mt-2 block text-center text-xs font-medium text-brand-700 hover:underline">
           عرض {items.length - SECTION_LIMIT} عنصراً إضافياً
         </Link>
       )}
@@ -103,7 +103,7 @@ function QueueProgramRow({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 py-2">
       <div className="min-w-0 flex-1 basis-64">
-        <Link href={`/plan/${p.id}`} className="break-words text-sm font-medium text-brand-700 hover:underline">
+        <Link prefetch={false} href={`/plan/${p.id}`} className="break-words text-sm font-medium text-brand-700 hover:underline">
           {p.seq}. {orFallback(p.name)}
         </Link>
         <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-gray-500">
@@ -117,7 +117,7 @@ function QueueProgramRow({
         {p.delayed && <Badge value="متجاوز نهايته المخططة" />}
         <ProgressBar value={p.progress} />
         {canEdit && (
-          <Link
+          <Link prefetch={false}
             href={`/plan/${p.id}?تعديل=1#edit`}
             className="rounded-lg border border-sand-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-sand-50"
           >
@@ -127,7 +127,7 @@ function QueueProgramRow({
         {canApproveInline ? (
           <ApproveProgramButton programId={p.id} />
         ) : (
-          <Link
+          <Link prefetch={false}
             href={`/plan/${p.id}`}
             className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800 hover:bg-brand-50"
           >
@@ -174,7 +174,7 @@ function ApprovalQueueSection({
         </div>
         <div className="mb-2 flex flex-wrap gap-1.5">
           {tabs.map((t) => (
-            <Link
+            <Link prefetch={false}
               key={t.key}
               href={t.key === "جديد" ? "/dashboard" : `/dashboard?اعتماد=${t.key}`}
               className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
@@ -219,7 +219,7 @@ function ApprovalQueueSection({
           ) : (
             <div className="divide-y divide-sand-100">
               {queue.changeRequests.map((cr) => (
-                <Link
+                <Link prefetch={false}
                   key={cr.id}
                   href={`/plan/${cr.programId}#change-requests`}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-2 transition hover:border-brand-200 hover:bg-sand-50"
@@ -290,7 +290,7 @@ export default async function DashboardPage({
         title="مركز عمل مدير المدرسة"
         subtitle={`مرحباً ${user.displayName} — ${toHijriLong(today)} · ${toGregorianLong(today)}`}
         actions={
-          <Link
+          <Link prefetch={false}
             href="/pilot"
             className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0"
           >
@@ -319,7 +319,7 @@ export default async function DashboardPage({
                     ? "text-emerald-700"
                     : "text-brand-900";
             return (
-              <Link
+              <Link prefetch={false}
                 key={c.key}
                 href={c.href}
                 className="block rounded-xl border border-sand-200 bg-white p-3 transition hover:border-brand-300"
@@ -340,7 +340,7 @@ export default async function DashboardPage({
           <ul className="divide-y divide-sand-100">
             {metrics.upcoming.map((u, i) => (
               <li key={i} className="py-1.5">
-                <Link href={u.href} className="flex flex-wrap items-center justify-between gap-2 hover:bg-sand-50">
+                <Link prefetch={false} href={u.href} className="flex flex-wrap items-center justify-between gap-2 hover:bg-sand-50">
                   <span className="text-sm">{u.title}</span>
                   <span className="text-xs text-gray-500 tabular-nums">{dualNumericCell(u.dateIso)}</span>
                 </Link>
@@ -360,7 +360,7 @@ export default async function DashboardPage({
           <ul className="divide-y divide-amber-100">
             {strategic.map((s) => (
               <li key={s.key} className="py-2">
-                <Link href={s.href} className="block hover:bg-amber-100/50">
+                <Link prefetch={false} href={s.href} className="block hover:bg-amber-100/50">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium text-amber-950">{s.title}</span>
                     <Badge value={s.status} />
@@ -440,7 +440,7 @@ export default async function DashboardPage({
           <h2 className="mb-3 font-bold text-brand-900">نظرة سريعة</h2>
           <div className="grid grid-cols-2 gap-3">
             {quickLinks.map((s) => (
-              <Link key={s.label} href={s.href} className="rounded-lg border border-sand-200 p-3 transition hover:border-brand-300 hover:bg-sand-50">
+              <Link prefetch={false} key={s.label} href={s.href} className="rounded-lg border border-sand-200 p-3 transition hover:border-brand-300 hover:bg-sand-50">
                 <div className="text-xl font-bold text-brand-900 tabular-nums">{s.value}</div>
                 <div className="mt-0.5 text-xs text-gray-600">{s.label}</div>
               </Link>

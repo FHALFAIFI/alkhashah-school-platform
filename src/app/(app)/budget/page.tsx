@@ -136,7 +136,7 @@ export default async function BudgetPage({
           <Card>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-bold text-brand-900">{receiptWord}/شاهد — {receipt.title}</h2>
-              <Link href="/budget" className="text-xs text-gray-500 hover:underline">إغلاق</Link>
+              <Link prefetch={false} href="/budget" className="text-xs text-gray-500 hover:underline">إغلاق</Link>
             </div>
             <p className="mb-3 text-xs text-gray-400">
               {isExpenseReceipt ? "إرفاق الفاتورة اختياري" : "الإيصال اختياري"} ولا يُطلب رفعه مكرراً إن كان الشاهد نفسه موجوداً في السجل الموحّد.
@@ -248,7 +248,7 @@ export default async function BudgetPage({
                 key={l.id}
                 className="rounded-xl border border-sand-200 bg-white p-4 transition hover:border-brand-300 hover:shadow-sm"
               >
-              <Link href={`/budget/items/${l.id}`} className="block">
+              <Link prefetch={false} href={`/budget/items/${l.id}`} className="block">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="font-bold text-brand-900">{orFallback(l.name, "بند بدون اسم")}</span>
                   {l.overspent ? <Badge value="تجاوز" /> : l.nearExhaustion ? <Badge value="قارب الاستنفاد" /> : null}
@@ -333,7 +333,7 @@ export default async function BudgetPage({
             {liveLines.map((l) => (
               <tr key={l.id}>
                 <td className="px-3 py-2 font-medium">
-                  <Link href={`/budget/items/${l.id}`} className="text-brand-800 hover:underline">
+                  <Link prefetch={false} href={`/budget/items/${l.id}`} className="text-brand-800 hover:underline">
                     {orFallback(l.name, "بند بدون اسم")}
                   </Link>
                 </td>
@@ -472,7 +472,7 @@ function ReceiptCell({ hasReceipt, href, label }: { hasReceipt: boolean; href: s
   return (
     <span className="inline-flex items-center gap-1.5">
       {hasReceipt ? <Badge value="مرفق" /> : <span className="text-gray-400">—</span>}
-      <Link href={href} className="text-brand-700 hover:underline">{label}</Link>
+      <Link prefetch={false} href={href} className="text-brand-700 hover:underline">{label}</Link>
     </span>
   );
 }

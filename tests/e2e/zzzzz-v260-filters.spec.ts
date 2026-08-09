@@ -401,3 +401,92 @@ test.describe("D-066 — المرشّحات المتعدّدة تُحدّث ال
     expectNoReload(page);
   });
 });
+
+/**
+ * D-068 — شرط قبول صريح: «بلاغات الصيانة» تُفتح صحيحةً وفئتها فارغة في العنوان.
+ *
+ * `report` يُحسم من السجل استقلالاً، وتُشتق فئته حين يصل `category` فارغاً أو غائباً،
+ * ثم يُعاد التوجيه إلى العنوان القانوني. الحالات الخمس مغطاة: بلا تقرير، وتقرير صالح
+ * بفئته، وتقرير صالح بفئة فارغة (بترتيبَي المعاملَين)، ومعرّف تقرير غير معروف، وتقرير
+ * صالح بفئة مغايرة لفئته — مع إثبات العنوان والصف المبذور والعدد وغياب شريحة «التصنيف»
+ * الوهمية في كل حالة عرض.
+ */
+test.describe("D-068 — «بلاغات الصيانة» بفئة فارغة في العنوان", () => {
+  const ISSUE_TITLE = `بلاغ د٠٦٨ ${RUN}`;
+  const ISSUE_CODE = `D068-${RUN}`;
+  let issueCount = 0;
+
+  test.beforeAll(async () => {
+    await withDb(async (pool) => {
+      await pool.query(
+        `insert into maintenance_issues (code, title, category, priority, status, requested_action)
+         values ($1, $2, 'كهرباء', 'عالية', 'مسودة', 'إصلاح فوري')`,
+        [ISSUE_CODE, ISSUE_TITLE],
+      );
+      const res = await pool.query<{ n: string }>("select count(*)::int as n from maintenance_issues");
+      issueCount = Number(res.rows[0].n);
+    });
+  });
+
+  /** الإثبات الكامل لعرض سجل الصيانة الصحيح: العنوان والصف والعدد ولا شريحة وهمية */
+  async function expectMaintenanceRegister(page: Page) {
+    // عنوان قسم التقرير المعروض h2 تحديداً — بطاقة التقرير في شبكة الفئة تحمل h3 بالاسم نفسه
+    await expect(page.getByRole("heading", { name: "بلاغات الصيانة", exact: true, level: 2 })).toBeVisible(WAIT);
+    await expect(page.getByText(ISSUE_TITLE).first()).toBeVisible(WAIT);
+    // العدد الصحيح — من قاعدة البيانات لا «أكبر من صفر»
+    await expect.poll(() => resultCount(page), WAIT).toBe(issueCount);
+    // لا شريحة «التصنيف» مختلَقة من معامل التنقّل — كانت العلة الأصلية في D-068
+    await expect(page.getByRole("button", { name: /التصنيف:/ })).toHaveCount(0);
+    await expect(page.getByText("المرشّحات المطبَّقة")).toHaveCount(0);
+    // العنوان استقر على الفئة القانونية المشتقة من السجل
+    expect(new URL(page.url()).searchParams.get("category")).toBe("building");
+  }
+
+  test("١. الترتيب الأول: ?category=&report=maintenance-register — تحميل مباشر", async ({ page }) => {
+    await login(page);
+    await open(page, "/reports?category=&report=maintenance-register");
+    await expectMaintenanceRegister(page);
+  });
+
+  test("٢. الترتيب الثاني: ?report=maintenance-register&category= — تحميل مباشر", async ({ page }) => {
+    await login(page);
+    await open(page, "/reports?report=maintenance-register&category=");
+    await expectMaintenanceRegister(page);
+  });
+
+  test("٣. المسار الحقيقي من مركز التقارير — تنقّل داخل التطبيق بلا إعادة تحميل", async ({ page }) => {
+    await login(page);
+    await open(page, "/reports");
+    // بطاقة الفئة ثم بطاقة التقرير — كما يفعل المدير تماماً، وبالروابط القانونية نفسها
+    await page.locator('a[href="/reports?category=building"]').first().click();
+    const reportLink = page.locator('a[href="/reports?category=building&report=maintenance-register"]').first();
+    await expect(reportLink).toBeVisible(WAIT);
+    await reportLink.click();
+    await expectMaintenanceRegister(page);
+    expectNoReload(page);
+  });
+
+  test("٤. الفئة الاعتيادية الصريحة: ?category=building&report=maintenance-register", async ({ page }) => {
+    await login(page);
+    await open(page, "/reports?category=building&report=maintenance-register");
+    await expectMaintenanceRegister(page);
+  });
+
+  test("٥. معرّف تقرير غير معروف مع فئة فارغة — المركز يُعرض سليماً بلا تقرير", async ({ page }) => {
+    await login(page);
+    await open(page, "/reports?category=&report=not-a-real-report");
+    await expect(page.getByRole("heading", { name: "مركز التقارير" }).first()).toBeVisible(WAIT);
+    await expect(page.getByRole("heading", { name: "بلاغات الصيانة", exact: true })).toHaveCount(0);
+    // لا اشتقاق لفئة من معرّف مجهول — لا فئة في العنوان بعد العرض
+    expect(new URL(page.url()).searchParams.get("report")).toBe("not-a-real-report");
+  });
+
+  test("٦. فئة مغايرة لفئة التقرير — تُعرض الفئة المطلوبة وحدها بلا تقرير (السلوك الآمن)", async ({ page }) => {
+    await login(page);
+    await open(page, "/reports?category=performance&report=maintenance-register");
+    // فئة الأداء معروضة؛ سجل الصيانة لا يُعرض ولا تُخمَّن نية المستخدم
+    await expect(page.getByRole("heading", { name: "الأداء الوظيفي", exact: true }).first()).toBeVisible(WAIT);
+    await expect(page.getByText(ISSUE_TITLE)).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.get("category")).toBe("performance");
+  });
+});

@@ -158,7 +158,7 @@ export default async function EmployeeKpiPage({
                   {/* v2.4.1 §1.4: الفئة من شرائح التوزيع المعتمدة — لا تقدير لفظي مخترع */}
                   <td className="px-3 py-2 text-xs">{resultBandLabel(resultPercent)}</td>
                   <td className="px-3 py-2">
-                    <Link href={`/performance/cycles/${cycle.id}`} className="text-xs text-brand-700 underline">
+                    <Link prefetch={false} href={`/performance/cycles/${cycle.id}`} className="text-xs text-brand-700 underline">
                       فتح الدورة ←
                     </Link>
                   </td>

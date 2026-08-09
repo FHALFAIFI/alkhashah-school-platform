@@ -88,7 +88,7 @@ export default async function ReportArchivePage({
           <Field label="إلى تاريخ" name="dateTo" type="date" defaultValue={criteria.dateTo ?? ""} />
           <div className="flex items-center gap-3 md:col-span-5">
             <SubmitButton>بحث</SubmitButton>
-            <Link className="text-xs text-brand-700 underline" href="/reports/archive">
+            <Link prefetch={false} className="text-xs text-brand-700 underline" href="/reports/archive">
               مسح البحث
             </Link>
             <span className="text-xs text-gray-500">عدد النتائج: {total}</span>
@@ -119,7 +119,7 @@ export default async function ReportArchivePage({
                 </td>
                 <td className="px-3 py-2 text-xs">{dualNumericCell(r.createdAt.toISOString().slice(0, 10))}</td>
                 <td className="px-3 py-2">
-                  <Link className="text-brand-700 underline" href={`/reports/archive/${r.id}`}>
+                  <Link prefetch={false} className="text-brand-700 underline" href={`/reports/archive/${r.id}`}>
                     فتح
                   </Link>
                 </td>
@@ -130,7 +130,7 @@ export default async function ReportArchivePage({
         {pages > 1 ? (
           <div className="mt-3 flex items-center gap-2 text-xs">
             {page > 1 ? (
-              <Link className="text-brand-700 underline" href={pageHref(page - 1)}>
+              <Link prefetch={false} className="text-brand-700 underline" href={pageHref(page - 1)}>
                 السابق
               </Link>
             ) : null}
@@ -138,7 +138,7 @@ export default async function ReportArchivePage({
               صفحة {page} من {pages}
             </span>
             {page < pages ? (
-              <Link className="text-brand-700 underline" href={pageHref(page + 1)}>
+              <Link prefetch={false} className="text-brand-700 underline" href={pageHref(page + 1)}>
                 التالي
               </Link>
             ) : null}

@@ -127,12 +127,12 @@ export default async function ReportInstancePage({
           </div>
         }
       />
-      <JobWatcher active={jobActive} />
+      <JobWatcher instanceId={row.id} active={jobActive} />
 
       {row.versionOfId ? (
         <p className="text-xs text-gray-500">
           هذا التقرير نسخة جديدة من{" "}
-          <Link className="text-brand-700 underline" href={`/reports/archive/${row.versionOfId}`}>
+          <Link prefetch={false} className="text-brand-700 underline" href={`/reports/archive/${row.versionOfId}`}>
             تقرير أصلي سابق
           </Link>
           .
@@ -146,7 +146,7 @@ export default async function ReportInstancePage({
         {isDraft && options.reportKey ? (
           <p className="mt-3 border-t border-sand-100 pt-3 text-xs text-gray-500">
             لتعديل الأعمدة وترتيبها والتجميع ونمط العرض:{" "}
-            <Link className="text-brand-700 underline" href={`/reports/builder?report=${options.reportKey}&instance=${row.id}&${query}`}>
+            <Link prefetch={false} className="text-brand-700 underline" href={`/reports/builder?report=${options.reportKey}&instance=${row.id}&${query}`}>
               افتح هذا التقرير في منشئ التقارير
             </Link>
             .
@@ -265,7 +265,7 @@ export default async function ReportInstancePage({
                 حالة التوليد: {job.status}
                 {job.attempt > 1 ? ` (المحاولة ${job.attempt})` : ""}
                 {job.error ? ` — ${job.error}` : ""}
-                {jobActive ? " — تُحدَّث الصفحة تلقائياً…" : ""}
+                {jobActive ? " — تُتابَع الحالة تلقائياً وتظهر النتيجة فور اكتمالها…" : ""}
                 {job.status === JOB_FAILED ? (
                   <div className="mt-2">
                     <RetryGenerationButton instanceId={row.id} />
@@ -347,7 +347,7 @@ export default async function ReportInstancePage({
                           return (
                             <td key={c.key} className="px-3 py-2 text-sm">
                               {href ? (
-                                <Link className="text-brand-700 underline" href={href}>
+                                <Link prefetch={false} className="text-brand-700 underline" href={href}>
                                   {text}
                                 </Link>
                               ) : (

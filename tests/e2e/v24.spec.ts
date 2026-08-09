@@ -79,6 +79,23 @@ test("القائمة الجانبية: تمرير مستقل يبقى محفوظ
   await page.locator('aside details[data-nav-section="general"] > summary').click();
   await expect(page.locator("aside").getByRole("link", { name: "المهام والإجراءات", exact: true })).toBeHidden();
   await page.locator("aside").getByRole("link", { name: "الإشعارات", exact: true }).isHidden();
+  /*
+   * التذكّر يكتبه مستمع React عند حدث الطي؛ نقرة تسبق اكتمال الترطيب تطوي العنصر أصلياً
+   * دون أن تُكتب الحالة، فيعود القسم مفتوحاً بعد التحديث ويسقط الفحص زوراً (سباق توقيت
+   * لا عطل منتج — لوحظ على بناء الإنتاج). يُنتظر أثر الكتابة نفسه، وإن غاب تُعاد النقرة
+   * بعد أن صار الترطيب مكتملاً قطعاً — ثم يُتحقق من التذكّر بعد التحديث كما كان.
+   */
+  const persisted = () => page.evaluate(() => window.localStorage.getItem("madrasa-nav-section-general-v1"));
+  const wrote = await expect
+    .poll(persisted, { timeout: 3_000 })
+    .toBe("closed")
+    .then(() => true)
+    .catch(() => false);
+  if (!wrote) {
+    await page.locator('aside details[data-nav-section="general"] > summary').click(); // فتح
+    await page.locator('aside details[data-nav-section="general"] > summary').click(); // طي — والمستمع حاضر
+    await expect.poll(persisted, { timeout: 3_000 }).toBe("closed");
+  }
   await page.reload();
   await expect
     .poll(async () => page.locator('aside details[data-nav-section="general"]').evaluate((el) => (el as HTMLDetailsElement).open), {

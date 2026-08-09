@@ -1,9 +1,8 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useState } from "react";
 import { SubmitButton } from "@/components/ui";
-import { useRefreshOnSuccess } from "@/components/form-reset";
+import { useRefreshOnSuccess, useVerifiedRefresh } from "@/components/form-reset";
 import {
   updateInstanceAction,
   deleteDraftAction,
@@ -321,18 +320,135 @@ export function SignedCopyForm({ instanceId, hasSigned }: { instanceId: string; 
 }
 
 /**
- * مؤشر التوليد الخلفي (§I): ما دامت مهمة نشطة تُحدَّث الصفحة دورياً حتى يظهر اكتمالها
- * أو فشلها بسببه — بلا تجميد للصفحة وبلا إعادة يدوية.
+ * مؤشر التوليد الخلفي (§I — أُعيد بناؤه في D-069).
+ *
+ * كان يستطلع بتحديث كامل للصفحة كل أربع ثوانٍ، وكل تحديث يُطلق إعادة جلب الجلب المسبق
+ * لكل روابط الصفحة — عشرات طلبات RSC تتزاحم على ستّ وصلات HTTP/1.1 فتُجهَض وتخنق التحديث
+ * الذي يحمل الحالة المرئية. الآن:
+ *  • الاستطلاع الدوري يقرأ JSON خفيفاً من `/api/reports/instances/[id]/job` — لا تحديث كاملاً؛
+ *  • لا تداخل بين استطلاعين: التالي يُجدول بعد اكتمال السابق فقط؛
+ *  • عند الوصول إلى حالة نهائية: تحديث كامل **واحد**، وتُعرض النتيجة هنا من حمولة
+ *    الاستطلاع نفسها — روابط التنزيل عند الاكتمال والسبب العربي عند الفشل — فلا تتوقف
+ *    رؤية النتيجة على وصول التحديث؛
+ *  • مهلة صريحة وحالة خطأ صريحة، وتنظيف كامل عند مغادرة الصفحة.
  */
-export function JobWatcher({ active }: { active: boolean }) {
-  const router = useRouter();
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+type JobPoll = {
+  active: boolean;
+  job: { status: string; attempt: number; error: string | null } | null;
+  outputs: { format: string; size: number | null }[];
+};
+
+/** أقصى مدة متابعة — أطول من مهلة انقطاع المهمة (٥ دقائق) فلا نعلن المهلة قبل الخادم */
+const WATCH_TIMEOUT_MS = 6 * 60 * 1000;
+const POLL_INTERVAL_MS = 2500;
+const MAX_CONSECUTIVE_POLL_FAILURES = 3;
+
+const OUTPUT_LABELS: Record<string, string> = { pdf: "PDF", docx: "Word", xlsx: "Excel", zip: "حزمة ZIP" };
+
+export function JobWatcher({ instanceId, active }: { instanceId: string; active: boolean }) {
+  const verifiedRefresh = useVerifiedRefresh();
+  const [outcome, setOutcome] = useState<
+    | { kind: "done"; outputs: JobPoll["outputs"] }
+    | { kind: "failed"; error: string }
+    | { kind: "timeout" }
+    | { kind: "unreachable" }
+    | null
+  >(null);
+
   useEffect(() => {
     if (!active) return;
-    timer.current = setInterval(() => router.refresh(), 4000);
-    return () => {
-      if (timer.current) clearInterval(timer.current);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+    let failures = 0;
+    let refreshed = false;
+    const startedAt = Date.now();
+
+    const finish = (next: NonNullable<Parameters<typeof setOutcome>[0]>) => {
+      if (stopped) return;
+      stopped = true;
+      setOutcome(next);
+      // تحديث نهائي واحد (مُتحقَّق منه — D-069) يُصالح HTML الخادم؛ النتيجة معروضة أعلاه ولو تعثّر
+      if (!refreshed) {
+        refreshed = true;
+        verifiedRefresh();
+      }
     };
-  }, [active, router]);
-  return null;
+
+    const poll = async () => {
+      if (stopped) return;
+      if (Date.now() - startedAt > WATCH_TIMEOUT_MS) {
+        finish({ kind: "timeout" });
+        return;
+      }
+      try {
+        const res = await fetch(`/api/reports/instances/${instanceId}/job`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const data = (await res.json()) as JobPoll;
+        failures = 0;
+        if (!data.active) {
+          if (data.job?.status === "مكتمل") finish({ kind: "done", outputs: data.outputs });
+          else finish({ kind: "failed", error: data.job?.error ?? "انقطع التوليد قبل اكتماله — أعد المحاولة" });
+          return;
+        }
+      } catch {
+        if (controller.signal.aborted || stopped) return;
+        failures += 1;
+        if (failures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          finish({ kind: "unreachable" });
+          return;
+        }
+      }
+      // لا تداخل: الاستطلاع التالي يُجدول بعد اكتمال هذا فقط
+      timer = setTimeout(poll, POLL_INTERVAL_MS);
+    };
+
+    timer = setTimeout(poll, POLL_INTERVAL_MS);
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
+  }, [active, instanceId, verifiedRefresh]);
+
+  // الخادم هو الحقيقة حين لا مهمة نشطة في تصييره — وتصييره بعد التحديث النهائي يحل محل هذا
+  if (!active || !outcome) return null;
+  if (outcome.kind === "done") {
+    return (
+      <div role="status" className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">
+        اكتمل توليد المخرجات.
+        {outcome.outputs.length > 0 && (
+          <span className="ms-2 inline-flex flex-wrap gap-2">
+            {outcome.outputs.map((o) => (
+              <a
+                key={o.format}
+                className="underline"
+                href={`/api/reports/instances/${instanceId}/download?format=${o.format}`}
+              >
+                تنزيل {OUTPUT_LABELS[o.format] ?? o.format.toUpperCase()}
+              </a>
+            ))}
+          </span>
+        )}
+      </div>
+    );
+  }
+  if (outcome.kind === "failed") {
+    return (
+      <div role="status" className="space-y-2 rounded-lg bg-red-50 p-2 text-xs text-red-800">
+        <p>فشل التوليد — {outcome.error}</p>
+        <RetryGenerationButton instanceId={instanceId} />
+      </div>
+    );
+  }
+  return (
+    <div role="status" className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+      {outcome.kind === "timeout"
+        ? "طالت متابعة التوليد أكثر من المتوقع — أعد فتح الصفحة للاطلاع على الحالة، وإن ظل التوليد متعثراً استعمل «توليد المخرجات» من جديد."
+        : "تعذّر الاتصال لمتابعة حالة التوليد — أعد فتح الصفحة للاطلاع على الحالة."}
+    </div>
+  );
 }

@@ -144,7 +144,7 @@ export default async function CommitteesPage({
                     ? "اجتماع مستحق — اعقد الاجتماع التالي"
                     : "معتمدة — تابع الاجتماعات وتوثيقها";
             return (
-              <Link key={c.id} href={`/committees/${c.id}`}>
+              <Link prefetch={false} key={c.id} href={`/committees/${c.id}`}>
                 <Card className="h-full transition hover:border-brand-300">
                   <div className="flex items-start justify-between gap-2">
                     <div>

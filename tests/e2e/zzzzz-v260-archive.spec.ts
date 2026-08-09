@@ -136,12 +136,21 @@ test.describe("v2.6 — التقرير المحفوظ: من المسودة إل�
     await login(page);
     await page.goto(`/reports/archive/${instanceId}`);
 
+    // D-069 acceptance: the badge must appear WITHOUT any full document reload —
+    // the post-action refresh was lost on production builds (loading.tsx +
+    // vercel/next.js#86151) and the badge never appeared over plain HTTP/1.1.
+    let documentLoads = 0;
+    page.on("load", () => {
+      documentLoads += 1;
+    });
+
     // SubmitButton confirmText raises a JS confirm dialog — accept it
     page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "اعتماد نهائي وترقيم" }).click();
 
-    // useRefreshOnSuccess re-renders the page as final
+    // useRefreshOnSuccess re-renders the page as final (verified refresh — D-069)
     await expect(statusBadge(page, "نهائي").first()).toBeVisible({ timeout: 90_000 });
+    expect(documentLoads, "a full document reload occurred").toBe(0);
 
     const subtitle = await page.getByText(/رقم التقرير:/).innerText();
     const match = subtitle.match(/KHS-RPT-\d{4}-\d{4}/);

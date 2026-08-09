@@ -69,7 +69,7 @@ export default async function PerformanceAnalyticsPage({
           ] as const
         ).map(([label, count, href]) => (
           <Card key={label}>
-            <Link href={href} className="block">
+            <Link prefetch={false} href={href} className="block">
               <div className="text-xs text-gray-500">{label}</div>
               <div className="mt-1 text-2xl font-bold text-brand-900 tabular-nums">{count}</div>
             </Link>
@@ -88,7 +88,7 @@ export default async function PerformanceAnalyticsPage({
           <ul className="space-y-1.5">
             {a.insights.map((i, idx) => (
               <li key={idx}>
-                <Link href={i.href} className="text-sm text-brand-800 hover:underline">
+                <Link prefetch={false} href={i.href} className="text-sm text-brand-800 hover:underline">
                   ◂ {i.text}
                 </Link>
                 <span className="ms-2 text-xs text-gray-400">(العينة: {i.sample})</span>
@@ -177,7 +177,7 @@ export default async function PerformanceAnalyticsPage({
                 <td className="px-3 py-2 tabular-nums">{e.resultPercent === null ? "—" : `${e.resultPercent}٪`}</td>
                 <td className="px-3 py-2 text-xs">{e.weakCriteria.join("، ") || "—"}</td>
                 <td className="px-3 py-2">
-                  <Link href={`/performance/employees/${e.personId}`} className="text-xs text-brand-700 underline">
+                  <Link prefetch={false} href={`/performance/employees/${e.personId}`} className="text-xs text-brand-700 underline">
                     التقرير التفصيلي ←
                   </Link>
                 </td>
@@ -214,7 +214,7 @@ export default async function PerformanceAnalyticsPage({
               {a.periodChange.map((p) => (
                 <tr key={`${p.personId}-${p.toYear}`}>
                   <td className="px-3 py-2 text-sm">
-                    <Link href={`/performance/employees/${p.personId}`} className="text-brand-700 hover:underline">
+                    <Link prefetch={false} href={`/performance/employees/${p.personId}`} className="text-brand-700 hover:underline">
                       {p.personName}
                     </Link>
                   </td>
@@ -242,7 +242,7 @@ export default async function PerformanceAnalyticsPage({
           <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
             {a.missingEvaluations.map((p) => (
               <li key={p.id} className="text-sm">
-                <Link href={`/people/${p.id}`} className="text-brand-700 hover:underline">
+                <Link prefetch={false} href={`/people/${p.id}`} className="text-brand-700 hover:underline">
                   {p.name}
                 </Link>
               </li>

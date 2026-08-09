@@ -9,6 +9,7 @@ import {
   categoryByKey,
   isGroupableColumn,
   isSortableColumn,
+  reportByKey,
   reportsInCategory,
   type CategoryKey,
   type ReportColumn,
@@ -126,6 +127,35 @@ export default async function ReportsPage({
   const canonicalQuery = canonicalListQuery(sp);
   if (canonicalQuery !== null) redirect(`/reports?${canonicalQuery}`);
   const first = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
+
+  /*
+   * D-068 (شرط قبول صريح): معرّف `report` يُحسم استقلالاً عن `category`.
+   *
+   * عنوانٌ يصل بفئة فارغة (`?category=&report=maintenance-register` بترتيبَيه) يجب أن يفتح
+   * التقرير لا صفحة المركز الخاوية: التقرير يُحسم من السجل وحده، وتُشتق فئته من إعلانه في
+   * السجل، ثم يُعاد التوجيه إلى العنوان القانوني الكامل — فلا يبقى `category=` فارغ تُبنى
+   * منه روابط الترتيب والتصدير، ولا تُختلق شريحة مرشّح (مرشّح «التصنيف» معامله
+   * `recordCategory` لا `category`). الحالات الخمس محسومة صراحةً:
+   *  • لا `report` في العنوان ← سلوك المركز كما هو (فئة صالحة تُعرض، وإلا الصفحة الأم)؛
+   *  • `report` صالح بفئته المعلنة ← يُعرض كما هو (لا توجيه)؛
+   *  • `report` صالح و`category` فارغ أو غائب ← اشتقاق الفئة وتوجيه قانوني (هنا)؛
+   *  • `report` غير معروف ← لا اشتقاق؛ الفئة الفارغة تسقط ويُعرض المركز؛
+   *  • `report` صالح لكن `category` مغايرة لفئته ← تُعرض الفئة المطلوبة وحدها بلا تقرير
+   *    (السلوك الآمن القائم — لا يُخمَّن مقصد المستخدم).
+   * الصلاحيات كما في المسار الاعتيادي: صلاحية التقرير وصلاحية فئته معاً قبل الاشتقاق.
+   */
+  const reportParam = first("report");
+  if (reportParam && !first("category")) {
+    const independent = reportByKey(reportParam);
+    if (independent && user.permissions.has(independent.permission)) {
+      const home = categoryByKey(independent.category);
+      if (home && user.permissions.has(home.permission)) {
+        const canonical = paramsFrom(sp);
+        canonical.set("category", home.key);
+        redirect(`/reports?${canonical.toString()}`);
+      }
+    }
+  }
 
   // الفئات المرئية لهذا المستخدم فقط
   const visibleCategories = REPORT_CATEGORIES.filter((c) => user.permissions.has(c.permission));

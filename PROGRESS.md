@@ -2,7 +2,53 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.6.0 — RC READY, AWAITING DEPLOYMENT AUTHORIZATION (2026-08-09), NOT DEPLOYED**
+## Latest checkpoint — **v2.6.0 CORRECTIVE ROUND after the reopened ARM64 gate (2026-08-09), NOT DEPLOYED**
+
+The isolated ARM64 gate reopened the release: three browser scenarios failed over direct
+HTTP/1.1 (finalize badge, «مستبعد» visibility, an in-app navigation) while passing over
+HTTP/2, and the owner declared the exact empty-category URL an explicit acceptance
+condition. Both corrective changes were authorized and are implemented on this commit;
+digest `sha256:413b90d9…` (25cc24c) is **superseded** — preserved as historical evidence,
+never deployable; none of its candidate-specific evidence carries over.
+
+**D-069 — the root cause of the whole «الواجهة لا تتحدث بعد الحفظ» lineage, found and
+fixed.** In production builds, the post-action `router.refresh()` was silently discarded by
+the client router whenever a `loading.tsx` boundary sat in the tree — an upstream Next 16.2
+defect (vercel/next.js#86151; fixed only in 16.3). The server always answered with a
+complete, well-formed flight body (proven by header-replay and slow-read probes); the
+client dropped it, applying ~2/6 by timing luck — always in dev, practically always over
+HTTP/2. This was the v2.2.1 «UI does not refresh after save» issue and the v2.3 "never e2e
+against host `next start` (env quirk)" note, neither of which was an environment quirk.
+Shipped together (D-069 in `docs/DECISIONS.md`): `(app)/loading.tsx` removed;
+`prefetch={false}` on all 84 app links (the v16 per-action refetch storm of every
+in-viewport link — vercel/next.js#93210 — was saturating HTTP/1.1's six connections);
+verified refresh (per-render `data-render-stamp` + bounded 3-attempt retry in the
+`useRefresh*` hooks); and refresh-independent visible outcomes — row decisions publish
+their returned status to a client store (~60 ms to a visible «مستبعد» in both the card and
+the table), and the §I watcher polls a lightweight JSON endpoint
+(`/api/reports/instances/[id]/job`; no overlap, explicit timeout/error states, unmount
+cleanup) with exactly one verified refresh at the terminal state, outcome rendered
+client-side from the poll payload.
+
+**D-068 acceptance condition:** `?category=&report=maintenance-register` (both orderings)
+resolves the report independently, derives its catalog category, and redirects to the
+canonical URL; five cases distinguished (none/valid/empty/unknown/mismatch); no phantom
+chip possible. E2E block in `zzzzz-v260-filters.spec.ts` proves title, seeded row, exact
+count and chip absence for every rendering case.
+
+**Evidence so far (isolated port 3199, production build, plain HTTP/1.1 — production and
+:3080 untouched):** focused browser probes ×3 each — exclusion badge visible in ~60 ms,
+server counters reconciled by the single refresh, state correct after revisit, undo works;
+finalize badge appears 3/3 with zero document reloads; batch-page navigation ~80 ms 3/3.
+Full Playwright suite against the production build over HTTP/1.1: 144 passed / 1 named
+skip / 3 failed only in a locator of the new D-068 block (fixed; block then 15/15) —
+running the suite against `next start` at all was impossible before this fix. Full
+validation (3× external suite + vitest + dev-mode suite), CI on the new SHA, the
+replacement multi-platform image (now amd64+arm64 in one manifest list, smoke runs the
+pushed digest itself), nine regenerated DOCX samples, and the complete repeated ARM64 gate
+follow this checkpoint.
+
+## Superseded checkpoint — **v2.6.0 — RC READY, AWAITING DEPLOYMENT AUTHORIZATION (2026-08-09), NOT DEPLOYED**
 
 Final SHA: the head of `feat/v2.6-reporting-platform` (the commit carrying this checkpoint).
 All seven CI jobs green on **both** triggers; run URLs, counts and the immutable arm64

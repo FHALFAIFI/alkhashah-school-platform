@@ -80,12 +80,12 @@ export default async function MaintenancePage() {
           {issues.map((i) => (
             <tr key={i.id} id={`issue-${i.code}`} className="scroll-mt-20">
               <td className="px-3 py-2 tabular-nums">
-                <Link href={`/building/maintenance/${i.id}`} className="text-brand-700 hover:underline">
+                <Link prefetch={false} href={`/building/maintenance/${i.id}`} className="text-brand-700 hover:underline">
                   {i.code}
                 </Link>
               </td>
               <td className="px-3 py-2">
-                <Link href={`/building/maintenance/${i.id}`} className="font-medium text-brand-800 hover:underline">
+                <Link prefetch={false} href={`/building/maintenance/${i.id}`} className="font-medium text-brand-800 hover:underline">
                   {orFallback(i.title)}
                 </Link>
                 {i.description && <p className="text-xs text-gray-400">{i.description}</p>}
@@ -100,7 +100,7 @@ export default async function MaintenancePage() {
               <td className="px-3 py-2"><Badge value={i.status} /></td>
               <td className="px-3 py-2 text-xs">{i.resolution ?? "—"}</td>
               <td className="px-3 py-2">
-                <Link href={`/building/maintenance/${i.id}`} className="text-xs text-brand-700 underline">
+                <Link prefetch={false} href={`/building/maintenance/${i.id}`} className="text-xs text-brand-700 underline">
                   {VIEW_ISSUE_CTA} ←
                 </Link>
               </td>

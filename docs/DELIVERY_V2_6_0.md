@@ -237,6 +237,50 @@ filter the user had just removed. It now runs once per key per browsing session.
 Records: **D-066** (rewritten with the mechanism, the transition table, and why the
 separator is a control character) and **D-068** in `docs/DECISIONS.md`.
 
+## 5c) The corrective round after the ARM64 gate (2026-08-09) — D-069 and the D-068 acceptance condition
+
+The isolated ARM64 gate on the Mac mini reopened the release with three browser scenarios
+failing over **direct HTTP/1.1** while passing over HTTP/2: the finalize badge never
+appeared without a manual reload, «مستبعد» never became visible after excluding an import
+row, and an in-app navigation stalled. The owner rejected both proposed waivers (HTTP/2 as a
+prerequisite; the empty-category URL as unreachable) and authorized fixing both. Both are
+fixed, and the root cause turned out to be the most consequential finding of the release:
+
+**D-069.** The post-action `router.refresh()` (the D-053 pattern used by every form in the
+platform) was being **silently discarded by the client router in production builds** — the
+server answered 200 with a complete, well-formed flight body (proven by replaying the exact
+request headers, and by a deliberately-slow reader that ruled out server-side truncation),
+yet the DOM did not update and Chrome logged `net::ERR_ABORTED` for the cancelled tail. It
+applied in roughly 2 of 6 attempts, by timing luck; always in `next dev`; practically always
+over HTTP/2. The trigger is an upstream Next.js 16.2 defect (vercel/next.js#86151, fixed in
+16.3 only): a `loading.tsx` boundary in the tree causes a refresh that lands near a server
+action's settlement to be dropped. This platform had exactly one — `(app)/loading.tsx`,
+covering every page. **This retroactively explains the entire «الواجهة لا تتحدث بعد الحفظ»
+lineage**: the v2.2.1 known issue, and the v2.3 "never run e2e against host `next start` —
+it aborts Server-Action streams (environment quirk)" note. It was never an environment
+quirk. Four changes shipped together (full record: D-069 in `docs/DECISIONS.md`):
+removal of `(app)/loading.tsx`; `prefetch={false}` on all 84 app links (+`LinkButton`) to
+kill the per-action refetch storm of every in-viewport link (vercel/next.js#93210);
+a verified refresh (per-render `data-render-stamp` in the app layout, bounded 3-attempt
+retry in the `useRefresh*` hooks); and refresh-independent visible outcomes — import row
+decisions return the new status and publish it to a client-side store that both renderings
+of the row read (~60 ms to a visible «مستبعد»), and the §I generation watcher now polls a
+lightweight authenticated JSON endpoint (`/api/reports/instances/[id]/job`) with no
+overlapping requests, an explicit timeout and error state, cleanup on unmount, and exactly
+one verified refresh at the terminal state, rendering the outcome client-side from the poll
+payload. As a consequence, the full Playwright suite now runs green against the
+**production** build over plain HTTP/1.1 (`E2E_EXTERNAL=1` vs `next start`) — previously
+impossible, now part of the evidence.
+
+**D-068 acceptance condition.** `?category=&report=maintenance-register` — in both
+parameter orders — now opens the maintenance register correctly: an explicit `report` key is
+resolved independently against the catalog, its declared category is derived when the
+supplied one is empty or absent, and the request is redirected to the canonical URL. Five
+cases are distinguished (no report; valid report with its category; valid report with empty
+category; unknown report key; report/category mismatch — the safe existing behaviour).
+Pinned by a dedicated e2e block proving, for each rendering case, the register title, a
+seeded row, the exact count, and the absence of any phantom «التصنيف» chip.
+
 ## 5) Tests
 
 - Baseline at branch: **1042/1042** across 103 files (verified green before work).
@@ -430,7 +474,8 @@ it must never be deployed on its own. Three digests now exist; only the last is 
 | `sha256:8d4c032f…` | `0503cea` | dead — green on the push trigger, red twice on the pull-request trigger |
 | `sha256:4101f25a…` | `cac78d5` | dead — predates the D-066 and D-068 fixes of §5b |
 | `sha256:…` | `ff36887` | dead — the code fix, but `cleanup.spec.ts` failed on the pull-request trigger (§5) |
-| **final** | **head of the branch** | **current** — recorded in PR #1 with its run URL and embedded-commit proof |
+| `sha256:413b90d9…` | `25cc24c` | **superseded** — passed the first ARM64 gate but failed the reopened gate's HTTP/1.1 browser scenarios and the empty-category acceptance condition; replaced by the corrective round (§5c, D-069). Preserved as historical evidence only — never deploy or cite. None of its candidate-specific runtime, document, or functional evidence carries over |
+| **final** | **head of the branch** | **current** — built from the corrective commit; recorded in PR #1 with its run URL and embedded-commit proof |
 
 Every digest above the last is superseded and must never be deployed or cited. The current
 one is identified by digest in PR #1 rather than here, for the same reason as the run URLs:

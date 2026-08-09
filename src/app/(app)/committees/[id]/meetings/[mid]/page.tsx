@@ -162,7 +162,7 @@ export default async function MeetingPage({
                   <td className="px-3 py-2">{orDash(o.text)}</td>
                   <td className="px-3 py-2 text-xs">
                     {task ? (
-                      <Link href={`/tasks#task-${task.id}`} className="inline-flex items-center gap-1 hover:underline" title="فتح الإجراء في قائمة المهام">
+                      <Link prefetch={false} href={`/tasks#task-${task.id}`} className="inline-flex items-center gap-1 hover:underline" title="فتح الإجراء في قائمة المهام">
                         {task.mandatory && <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-700">إلزامي</span>}
                         <Badge value={task.status} />
                       </Link>
