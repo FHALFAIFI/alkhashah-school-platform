@@ -1,8 +1,14 @@
 import { describe, it, expect } from "vitest";
 import AdmZip from "adm-zip";
+import { convertMillimetersToTwip } from "docx";
 import { buildInstanceDocx, instanceDocx } from "@/lib/reports/instances/export-docx";
 import { buildWordReport } from "@/lib/reports/word-export";
-import { fitImage, toWordImageAsset } from "@/lib/reports/word-design";
+import {
+  fitImage,
+  officialHeaderHeightTwips,
+  toWordImageAsset,
+  HEADER_DISTANCE_TWIPS,
+} from "@/lib/reports/word-design";
 import { BASE_TEMPLATES, baseTemplateByKey } from "@/lib/reports/instances/base-templates";
 import type { SnapshotDoc, SnapshotSection, SnapshotColumn } from "@/lib/reports/instances/options";
 
@@ -368,6 +374,136 @@ describe("legacy registry Word export shares the same visual system", () => {
     const header = headerXml(buf);
     expect(header).toContain("مجمع الخشعة التعليمي للبنين — منصة الإدارة المدرسية المتكاملة");
     expect(header).toContain('w:color="1f5244"');
+  });
+});
+
+/* ─────────────────── the reserved header band (fade36f gate defect) ─────────────────── */
+
+function pageMargins(buf: Buffer): { top: number; header: number; bottom: number }[] {
+  const doc = documentXml(buf);
+  return [...doc.matchAll(/<w:pgMar[^/]*\/>/g)].map(([m]) => ({
+    top: Number(/w:top="(\d+)"/.exec(m)![1]),
+    header: Number(/w:header="(\d+)"/.exec(m)![1]),
+    bottom: Number(/w:bottom="(\d+)"/.exec(m)![1]),
+  }));
+}
+
+describe("header band reservation — continuation pages must never enter the header", () => {
+  // A single portrait table long enough to paginate across ≥3 A4 pages in any
+  // renderer (150 rows ≈ 6+ portrait pages at ~25 rows/page), with BOTH logos —
+  // the exact shape of the rejected «تقرير رسمي» sample.
+  const longSection: SnapshotSection = {
+    key: "long",
+    reportKey: "programs-active",
+    label: "سجل البرامج الطويل",
+    columns: [
+      { key: "name", label: "البرنامج" },
+      { key: "owner", label: "المسؤول" },
+      { key: "status", label: "الحالة" },
+    ],
+    rows: Array.from({ length: 150 }, (_, i) => ({
+      name: `برنامج اصطناعي طويل الاسم لاختبار الالتفاف رقم ${i + 1}`,
+      owner: `منسّق تجريبي ${(i % 3) + 1}`,
+      status: "قيد التنفيذ",
+    })),
+    total: 150,
+    truncated: false,
+    filterLines: [],
+    empty: false,
+  };
+  const longDoc = (over: Partial<SnapshotDoc> = {}) =>
+    makeDoc({ sections: [longSection], stats: { sectionCount: 1, totalRows: 150 }, ...over });
+
+  it("branded long table: every section reserves header distance + estimated header height", async () => {
+    const buf = await buildInstanceDocx(longDoc(), { reportNumber: "42/1448" }, bothLogos);
+    const margins = pageMargins(buf);
+    expect(margins.length).toBeGreaterThan(0);
+    for (const m of margins) {
+      // The header starts 8 mm from the edge…
+      expect(m.header).toBe(HEADER_DISTANCE_TWIPS);
+      // …and the body must start below the full estimated header, never at the
+      // old fixed 15 mm (850 twips) that let continuations paint over the header.
+      expect(m.top).toBeGreaterThanOrEqual(convertMillimetersToTwip(28));
+      expect(m.top).toBeLessThanOrEqual(convertMillimetersToTwip(60));
+      expect(m.top).toBeGreaterThan(850);
+      // The footer band stays reserved too.
+      expect(m.bottom).toBeGreaterThanOrEqual(convertMillimetersToTwip(15));
+    }
+    // The reserve covers the content-derived estimate with its cushion.
+    const doc = longDoc();
+    const estimate = officialHeaderHeightTwips({
+      orgLines: doc.identity.orgLines,
+      title: doc.title,
+      subtitle: doc.typeLabel,
+      academicYear: doc.identity.academicYear,
+      metaLines: [{ text: "رقم التقرير: 42/1448", bold: true }, { text: `تاريخ الإصدار: ${doc.generatedAtText}` }],
+      ministryLogo: bothLogos.ministryLogo,
+      schoolLogo: bothLogos.schoolLogo,
+      primaryColor: "#1f5244",
+    });
+    expect(margins[0].top).toBeGreaterThanOrEqual(HEADER_DISTANCE_TWIPS + estimate);
+    // Repeating table header + non-splitting rows survive the geometry change.
+    const xml = documentXml(buf);
+    expect(xml).toContain("<w:tblHeader");
+    expect(xml).toContain("<w:cantSplit");
+    expect(footerXml(buf)).toContain("PAGE");
+  });
+
+  it("portrait and landscape sections share one identical band", async () => {
+    const buf = await buildInstanceDocx(makeDoc(), { reportNumber: "42/1448" }, bothLogos);
+    const tops = new Set(pageMargins(buf).map((m) => m.top));
+    expect(pageMargins(buf).length).toBeGreaterThanOrEqual(2);
+    expect(tops.size).toBe(1);
+  });
+
+  it("the reserve tracks the header's actual content: logos and long titles grow it, never shrink it", async () => {
+    const short = pageMargins(await buildInstanceDocx(longDoc(), { reportNumber: null }, noLogos))[0].top;
+    const withLogos = pageMargins(await buildInstanceDocx(longDoc(), { reportNumber: null }, bothLogos))[0].top;
+    expect(withLogos).toBeGreaterThanOrEqual(short);
+    const hugeTitle = "تقرير سنوي شامل مفصّل عن كامل أعمال الخطة التشغيلية ومؤشراتها ولجانها وبرامجها وشواهدها للعام الدراسي بطوله وامتداده";
+    const withHugeTitle = pageMargins(
+      await buildInstanceDocx(longDoc({ title: hugeTitle }), { reportNumber: null }, bothLogos),
+    )[0].top;
+    expect(withHugeTitle).toBeGreaterThan(withLogos);
+  });
+
+  it("identity-free documents keep a compact reserved band", async () => {
+    const plain = baseTemplateByKey("plain")!.config;
+    const buf = await buildInstanceDocx(longDoc({ style: { ...plain }, templateKey: "plain" }), { reportNumber: null }, noLogos);
+    const m = pageMargins(buf)[0];
+    expect(m.header).toBe(HEADER_DISTANCE_TWIPS);
+    expect(m.top).toBeGreaterThanOrEqual(convertMillimetersToTwip(18));
+    expect(m.top).toBeLessThanOrEqual(convertMillimetersToTwip(40));
+    const branded = pageMargins(await buildInstanceDocx(longDoc(), { reportNumber: null }, bothLogos))[0];
+    expect(m.top).toBeLessThan(branded.top);
+  });
+
+  it("the legacy registry path reserves the same band", async () => {
+    const buf = await buildWordReport({
+      title: "تقرير سجل البرامج الطويل جداً بعنوان يلتف على أكثر من سطر واحد",
+      meta: [["عدد الصفوف", "150"]],
+      sections: [
+        {
+          heading: "السجل",
+          table: {
+            headers: ["البرنامج", "الحالة"],
+            rows: Array.from({ length: 150 }, (_, i) => [`برنامج اصطناعي طويل الاسم رقم ${i + 1}`, "قيد التنفيذ"]),
+          },
+        },
+      ],
+      header: {
+        orgLines: ["المملكة العربية السعودية — وزارة التعليم", "إدارة التعليم في محافظة صبيا", "مجمع الخشعة التعليمي للبنين"],
+        academicYear: "1448-1449هـ",
+        footerNote: "منصة الإدارة المدرسية المتكاملة",
+        ministryLogo: pngAsset(),
+        schoolLogo: jpgAsset(),
+      },
+      issuedAtText: "2026/08/10م (1448/2/27هـ)",
+    });
+    const m = pageMargins(buf)[0];
+    expect(m.header).toBe(HEADER_DISTANCE_TWIPS);
+    expect(m.top).toBeGreaterThanOrEqual(convertMillimetersToTwip(28));
+    expect(m.top).toBeGreaterThan(850);
   });
 });
 

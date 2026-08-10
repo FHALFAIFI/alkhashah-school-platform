@@ -1,10 +1,12 @@
 import "server-only";
-import { Document, Packer, Paragraph, Table, convertMillimetersToTwip } from "docx";
+import { Document, Packer, Paragraph, Table } from "docx";
 import {
   approvalArea,
   approvalSpacer,
   metaPara,
   officialDocStyles,
+  officialHeaderHeightTwips,
+  officialPageMargins,
   officialWordFooter,
   officialWordHeader,
   officialWordTable,
@@ -65,7 +67,7 @@ export async function buildWordReport(opts: {
     ? header.orgLines
     : ["مجمع الخشعة التعليمي للبنين — منصة الإدارة المدرسية المتكاملة"];
 
-  const wordHeader = officialWordHeader({
+  const headerOpts = {
     orgLines,
     headerNote: header?.headerNote || undefined,
     contactInfo: header?.contactInfo || undefined,
@@ -75,6 +77,12 @@ export async function buildWordReport(opts: {
     ministryLogo: header?.ministryLogo ?? null,
     schoolLogo: header?.schoolLogo ?? null,
     primaryColor: primary,
+  };
+  const wordHeader = officialWordHeader(headerOpts);
+  // حجز حزام الترويسة (عيب بوابة fade36f): الهامش العلوي يُحسب من ارتفاع الترويسة
+  // المقدَّر فلا يدخل جدولٌ متواصلٌ الترويسةَ على صفحات المتابعة
+  const margins = officialPageMargins(officialHeaderHeightTwips(headerOpts), {
+    hasFooterText: Boolean(header?.footerNote),
   });
 
   const children: (Paragraph | Table)[] = [...opts.meta.map(([k, v]) => metaPara(`${k}: ${v}`))];
@@ -105,14 +113,7 @@ export async function buildWordReport(opts: {
     sections: [
       {
         properties: {
-          page: {
-            margin: {
-              top: convertMillimetersToTwip(15),
-              bottom: convertMillimetersToTwip(15),
-              left: convertMillimetersToTwip(12),
-              right: convertMillimetersToTwip(12),
-            },
-          },
+          page: { margin: margins },
         },
         headers: { default: wordHeader },
         footers: { default: officialWordFooter(header?.footerNote ?? "") },

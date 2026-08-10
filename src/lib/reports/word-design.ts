@@ -15,6 +15,7 @@ import {
   TextRun,
   VerticalAlign,
   WidthType,
+  convertMillimetersToTwip,
 } from "docx";
 import { readStoredFile } from "@/lib/storage";
 
@@ -538,4 +539,115 @@ export function approvalArea(opts: ApprovalAreaOptions): Table {
 /** Spacer above the approval area — the `.signatures { margin-top: 32px }`. */
 export function approvalSpacer(): Paragraph {
   return new Paragraph({ spacing: { before: 480 }, children: [] });
+}
+
+/* ─────────────────── Page geometry: the reserved header band ─────────────────── */
+
+/**
+ * Word starts the running header at the header distance from the page edge and
+ * starts the BODY at the top page margin. When the header is taller than
+ * (top margin − header distance), a table that continues onto the next page is
+ * laid out from the body margin and paints straight through the branded header
+ * (the fade36f Word-design finding: continuation pages showed only the
+ * separator). The cure is to make the reservation explicit: estimate the
+ * header's height from its actual content and give every section a top margin
+ * of header distance + estimate + cushion — no reliance on Word's dynamic
+ * push-down, which table continuations do not honor.
+ */
+
+/** Header/footer distance from the page edge — the band the content grows from. */
+export const HEADER_DISTANCE_TWIPS = convertMillimetersToTwip(8);
+export const FOOTER_DISTANCE_TWIPS = convertMillimetersToTwip(8);
+
+/** A4 portrait text width at the official 12 mm side margins — the worst-case
+ *  (narrowest) zone widths; landscape zones are wider so the same reserve holds. */
+const PORTRAIT_TEXT_WIDTH_TWIPS = convertMillimetersToTwip(210 - 12 - 12);
+
+/** Header logo bound (58 px at 15 twips/px) — `fitImage(…, 90, 58)`. */
+const HEADER_LOGO_HEIGHT_TWIPS = 58 * 15;
+
+/** Estimated line box height for a font size in half-points (single spacing + slack). */
+function lineTwips(sizeHalfPoints: number): number {
+  return Math.round(sizeHalfPoints * 10 * 1.35);
+}
+
+/** Estimated wrapped-line count of one text in a zone of the given width. */
+function wrappedLines(text: string, sizeHalfPoints: number, bold: boolean, zoneWidthTwips: number): number {
+  if (!text) return 0;
+  const charWidth = sizeHalfPoints * 10 * (bold ? 0.55 : 0.5);
+  const usable = zoneWidthTwips * 0.92;
+  return Math.max(1, Math.ceil((text.length * charWidth) / usable));
+}
+
+/** The separator paragraph: one default-size empty line + spacing + border. */
+const SEPARATOR_TWIPS = 460;
+
+/** Estimated rendered height of the official three-zone header, in twips. */
+export function officialHeaderHeightTwips(opts: OfficialHeaderOptions): number {
+  const logoPct = 12;
+  const sidePct = (100 - 30 - (opts.ministryLogo ? logoPct : 0) - (opts.schoolLogo ? logoPct : 0)) / 2;
+  const sideWidth = (PORTRAIT_TEXT_WIDTH_TWIPS * sidePct) / 100;
+  const centerWidth = PORTRAIT_TEXT_WIDTH_TWIPS * 0.3;
+
+  let right = 0;
+  opts.orgLines.forEach((line, i) => {
+    right += wrappedLines(line, META_SIZE, i === opts.orgLines.length - 1, sideWidth) * lineTwips(META_SIZE);
+  });
+  if (opts.headerNote) right += wrappedLines(opts.headerNote, META_SIZE, false, sideWidth) * lineTwips(META_SIZE);
+  if (opts.contactInfo) right += wrappedLines(opts.contactInfo, META_SIZE, false, sideWidth) * lineTwips(META_SIZE);
+
+  let center = wrappedLines(opts.title, 24, true, centerWidth) * lineTwips(24);
+  if (opts.subtitle) center += wrappedLines(opts.subtitle, META_SIZE, false, centerWidth) * lineTwips(META_SIZE);
+  if (opts.academicYear) center += lineTwips(META_SIZE);
+
+  let left = 0;
+  for (const line of opts.metaLines) {
+    left += wrappedLines(line.text, META_SIZE, Boolean(line.bold), sideWidth) * lineTwips(META_SIZE);
+  }
+
+  const logo = opts.ministryLogo || opts.schoolLogo ? HEADER_LOGO_HEIGHT_TWIPS : 0;
+  return Math.max(right, center, left, logo) + SEPARATOR_TWIPS;
+}
+
+/** Estimated rendered height of the clean identity-free header, in twips. */
+export function plainHeaderHeightTwips(opts: { title: string; metaLines: string[] }): number {
+  const width = PORTRAIT_TEXT_WIDTH_TWIPS;
+  let height = wrappedLines(opts.title, 24, true, width) * lineTwips(24);
+  for (const line of opts.metaLines) height += wrappedLines(line, META_SIZE, false, width) * lineTwips(META_SIZE);
+  return height + SEPARATOR_TWIPS;
+}
+
+export type WordPageMargins = {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  header: number;
+  footer: number;
+};
+
+/**
+ * Section page margins that reserve the full header band: the top margin is
+ * header distance + estimated header height + a small cushion, clamped so a
+ * pathological estimate can neither collapse the band nor eat the page. The
+ * identity-free clamp keeps its compact look. The bottom margin likewise keeps
+ * the footer (rule + text + live page fields) out of the body. Use the SAME
+ * margins for every section of a document — portrait and landscape share one
+ * band, so the inherited header renders identically everywhere.
+ */
+export function officialPageMargins(headerHeightTwips: number, opts: { plain?: boolean; hasFooterText?: boolean } = {}): WordPageMargins {
+  const cushion = convertMillimetersToTwip(2);
+  const floor = convertMillimetersToTwip(opts.plain ? 18 : 28);
+  const ceiling = convertMillimetersToTwip(opts.plain ? 40 : 60);
+  const top = Math.min(ceiling, Math.max(floor, HEADER_DISTANCE_TWIPS + headerHeightTwips + cushion));
+  const footerLines = (opts.hasFooterText ? 2 : 1) * lineTwips(META_SIZE);
+  const bottom = Math.max(convertMillimetersToTwip(15), FOOTER_DISTANCE_TWIPS + footerLines + cushion);
+  return {
+    top,
+    bottom,
+    left: convertMillimetersToTwip(12),
+    right: convertMillimetersToTwip(12),
+    header: HEADER_DISTANCE_TWIPS,
+    footer: FOOTER_DISTANCE_TWIPS,
+  };
 }

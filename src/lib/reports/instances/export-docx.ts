@@ -11,7 +11,6 @@ import {
   Paragraph,
   Table,
   TextRun,
-  convertMillimetersToTwip,
 } from "docx";
 import type { SnapshotDoc, SnapshotSection } from "./options";
 import type { StyleConfig } from "./base-templates";
@@ -25,9 +24,12 @@ import {
   loadWordImageAsset,
   metaPara,
   officialDocStyles,
+  officialHeaderHeightTwips,
+  officialPageMargins,
   officialWordFooter,
   officialWordHeader,
   officialWordTable,
+  plainHeaderHeightTwips,
   plainWordHeader,
   rtlPara,
   sectionHeading,
@@ -61,35 +63,50 @@ export type InstanceDocxAssets = {
   schoolLogo: WordImageAsset | null;
 };
 
-function buildHeader(
+/**
+ * نموذج الترويسة يُبنى مرة واحدة: منه ترويسة Word نفسها، ومنه تقدير ارتفاعها الذي
+ * يحجز حزام الترويسة في هامش الصفحة العلوي — فجدول يتواصل عبر الصفحات لا يدخل
+ * الترويسة أبداً (عيب بوابة fade36f: صفحات المتابعة كانت تبدأ داخل الترويسة).
+ */
+type HeaderModel =
+  | { kind: "official"; opts: Parameters<typeof officialWordHeader>[0] }
+  | { kind: "plain"; opts: Parameters<typeof plainWordHeader>[0] };
+
+function headerModel(
   doc: SnapshotDoc,
   style: StyleConfig,
   reportNumber: string | null,
   assets: InstanceDocxAssets,
-): Header {
+): HeaderModel {
   const issuedLine = `تاريخ الإصدار: ${doc.generatedAtText}`;
   if (!style.showIdentity) {
-    return plainWordHeader({
-      title: doc.title,
-      metaLines: [reportNumber ? `رقم التقرير: ${reportNumber} — ${doc.generatedAtText}` : doc.generatedAtText],
-      primaryColor: style.primaryColor,
-    });
+    return {
+      kind: "plain",
+      opts: {
+        title: doc.title,
+        metaLines: [reportNumber ? `رقم التقرير: ${reportNumber} — ${doc.generatedAtText}` : doc.generatedAtText],
+        primaryColor: style.primaryColor,
+      },
+    };
   }
-  return officialWordHeader({
-    orgLines: doc.identity.orgLines,
-    headerNote: style.headerText || doc.identity.headerNote || undefined,
-    contactInfo: doc.identity.contactInfo || undefined,
-    title: doc.title,
-    subtitle: `${doc.typeLabel}${doc.periodText ? ` — ${doc.periodText}` : ""}`,
-    academicYear: doc.identity.academicYear || undefined,
-    metaLines: [
-      ...(reportNumber ? [{ text: `رقم التقرير: ${reportNumber}`, bold: true }] : []),
-      { text: issuedLine },
-    ],
-    ministryLogo: style.showLogos ? assets.ministryLogo : null,
-    schoolLogo: style.showLogos ? assets.schoolLogo : null,
-    primaryColor: style.primaryColor,
-  });
+  return {
+    kind: "official",
+    opts: {
+      orgLines: doc.identity.orgLines,
+      headerNote: style.headerText || doc.identity.headerNote || undefined,
+      contactInfo: doc.identity.contactInfo || undefined,
+      title: doc.title,
+      subtitle: `${doc.typeLabel}${doc.periodText ? ` — ${doc.periodText}` : ""}`,
+      academicYear: doc.identity.academicYear || undefined,
+      metaLines: [
+        ...(reportNumber ? [{ text: `رقم التقرير: ${reportNumber}`, bold: true }] : []),
+        { text: issuedLine },
+      ],
+      ministryLogo: style.showLogos ? assets.ministryLogo : null,
+      schoolLogo: style.showLogos ? assets.schoolLogo : null,
+      primaryColor: style.primaryColor,
+    },
+  };
 }
 
 function pageBreakPara(): Paragraph {
@@ -267,9 +284,20 @@ export async function buildInstanceDocx(
     else buckets.push({ orientation: "portrait", children: tail });
   }
 
-  const header = buildHeader(doc, style, reportNumber, assets);
+  const model = headerModel(doc, style, reportNumber, assets);
+  const header: Header = model.kind === "official" ? officialWordHeader(model.opts) : plainWordHeader(model.opts);
   const footerText = style.footerText || (style.showIdentity ? doc.identity.footerNote : "");
   const footer: Footer = officialWordFooter(footerText);
+
+  // حجز حزام الترويسة: الهامش العلوي = مسافة الترويسة + ارتفاعها المقدَّر من محتواها
+  // الفعلي + وسادة — نفسه لكل المقاطع رأسيةً وأفقيةً فتتطابق الحزمة على كل الصفحات،
+  // وجدول المتابعة لا يبدأ داخل الترويسة أبداً (عيب بوابة fade36f)
+  const headerHeight =
+    model.kind === "official" ? officialHeaderHeightTwips(model.opts) : plainHeaderHeightTwips(model.opts);
+  const margins = officialPageMargins(headerHeight, {
+    plain: model.kind === "plain",
+    hasFooterText: Boolean(footerText),
+  });
 
   const word = new Document({
     // D-040: خط عربي مطابق لخط PDF المضمن — وورد يستبدل تلقائياً إن لم يكن مثبتاً
@@ -280,12 +308,7 @@ export async function buildInstanceDocx(
           size: {
             orientation: bucket.orientation === "landscape" ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT,
           },
-          margin: {
-            top: convertMillimetersToTwip(15),
-            bottom: convertMillimetersToTwip(15),
-            left: convertMillimetersToTwip(12),
-            right: convertMillimetersToTwip(12),
-          },
+          margin: margins,
         },
       },
       // الترويسة والتذييل على المقطع الأول فقط — بقية المقاطع (رأسية وأفقية) ترثهما
