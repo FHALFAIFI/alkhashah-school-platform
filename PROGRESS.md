@@ -2,7 +2,41 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.6.0 CORRECTIVE ROUND after the reopened ARM64 gate (2026-08-09), NOT DEPLOYED**
+## Latest checkpoint — **v2.6.0 WORD DESIGN ROUND after the interactive Word check (2026-08-10), NOT DEPLOYED**
+
+The interactive Microsoft Word check of the `853f074` samples confirmed structural and
+functional correctness and **rejected the visual design**: the owner requires the
+established official document design of v2.3/v2.4 (`officialPageHtml` + the v2.6 instance
+renderer). Digest `sha256:0a000239…` (`853f074`) is **superseded** — historical evidence
+only (PR #1 record; Desktop folder `v2.6.0-word-gate-853f074`), never deployable.
+
+**D-070 — one official visual system for every generated Word document.** New shared
+native-Word primitives `src/lib/reports/word-design.ts`, used by both DOCX paths
+(instance exporter + legacy registry `word-export.ts`): real inherited three-zone RTL
+Word header (ministry logo+org right · title/type/year central · number/date+school logo
+left) above the primary-color separator; native `ImageRun` logos from secure local
+storage only, aspect-preserved, safe text fallback, `showLogos` finally honored;
+identity primary/accent colors; official tables (`#cfcabc` grid, `#f2f0eb` bold header
+fill, native density-scaled cell margins, repeated header rows, `cantSplit`, AUTOFIT);
+real footer (rule + text + live PAGE/NUMPAGES); stable principal approval area
+(title/name/date/signature/stamp; registry path embeds toggled signature/stamp assets;
+frozen instance snapshots keep fillable spaces — snapshot semantics unchanged). The
+«بلا هوية» template keeps a clean identity-free header. No screenshots, no external
+relationships. Data semantics/issuance/numbering/audit/authorization untouched.
+
+Gates on this workstation: typecheck 0 · lint 0 · vitest **1226/1226** (119 files;
++23 `word-design.test.ts` pins) · Playwright **147 passed / 1 named skip / 0 failed** ·
+nine samples regenerated (synthetic logos + synthetic principal seeded by
+`scripts/v260-ci-artifacts.ts` — still zero real data) · all nine DOCX rendered via
+LibreOffice and compared page-by-page with the official PDF design — matching.
+**Interactive Microsoft Word design gate: PENDING (Fahad).** ARM64 gate must be repeated
+against the replacement digest; per-run values (digest, CI URLs, gate result) live in
+PR #1. Note: the local third-gate transcript (`storage-ci-artifacts/v26gate/`) was lost
+when the sample script rebuilt its output directory — the authoritative summary survives
+in PR #1 and the Desktop folder; future gate records go under git-ignored
+`storage-gate-records/` which no script deletes.
+
+## Previous checkpoint — **v2.6.0 CORRECTIVE ROUND after the reopened ARM64 gate (2026-08-09), NOT DEPLOYED**
 
 The isolated ARM64 gate reopened the release: three browser scenarios failed over direct
 HTTP/1.1 (finalize badge, «مستبعد» visibility, an in-app navigation) while passing over

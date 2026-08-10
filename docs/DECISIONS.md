@@ -1410,3 +1410,49 @@ half-committed state exists. Second, restoring `loading.tsx` is safe **only beca
 applied **6/6** with the boundary in place. Final state of the round, each piece justified
 by a measured failure: Next 16.3.0 + `loading.tsx` restored + `prefetch={false}` everywhere
 + verified refresh + refresh-independent visible outcomes + lightweight job polling.
+
+## D-070 — One official visual system for every generated Word document (2026-08-10)
+
+**Context.** The interactive Microsoft Word check of the `853f074` candidate's nine samples
+confirmed structural and functional correctness (valid packages, RTL, real header/footer,
+live page fields, editability, mixed orientations) — and rejected the **visual design**.
+The DOCX exporters rendered a vertically stacked centered header and unstyled default
+tables, while every PDF the platform has issued since v2.3/v2.4 carries the established
+official document identity of `officialPageHtml` (src/lib/pdf.ts) and the v2.6 instance
+renderer: the three-zone RTL header (ministry identity and logo on the right, title and
+year centrally, document number/date and school logo on the left) above a primary-color
+separator, dark-green section headings with an accent side rule, `#cfcabc`-bordered tables
+with the `#f2f0eb` header fill, the restrained official footer, and the principal
+approval/signature/stamp area. Two DOCX paths (the v2.6 instance exporter and the legacy
+registry `word-export.ts`) each carried their own, different, plainer look.
+
+**Decision.** The established official design is the *only* visual system for generated
+Word documents, implemented once in shared native-Word primitives —
+`src/lib/reports/word-design.ts` — used by **both** DOCX paths:
+
+- The three-zone header is a real, editable Word header built as a borderless RTL zone
+  table, defined on the first section and inherited by every later section (portrait and
+  landscape alike), never duplicated in the body. The «بلا هوية» template keeps its clean
+  identity-free header.
+- Logos are embedded as native `ImageRun` parts read exclusively through the secure local
+  storage layer — no screenshots, no network fetch, no external relationships. Aspect
+  ratio is preserved inside fixed maximum bounds; PNG and JPEG embed natively; anything
+  else (WebP, corrupt data, a missing file) silently degrades to the text identity —
+  a logo can never block document generation. `showLogos` is now honored by DOCX
+  (previously ignored), independently of `showIdentity`.
+- Identity colors (`primaryColor`/`accentColor`, D-057) drive the separator, headings and
+  accent rules. Tables carry the official grid, header fill, bold Arabic header text,
+  native cell margins scaled by the template's density, top vertical alignment,
+  right-aligned RTL content, repeating header rows, and rows that never split.
+- The footer is a real Word footer: separator rule, configured footer text, live
+  `PAGE`/`NUMPAGES` fields. The approval area is a stable borderless two-block layout with
+  principal-level fields only — title, name, date line, signature space/asset, stamp
+  space/asset — honoring the central identity's signature/stamp inclusion settings in the
+  registry path (the frozen instance snapshot carries no signature assets, so instance
+  approval areas keep fillable spaces; snapshot semantics unchanged).
+
+**Explicitly unchanged:** data semantics, filters, issuance, numbering, audit,
+authorization, report content, frozen-snapshot immutability, output hashing, offline
+generation, A4 geometry, orientation and column-splitting logic, and the PDF/Excel/ZIP
+exporters. Release version stays `2.6.0` — the prior candidate was never tagged or
+deployed; its digest is superseded (DELIVERY §10).

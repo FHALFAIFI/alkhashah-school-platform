@@ -1,51 +1,26 @@
 import "server-only";
+import { Document, Packer, Paragraph, Table, convertMillimetersToTwip } from "docx";
 import {
-  Document, Packer, Paragraph, Table, TableCell, TableRow, TextRun, HeadingLevel, WidthType, AlignmentType,
-} from "docx";
+  approvalArea,
+  approvalSpacer,
+  metaPara,
+  officialDocStyles,
+  officialWordFooter,
+  officialWordHeader,
+  officialWordTable,
+  rtlPara,
+  sectionHeading,
+  type WordImageAsset,
+} from "./word-design";
 
 /**
- * تصدير Word عربي قابل للتحرير — RTL كامل.
+ * تصدير Word عربي قابل للتحرير — RTL كامل بتصميم الوثيقة الرسمية المعتمد.
+ *
+ * منذ إعادة تصميم v2.6: البناء بلبنات Word الأصلية المشتركة في `word-design.ts` نفسها
+ * التي يستعملها مُصدِّر التقارير المحفوظة — ترويسة Word حقيقية ثلاثية المناطق بالفاصل
+ * بلون الهوية، جداول بالتصميم الرسمي (حدود `#cfcabc` وترويسة `#f2f0eb` تتكرر مع كل
+ * صفحة)، تذييل حقيقي بترقيم صفحات حي، وخانة اعتماد المدير — نظام بصري واحد لا نظامين.
  */
-
-function rtlHeading(text: string, level: (typeof HeadingLevel)[keyof typeof HeadingLevel]): Paragraph {
-  return new Paragraph({
-    heading: level,
-    bidirectional: true,
-    alignment: AlignmentType.RIGHT,
-    children: [new TextRun({ text, rightToLeft: true })],
-  });
-}
-
-function rtlPara(text: string, bold = false): Paragraph {
-  return new Paragraph({
-    bidirectional: true,
-    alignment: AlignmentType.RIGHT,
-    children: [new TextRun({ text, bold, rightToLeft: true })],
-  });
-}
-
-function rtlTable(headers: string[], rows: string[][]): Table {
-  return new Table({
-    visuallyRightToLeft: true,
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({
-        children: headers.map(
-          (h) =>
-            new TableCell({
-              children: [rtlPara(h, true)],
-            }),
-        ),
-      }),
-      ...rows.map(
-        (r) =>
-          new TableRow({
-            children: r.map((c) => new TableCell({ children: [rtlPara(c)] })),
-          }),
-      ),
-    ],
-  });
-}
 
 /** ترويسة رسمية اختيارية — من هوية الوثائق المركزية (v2.3 §8)، لا نص ثابت */
 export type WordHeader = {
@@ -53,47 +28,97 @@ export type WordHeader = {
   principalName?: string;
   principalTitle?: string;
   academicYear?: string;
+  headerNote?: string;
   footerNote?: string;
+  contactInfo?: string;
+  /** ألوان الهوية (v2.6 §E) — الافتراضي أخضر المنصة الرسمي المعتمد */
+  primaryColor?: string;
+  accentColor?: string;
+  /** الشعارات وأصلا التوقيع والختم محمّلة من التخزين المحلي الآمن — لا جلب شبكي */
+  ministryLogo?: WordImageAsset | null;
+  schoolLogo?: WordImageAsset | null;
+  signature?: WordImageAsset | null;
+  stamp?: WordImageAsset | null;
 };
+
+/** الألوان الرسمية المعتمدة في `officialPageHtml` — تُستعمل عند غياب هوية مخصصة */
+const DEFAULT_PRIMARY = "#1f5244";
+const DEFAULT_ACCENT = "#348066";
+const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+
+function safeColor(value: string | undefined, fallback: string): string {
+  return value && HEX_COLOR.test(value) ? value : fallback;
+}
 
 export async function buildWordReport(opts: {
   title: string;
   meta: [string, string][];
   sections: { heading: string; paragraphs?: string[]; table?: { headers: string[]; rows: string[][] } }[];
   header?: WordHeader;
+  /** تاريخ الإصدار لمنطقة الترويسة اليسرى — كما في `officialPageHtml` */
+  issuedAtText?: string;
 }): Promise<Buffer> {
-  const headerLines = opts.header?.orgLines?.length
-    ? opts.header.orgLines
+  const header = opts.header;
+  const primary = safeColor(header?.primaryColor, DEFAULT_PRIMARY);
+  const accent = safeColor(header?.accentColor, DEFAULT_ACCENT);
+  const orgLines = header?.orgLines?.length
+    ? header.orgLines
     : ["مجمع الخشعة التعليمي للبنين — منصة الإدارة المدرسية المتكاملة"];
-  const children: (Paragraph | Table)[] = [
-    ...headerLines.map((l, i) =>
-      rtlHeading(l, i === headerLines.length - 1 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3),
-    ),
-    ...(opts.header?.academicYear ? [rtlPara(`العام الدراسي: ${opts.header.academicYear}`)] : []),
-    rtlHeading(opts.title, HeadingLevel.HEADING_1),
-    ...opts.meta.map(([k, v]) => rtlPara(`${k}: ${v}`)),
-  ];
+
+  const wordHeader = officialWordHeader({
+    orgLines,
+    headerNote: header?.headerNote || undefined,
+    contactInfo: header?.contactInfo || undefined,
+    title: opts.title,
+    academicYear: header?.academicYear || undefined,
+    metaLines: opts.issuedAtText ? [{ text: `تاريخ الإصدار: ${opts.issuedAtText}` }] : [],
+    ministryLogo: header?.ministryLogo ?? null,
+    schoolLogo: header?.schoolLogo ?? null,
+    primaryColor: primary,
+  });
+
+  const children: (Paragraph | Table)[] = [...opts.meta.map(([k, v]) => metaPara(`${k}: ${v}`))];
   for (const s of opts.sections) {
-    children.push(rtlHeading(s.heading, HeadingLevel.HEADING_2));
+    children.push(sectionHeading(s.heading, primary, accent));
     for (const p of s.paragraphs ?? []) children.push(rtlPara(p));
-    if (s.table) children.push(rtlTable(s.table.headers, s.table.rows));
+    if (s.table) {
+      children.push(officialWordTable({ header: s.table.headers, rows: s.table.rows, size: 22 }));
+    }
   }
-  // خانة التوقيع الرسمية: المسمى ثم الاسم من الهوية المركزية
-  if (opts.header?.principalTitle || opts.header?.principalName) {
-    children.push(rtlPara(""));
-    if (opts.header.principalTitle) children.push(rtlPara(opts.header.principalTitle, true));
-    if (opts.header.principalName) children.push(rtlPara(opts.header.principalName, true));
-    children.push(rtlPara("التوقيع: ................................"));
+  // خانة الاعتماد الرسمية: المسمى ثم الاسم من الهوية المركزية، مع أصلي التوقيع والختم
+  // متى فعّلتهما إعدادات الهوية (وإلا بقيت مساحتا التوقيع والختم للتعبئة اليدوية)
+  if (header?.principalTitle || header?.principalName) {
+    children.push(approvalSpacer());
+    children.push(
+      approvalArea({
+        principalTitle: header.principalTitle || "مدير المدرسة",
+        principalName: header.principalName || undefined,
+        signature: header.signature ?? null,
+        stamp: header.stamp ?? null,
+      }),
+    );
   }
-  if (opts.header?.footerNote) children.push(rtlPara(opts.header.footerNote));
+
   const doc = new Document({
-    styles: {
-      default: {
-        // D-040: خط عربي مطابق لخط PDF المضمن — وورد يستبدل تلقائياً إن لم يكن مثبتاً
-        document: { run: { font: "IBM Plex Sans Arabic", size: 22, rightToLeft: true } },
+    // D-040: خط عربي مطابق لخط PDF المضمن — وورد يستبدل تلقائياً إن لم يكن مثبتاً
+    styles: officialDocStyles(primary),
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: {
+              top: convertMillimetersToTwip(15),
+              bottom: convertMillimetersToTwip(15),
+              left: convertMillimetersToTwip(12),
+              right: convertMillimetersToTwip(12),
+            },
+          },
+        },
+        headers: { default: wordHeader },
+        footers: { default: officialWordFooter(header?.footerNote ?? "") },
+        children,
       },
-    },
-    sections: [{ properties: {}, children }],
+    ],
   });
   return Buffer.from(await Packer.toBuffer(doc));
 }

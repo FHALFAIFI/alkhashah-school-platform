@@ -101,14 +101,20 @@ describe("تصدير Word بالهوية الرسمية", () => {
         academicYear: "1448-1449هـ",
       },
     });
-    // ملف docx = حاوية ZIP
+    // ملف docx = حاوية ZIP — الهوية والعنوان في ترويسة Word الحقيقية (تصميم v2.6)،
+    // وخانة الاعتماد بالمسمى والاسم في المتن
     expect(buffer.subarray(0, 2).toString()).toBe("PK");
     const zip = new AdmZip(buffer);
     const docXml = zip.readAsText("word/document.xml");
-    expect(docXml).toContain("وزارة التعليم");
+    const headerXml = zip
+      .getEntries()
+      .filter((e) => /^word\/header\d+\.xml$/.test(e.entryName))
+      .map((e) => e.getData().toString("utf8"))
+      .join("\n");
+    expect(headerXml).toContain("وزارة التعليم");
+    expect(headerXml).toContain("تقرير Word اختباري");
     expect(docXml).toContain("مدير الاختبار بن فحص");
     expect(docXml).toContain("مدير مجمع الاختبار");
-    expect(docXml).toContain("تقرير Word اختباري");
   });
 
   it("بلا ترويسة: يسقط إلى السطر الافتراضي القديم (توافق رجعي)", async () => {
@@ -119,7 +125,12 @@ describe("تصدير Word بالهوية الرسمية", () => {
       sections: [],
     });
     const zip = new AdmZip(buffer);
-    const docXml = zip.readAsText("word/document.xml");
-    expect(docXml).toContain("مجمع الخشعة التعليمي للبنين");
+    // السطر الاحتياطي يظهر في ترويسة Word الحقيقية (تصميم v2.6)
+    const headerXml = zip
+      .getEntries()
+      .filter((e) => /^word\/header\d+\.xml$/.test(e.entryName))
+      .map((e) => e.getData().toString("utf8"))
+      .join("\n");
+    expect(headerXml).toContain("مجمع الخشعة التعليمي للبنين");
   });
 });

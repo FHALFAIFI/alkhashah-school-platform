@@ -4,70 +4,91 @@ import {
   Document,
   Footer,
   Header,
-  HeadingLevel,
+  ImageRun,
   Packer,
   PageBreak,
-  PageNumber,
   PageOrientation,
   Paragraph,
   Table,
-  TableCell,
-  TableRow,
   TextRun,
-  WidthType,
   convertMillimetersToTwip,
 } from "docx";
-import type { SnapshotDoc, SnapshotSection, SnapshotColumn } from "./options";
+import type { SnapshotDoc, SnapshotSection } from "./options";
 import type { StyleConfig } from "./base-templates";
 import { cellText, splitColumns, styleOf, tableLayoutFor, wantsCover, wantsToc } from "./render";
+import {
+  approvalArea,
+  approvalSpacer,
+  centeredPara,
+  docxColor,
+  fitImage,
+  loadWordImageAsset,
+  metaPara,
+  officialDocStyles,
+  officialWordFooter,
+  officialWordHeader,
+  officialWordTable,
+  plainWordHeader,
+  rtlPara,
+  sectionHeading,
+  META_SIZE,
+  type WordImageAsset,
+} from "../word-design";
 
 /**
  * تصدير التقرير المحفوظ إلى Word قابل للتحرير (v2.6 §F/§G).
  *
  * المصدر هو `SnapshotDoc` المجمّد نفسه الذي يغذّي HTML/PDF — تطابق مصدرٍ لا تطابق
- * اجتهاد. القواعد نفسها تُعاد هنا بلغة Word:
- *  - RTL كامل: كل فقرة `bidirectional`، كل نص `rightToLeft`، كل جدول
- *    `visuallyRightToLeft`، والخط الافتراضي «IBM Plex Sans Arabic» (D-040 — وورد
- *    يستبدل تلقائياً إن لم يكن مثبتاً).
- *  - الترويسة والتذييل ترويسة وتذييل Word حقيقيان قابلان للتحرير — لا فقرات مكررة
- *    في المتن.
- *  - الجدول العريض يُدار بقرار `tableLayoutFor` ذاته: القسم الأفقي يُخرَج مقطع Word
- *    مستقلاً بصفحة A4 أفقية، وفوق 18 عموداً يُقسَّم بمجموعات مع تكرار العمود الأول.
- *  - ترويسة الجدول تتكرر مع كل صفحة (`tableHeader`) والصف لا ينقسم (`cantSplit`).
+ * اجتهاد. والتصميم هو تصميم الوثيقة الرسمية المعتمد نفسه (`officialPageHtml` ومصيّر
+ * v2.6) مبنياً بلبنات Word أصلية مشتركة من `word-design.ts`:
+ *  - ترويسة Word حقيقية ثلاثية المناطق RTL: الشعار والهوية يميناً، العنوان والسنة
+ *    وسطاً، رقم التقرير وتاريخ الإصدار وشعار المدرسة يساراً، وتحتها فاصل بلون الهوية.
+ *  - الشعارات تُقرأ من التخزين المحلي الآمن فقط وتُضمَّن `ImageRun` أصلياً بنسبة
+ *    أبعاد محفوظة — الشعار الغائب أو المتعذر يسقط بصمت وتبقى الهوية النصية.
+ *  - قالب «بلا هوية» يُخرج ترويسة نظيفة بلا هوية ولا شعارات (`showIdentity`)،
+ *    و`showLogos` يتحكم في الشعارات وحدها.
+ *  - الجداول بتصميم الجدول الرسمي: حدود `#cfcabc`، ترويسة `#f2f0eb` عريضة تتكرر مع
+ *    كل صفحة، هوامش خلايا أصلية بكثافة القالب، صف لا ينقسم.
+ *  - الجدول العريض يُدار بقرار `tableLayoutFor` ذاته: القسم الأفقي مقطع Word مستقل
+ *    بصفحة A4 أفقية، وفوق 18 عموداً تقسيم بمجموعات مع تكرار العمود الأول.
+ *  - التذييل تذييل Word حقيقي بنص التذييل وحقلي PAGE/NUMPAGES الحيّين.
  */
 
-/* ─────────────────── لبنات RTL أساسية ─────────────────── */
+/* ─────────────────── الترويسة والتذييل ─────────────────── */
 
-const META_COLOR = "555555";
-const META_SIZE = 18; // بأنصاف النقاط: 9pt
+export type InstanceDocxAssets = {
+  ministryLogo: WordImageAsset | null;
+  schoolLogo: WordImageAsset | null;
+};
 
-function rtlPara(text: string, opts: { bold?: boolean; size?: number; color?: string } = {}): Paragraph {
-  return new Paragraph({
-    bidirectional: true,
-    alignment: AlignmentType.RIGHT,
-    children: [new TextRun({ text, rightToLeft: true, bold: opts.bold, size: opts.size, color: opts.color })],
-  });
-}
-
-/** سطر وصفي صغير رمادي — مرشّحات وعدّادات، يقابل `.meta` في المصيّر HTML */
-function metaPara(text: string): Paragraph {
-  return rtlPara(text, { size: META_SIZE, color: META_COLOR });
-}
-
-function centeredPara(text: string, opts: { bold?: boolean; size?: number; color?: string } = {}): Paragraph {
-  return new Paragraph({
-    bidirectional: true,
-    alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text, rightToLeft: true, bold: opts.bold, size: opts.size, color: opts.color })],
-  });
-}
-
-function rtlHeading(text: string): Paragraph {
-  return new Paragraph({
-    heading: HeadingLevel.HEADING_2,
-    bidirectional: true,
-    alignment: AlignmentType.RIGHT,
-    children: [new TextRun({ text, rightToLeft: true })],
+function buildHeader(
+  doc: SnapshotDoc,
+  style: StyleConfig,
+  reportNumber: string | null,
+  assets: InstanceDocxAssets,
+): Header {
+  const issuedLine = `تاريخ الإصدار: ${doc.generatedAtText}`;
+  if (!style.showIdentity) {
+    return plainWordHeader({
+      title: doc.title,
+      metaLines: [reportNumber ? `رقم التقرير: ${reportNumber} — ${doc.generatedAtText}` : doc.generatedAtText],
+      primaryColor: style.primaryColor,
+    });
+  }
+  return officialWordHeader({
+    orgLines: doc.identity.orgLines,
+    headerNote: style.headerText || doc.identity.headerNote || undefined,
+    contactInfo: doc.identity.contactInfo || undefined,
+    title: doc.title,
+    subtitle: `${doc.typeLabel}${doc.periodText ? ` — ${doc.periodText}` : ""}`,
+    academicYear: doc.identity.academicYear || undefined,
+    metaLines: [
+      ...(reportNumber ? [{ text: `رقم التقرير: ${reportNumber}`, bold: true }] : []),
+      { text: issuedLine },
+    ],
+    ministryLogo: style.showLogos ? assets.ministryLogo : null,
+    schoolLogo: style.showLogos ? assets.schoolLogo : null,
+    primaryColor: style.primaryColor,
   });
 }
 
@@ -75,50 +96,32 @@ function pageBreakPara(): Paragraph {
   return new Paragraph({ children: [new PageBreak()] });
 }
 
-/** لون docx بلا علامة `#` — المخطط الصارم يضمن hex فلا حاجة لأكثر من القصّ */
-function docxColor(cssHex: string): string {
-  return cssHex.replace("#", "");
-}
-
-/* ─────────────────── الترويسة والتذييل — Word حقيقيان ─────────────────── */
-
-function buildHeader(doc: SnapshotDoc, style: StyleConfig, reportNumber: string | null | undefined): Header {
-  const children: Paragraph[] = [];
-  if (style.showIdentity) {
-    doc.identity.orgLines.forEach((line, i) => {
-      children.push(centeredPara(line, { bold: i === doc.identity.orgLines.length - 1, size: 18 }));
-    });
-    const headerNote = style.headerText || doc.identity.headerNote;
-    if (headerNote) children.push(centeredPara(headerNote, { size: 18, color: META_COLOR }));
-  }
-  children.push(centeredPara(doc.title, { bold: true, size: 24, color: docxColor(style.primaryColor) }));
-  if (reportNumber) children.push(centeredPara(`رقم التقرير: ${reportNumber}`, { size: 18 }));
-  return new Header({ children });
-}
-
-function buildFooter(footerText: string): Footer {
-  const children: Paragraph[] = [];
-  if (footerText) children.push(centeredPara(footerText, { size: META_SIZE, color: META_COLOR }));
-  // ترقيم الصفحات بحقلي PAGE/NUMPAGES — يتحدّث في وورد مع كل إعادة تصفيح
-  children.push(
-    new Paragraph({
-      bidirectional: true,
-      alignment: AlignmentType.CENTER,
-      children: [
-        new TextRun({ text: "صفحة ", rightToLeft: true, size: META_SIZE, color: META_COLOR }),
-        new TextRun({ children: [PageNumber.CURRENT], size: META_SIZE, color: META_COLOR }),
-        new TextRun({ text: " من ", rightToLeft: true, size: META_SIZE, color: META_COLOR }),
-        new TextRun({ children: [PageNumber.TOTAL_PAGES], size: META_SIZE, color: META_COLOR }),
-      ],
-    }),
-  );
-  return new Footer({ children });
-}
-
 /* ─────────────────── الغلاف والفهرس ─────────────────── */
 
-function coverChildren(doc: SnapshotDoc, style: StyleConfig, reportNumber: string | null | undefined): Paragraph[] {
+function coverChildren(
+  doc: SnapshotDoc,
+  style: StyleConfig,
+  reportNumber: string | null,
+  assets: InstanceDocxAssets,
+): Paragraph[] {
   const out: Paragraph[] = [];
+  if (style.showIdentity && style.showLogos && assets.schoolLogo) {
+    // شعار الغلاف كما في `.cover-logo` — احتواء بلا تشويه بحد أقصى 110px ارتفاعاً
+    out.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 1200, after: 240 },
+        children: [
+          new ImageRun({
+            type: assets.schoolLogo.type,
+            data: assets.schoolLogo.data,
+            transformation: fitImage(assets.schoolLogo, 220, 110),
+            altText: { title: "شعار المدرسة", description: "شعار المدرسة", name: "شعار المدرسة" },
+          }),
+        ],
+      }),
+    );
+  }
   if (style.showIdentity) {
     doc.identity.orgLines.forEach((line, i) => {
       out.push(centeredPara(line, { bold: i === doc.identity.orgLines.length - 1 }));
@@ -128,7 +131,7 @@ function coverChildren(doc: SnapshotDoc, style: StyleConfig, reportNumber: strin
     new Paragraph({
       bidirectional: true,
       alignment: AlignmentType.CENTER,
-      spacing: { before: 2400, after: 600 },
+      spacing: { before: 1600, after: 600 },
       children: [new TextRun({ text: doc.title, rightToLeft: true, bold: true, size: 52, color: docxColor(style.primaryColor) })],
     }),
   );
@@ -146,9 +149,9 @@ function coverChildren(doc: SnapshotDoc, style: StyleConfig, reportNumber: strin
  * يمكن أن تنحرف عن المحتوى، والحقل يطالب المستخدم بتحديث الحقول عند كل فتح للملف —
  * سلوك غير حتمي بلا مقابل. (القائمة تطابق فهرس HTML: أقسام اللقطة بترتيبها.)
  */
-function tocChildren(doc: SnapshotDoc): Paragraph[] {
+function tocChildren(doc: SnapshotDoc, style: StyleConfig): Paragraph[] {
   return [
-    rtlHeading("المحتويات"),
+    sectionHeading("المحتويات", style.primaryColor, style.accentColor),
     ...doc.sections.map((s, i) => rtlPara(`${i + 1}. ${s.label}`)),
     pageBreakPara(),
   ];
@@ -156,52 +159,14 @@ function tocChildren(doc: SnapshotDoc): Paragraph[] {
 
 /* ─────────────────── جداول البيانات ─────────────────── */
 
-function tableCellPara(text: string, opts: { bold?: boolean; size: number }): Paragraph {
-  return new Paragraph({
-    bidirectional: true,
-    alignment: AlignmentType.RIGHT,
-    children: [new TextRun({ text, rightToLeft: true, bold: opts.bold, size: opts.size })],
-  });
-}
-
-function dataTable(
-  cols: SnapshotColumn[],
-  rows: SnapshotSection["rows"],
-  fontScale: number,
-): Table {
-  // حجم الجدول بأنصاف النقاط من معامل التصغير المحكوم نفسه المستعمل في HTML/PDF
-  const size = Math.round(22 * fontScale);
-  return new Table({
-    visuallyRightToLeft: true,
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      // ترويسة الجدول تتكرر أعلى كل صفحة جديدة (§F)
-      new TableRow({
-        tableHeader: true,
-        cantSplit: true,
-        children: cols.map(
-          (c) =>
-            new TableCell({
-              shading: { fill: "F2F0EB" },
-              children: [tableCellPara(c.label, { bold: true, size })],
-            }),
-        ),
-      }),
-      ...rows.map(
-        (r) =>
-          new TableRow({
-            cantSplit: true,
-            children: cols.map(
-              (c) => new TableCell({ children: [tableCellPara(cellText(r[c.key], c.type), { size })] }),
-            ),
-          }),
-      ),
-    ],
-  });
-}
-
-function sectionChildren(section: SnapshotSection, index: number, layoutFontScale: number, splitAt: number | null): (Paragraph | Table)[] {
-  const out: (Paragraph | Table)[] = [rtlHeading(`${index + 1}. ${section.label}`)];
+function sectionChildren(
+  section: SnapshotSection,
+  index: number,
+  style: StyleConfig,
+  layoutFontScale: number,
+  splitAt: number | null,
+): (Paragraph | Table)[] {
+  const out: (Paragraph | Table)[] = [sectionHeading(`${index + 1}. ${section.label}`, style.primaryColor, style.accentColor)];
   if (section.filterLines.length) {
     out.push(metaPara(section.filterLines.map(([k, v]) => `${k}: ${v}`).join(" · ")));
   }
@@ -213,44 +178,49 @@ function sectionChildren(section: SnapshotSection, index: number, layoutFontScal
     out.push(metaPara("لا بيانات مطابقة للمرشّحات في هذا القسم."));
     return out;
   }
+  // حجم خط الجدول بأنصاف النقاط من معامل التصغير المحكوم نفسه المستعمل في HTML/PDF،
+  // وكثافة القالب تتحكم في هوامش الخلايا الأصلية
+  const size = Math.round((style.density === "مضغوط" ? 20 : 22) * layoutFontScale);
   const groups = splitAt ? splitColumns(section.columns, splitAt) : [section.columns];
   groups.forEach((cols, gi) => {
     if (groups.length > 1) out.push(metaPara(`جزء ${gi + 1} من ${groups.length} — العمود الأول مكرر للربط`));
-    out.push(dataTable(cols, section.rows, layoutFontScale));
+    out.push(
+      officialWordTable({
+        header: cols.map((c) => c.label),
+        rows: section.rows.map((r) => cols.map((c) => cellText(r[c.key], c.type))),
+        size,
+        density: style.density,
+      }),
+    );
   });
   return out;
 }
 
-function attachmentsChildren(doc: SnapshotDoc): (Paragraph | Table)[] {
+function attachmentsChildren(doc: SnapshotDoc, style: StyleConfig): (Paragraph | Table)[] {
   return [
-    rtlHeading(`${doc.sections.length + 1}. الشواهد والمرفقات المستعملة`),
-    dataTable(
-      [
-        { key: "n", label: "م" },
-        { key: "name", label: "المرفق" },
-        { key: "source", label: "المصدر" },
-      ],
-      doc.attachments.map((a, i) => ({ n: i + 1, name: a.name, source: a.source })),
-      1,
-    ),
+    sectionHeading(`${doc.sections.length + 1}. الشواهد والمرفقات المستعملة`, style.primaryColor, style.accentColor),
+    officialWordTable({
+      header: ["م", "المرفق", "المصدر"],
+      rows: doc.attachments.map((a, i) => [String(i + 1), a.name, a.source]),
+      size: 22,
+      density: style.density,
+    }),
   ];
-}
-
-/** خانة الاعتماد والتوقيع في ذيل التقرير — المسمى ثم الاسم من هوية اللقطة */
-function approvalChildren(doc: SnapshotDoc): Paragraph[] {
-  const out: Paragraph[] = [rtlPara("")];
-  out.push(rtlPara(doc.identity.principalTitle || "مدير المدرسة", { bold: true }));
-  if (doc.identity.principalName) out.push(rtlPara(doc.identity.principalName, { bold: true }));
-  out.push(rtlPara("التوقيع: ................................"));
-  out.push(rtlPara("الختم: ................................"));
-  return out;
 }
 
 /* ─────────────────── التجميع — مقاطع Word باتجاهات مختلطة ─────────────────── */
 
 type Bucket = { orientation: "portrait" | "landscape"; children: (Paragraph | Table)[] };
 
-export async function instanceDocx(doc: SnapshotDoc, opts: { reportNumber?: string | null }): Promise<Buffer> {
+/**
+ * البناء الفعلي من لقطة وأصول صور محمّلة مسبقاً — تفصله الدالة العامة كي تختبره
+ * الاختبارات الحتمية بأصول في الذاكرة بلا قاعدة ولا تخزين.
+ */
+export async function buildInstanceDocx(
+  doc: SnapshotDoc,
+  opts: { reportNumber?: string | null },
+  assets: InstanceDocxAssets,
+): Promise<Buffer> {
   const style = styleOf(doc);
   const reportNumber = opts.reportNumber ?? null;
 
@@ -259,8 +229,8 @@ export async function instanceDocx(doc: SnapshotDoc, opts: { reportNumber?: stri
   if (!reportNumber) {
     front.push(centeredPara("مسودة — غير معتمدة", { bold: true, size: 36, color: "B42828" }));
   }
-  if (wantsCover(doc, style)) front.push(...coverChildren(doc, style, reportNumber));
-  if (wantsToc(doc, style)) front.push(...tocChildren(doc));
+  if (wantsCover(doc, style)) front.push(...coverChildren(doc, style, reportNumber, assets));
+  if (wantsToc(doc, style)) front.push(...tocChildren(doc, style));
 
   // كل تتابُع أقسام بالاتجاه نفسه يُجمع في مقطع Word واحد؛ تغيّر الاتجاه يفتح مقطعاً
   // جديداً بحجم صفحته — القسم العريض أفقي والباقي رأسي، لا قصّ صامتاً أبداً (§F)
@@ -272,30 +242,38 @@ export async function instanceDocx(doc: SnapshotDoc, opts: { reportNumber?: stri
       if (last.children.length === 0) last.orientation = layout.orientation;
       else buckets.push({ orientation: layout.orientation, children: [] });
     }
-    buckets[buckets.length - 1].children.push(...sectionChildren(section, i, layout.fontScale, layout.splitAt));
+    buckets[buckets.length - 1].children.push(...sectionChildren(section, i, style, layout.fontScale, layout.splitAt));
   });
 
   // الذيل — المرفقات ثم الاعتماد — رأسي دائماً كما في المصيّر HTML
   const tail: (Paragraph | Table)[] = [];
-  if (doc.attachments.length) tail.push(...attachmentsChildren(doc));
-  if (style.approvalBox) tail.push(...approvalChildren(doc));
+  if (doc.attachments.length) tail.push(...attachmentsChildren(doc, style));
+  if (style.approvalBox) {
+    // خانة الاعتماد الرسمية: حقول مستوى المدير فقط — المسمى والاسم والتاريخ والتوقيع
+    // والختم. اللقطة المجمّدة لا تحمل أصول توقيع/ختم فتبقى مساحتا التوقيع والختم للتعبئة
+    tail.push(approvalSpacer());
+    tail.push(
+      approvalArea({
+        principalTitle: doc.identity.principalTitle || "مدير المدرسة",
+        principalName: doc.identity.principalName || undefined,
+        signature: null,
+        stamp: null,
+      }),
+    );
+  }
   if (tail.length) {
     const last = buckets[buckets.length - 1];
     if (last.orientation === "portrait") last.children.push(...tail);
     else buckets.push({ orientation: "portrait", children: tail });
   }
 
-  const header = buildHeader(doc, style, reportNumber);
+  const header = buildHeader(doc, style, reportNumber, assets);
   const footerText = style.footerText || (style.showIdentity ? doc.identity.footerNote : "");
-  const footer = buildFooter(footerText);
+  const footer: Footer = officialWordFooter(footerText);
 
   const word = new Document({
-    styles: {
-      default: {
-        // D-040: خط عربي مطابق لخط PDF المضمن — وورد يستبدل تلقائياً إن لم يكن مثبتاً
-        document: { run: { font: "IBM Plex Sans Arabic", size: 22, rightToLeft: true } },
-      },
-    },
+    // D-040: خط عربي مطابق لخط PDF المضمن — وورد يستبدل تلقائياً إن لم يكن مثبتاً
+    styles: officialDocStyles(style.primaryColor),
     sections: buckets.map((bucket, i) => ({
       properties: {
         page: {
@@ -310,11 +288,26 @@ export async function instanceDocx(doc: SnapshotDoc, opts: { reportNumber?: stri
           },
         },
       },
-      // الترويسة والتذييل على المقطع الأول فقط — بقية المقاطع ترثهما بدلالة OOXML
+      // الترويسة والتذييل على المقطع الأول فقط — بقية المقاطع (رأسية وأفقية) ترثهما
+      // بدلالة OOXML فتتكرر الترويسة على كل صفحة بلا تكرار في المتن
       ...(i === 0 ? { headers: { default: header }, footers: { default: footer } } : {}),
       children: bucket.children,
     })),
   });
 
   return Buffer.from(await Packer.toBuffer(word));
+}
+
+export async function instanceDocx(doc: SnapshotDoc, opts: { reportNumber?: string | null }): Promise<Buffer> {
+  const style = styleOf(doc);
+  // الشعارات من التخزين المحلي الآمن فقط وعند طلب القالب لها — الغائب/المتعذر يسقط
+  // بصمت وتبقى الهوية النصية (لا يفشل التوليد بسبب شعار)
+  const [ministryLogo, schoolLogo] =
+    style.showIdentity && style.showLogos
+      ? await Promise.all([
+          loadWordImageAsset(doc.identity.ministryLogoFileId),
+          loadWordImageAsset(doc.identity.schoolLogoFileId),
+        ])
+      : [null, null];
+  return buildInstanceDocx(doc, opts, { ministryLogo, schoolLogo });
 }

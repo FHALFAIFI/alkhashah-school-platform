@@ -32,6 +32,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const buf = await buildWordReport({
     // v2.4 §15: الهوية الرسمية المركزية بدل السطر الثابت الاحتياطي
     header: await getWordHeader(),
+    issuedAtText: `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`,
     title: `تقرير برنامج: ${program.name}`,
     meta: [
       ["تاريخ الإصدار", `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`],

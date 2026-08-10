@@ -16,7 +16,7 @@ an agent.
 | # | Remaining gate | Kind |
 |---|---|---|
 | 1 | **ARM64 runtime smoke on the Mac mini** — pull the final digest, run it against an isolated database on a temporary port, verify migration, boot, health, login and rollback readiness, and abort before touching 3080 on any failure. **The first mandatory pre-swap gate.** Never performed: it requires deployment authorization. | Blocking, manual |
-| 2 | Interactive Microsoft Word open of the sample DOCX files (§9). | Human |
+| 2 | Interactive Microsoft Word **design** check of the nine regenerated samples (§5d/§9) — the `853f074` check confirmed structure and function but rejected the visual design; the redesigned candidate must be re-inspected. | Human |
 | 3 | Owner authorization to deploy, then the rest of the RUNBOOK sequence. | Human |
 | 4 | Principal's acceptance pass on the deployed environment. | Human |
 
@@ -297,11 +297,48 @@ settles). Final state, each piece justified by a measured failure: **16.3.0 +
 outcomes + lightweight job polling.** Full record: the two addenda under D-069 in
 `docs/DECISIONS.md`.
 
+## 5d) The Word design correction (2026-08-10) — D-070
+
+The interactive Microsoft Word check of the `853f074` samples confirmed structural and
+functional correctness and **rejected the visual design**: the owner requires the
+established official document design the platform has carried since v2.3/v2.4
+(`officialPageHtml` + the v2.6 instance renderer), not the vertically stacked plain
+header and default tables the DOCX exporters produced. Full decision record: D-070.
+
+What shipped: shared native-Word design primitives (`src/lib/reports/word-design.ts`)
+now used by **both** DOCX paths (v2.6 instance exporter + legacy registry
+`word-export.ts`) — the three-zone RTL header as a real inherited Word header with
+native `ImageRun` logos read only from secure local storage (safe text fallback,
+`showLogos` finally honored), primary/accent identity colors, official table
+grid/fill/native cell margins with density, real footer with live `PAGE`/`NUMPAGES`,
+and the stable principal approval area (title/name/date/signature/stamp). No
+screenshots, no external relationships, no macros. Data semantics, issuance,
+numbering, audit, authorization and content untouched (§6-preserving properties
+re-verified by the full suites below).
+
+Deterministic pins added in `tests/unit/word-design.test.ts` (+23 tests): header zone
+structure, embedded logos and their relationships, no `TargetMode="External"` anywhere,
+logo fallback (garbage/mime-mismatch/WebP), `showIdentity=false`, `showLogos=false`,
+custom primary/accent colors, table borders/shading/margins in both densities, repeated
+header rows and `cantSplit`, bidi/RTL, single inherited `headerReference` across mixed
+portrait/landscape sections with no body duplication of the title, footer text + live
+fields, approval layout, all five base templates on both paths, and the legacy path
+embedding stored signature/stamp assets per the identity toggles. The nine samples were
+re-rendered through LibreOffice and compared page-by-page with the official PDF design —
+no divergence beyond font substitution. The interactive Microsoft **Word design gate is
+PENDING** on the replacement candidate; the ARM64 gate must be repeated against the
+replacement digest (result recorded in PR #1, like every per-run value).
+
+The sample seed (`scripts/v260-ci-artifacts.ts`) now also provisions clearly-labeled
+**synthetic** placeholder logos and a synthetic principal name into the isolated CI
+database, so the samples exercise the embedded-logo header and the approval area —
+still not one byte of real school data.
+
 ## 5) Tests
 
 - Baseline at branch: **1042/1042** across 103 files (verified green before work).
-- **Current: 1203/1203 across 118 files** (`npm test`) — the figure to quote. In CI the
-  same suite reports **1200 passed · 3 skipped**; the three are one
+- **Current: 1226/1226 across 119 files** (`npm test`) — the figure to quote. In CI the
+  same suite reports **1223 passed · 3 skipped**; the three are one
   `describe.skipIf(!hasFares)` block in `official-models.test.ts` that parses the *real*
   «بيانات الموظفين في فارس.xlsx». That file lives in git-ignored `reference_files/` because
   school and personal data is never committed, so CI cannot have it and correctly skips the
@@ -316,12 +353,12 @@ outcomes + lightweight job polling.** Full record: the two addenda under D-069 i
 
 ### Every Playwright test accounted for
 
-The suite is **141 tests in 25 files**. The bar is zero failed, zero *did not run*, and
+The suite is **148 tests in 25 files**. The bar is zero failed, zero *did not run*, and
 every skip named:
 
 | Outcome | Count | Which, and why |
 |---|---|---|
-| Passed | 140 | — |
+| Passed | 147 | — |
 | Failed | 0 | — |
 | Did not run | 0 | — |
 | Skipped | 1 | Intentional, named below |
@@ -491,7 +528,8 @@ it must never be deployed on its own. Three digests now exist; only the last is 
 | `sha256:4101f25a…` | `cac78d5` | dead — predates the D-066 and D-068 fixes of §5b |
 | `sha256:…` | `ff36887` | dead — the code fix, but `cleanup.spec.ts` failed on the pull-request trigger (§5) |
 | `sha256:413b90d9…` | `25cc24c` | **superseded** — passed the first ARM64 gate but failed the reopened gate's HTTP/1.1 browser scenarios and the empty-category acceptance condition; replaced by the corrective round (§5c, D-069). Preserved as historical evidence only — never deploy or cite. None of its candidate-specific runtime, document, or functional evidence carries over |
-| **final** | **head of the branch** | **current** — built from the corrective commit; recorded in PR #1 with its run URL and embedded-commit proof |
+| `sha256:0a000239…` | `853f074` | **superseded** — passed the third ARM64 gate and the structural Word validation, but the interactive Microsoft Word check **rejected the visual design**; replaced by the Word-design round (§5d, D-070). Preserved as historical evidence only (PR #1 record; Desktop folder `v2.6.0-word-gate-853f074`) — never deploy or cite. None of its candidate-specific document, runtime or image evidence carries over |
+| **final** | **head of the branch** | **current** — built from the Word-design commit; recorded in PR #1 with its run URL and embedded-commit proof |
 
 Every digest above the last is superseded and must never be deployed or cited. The current
 one is identified by digest in PR #1 rather than here, for the same reason as the run URLs:

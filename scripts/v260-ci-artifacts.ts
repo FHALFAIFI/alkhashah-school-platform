@@ -127,6 +127,49 @@ async function main() {
     });
   }
 
+  // Synthetic identity for the Word/PDF design gate: placeholder logos rendered
+  // locally by chromium (clearly labeled as synthetic — never the real official
+  // assets) + a synthetic principal name, so the three-zone header, the embedded
+  // ImageRun logos and the approval area are all exercised in the samples.
+  const { chromium: chromiumForLogos } = await import("playwright");
+  const logoBrowser = await chromiumForLogos.launch();
+  async function syntheticLogo(label: string, bg: string): Promise<Buffer> {
+    const page = await logoBrowser.newPage({ viewport: { width: 180, height: 180 } });
+    await page.setContent(
+      `<div style="width:176px;height:176px;border-radius:50%;background:${bg};color:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font:700 20px sans-serif;">${label}</div>`,
+    );
+    const shot = await page.screenshot({ type: "png" });
+    await page.close();
+    return Buffer.from(shot);
+  }
+  const ministryLogoPng = await syntheticLogo("شعار<br>اصطناعي 1", "#1f5244");
+  const schoolLogoPng = await syntheticLogo("شعار<br>اصطناعي 2", "#348066");
+  await logoBrowser.close();
+  const { saveUploadedFile } = await import("../src/lib/storage");
+  const ministryLogoFile = await saveUploadedFile({
+    originalName: "شعار-اصطناعي-1.png",
+    mime: "image/png",
+    data: ministryLogoPng,
+    scope: "branding",
+    uploadedBy: user.id,
+  });
+  const schoolLogoFile = await saveUploadedFile({
+    originalName: "شعار-اصطناعي-2.png",
+    mime: "image/png",
+    data: schoolLogoPng,
+    scope: "branding",
+    uploadedBy: user.id,
+  });
+  const { saveDocumentIdentity } = await import("../src/lib/document-identity");
+  await saveDocumentIdentity(
+    {
+      principalName: "مدير تجريبي اصطناعي",
+      ministryLogoFileId: ministryLogoFile.id,
+      schoolLogoFileId: schoolLogoFile.id,
+    },
+    user.id,
+  );
+
   const viewer = {
     id: user.id,
     permissions: new Set([

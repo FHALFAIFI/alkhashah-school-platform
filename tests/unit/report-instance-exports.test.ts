@@ -164,8 +164,10 @@ describe("مُصدِّر Word (§F/§G)", () => {
     expect(xml).toContain("اقتُطع القسم عند حدّه الأقصى");
     expect(xml).toContain("3. الشواهد والمرفقات المستعملة");
     expect(xml).toContain("محضر اللجنة.pdf");
+    // خانة الاعتماد الرسمية: المسمى وخط التوقيع وسطر التاريخ ومنطقة الختم (v2.6)
     expect(xml).toContain("مدير المدرسة");
-    expect(xml).toContain("التوقيع:");
+    expect(xml).toContain("التاريخ:");
+    expect(xml).toContain("الختم");
   });
 
   it("الغلاف والفهرس قائمة ثابتة لا حقل TOC، ويغيبان عن التقرير القصير", async () => {
