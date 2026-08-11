@@ -1,7 +1,8 @@
 # v2.6.0 — Production Deployment Report (2026-08-11)
 
 **Status: DEPLOYED — acceptance candidate awaiting the principal's real-workflow
-testing. GitHub untouched (Actions quota): no push, no tag, no PR update, no
+testing, with the Microsoft Word design gate still PENDING inspection (see
+below). GitHub untouched (Actions quota): no push, no tag, no PR update, no
 GHCR image, no release. Full evidence:
 `~/Desktop/v2.6.0-deployment-e4be701/` (durable, outside script-controlled dirs).**
 
@@ -23,9 +24,15 @@ header-band reservation (the fix for the rejected `fade36f` Word gate).
 
 ## Gates (all recorded in the evidence folder)
 
-- **Word design gate:** nine-file gate regenerated from `e4be701`; machine checks
-  28/28 + 9/9 structural + 97/97 page band scan + 9/9 roundtrip; **passed by
-  Fahad in Microsoft Word (in-session, 2026-08-11)**.
+- **Word design gate: PENDING — NOT passed.** The nine-file gate was regenerated
+  from `e4be701` and every machine check is green (28/28 word-design tests, 9/9
+  OOXML structural, 97/97 rendered-page header-band scan, 9/9 LibreOffice
+  roundtrip), but the **interactive Microsoft Word inspection is not evidenced**:
+  the only artifact is a single multiple-choice "proceed" selection, with no
+  per-file or per-page findings. Deployment proceeded under that authorization;
+  the gate itself stays open. Corrected 2026-08-11 — see
+  `WORD_GATE_STATUS_CORRECTION.md` in the evidence folder. Files awaiting
+  inspection: `~/Desktop/v2.6.0-word-design-final-gate-e4be701/`.
 - **Local validation (clean checkout):** lint 0 / typecheck 0 / vitest
   **1228 passed, 3 justified skips** (git-ignored real Fares fixture; 8/8 pass in
   the repo tree) / production build OK.
@@ -56,6 +63,23 @@ precedent): all pages 200, exports carry the official design with the safe
 text-identity fallback (production has no logos configured yet), synthetic
 draft created/previewed/deleted with no manual reload. **Zero synthetic records
 on production.**
+
+## Closure review (2026-08-11, read-only)
+
+- **ZIP export: PASS.** The post-deploy smoke's ZIP "failure" was a probe fault —
+  it called the *catalog* export API (`/api/reports/export`), whose format
+  whitelist is `csv|xlsx|pdf|docx` and silently coerces anything else to CSV
+  (identical code in v2.5.0 and `e4be701`, so pre-existing, not a regression).
+  ZIP belongs to archive issuance. Re-tested on a second isolated clone of the
+  deployed state via `/api/reports/instances/<id>/download?format=zip`:
+  HTTP 200, `application/zip`, `PK\x03\x04`, 66 448 B, Arabic
+  `filename*`; the package opens with a clean CRC test, holds exactly the three
+  expected outputs with full Arabic filenames, and every entry's sha256 plus the
+  package sha256 match `report_outputs.checksum` and `stored_files.sha256`.
+  Details: `ZIP_EXPORT_RESOLUTION.md`. Non-blocking observation retained: the
+  catalog API should arguably return 400 for an unknown format instead of
+  falling back to CSV.
+- **Word gate reclassified to PENDING** (above); no application change.
 
 ## Incidents (pre-deployment, resolved, documented in the evidence folder)
 
