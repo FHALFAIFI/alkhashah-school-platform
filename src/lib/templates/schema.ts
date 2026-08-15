@@ -139,12 +139,11 @@ const textBlockSchema = z.object({
   watermarkText: z.string().max(80).optional(),
 });
 
-/** هوية المدرسة والجهة على مستوى القالب */
+/** هوية المدرسة والجهة على مستوى القالب — D-057: لا حقل للمكتب */
 const identitySchema = z.object({
   schoolName: z.string().max(200).optional(),
   ministryText: z.string().max(300).optional(),
   departmentText: z.string().max(300).optional(),
-  officeText: z.string().max(300).optional(),
   /** معرّف ملف مخزَّن داخلياً — ليس عنواناً خارجياً (يمنع تحميل مورد بعيد) */
   logoFileId: z.string().uuid().nullable().optional(),
 });
@@ -249,8 +248,22 @@ export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
  * يرفض: المفاتيح غير المعروفة، القيم خارج القوائم المغلقة، الأعداد خارج المدى، والنصوص
  * التي تحوي وسم HTML أو مخطط `javascript:` أو معالج حدث. الرسائل عربية.
  */
+/**
+ * D-057: حقل المكتب `officeText` خرج من هوية القوالب — نسخ مخزّنة قديمة في `template_versions`
+ * قد تحمل مفتاح `officeText`؛ يُحذف هنا قبل التحقق كي لا يرفضه `strict()` فتسقط النسخة
+ * كلها إلى الإعداد الافتراضي. الحذف لا يُعدّل السجل المخزّن — قراءة فقط.
+ */
+function stripRetiredIdentityKeys(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const record = input as Record<string, unknown>;
+  const identity = record.identity;
+  if (typeof identity !== "object" || identity === null || Array.isArray(identity) || !("officeText" in identity)) return input;
+  const { officeText: _retired, ...rest } = identity as Record<string, unknown>;
+  return { ...record, identity: rest };
+}
+
 export function parseTemplateConfig(input: unknown): { ok: true; config: TemplateConfig } | { ok: false; error: string } {
-  const parsed = templateConfigSchema.safeParse(input);
+  const parsed = templateConfigSchema.safeParse(stripRetiredIdentityKeys(input));
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     const path = issue.path.join(".");

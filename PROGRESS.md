@@ -2,7 +2,187 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.5.0 DEPLOYED TO PRODUCTION (2026-08-06)**
+## Latest checkpoint — **v2.6.0 WORD DESIGN ROUND after the interactive Word check (2026-08-10), NOT DEPLOYED**
+
+The interactive Microsoft Word check of the `853f074` samples confirmed structural and
+functional correctness and **rejected the visual design**: the owner requires the
+established official document design of v2.3/v2.4 (`officialPageHtml` + the v2.6 instance
+renderer). Digest `sha256:0a000239…` (`853f074`) is **superseded** — historical evidence
+only (PR #1 record; Desktop folder `v2.6.0-word-gate-853f074`), never deployable.
+
+**D-070 — one official visual system for every generated Word document.** New shared
+native-Word primitives `src/lib/reports/word-design.ts`, used by both DOCX paths
+(instance exporter + legacy registry `word-export.ts`): real inherited three-zone RTL
+Word header (ministry logo+org right · title/type/year central · number/date+school logo
+left) above the primary-color separator; native `ImageRun` logos from secure local
+storage only, aspect-preserved, safe text fallback, `showLogos` finally honored;
+identity primary/accent colors; official tables (`#cfcabc` grid, `#f2f0eb` bold header
+fill, native density-scaled cell margins, repeated header rows, `cantSplit`, AUTOFIT);
+real footer (rule + text + live PAGE/NUMPAGES); stable principal approval area
+(title/name/date/signature/stamp; registry path embeds toggled signature/stamp assets;
+frozen instance snapshots keep fillable spaces — snapshot semantics unchanged). The
+«بلا هوية» template keeps a clean identity-free header. No screenshots, no external
+relationships. Data semantics/issuance/numbering/audit/authorization untouched.
+
+Gates on this workstation: typecheck 0 · lint 0 · vitest **1226/1226** (119 files;
++23 `word-design.test.ts` pins) · Playwright **147 passed / 1 named skip / 0 failed** ·
+nine samples regenerated (synthetic logos + synthetic principal seeded by
+`scripts/v260-ci-artifacts.ts` — still zero real data) · all nine DOCX rendered via
+LibreOffice and compared page-by-page with the official PDF design — matching.
+**Interactive Microsoft Word design gate: PENDING (Fahad).** ARM64 gate must be repeated
+against the replacement digest; per-run values (digest, CI URLs, gate result) live in
+PR #1. Note: the local third-gate transcript (`storage-ci-artifacts/v26gate/`) was lost
+when the sample script rebuilt its output directory — the authoritative summary survives
+in PR #1 and the Desktop folder; future gate records go under git-ignored
+`storage-gate-records/` which no script deletes.
+
+## Previous checkpoint — **v2.6.0 CORRECTIVE ROUND after the reopened ARM64 gate (2026-08-09), NOT DEPLOYED**
+
+The isolated ARM64 gate reopened the release: three browser scenarios failed over direct
+HTTP/1.1 (finalize badge, «مستبعد» visibility, an in-app navigation) while passing over
+HTTP/2, and the owner declared the exact empty-category URL an explicit acceptance
+condition. Both corrective changes were authorized and are implemented on this commit;
+digest `sha256:413b90d9…` (25cc24c) is **superseded** — preserved as historical evidence,
+never deployable; none of its candidate-specific evidence carries over.
+
+**D-069 — the root cause of the whole «الواجهة لا تتحدث بعد الحفظ» lineage, found and
+fixed.** In production builds, the post-action `router.refresh()` was silently discarded by
+the client router whenever a `loading.tsx` boundary sat in the tree — an upstream Next 16.2
+defect (vercel/next.js#86151; fixed only in 16.3). The server always answered with a
+complete, well-formed flight body (proven by header-replay and slow-read probes); the
+client dropped it, applying ~2/6 by timing luck — always in dev, practically always over
+HTTP/2. This was the v2.2.1 «UI does not refresh after save» issue and the v2.3 "never e2e
+against host `next start` (env quirk)" note, neither of which was an environment quirk.
+Shipped together (D-069 in `docs/DECISIONS.md`): `(app)/loading.tsx` removed;
+`prefetch={false}` on all 84 app links (the v16 per-action refetch storm of every
+in-viewport link — vercel/next.js#93210 — was saturating HTTP/1.1's six connections);
+verified refresh (per-render `data-render-stamp` + bounded 3-attempt retry in the
+`useRefresh*` hooks); and refresh-independent visible outcomes — row decisions publish
+their returned status to a client store (~60 ms to a visible «مستبعد» in both the card and
+the table), and the §I watcher polls a lightweight JSON endpoint
+(`/api/reports/instances/[id]/job`; no overlap, explicit timeout/error states, unmount
+cleanup) with exactly one verified refresh at the terminal state, outcome rendered
+client-side from the poll payload.
+
+**D-068 acceptance condition:** `?category=&report=maintenance-register` (both orderings)
+resolves the report independently, derives its catalog category, and redirects to the
+canonical URL; five cases distinguished (none/valid/empty/unknown/mismatch); no phantom
+chip possible. E2E block in `zzzzz-v260-filters.spec.ts` proves title, seeded row, exact
+count and chip absence for every rendering case.
+
+**Evidence so far (isolated port 3199, production build, plain HTTP/1.1 — production and
+:3080 untouched):** focused browser probes ×3 each — exclusion badge visible in ~60 ms,
+server counters reconciled by the single refresh, state correct after revisit, undo works;
+finalize badge appears 3/3 with zero document reloads; batch-page navigation ~80 ms 3/3.
+Full Playwright suite against the production build over HTTP/1.1: 144 passed / 1 named
+skip / 3 failed only in a locator of the new D-068 block (fixed; block then 15/15) —
+running the suite against `next start` at all was impossible before this fix. Full
+validation (3× external suite + vitest + dev-mode suite), CI on the new SHA, the
+replacement multi-platform image (now amd64+arm64 in one manifest list, smoke runs the
+pushed digest itself), nine regenerated DOCX samples, and the complete repeated ARM64 gate
+follow this checkpoint.
+
+**Follow-up in the same round — Next.js 16.3.0, then `loading.tsx` restored.** Commit
+`3c4a156` validated fully green locally (external ×3 147 passed each, vitest 1203/1203,
+dev suite 147/1-skip) but went red on **both** CI triggers at one step — a sidebar
+navigation right after the login action, CI runners only — and stayed red on the 16.3.0
+upgrade commit (`73ddf1f`). The uploaded Playwright snapshot settled it: at timeout the
+sidebar already marks the target link active while `<main>` still renders the previous
+page — a navigation **half-committed forever**, its on-demand route-data fetch aborted
+(`destination stream closed early`) and never retried. This round's own `prefetch={false}`
+exposed the window (for 36 commits the sidebar's data was always prefetched before any
+click); only slow CI runners sit in it. The durable guard for primary navigation is the
+**loading boundary**: with `loading.tsx` present the navigation commits instantly and the
+data streams in afterwards — and restoring it is safe *only because of 16.3*, which fixes
+the refresh-discard defect the boundary triggered on 16.2 (#86151; re-measured after
+restoration: post-action refreshes applied 6/6 with the boundary in place; probes ×3 all
+green). 16.3 also ships #95391. Also: eslint-config-next 16.3 required replacing one
+`window.location.href` internal navigation with `router.push` (evidence manage UI), and
+Next 16.3's `next dev` self-appends a maintained agent-rules block to `CLAUDE.md`
+(committed — removing it just recreates a dirty tree). Final state, each piece justified
+by a measured failure: **16.3.0 + `loading.tsx` + `prefetch={false}` + verified refresh +
+refresh-independent visible outcomes + lightweight JSON job polling.** See the two D-069
+addenda in `docs/DECISIONS.md`.
+
+## Superseded checkpoint — **v2.6.0 — RC READY, AWAITING DEPLOYMENT AUTHORIZATION (2026-08-09), NOT DEPLOYED**
+
+Final SHA: the head of `feat/v2.6-reporting-platform` (the commit carrying this checkpoint).
+All seven CI jobs green on **both** triggers; run URLs, counts and the immutable arm64
+digest are recorded in **PR #1** — per-run values cannot live inside the commit that
+produced them. Vitest **1203/1203** across 118 files locally (1200 + 3 CI skips);
+Playwright **140 passed · 0 failed · 0 did not run · 1 skipped** across 141 tests.
+
+**What changed since the NOT READY checkpoint.** D-066 was filed as an unfixable framework
+defect with an operational workaround. It was neither. The App Router identifies a page by a
+key built from `Object.fromEntries(new URLSearchParams(search))`, which keeps only the **last**
+occurrence of a repeated query key — so `?domain=أ&domain=ب` and `?domain=ب` are the same page
+to the router, and it never asks the server. The platform now writes a multi-value filter as
+**one** parameter with a U+001F-separated list, so every distinct selection is a distinct
+page. Reading still accepts the old shape and the stored shape is unchanged, so no link,
+template or instance breaks and no migration is needed.
+
+Root-causing it exposed two more real defects in the approved scope, both fixed:
+**D-068** — «التصنيف» shared the parameter name `category` with the reports centre's
+navigation, so **«بلاغات الصيانة» came back empty however many issues existed** whenever it
+was opened from the centre; and the session-filter restore re-applied a filter the user had
+just removed. Column reordering and hiding in the report builder failed by the same
+mechanism as D-066 and are fixed with it.
+
+**Open product defects: none.** The `test.fixme` that held D-066's reproduction is now a
+passing test.
+
+**The arm64 binary has still never been executed.** The CI runtime smoke is a runner-native
+amd64 build of the same Dockerfile and commit: it proves the code migrates, boots and answers
+`/api/health` with the right version and commit, not that the pushed arm64 image runs. Running
+it on the Mac mini against an isolated database on a temporary port is the **first mandatory
+pre-swap gate** and it awaits Fahad's authorization.
+
+Full account: `docs/DELIVERY_V2_6_0.md` §1, §5a, §5b, §5, §10; decisions D-065…D-068.
+
+## Superseded checkpoint — **v2.6.0 REPORTING PLATFORM — RC ON BRANCH (2026-08-08), NOT DEPLOYED**
+
+Branch `feat/v2.6-reporting-platform` (base `0488f1a` = main = v2.5.0 docs tip), Draft PR #1.
+Spec: `docs/requirements/v2.6-reporting-platform-specification.md`; decisions **D-055…D-060**.
+**Production and port 3080 untouched throughout.** Deployment sequence and rollback prepared
+in `RUNBOOK.md` («المرشَّح القادم — v2.6.0») — awaiting explicit owner authorization.
+
+- **What v2.6 adds:** report *instances* — a fourth artifact class over the one catalog:
+  draft → **finalized with a unique locked-counter number** (`KHS-RPT-<hijri>-NNNN`) and a
+  frozen `SnapshotDoc` → archived. DB-level immutability **triggers** (migration 0035)
+  reject any content mutation or deletion of a non-draft instance; ZIP is the sole
+  replaceable output (signed copy arrives late — D-060). Composite types (periodic /
+  final-term / executive) are ordered sections bound to catalog reports (D-056). Five
+  protected base templates in code + custom copies in DB (D-058). «مكتب التعليم» removed
+  from identity/templates/rendering; ministry source data untouched (D-057). Exports:
+  RTL DOCX with real editable header/footer and **mixed portrait/landscape sections**
+  (proven: both MediaBoxes in one PDF via named CSS pages + preferCSSPageSize), XLSX with
+  summary+per-section sheets and safe sheet names, verified flat-name ZIP. Background
+  generation via `after()` + `report_jobs` (one active job per instance, stale takeover,
+  Arabic failure reasons, idempotent outputs — D-059). Archive UI at `/reports/archive`
+  with search, live draft preview off the same SnapshotDoc, signed-copy upload, print
+  preview serving the *exact* PDF HTML.
+- **Migrations 34 → 36** (0034 five additive tables; 0035 hand-written triggers+index,
+  idempotent). Upgrade rehearsal scripted (`scripts/ci-migration-upgrade-test.sh`):
+  v2.5.0 ledger 34 → 36 with byte-checked markers and a live trigger-rejection probe —
+  PASS locally. Rollback stays app-only (new tables ignored by the older image).
+- **Real v2.5.0 defect found and fixed by the v2.6 stress audit:** every export beyond
+  200 rows silently lost the rest (`runReportForExport` → `paginate` → `clampPageSize`
+  capped at the screen page size; truncation flag only raises at 5000). Fixed; pinned by
+  `tests/integration/export-full-rows.test.ts`.
+- **First CI pipeline** (`.github/workflows/ci.yml`): lint/typecheck, vitest with a
+  Postgres 16 service, clean + upgrade migration jobs, production build, and a synthetic
+  sample-artifacts job (9 reports × PDF/DOCX/XLSX/ZIP + print HTML + screenshots — all
+  five base templates over a 60-row/13-column landscape table, multi-section periodic,
+  chart, and empty-report samples; `scripts/v260-ci-artifacts.ts`).
+- **Perf (§J)** `scripts/v260-perf-audit.ts`: preview 11–27 ms, archive search 3 ms,
+  frozen-snapshot render <1 ms, docx 17 ms, xlsx 5 ms, pdf 1 241 ms (background); 5 100-row
+  stress case truncates *declaredly* — all within targets.
+- **Tests:** baseline 1042/103 green → v2.6 adds ~100 more (lifecycle+trigger refusals,
+  snapshot frozen while source data changes, filter isolation, D-013 hiding, outputs/job
+  idempotency, stale retry, signed-copy ZIP, exporter XML/structure inspection, render
+  injection, catalog-wide privacy pin, identity D-057 pins incl. filesystem scan).
+- **Pending:** real-Microsoft-Word acceptance of DOCX (structural validation done; a
+  human must open the files in Word), owner-authorized deployment, principal acceptance.
 
 **Verdict: DEPLOYED — HEALTHY**, after one corrective iteration. Full record:
 **`docs/DEPLOYMENT_V2_5_0.md`** (implementation record: `docs/DELIVERY_V2_5_0.md`).

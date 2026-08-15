@@ -16,6 +16,7 @@ import {
   assets,
   people,
   actionTasks,
+  reportInstances,
 } from "@/db/schema";
 
 /**
@@ -44,7 +45,8 @@ export type LinkableEntityKey =
   | "room"
   | "asset"
   | "person"
-  | "task";
+  | "task"
+  | "report_instance";
 
 export type EntityRef = {
   id: string;
@@ -308,6 +310,21 @@ const DEFS: Record<LinkableEntityKey, EntityDef> = {
         .from(actionTasks)
         .where(inArray(actionTasks.id, ids));
       return rows.map((r) => ({ id: r.id, labelAr: r.title, locked: isLockedState(r.status) }));
+    },
+  },
+  report_instance: {
+    key: "report_instance",
+    labelAr: "تقرير محفوظ",
+    pluralAr: "التقارير المحفوظة",
+    permission: "reports.read",
+    route: (id) => `/reports/archive/${id}`,
+    resolve: async (ids) => {
+      const rows = await db
+        .select({ id: reportInstances.id, title: reportInstances.title, status: reportInstances.status })
+        .from(reportInstances)
+        .where(inArray(reportInstances.id, ids));
+      // v2.6 D-055: التقرير غير المسودة مقفل — شواهده المجمّدة في لقطته لا تُفك
+      return rows.map((r) => ({ id: r.id, labelAr: r.title, locked: r.status !== "مسودة" }));
     },
   },
 };

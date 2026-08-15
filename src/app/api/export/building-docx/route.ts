@@ -19,6 +19,7 @@ export async function GET() {
   const buf = await buildWordReport({
     // v2.4 §15: الهوية الرسمية المركزية بدل السطر الثابت الاحتياطي
     header: await getWordHeader(),
+    issuedAtText: `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`,
     title: "تقرير المبنى المدرسي (مجمع البنين)",
     meta: [
       ["تاريخ الإصدار", `${toHijriNumeric(now)}هـ (${toGregorianNumeric(now)}م)`],

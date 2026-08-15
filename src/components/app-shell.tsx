@@ -261,7 +261,9 @@ export function AppShell({
               {section.items.map((item) => {
                 const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
                 return (
-                  <Link
+                  // D-069: القائمة تحمل ~عشرين رابطاً على كل صفحة — جلبها المسبق كان يُعاد
+                  // بعد كل إجراء خادم فيخنق وصلات HTTP/1.1 ويُجهض تحديث ما بعد الإجراء
+                  <Link prefetch={false}
                     key={item.href}
                     href={item.href}
                     onClick={() => setOpen(false)}

@@ -51,7 +51,7 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
         title={orFallback(t.nameAr)}
         subtitle={`${t.code ?? ""} · إصدار ${t.version} · ${statusLabel(t.status)}${t.isSystem ? " · قالب نظام" : ""}`}
         actions={
-          <Link href="/building/inspections/templates" className="text-sm text-brand-700 underline">
+          <Link prefetch={false} href="/building/inspections/templates" className="text-sm text-brand-700 underline">
             ← كل القوالب
           </Link>
         }
@@ -62,7 +62,7 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
           <div className="flex flex-wrap items-center gap-2">
             {isDraft ? (
               <>
-                <Link
+                <Link prefetch={false}
                   href={`/building/inspections/templates/${id}/edit`}
                   className="inline-flex min-h-9 items-center rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white"
                 >
@@ -99,7 +99,7 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
         <ul className="space-y-1 text-sm">
           {versions.map((v) => (
             <li key={v.id} className="flex flex-wrap items-center gap-2">
-              <Link href={`/building/inspections/templates/${v.id}`} className={v.id === id ? "font-bold text-brand-900" : "text-brand-700 underline"}>
+              <Link prefetch={false} href={`/building/inspections/templates/${v.id}`} className={v.id === id ? "font-bold text-brand-900" : "text-brand-700 underline"}>
                 إصدار {v.version}
               </Link>
               <Badge value={statusLabel(v.status)} />

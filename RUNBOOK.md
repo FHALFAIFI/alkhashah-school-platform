@@ -2,6 +2,104 @@
 
 > المرجع السريع لتشغيل المنصة وتشخيصها. التفاصيل الكاملة: `docs/INSTALL_MAC_AR.md` (ماك) و`docs/DEPLOY_UBUNTU_AR.md` (أوبنتو).
 
+## المرشَّح القادم — v2.6.0 «منصة التقارير» (لم يُنشر — بانتظار تصريح المالك)
+
+> الفرع `feat/v2.6-reporting-platform`. النطاق والقرارات: `docs/requirements/v2.6-reporting-platform-specification.md`
+> وD-055…D-064. **لا شيء مما يلي نُفِّذ على الإنتاج** — هذا التسلسل يُنفَّذ فقط بعد تصريح صريح.
+
+### صورة المرشَّح تُبنى خارج مضيف الإنتاج (بلوكر §10)
+
+**لا تُبنَ صورة الإصدار على الجهاز الذي يخدم 3080.** الجهاز الوحيد الذي يملك Docker هنا هو
+مضيف الإنتاج نفسه، فالبناء يجري على عدّاء GitHub عبر سير `.github/workflows/rc-image.yml`:
+يبني `linux/arm64` من `Dockerfile.production` نفسه، ويدفعها إلى GHCR بوسم الالتزام،
+ويسجّل **البصمة الثابتة** في مُرفَق `v26-rc-image-record`، ثم يفحص تشغيلها مقابل قاعدة
+Postgres معزولة (هجرة فقط، سجل 37، `/api/health` يردّ `2.6.0` والالتزام المضبوط).
+
+### البوابة الأولى الإلزامية: تشغيل صورة arm64 نفسها قبل أي تبديل (لم تُنفَّذ)
+
+فحص السير يجري بمعمارية العدّاء **amd64**، فهو يثبت أن الشيفرة تُقلع وتهاجر وتردّ سليمة،
+**ولا يثبت أن ثنائيّة arm64 المدفوعة تعمل** — تلك لم تُشغَّل قط. لذلك أول خطوة عند التصريح
+بالنشر — وقبل لمس 3080 بأي شكل — هي تشغيل البصمة نفسها على Mac mini مقابل **قاعدة معزولة
+على منفذ مؤقّت**. أي فشل في السحب أو الهجرة أو الإقلاع أو الصحة أو الدخول = **توقّف تام**،
+والإنتاج لم يُمسّ بعد لأن شيئاً لم يُبدَّل.
+
+```bash
+DIGEST=<sha256:… من DIGEST.txt للالتزام النهائي>
+IMAGE=ghcr.io/fhalfaifi/alkhashah-school-platform/madrasa-app@$DIGEST
+docker pull "$IMAGE"
+
+# المعمارية المسحوبة يجب أن تكون arm64 فعلاً لا amd64
+docker inspect "$IMAGE" --format '{{.Architecture}}/{{.Os}}'   # المتوقع: arm64/linux
+
+# قاعدة معزولة مؤقتة — لا تشترك مع الإنتاج في شبكة ولا حجم ولا منفذ
+docker network create v26-gate-net
+docker run -d --name v26-gate-db --network v26-gate-net \
+  -e POSTGRES_USER=madrasa -e POSTGRES_PASSWORD=gate_pw -e POSTGRES_DB=madrasa_gate postgres:16
+GATE_DB="postgresql://madrasa:gate_pw@v26-gate-db:5432/madrasa_gate"
+
+# هجرة فقط، ثم إقلاع على منفذ 3099 (ليس 3080)
+docker run --rm --network v26-gate-net -e DATABASE_URL="$GATE_DB" -e MADRASA_ENV=production \
+  "$IMAGE" sh -c "npx tsx src/db/migrate.ts"
+docker run -d --name v26-gate-app --network v26-gate-net -p 127.0.0.1:3099:3080 \
+  -e DATABASE_URL="$GATE_DB" -e SESSION_SECRET="$(openssl rand -hex 32)" \
+  -e MADRASA_ENV=production "$IMAGE"
+
+# الصحة تُعرّف الالتزام النهائي بالضبط، وصفحة الدخول تُصيَّر
+curl -s http://127.0.0.1:3099/api/health    # status ok · db up · version 2.6.0 · commit <الالتزام النهائي>
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3099/login   # 200
+
+# تنظيف البوابة قبل الانتقال إلى تسلسل النشر
+docker rm -f v26-gate-app v26-gate-db && docker network rm v26-gate-net
+```
+
+عند النشر تُسحب الصورة بالبصمة لا بالوسم — فما يُنشر هو ما فُحص حرفياً. **الوسم
+`0.1.0-v2_6_0-rc` متحرّك ويعاد استعماله مع كل دفع، فلا يُنشر به وحده أبداً:**
+
+```bash
+# 1) سحب الصورة المفحوصة ببصمتها الثابتة (من مُرفَق سير RC image)
+DIGEST=<sha256:… من DIGEST.txt>
+docker pull ghcr.io/fhalfaifi/alkhashah-school-platform/madrasa-app@$DIGEST
+docker tag  ghcr.io/fhalfaifi/alkhashah-school-platform/madrasa-app@$DIGEST madrasa-app:0.1.0-v2_6_0-rc
+docker inspect madrasa-app:0.1.0-v2_6_0-rc --format '{{.Id}}'   # يجب أن تطابق البصمة أعلاه
+
+# 2) نسخة احتياطية مشفَّرة قبل النشر + تحقق استعادة معزول (كما v2.5.0)
+bash scripts/backup-daily.sh && bash scripts/restore-rehearsal.sh
+
+# 3) وسم صورة التراجع من الصورة الخادمة حالياً
+docker tag madrasa-app:0.1.0 madrasa-app:0.1.0-prev-v2_6_0-$(date +%Y%m%d)
+
+# 4) الهجرات عبر خدمة init (هجرة فقط — القاعدة لا يُعاد تشغيلها): السجل 34 → 37
+#    0034 خمسة جداول إضافية؛ 0035 قادحا ثبات وفهرس جزئي؛ 0036 تضييق قادح صفّ ZIP
+#    — لا صف قائم يُكتب أو يُحذف في أيٍّ منها
+docker tag madrasa-app:0.1.0-v2_6_0-rc madrasa-app:0.1.0
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod run --rm init
+
+# 5) تبديل التطبيق وفحص الصحة
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  up -d --no-deps --force-recreate app
+curl -s http://127.0.0.1:3080/api/health
+```
+
+### فحص الدخان بعد النشر (قائمة v2.6)
+
+- `/reports/archive` يفتح ويعرض «تقرير جديد»؛ إنشاء مسودة «تقرير مجال واحد» يعمل والمعاينة الحية تتغير بالمرشّحات.
+- «اعتماد نهائي وترقيم» يمنح رقم `KHS-RPT-…` ويجمّد اللقطة؛ الاعتماد الثاني يعيد الرقم نفسه.
+- المخرجات تتولّد في الخلفية (حالة التوليد «مكتمل») وتنزيل PDF/Word/Excel/ZIP يعمل، واسم الملف «العنوان - التاريخ».
+- «معاينة الطباعة» تعرض الوثيقة نفسها؛ ترويستها **بلا** «مكتب التعليم» (D-057).
+- تقرير حسّاس (أداء فردي) لا يظهر لمسؤول النظام في الأرشيف (D-013).
+- تعديل تقرير نهائي أو حذفه يُرفض (خدمةً وقاعدةً — D-055).
+
+### التراجع (لم يُنفَّذ — جاهز فقط)
+
+```bash
+# تراجع التطبيق وحده — لا إجراء على القاعدة: هجرات v2.6 إضافية كلها (جداول جديدة + قوادح
+# على الجداول الجديدة حصراً)، فصورة v2.5.0 تعمل على السجل 37 كما عملت v2.4.1 على السجل 34
+docker tag madrasa-app:0.1.0-prev-v2_6_0-<التاريخ> madrasa-app:0.1.0
+docker compose -f compose.production.yml --env-file .env.production -p madrasa-prod \
+  up -d --no-deps --force-recreate app
+curl -s http://127.0.0.1:3080/api/health
+```
+
 ## الإصدار المنشور حالياً (خط الأساس)
 
 | البند | القيمة |

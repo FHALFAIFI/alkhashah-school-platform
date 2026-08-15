@@ -98,7 +98,7 @@ export default async function EvidenceDetailPage({ params }: { params: Promise<{
                         {r.locked && <Badge value="مقفل" />}
                         {r.subKey && <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs text-brand-700">{r.subKey}</span>}
                       </span>
-                      {r.href && <Link href={r.href} className="text-xs text-brand-700 underline">فتح السجل</Link>}
+                      {r.href && <Link prefetch={false} href={r.href} className="text-xs text-brand-700 underline">فتح السجل</Link>}
                     </li>
                   ))}
                 </ul>

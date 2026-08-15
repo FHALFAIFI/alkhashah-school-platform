@@ -51,13 +51,25 @@ async function countArchiveBatches(): Promise<number> {
 }
 
 test("تنظيف السجلات: تُعرض على الجوال دون تمرير أفقي ولا تنفّذ أرشفة", async ({ page }) => {
+  /*
+   * CI يشغّل `next dev`، فأول زيارة لأي مسار تدفع ثمن ترجمته. وشاشة التنظيف تُحصي كل
+   * مجموعات السجلات قبل أن تُصيَّر، فهي من أبطأ المسارات أول مرة. المهلة هنا سقفٌ يتّسع
+   * لعدّاء مزدحم، لا انتظارٌ مقصود.
+   */
+  test.setTimeout(180_000);
   const archivesBefore = await countArchiveBatches();
 
   await login(page);
-  await page.goto("/admin/cleanup", { waitUntil: "networkidle" });
+  /*
+   * `networkidle` ليست إشارة جاهزية بل نافذة هدوء بمدة ثابتة (٥٠٠ مللي بلا طلبات)، ولا
+   * تتحقّق أصلاً على عدّاء يترجم المسار عند الطلب — فسقط الاختبار على الـ`pull_request`
+   * ونجح على الـ`push` بالشيفرة نفسها. الجاهزية الحقيقية هي العناصر التي يفحصها الاختبار
+   * بعد سطرين، وهي تُنتظر بحالتها.
+   */
+  await page.goto("/admin/cleanup");
 
   // العنوان والأقسام الأساسية
-  await expect(page.getByRole("heading", { name: "تنظيف السجلات التجريبية" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "تنظيف السجلات التجريبية" })).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText("المعاينة الدقيقة — عدد المرشّحين للأرشفة حسب المجموعة")).toBeVisible();
   await expect(page.getByText("محفوظ وآمن — لا يُشمل بالتنظيف")).toBeVisible();
 

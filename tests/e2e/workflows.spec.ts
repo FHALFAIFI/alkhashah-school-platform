@@ -71,7 +71,18 @@ async function login(page: Page) {
   sessionCookies = await page.context().cookies();
 }
 
-/** تنقّل عبر القائمة الجانبية (سطح المكتب — القائمة ظاهرة عند 1280px) */
+/**
+ * تنقّل عبر القائمة الجانبية (سطح المكتب — القائمة ظاهرة عند 1280px).
+ *
+ * ── لماذا ميزانية هذه السيناريوهات عشر دقائق ──────────────────────────────
+ * المجموعة تعمل على `next dev`، فأول زيارة لكل مسار تُترجم عند الطلب. أثقلها مسار
+ * المبنى (Konva وthree.js)، وأول `nav` إليه في س5 قد يستغرق دقائق على عدّاء مزدحم.
+ * وقد ظهر ذلك فعلاً: التزام واحد بعينه مرّ في تشغيل استغرق 10.6 دقيقة، وسقط مرتين في
+ * تشغيلين استغرقا 15.4 و16.2 دقيقة — الشيفرة نفسها والعمل نفسه، وعدّاء أبطأ وحده.
+ *
+ * المرفوع هو الصبر لا التوقّع: لم يُغيَّر أي ادّعاء، ولا يُستهلك من الميزانية إلا ما
+ * يلزم فعلاً. بوابة تنقلب حمراء بحسب سرعة العدّاء ليست بوابة.
+ */
 async function nav(page: Page, label: string, urlPart: string) {
   await page.locator("aside").getByRole("link", { name: label, exact: true }).click();
   await page.waitForURL(`**${urlPart}`);
@@ -180,7 +191,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test("س1: استيراد الموظفين — معاينة وتصحيح وتنفيذ، ثم دفعة ثانية وتراجع كامل", async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     await login(page);
 
@@ -223,7 +234,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س2: الخطة التشغيلية — استيراد واعتماد ومتابعة وطلب تغيير وتقرير تنفيذي", async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     await login(page);
 
@@ -311,17 +322,17 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await page.waitForURL("**/plan/followup");
     const fuNote = `متابعة تجريبي آلي ${TAG} — سير منتظم`;
     await page.fill(`#fu-note-${state.programId}`, fuNote);
-    await page.selectOption(`#fu-status-${state.programId}`, "في المسار");
+    await page.selectOption(`#fu-status-${state.programId}`, "قيد التنفيذ");
     const fuCard = page.locator("div.rounded-xl", { hasText: plan.prog1 });
     await fuCard.getByRole("button", { name: "تسجيل المتابعة" }).click();
-    // v2.4: بعد التسجيل ينتقل البرنامج لمجموعته الصادقة («في المسار») ويظهر سجل الأسبوع نفسه
+    // v2.5.0 D-054: المفردات الأسبوعية الخمس المعتمدة — «في المسار» تسمية تاريخية تُطبَّع عند القراءة
     await expect(page.getByText(fuNote)).toBeVisible({ timeout: 20_000 });
 
     // سجل المتابعة يظهر على صفحة البرنامج
     await page.locator(`a[href="/plan/${state.programId}"]`).first().click();
     await page.waitForURL(`**/plan/${state.programId}`);
     await expect(page.getByText(fuNote)).toBeVisible();
-    await expect(page.getByText("في المسار", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("قيد التنفيذ", { exact: true }).first()).toBeVisible();
 
     // طلب تغيير على برنامج معتمد ثم اعتماده
     const crForm = page.locator('form:has(input[name="fieldLabel"])');
@@ -356,7 +367,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س2ب: الميزانية — تسمية «البند»، رفع إيصال إيراد ومصروف مباشرةً، والإيصال اختياري (D-026)", async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     await login(page);
     await page.goto("/budget");
@@ -427,7 +438,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س3: اللجان — تشكيل واعتماد واجتماع وقرار إلزامي ومحضر واكتمال ولوحة العمل", async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     test.skip(!state.person1Id || !state.person2Id, "يتطلب أشخاص السيناريو الأول");
     await login(page);
@@ -517,9 +528,34 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
     await expect(page.getByText("لا يتطلب توقيعاً لاكتماله").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "اعتماد الاكتمال" }).first()).toBeEnabled();
 
-    // إصدار المحضر الرسمي (PDF) — اختياري، لكنه يثبت عمل الزر — ثم اعتماد الاكتمال مباشرةً
+    /*
+     * إصدار المحضر الرسمي (PDF) — D-065.
+     *
+     * لا يكفي أن تنجح الكتابة: المدير لا يرى قاعدة البيانات، يرى الشاشة. فيُثبَّت هنا أن
+     * الصفحة أُعيد تصييرها فعلاً بعد الإجراء — العنوان يحمل رقم الوثيقة الصادرة، والتأكيد
+     * يعرض الرقم نفسه، ورابط التنزيل يفتح ملف PDF حقيقياً، ومؤشر المراحل تقدّم عن «إصدار
+     * المحضر». التحويل بوسم `#minutes` وحده كان يمرّ من كل هذا بشاشة لم تتغير حرفياً.
+     */
     await page.getByRole("button", { name: "إصدار المحضر الرسمي (PDF)" }).click();
-    await expect(page.getByRole("link", { name: /تنزيل المحضر/ })).toBeVisible({ timeout: 120_000 });
+    await page.waitForURL(/\?issued=KHS-DOC-\d{5}/, { timeout: 120_000 });
+    const issuedNumber = decodeURIComponent(new URL(page.url()).searchParams.get("issued")!);
+    await expect(page.getByText(`صدر المحضر الرسمي رقم ${issuedNumber}`)).toBeVisible({ timeout: 120_000 });
+
+    const minutesLink = page.getByRole("link", { name: /تنزيل المحضر/ });
+    await expect(minutesLink).toBeVisible({ timeout: 120_000 });
+    await expect(minutesLink).toHaveText(new RegExp(`تنزيل المحضر\\s+${issuedNumber}`));
+    // الرابط يفتح ملفاً فعلياً — لا عنصر واجهة يشير إلى لا شيء
+    const minutesHref = (await minutesLink.getAttribute("href"))!;
+    expect(minutesHref).toMatch(/^\/api\/files\/[0-9a-f-]{36}$/);
+    const minutesPdf = await page.request.get(minutesHref);
+    expect(minutesPdf.ok()).toBe(true);
+    expect(minutesPdf.headers()["content-type"]).toContain("application/pdf");
+    expect((await minutesPdf.body()).subarray(0, 5).toString()).toBe("%PDF-");
+
+    // مؤشر المراحل تجاوز «إصدار المحضر» إلى «المحضر الموقع» — الصفحة قرأت الحالة الجديدة
+    await expect(page.locator('[aria-current="step"]')).toHaveText("المحضر الموقع");
+    await expect(page.getByText("الخطوة التالية: إصدار المحضر الرسمي (PDF)")).toHaveCount(0);
+
     await page.getByRole("button", { name: "اعتماد الاكتمال" }).first().click();
     await expect(page.getByText("اكتمل الاجتماع واعتمد").first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("مكتمل", { exact: true }).first()).toBeVisible();
@@ -568,7 +604,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س4: الأداء الوظيفي — دورة معلم: تخطيط ثم تقييم نهائي بشواهد لكل مؤشر حتى اكتمال الدورة", async ({ page }) => {
-    test.setTimeout(420_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     test.skip(!state.person1Id, "يتطلب أشخاص السيناريو الأول");
     await login(page);
@@ -642,7 +678,7 @@ test.describe("سيناريوهات سير العمل — سطح المكتب", 
   });
 
   test("س5: التوأم الرقمي — نشر المخطط وسجل الغرف وفحص وبلاغ صيانة حتى الإغلاق المتحقق", async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     page.on("dialog", (d) => void d.accept());
     test.skip(!state.person1Id, "يتطلب أشخاص السيناريو الأول");
     await login(page);
@@ -825,7 +861,7 @@ test.describe("سيناريوهات سير العمل — 390×844", () => {
     await expectNoOverflow(page, "/plan/followup");
     const note = `متابعة جوال تجريبي آلي ${TAG}`;
     await page.fill(`#fu-note-${state.programId}`, note);
-    await page.selectOption(`#fu-status-${state.programId}`, "في المسار");
+    await page.selectOption(`#fu-status-${state.programId}`, "قيد التنفيذ");
     const card = page.locator("div.rounded-xl", { hasText: state.programName! });
     await card.getByRole("button", { name: "تسجيل المتابعة" }).click();
     // v2.4: يظهر سجل الأسبوع المحفوظ (البطاقة تنتقل لمجموعتها الصادقة)

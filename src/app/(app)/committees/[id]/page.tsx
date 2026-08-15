@@ -205,7 +205,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
                 <tr key={m.id}>
                   <td className="px-3 py-2 tabular-nums">{m.seq}</td>
                   <td className="px-3 py-2 font-medium">
-                    <Link href={`/committees/${id}/meetings/${m.id}`} className="text-brand-700 hover:underline">
+                    <Link prefetch={false} href={`/committees/${id}/meetings/${m.id}`} className="text-brand-700 hover:underline">
                       {orFallback(m.title, `الاجتماع ${m.seq}`)}
                     </Link>
                   </td>

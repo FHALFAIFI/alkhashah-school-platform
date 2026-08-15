@@ -8,10 +8,18 @@ import { ReportActions } from "@/components/report-actions";
 import { generateProgramReport } from "@/lib/reports/program-report";
 import { getSetting } from "@/lib/settings";
 import { getExcludedIdSets, notSynthetic } from "@/lib/synthetic";
+import { IssuedDocumentNotice, issuedParam } from "@/components/issued-document-notice";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProgramReportPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProgramReportPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const issuedNumber = issuedParam(await searchParams);
   const user = await requirePermission("reports.generate");
   const { id } = await params;
   const excluded = await getExcludedIdSets();
@@ -36,7 +44,9 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
     const u = await requirePermission("reports.generate");
     const withSignature = formData.get("withSignature") === "on" && u.permissions.has("branding.use");
     const withStamp = formData.get("withStamp") === "on" && u.permissions.has("branding.use");
-    await generateProgramReport({ programId: id, withSignature, withStamp, issuedBy: u.id });
+    const { docNumber } = await generateProgramReport({ programId: id, withSignature, withStamp, issuedBy: u.id });
+    // D-065: الإجراء كان ينتهي بلا شيء، فتصدر وثيقة مرقّمة بلا أثر على الشاشة
+    redirect(`/plan/${id}/report?issued=${encodeURIComponent(docNumber)}`);
   }
 
   // بطاقة تكليف المنفذ (v2.3 §20) — وثيقة مستقلة تُسلَّم للمكلف بالتنفيذ
@@ -44,12 +54,15 @@ export default async function ProgramReportPage({ params }: { params: Promise<{ 
     "use server";
     const u = await requirePermission("reports.generate");
     const { generateProgramCard } = await import("@/lib/reports/program-card");
-    await generateProgramCard({ programId: id, issuedBy: u.id });
+    const { docNumber } = await generateProgramCard({ programId: id, issuedBy: u.id });
+    // D-065: كما تقرير البرنامج — النتيجة تُرى، فلا تتكرر بطاقة تكليف رسمية
+    redirect(`/plan/${id}/report?issued=${encodeURIComponent(docNumber)}`);
   }
 
   return (
     <div className="max-w-3xl space-y-4">
       <PageHeader title={`تقرير برنامج: ${program.name}`} subtitle="إصدار تقرير رسمي بلقطة ثابتة ورقم وثيقة ورمز تحقق" />
+      <IssuedDocumentNotice docNumber={issuedNumber} label="صدرت الوثيقة رقم" />
       <Card>
         <form action={issueReport} className="space-y-3">
           {canBrand && (

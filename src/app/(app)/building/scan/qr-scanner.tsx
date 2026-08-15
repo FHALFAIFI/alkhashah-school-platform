@@ -126,9 +126,9 @@ export function QrScanner() {
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
           <p className="font-bold text-emerald-900">غرفة: {result.nameAr} <span className="text-xs text-emerald-700" dir="ltr">({result.code})</span></p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link href={`/building/rooms/${result.id}`} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white">فتح الغرفة</Link>
-            {result.canInspect && <Link href={`/building/rooms/${result.id}#inspection`} className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800">بدء فحص</Link>}
-            {result.canMaintain && <Link href={`/building/rooms/${result.id}#صيانة`} className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800">إنشاء بلاغ صيانة</Link>}
+            <Link prefetch={false} href={`/building/rooms/${result.id}`} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white">فتح الغرفة</Link>
+            {result.canInspect && <Link prefetch={false} href={`/building/rooms/${result.id}#inspection`} className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800">بدء فحص</Link>}
+            {result.canMaintain && <Link prefetch={false} href={`/building/rooms/${result.id}#صيانة`} className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800">إنشاء بلاغ صيانة</Link>}
           </div>
         </div>
       )}
@@ -139,9 +139,9 @@ export function QrScanner() {
             {result.archived && <span className="ms-2 rounded bg-amber-200 px-1.5 text-xs text-amber-900">مؤرشف</span>}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link href={`/building/assets?رمز=${encodeURIComponent(result.code)}${result.archived ? "&عرض=مؤرشف" : ""}`} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white">فتح الأصل</Link>
+            <Link prefetch={false} href={`/building/assets?رمز=${encodeURIComponent(result.code)}${result.archived ? "&عرض=مؤرشف" : ""}`} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white">فتح الأصل</Link>
             {!result.archived && result.canMaintain && result.roomId && (
-              <Link href={`/building/rooms/${result.roomId}#صيانة`} className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800">إنشاء بلاغ صيانة</Link>
+              <Link prefetch={false} href={`/building/rooms/${result.roomId}#صيانة`} className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-800">إنشاء بلاغ صيانة</Link>
             )}
             {result.archived && <span className="self-center text-xs text-amber-800">الأصل مؤرشف — استعِده أولاً لبدء إجراء عليه</span>}
           </div>

@@ -67,7 +67,7 @@ export default async function TemplatesListPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {versions.map((v) => (
-                      <Link
+                      <Link prefetch={false}
                         key={v.id}
                         href={`/building/inspections/templates/${v.id}`}
                         className="inline-flex items-center gap-1 rounded-lg border border-sand-200 px-2 py-1 text-xs hover:bg-sand-50"

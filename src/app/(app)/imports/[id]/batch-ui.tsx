@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import {
   commitBatchAction,
   rollbackBatchAction,
@@ -11,9 +11,55 @@ import {
   deferRowAction,
   returnRowToReviewAction,
   undoRowDecisionAction,
+  type RowActionResult,
 } from "../actions";
-import { SubmitButton } from "@/components/ui";
+import { Badge, SubmitButton } from "@/components/ui";
 import { useRefreshAfterTransition } from "@/components/form-reset";
+
+/*
+ * حالة الصف المؤكَّدة من العميل (D-069).
+ *
+ * كانت شارة حالة الصف تُصيَّر من الخادم وحده، فلا تتغير إلا بوصول تحديث الصفحة الذي يلي
+ * الإجراء — وقد ثبت أن بناء الإنتاج كان يُسقط ذلك التحديث بانتظام (عيب Next 16.2 مع حدود
+ * `loading.tsx` — تفصيله في D-069) فلا يظهر «مستبعد» رغم نجاح الإجراء في القاعدة. ومع زوال
+ * المسبِّب، تبقى القاعدة: الحالة المرئية الحرِجة لا تُعلَّق على تحديثٍ لاحق أصلاً. يعيد
+ * إجراء القرار الحالة الجديدة
+ * في استجابته، وتُنشر هنا في مخزن وحدةٍ مشترك تقرؤه نسختا الصف (بطاقة الجوال وجدول سطح
+ * المكتب) معاً — فتظهر الحالة الجديدة فور استقرار نتيجة الإجراء، ويبقى تحديث الصفحة مصالحةً
+ * للعدادات وبوابة التنفيذ لا شرطاً لرؤية الحالة. حين يلحق تصيير الخادم بالقيمة المؤكدة
+ * يُحذف التجاوز فيعود الخادم مصدر الحقيقة الوحيد.
+ */
+const rowStatusOverrides = new Map<string, string>();
+const rowStatusListeners = new Set<() => void>();
+
+function publishRowStatus(rowId: string, status: string) {
+  rowStatusOverrides.set(rowId, status);
+  for (const listener of rowStatusListeners) listener();
+}
+
+function useRowStatus(rowId: string, serverStatus: string): string {
+  const subscribe = useCallback((onChange: () => void) => {
+    rowStatusListeners.add(onChange);
+    return () => {
+      rowStatusListeners.delete(onChange);
+    };
+  }, []);
+  const override = useSyncExternalStore(
+    subscribe,
+    () => rowStatusOverrides.get(rowId),
+    () => undefined,
+  );
+  useEffect(() => {
+    // تصيير الخادم لحق بالقيمة المؤكدة — التجاوز أدى غرضه ويُحذف
+    if (override !== undefined && override === serverStatus) rowStatusOverrides.delete(rowId);
+  }, [override, serverStatus, rowId]);
+  return override ?? serverStatus;
+}
+
+/** شارة حالة الصف — تعرض الحالة المؤكدة من العميل فور القرار، وحالة الخادم فيما عدا ذلك */
+export function RowStatusBadge({ rowId, status }: { rowId: string; status: string }) {
+  return <Badge value={useRowStatus(rowId, status)} />;
+}
 
 export function BatchActions({
   batchId,
@@ -46,8 +92,10 @@ export function BatchActions({
   const [sessionExpiredHref, setSessionExpiredHref] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
-  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
-  useRefreshAfterTransition(pending);
+  // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار.
+  // يُستثنى انتهاء الجلسة: التحديث حينها يُحوّل إلى صفحة الدخول فيمحو رسالة «انتهت الجلسة»
+  // ورابط العودة إلى الدفعة قبل أن يراهما المستخدم — وهو بالضبط ما يحتاجه ليكمل.
+  useRefreshAfterTransition(pending, { skip: sessionExpiredHref !== null });
 
   return (
     <div className="mb-4 rounded-xl border border-sand-200 bg-white p-4">
@@ -248,7 +296,7 @@ export function RowEditor({
   batchId,
   fields,
   values,
-  status,
+  status: serverStatus,
   history = [],
 }: {
   rowId: string;
@@ -259,9 +307,21 @@ export function RowEditor({
   history?: RowHistoryEntry[];
 }) {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   // D-053: التحديث بعد اكتمال الانتقال — الإجراء لم يعد يُبطل أي مسار
   useRefreshAfterTransition(pending);
+  // D-069: الأزرار تُبنى على الحالة الفعلية — المؤكدة من العميل إن سبقت تصيير الخادم
+  const status = useRowStatus(rowId, serverStatus);
+
+  // نتيجة القرار تُنشر فور استقرارها: الشارة والأزرار تتغير دون انتظار تحديث الصفحة
+  const decide = (fn: () => Promise<RowActionResult>) =>
+    startTransition(async () => {
+      setError(null);
+      const res = await fn();
+      if (res?.error) setError(res.error);
+      else if (res?.status) publishRowStatus(rowId, res.status);
+    });
 
   if (!open) {
     return (
@@ -273,7 +333,7 @@ export function RowEditor({
           {status !== "جاهز" && (
             <button
               disabled={pending}
-              onClick={() => startTransition(() => markRowReadyAction(rowId, batchId))}
+              onClick={() => decide(() => markRowReadyAction(rowId, batchId))}
               className={rowBtn("border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50")}
             >
               تأكيد كجاهز
@@ -282,7 +342,7 @@ export function RowEditor({
           {status !== "مستبعد" && (
             <button
               disabled={pending}
-              onClick={() => startTransition(() => excludeRowAction(rowId, batchId))}
+              onClick={() => decide(() => excludeRowAction(rowId, batchId))}
               className={rowBtn("border-sand-200 text-gray-500 hover:bg-sand-100 disabled:opacity-50")}
             >
               استبعاد
@@ -291,7 +351,7 @@ export function RowEditor({
           {status !== "مؤجل" && (
             <button
               disabled={pending}
-              onClick={() => startTransition(() => deferRowAction(rowId, batchId))}
+              onClick={() => decide(() => deferRowAction(rowId, batchId))}
               className={rowBtn("border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50")}
             >
               تأجيل
@@ -300,7 +360,7 @@ export function RowEditor({
           {status !== "يحتاج مراجعة" && (
             <button
               disabled={pending}
-              onClick={() => startTransition(() => returnRowToReviewAction(rowId, batchId))}
+              onClick={() => decide(() => returnRowToReviewAction(rowId, batchId))}
               className={rowBtn("border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-50")}
             >
               إعادة إلى المراجعة
@@ -309,7 +369,7 @@ export function RowEditor({
           {history.length > 0 && (
             <button
               disabled={pending}
-              onClick={() => startTransition(() => undoRowDecisionAction(rowId, batchId))}
+              onClick={() => decide(() => undoRowDecisionAction(rowId, batchId))}
               className={rowBtn("border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50")}
             >
               تراجع عن آخر قرار
@@ -317,6 +377,7 @@ export function RowEditor({
           )}
         </div>
         {history.length > 0 && <RowHistory history={history} />}
+        {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
         {pending && <p className="text-xs text-gray-400">جارٍ التنفيذ…</p>}
       </div>
     );
@@ -326,7 +387,13 @@ export function RowEditor({
     <form
       action={(fd) =>
         startTransition(async () => {
-          await correctRowAction(rowId, batchId, fd);
+          setError(null);
+          const res = await correctRowAction(rowId, batchId, fd);
+          if (res?.error) {
+            setError(res.error);
+            return;
+          }
+          if (res?.status) publishRowStatus(rowId, res.status);
           setOpen(false);
         })
       }
@@ -351,6 +418,7 @@ export function RowEditor({
           إلغاء
         </button>
       </div>
+      {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
       {pending && <p className="text-xs text-gray-400">جارٍ الحفظ…</p>}
     </form>
   );

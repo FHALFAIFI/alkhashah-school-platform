@@ -8,7 +8,7 @@ import { peopleBatchDependencies, type PeopleRollbackPreflight } from "@/lib/imp
 import { rowValidationDisplay } from "@/lib/imports/validation-display";
 import { PEOPLE_FIELDS } from "@/lib/imports/people-fields";
 import { PageHeader, Card, Badge, Table, WorkflowSteps, LinkButton } from "@/components/ui";
-import { BatchActions, RowEditor } from "./batch-ui";
+import { BatchActions, RowEditor, RowStatusBadge } from "./batch-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -122,11 +122,12 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="text-xs tabular-nums text-gray-400">الصف {r.rowIndex}</span>
-                    <Badge value={r.status} />
+                    {/* D-069: الشارة تعرض الحالة المؤكدة من العميل فور القرار — لا تنتظر تحديث الصفحة */}
+                    <RowStatusBadge rowId={r.id} status={r.status} />
                   </div>
                   <p className="mb-2 break-words font-bold text-brand-900">
                     {r.status === "منفذ" && r.createdEntityId ? (
-                      <Link href={`/people/${r.createdEntityId}`} className="text-brand-700 underline-offset-2 hover:underline">
+                      <Link prefetch={false} href={`/people/${r.createdEntityId}`} className="text-brand-700 underline-offset-2 hover:underline">
                         {m?.fullName || "—"}
                       </Link>
                     ) : (
@@ -168,11 +169,12 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
                 return (
                   <tr key={r.id} className={r.status === "مستبعد" ? "opacity-40" : ""}>
                     <td className="px-3 py-2 tabular-nums">{r.rowIndex}</td>
-                    <td className="px-3 py-2"><Badge value={r.status} /></td>
+                    {/* D-069: كالبطاقة — الحالة المؤكدة من العميل تظهر فور القرار */}
+                    <td className="px-3 py-2"><RowStatusBadge rowId={r.id} status={r.status} /></td>
                     {PEOPLE_FIELDS.map((f) => (
                       <td key={f.key} className="px-3 py-2">
                         {f.key === "fullName" && r.status === "منفذ" && r.createdEntityId ? (
-                          <Link href={`/people/${r.createdEntityId}`} className="font-medium text-brand-700 underline-offset-2 hover:underline">
+                          <Link prefetch={false} href={`/people/${r.createdEntityId}`} className="font-medium text-brand-700 underline-offset-2 hover:underline">
                             {m?.[f.key] || "—"}
                           </Link>
                         ) : (

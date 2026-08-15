@@ -6,6 +6,8 @@ import {
   FILTER_DEFS,
   FILTER_FLAGS,
   DEFAULT_LOW_THRESHOLD,
+  readListParam,
+  writeListParam,
   type FilterKey,
   type FilterFlag,
 } from "@/lib/reports/filters";
@@ -63,12 +65,15 @@ const MULTI_PARAM: Partial<Record<FilterKey, string>> = {
   jobTitle: "jobTitle",
   department: "dept",
   cycle: "cycleId",
-  category: "category",
+  category: "recordCategory", // D-068 — `category` محجوز لتنقّل مركز التقارير
   priority: "priority",
   location: "roomId",
 };
 
 const inputCls = "min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm lg:min-h-0";
+
+/** مفاتيح استُعيدت مرشّحاتها في هذه الجلسة — تبقى بين تركيبات اللوحة ما بقيت الصفحة محمّلة */
+const restoredKeys = new Set<string>();
 
 export function FilterPanel({
   filterKeys,
@@ -93,14 +98,21 @@ export function FilterPanel({
   const pathname = usePathname();
   const params = useSearchParams();
   const [open, setOpen] = useState(false);
-  const restored = useRef(false);
 
   const query = params.toString();
 
-  // استعادة مرشّحات الجلسة عند الدخول بلا معاملات — مرة واحدة فقط
+  /*
+   * استعادة مرشّحات الجلسة عند الدخول بلا معاملات — **مرة واحدة لكل مفتاح في الجلسة**،
+   * لا مرة واحدة لكل تركيب.
+   *
+   * الفرق ليس تفصيلاً: بعد «مسح الفلاتر» أو رفع آخر مرشّح يعود العنوان بلا معاملات، وقد
+   * يُعاد تركيب اللوحة مع التصيير الجديد — فكانت الاستعادة تنطلق من جديد وتُرجع بـ
+   * `router.replace` مرشّحاً رفعه المستخدم للتوّ. ومن حيث لا يُرى: إن وقع ذلك بينما نقرة
+   * أخرى في الطريق، ألغى أحد الانتقالين الآخر فضاعت النقرة بلا أثر.
+   */
   useEffect(() => {
-    if (!storageKey || restored.current) return;
-    restored.current = true;
+    if (!storageKey || restoredKeys.has(storageKey)) return;
+    restoredKeys.add(storageKey);
     const meaningful = [...params.keys()].some((k) => !(k in keep) && k !== "page");
     if (meaningful) return;
     const saved = typeof window === "undefined" ? null : window.sessionStorage.getItem(`filters:${storageKey}`);
@@ -129,17 +141,15 @@ export function FilterPanel({
 
   function toggleMulti(name: string, value: string) {
     const next = new URLSearchParams(params);
-    const current = next.getAll(name);
-    next.delete(name);
+    const current = readListParam(next, name);
     const after = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-    for (const v of after) next.append(name, v);
+    writeListParam(next, name, after);
     push(next);
   }
 
   function setAll(name: string, values: string[]) {
     const next = new URLSearchParams(params);
-    next.delete(name);
-    for (const v of values) next.append(name, v);
+    writeListParam(next, name, values);
     push(next);
   }
 
@@ -153,11 +163,7 @@ export function FilterPanel({
   function removeChip(param: string, value: string | null) {
     const next = new URLSearchParams(params);
     if (value === null) next.delete(param);
-    else {
-      const rest = next.getAll(param).filter((v) => v !== value);
-      next.delete(param);
-      for (const v of rest) next.append(param, v);
-    }
+    else writeListParam(next, param, readListParam(next, param).filter((v) => v !== value));
     push(next);
   }
 
@@ -216,7 +222,7 @@ export function FilterPanel({
               <legend className="mb-1 text-xs text-gray-500">{FILTER_DEFS.flags.labelAr}</legend>
               <div className="flex flex-wrap gap-2">
                 {flags.map((f) => {
-                  const active = params.getAll("flag").includes(f);
+                  const active = readListParam(params, "flag").includes(f);
                   return (
                     <button
                       key={f}
@@ -391,7 +397,7 @@ function FilterControl({
   const param = MULTI_PARAM[filterKey];
   if (!param) return null;
   const opts = optionsFor(filterKey, options);
-  const selected = params.getAll(param);
+  const selected = readListParam(params, param);
 
   return (
     <details className="rounded-lg border border-sand-200">
@@ -493,12 +499,12 @@ function activeChips(params: URLSearchParams, options: FilterOptions): Chip[] {
   const nameOf = (list: Option[] | undefined, value: string) => list?.find((o) => o.value === value)?.label ?? value;
 
   for (const [key, param] of Object.entries(MULTI_PARAM) as [FilterKey, string][]) {
-    for (const value of params.getAll(param)) {
+    for (const value of readListParam(params, param)) {
       const opts = optionsFor(key, options);
       chips.push({ param, value, label: FILTER_DEFS[key].labelAr, display: nameOf(opts, value) });
     }
   }
-  for (const flag of params.getAll("flag")) {
+  for (const flag of readListParam(params, "flag")) {
     chips.push({
       param: "flag",
       value: flag,

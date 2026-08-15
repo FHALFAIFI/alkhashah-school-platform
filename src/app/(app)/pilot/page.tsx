@@ -41,7 +41,7 @@ function StatusCard({
       </div>
       {children && <div className="text-sm text-gray-700">{children}</div>}
       {action && (
-        <Link
+        <Link prefetch={false}
           href={action.href}
           className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0"
         >
@@ -144,7 +144,7 @@ export default async function PilotPage() {
             واحد يدوي: تأكيد استيراد دفعة فارس لإنشاء سجلات المنسوبين (٥٢ منسوباً) وفتح وحدتَي اللجان والأداء.
           </p>
           {s.fares.batchId && (
-            <Link
+            <Link prefetch={false}
               href={`/imports/${s.fares.batchId}`}
               className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 lg:min-h-0"
             >

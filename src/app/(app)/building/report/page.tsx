@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { desc, and, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
@@ -5,10 +6,16 @@ import { documents } from "@/db/schema";
 import { PageHeader, Card, SubmitButton, Table } from "@/components/ui";
 import { ReportActions } from "@/components/report-actions";
 import { generateBuildingReport } from "@/lib/reports/building-report";
+import { IssuedDocumentNotice, issuedParam } from "@/components/issued-document-notice";
 
 export const dynamic = "force-dynamic";
 
-export default async function BuildingReportPage() {
+export default async function BuildingReportPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const issuedNumber = issuedParam(await searchParams);
   await requirePermission("building.read", "reports.generate");
   const issued = await db
     .select()
@@ -19,11 +26,14 @@ export default async function BuildingReportPage() {
   async function issueReport() {
     "use server";
     const u = await requirePermission("building.read", "reports.generate");
-    await generateBuildingReport({ issuedBy: u.id });
+    const { docNumber } = await generateBuildingReport({ issuedBy: u.id });
+    // D-065: الإجراء كان ينتهي بلا شيء، فتصدر وثيقة مرقّمة بلا أثر على الشاشة
+    redirect(`/building/report?issued=${encodeURIComponent(docNumber)}`);
   }
 
   return (
     <div className="max-w-3xl space-y-4">
+      <IssuedDocumentNotice docNumber={issuedNumber} label="صدر تقرير المبنى رقم" />
       <PageHeader
         title="تقرير المبنى المدرسي"
         subtitle="مجمع البنين — الغرف والأبعاد والأصول والفحوص والجاهزية والصيانة (مخطط تشغيلي وليس رسماً هندسياً معتمداً)"

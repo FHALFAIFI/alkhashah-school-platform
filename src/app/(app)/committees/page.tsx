@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { asc, desc } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
@@ -11,6 +12,7 @@ import { FormCommitteeButton, NewPlcForm } from "./committees-ui";
 import { SectionReportsLink } from "@/components/section-reports-link";
 import { COMMITTEE_REGISTRY_LABEL } from "@/lib/committees/report-labels";
 import { SubmitButton } from "@/components/ui";
+import { IssuedDocumentNotice, issuedParam } from "@/components/issued-document-notice";
 
 export const metadata = { title: "اللجان والفرق" };
 export const dynamic = "force-dynamic";
@@ -20,7 +22,12 @@ const RECURRENCE_LABELS: Record<string, string> = {
 };
 const RECURRENCE_DAYS: Record<string, number> = { weekly: 7, monthly: 30, term: 90 };
 
-export default async function CommitteesPage() {
+export default async function CommitteesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const issuedNumber = issuedParam(await searchParams);
   const user = await requirePermission("committees.read");
   const excluded = await getExcludedIdSets();
   const [templates, all, allMeetings, years, employeeCount, faresBatchId] = await Promise.all([
@@ -52,11 +59,14 @@ export default async function CommitteesPage() {
     "use server";
     const u = await requirePermission("reports.generate", "committees.read");
     const { generateCommitteeRegistry } = await import("@/lib/reports/committee-report");
-    await generateCommitteeRegistry({ issuedBy: u.id });
+    const { docNumber } = await generateCommitteeRegistry({ issuedBy: u.id });
+    // D-065: الإجراء كان ينتهي بلا شيء، فتصدر وثيقة مرقّمة بلا أثر على الشاشة
+    redirect(`/committees?issued=${encodeURIComponent(docNumber)}`);
   }
 
   return (
     <div className="space-y-6">
+      <IssuedDocumentNotice docNumber={issuedNumber} label="صدر سجل المجالس واللجان رقم" />
       <PageHeader
         title="اللجان والمجالس ومجتمعات التعلم"
         subtitle="تشكل اللجان سنوياً من القوالب دون نسخ عضويات الأعوام السابقة — الأعضاء من منسوبي المدرسة حصراً"
@@ -134,7 +144,7 @@ export default async function CommitteesPage() {
                     ? "اجتماع مستحق — اعقد الاجتماع التالي"
                     : "معتمدة — تابع الاجتماعات وتوثيقها";
             return (
-              <Link key={c.id} href={`/committees/${c.id}`}>
+              <Link prefetch={false} key={c.id} href={`/committees/${c.id}`}>
                 <Card className="h-full transition hover:border-brand-300">
                   <div className="flex items-start justify-between gap-2">
                     <div>

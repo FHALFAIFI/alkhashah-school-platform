@@ -81,9 +81,72 @@ describe("D-053 — التحديث مسؤولية العميل", () => {
     const offenders: string[] = [];
     for (const f of APP_FILES) {
       const src = read(f);
-      if (!/const \[[A-Za-z0-9_]+, [A-Za-z0-9_]+\] = useTransition\(\)/.test(src)) continue;
+      /*
+       * أي استعمال لـ`useTransition` يُفحَص — بما فيه `const [, start] = useTransition()`.
+       * كان النمط السابق يشترط تسمية `pending`، فأفلت منه توليد نموذج التكليف: يهمل العلامة
+       * ولا يحدّث، فتظهر رسالة النجاح ولا يظهر رابط التنزيل المشتقّ من الخادم (D-065).
+       */
+      if (!src.includes("useTransition()")) continue;
       if (SELF_MANAGED.has(f)) continue;
       if (!src.includes("useRefreshAfterTransition")) offenders.push(f);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * D-065 — إجراء الخادم المضمَّن في صفحة لا يجوز أن ينتهي بلا شيء.
+   *
+   * الصيغة `<form action={someAction}>` بلا `useActionState` لا تملك نتيجةً تعرضها؛ فإن لم
+   * ينتهِ الإجراء بتحويل لم يُطلب من الخادم تصيير جديد، فتقع الكتابة كاملةً ولا يتغيّر على
+   * الشاشة حرف. وهذا ما جعل إصدار وثيقة رسمية مرقّمة يبدو بلا أثر — فيُعاد الضغط وتتكرّر
+   * الوثيقة — وما جعل حفظ الإعدادات وتعليم الإشعارات مقروءةً «لا يظهر».
+   *
+   * الحدّ: كل إجراء مضمَّن ينتهي بـ`redirect` أو يُعيد نتيجة يقرؤها نموذجه.
+   */
+  it("لا إجراء مضمَّن ينتهي بلا تحويل ولا نتيجة — D-065", () => {
+    /** إجراءات نتيجتها تُقرأ من نموذجها عبر `useActionState` أو لا أثر لها على العرض. */
+    const NO_NAVIGATION_NEEDED = new Map<string, string>();
+    const offenders: string[] = [];
+    for (const f of APP_FILES) {
+      const src = read(f);
+      if (!src.includes('"use server"')) continue;
+      for (const m of src.matchAll(/async function (\w+)\([^)]*\)\s*\{\s*\n\s*"use server";/g)) {
+        const open = src.indexOf("{", m.index!);
+        let depth = 0;
+        let close = open;
+        for (let i = open; i < src.length; i++) {
+          if (src[i] === "{") depth++;
+          else if (src[i] === "}" && --depth === 0) {
+            close = i;
+            break;
+          }
+        }
+        const body = src.slice(open, close + 1);
+        const key = `${f}:${m[1]}`;
+        if (NO_NAVIGATION_NEEDED.has(key)) continue;
+        if (!body.includes("redirect(") && !/\breturn\b/.test(body)) offenders.push(key);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * D-065 — قاعدة 4 في D-053 مشروطة: «ينتهي بتحويل» لا تكفي إن كان العنوان الجديد لا يختلف
+   * عن الحالي إلا بوسم (`#section`). الموجّه يعامل ذلك انتقالَ وسمٍ فيمرّر الصفحة ويكتفي
+   * بالتمرير، فلا يُطلب تصيير جديد من الخادم وتبقى الشاشة على حالها بعد كتابةٍ نجحت فعلاً.
+   *
+   * الحدّ المفروض هنا: كل تحويل يحمل وسماً يحمل معه معاملَ استعلام أيضاً — فيختلف العنوان
+   * بأكثر من الوسم ويقع انتقال حقيقي. ما استُثني يذكر سبب كون وجهته مساراً مختلفاً دائماً.
+   */
+  it("لا تحويل يفرّقه الوسم وحده — D-065", () => {
+    const CROSS_ROUTE_FRAGMENTS = new Map<string, string>();
+    const offenders: string[] = [];
+    for (const f of APP_FILES) {
+      if (CROSS_ROUTE_FRAGMENTS.has(f)) continue;
+      for (const m of read(f).matchAll(/redirect\(\s*[`"']([^`"']+)[`"']\s*\)/g)) {
+        const target = m[1];
+        if (target.includes("#") && !target.includes("?")) offenders.push(`${f} → ${target}`);
+      }
     }
     expect(offenders).toEqual([]);
   });

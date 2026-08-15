@@ -15,7 +15,7 @@ import { runReportForExport } from "@/lib/reports/loaders";
 import { toCsv, safeFileName, sanitizeCell, MAX_EXPORT_ROWS } from "@/lib/reports/export-safety";
 import { dualNumericCell, todayIso } from "@/lib/dates";
 import { officialPageHtml, htmlToPdf } from "@/lib/pdf";
-import { getOfficialHeader } from "@/lib/document-header";
+import { getOfficialHeader, getWordHeader } from "@/lib/document-header";
 import { buildWordReport } from "@/lib/reports/word-export";
 import { escapeHtml } from "@/lib/html-escape";
 
@@ -194,15 +194,9 @@ export async function GET(request: NextRequest) {
           table: { headers, rows: matrix.map((r) => r.map((c) => String(c === "" ? "—" : c))) },
         },
       ],
-      header: identityHeader
-        ? {
-            orgLines: identityHeader.resolved.orgLines,
-            principalName: identityHeader.resolved.principalName,
-            principalTitle: identityHeader.resolved.principalTitle,
-            academicYear: identityHeader.resolved.academicYear,
-            footerNote: identityHeader.resolved.footerNote,
-          }
-        : undefined,
+      // الترويسة الرسمية الكاملة — الألوان والشعارات وأصلا التوقيع/الختم بضوابطها (v2.6)
+      header: identityHeader ? await getWordHeader() : undefined,
+      issuedAtText: dualNumericCell(todayIso()),
     });
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

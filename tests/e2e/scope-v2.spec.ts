@@ -63,9 +63,10 @@ test.describe("نطاق v2 — دخان الواجهة", () => {
     await login(page);
     await page.goto("/reports");
     await expect(page.getByRole("heading", { name: "مركز التقارير" })).toBeVisible();
-    // فئات معروفة من السجل المركزي
-    await expect(page.getByRole("link", { name: "الخطة والبرامج" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "المالية والميزانية" })).toBeVisible();
+    // v2.5.0 §14: أُعيد تنظيم الصفحة بأقسام مجالية — اسم الفئة عنوان بطاقة، ورابطها «عرض التقارير»
+    await expect(page.getByRole("heading", { name: "الخطة والبرامج" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "المالية والميزانية" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "عرض التقارير" }).first()).toBeVisible();
     // فتح فئة ثم تشغيل تقرير منها
     await page.goto("/reports?category=plan");
     await expect(page.getByRole("heading", { name: "البرامج النشطة" })).toBeVisible();

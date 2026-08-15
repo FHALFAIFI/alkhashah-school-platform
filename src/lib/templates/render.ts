@@ -107,7 +107,8 @@ export function renderTemplate(config: TemplateConfig, ctx: RenderContext): stri
   const docNumberBlock = docNumber && style.docNumberPosition !== "hidden" ? `<span>رقم الوثيقة: ${docNumber}</span>` : "";
   const inHeader = style.docNumberPosition === "header-start" || style.docNumberPosition === "header-end";
 
-  const orgLines = [identity.ministryText, identity.departmentText, identity.officeText, identity.schoolName]
+  // D-057: «إدارة التعليم» هي الجهة المخاطَبة — لا سطر للمكتب
+  const orgLines = [identity.ministryText, identity.departmentText, identity.schoolName]
     .filter((x): x is string => !!x && x.trim() !== "")
     .map((l) => renderPlaceholders(l, ctx.values))
     .join("<br>");
@@ -235,7 +236,6 @@ export function sampleValues(): Record<string, string> {
     school_name: "مجمع الخشعة التعليمي للبنين",
     ministry_name: "المملكة العربية السعودية — وزارة التعليم",
     education_department: "إدارة التعليم في محافظة صبيا",
-    education_office: "مكتب تعليم العيدابي",
     principal_name: "مدير المجمع",
     academic_year: "1448-1449هـ",
     document_number: "KHS-DOC-00001",

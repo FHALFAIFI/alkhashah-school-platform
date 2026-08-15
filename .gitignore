@@ -42,3 +42,7 @@ test-results/
 # TypeScript incremental
 *.tsbuildinfo
 next-env.d.ts
+storage-ci-artifacts/
+.ci-artifacts-storage/
+.ci-v25/
+storage-gate-records/

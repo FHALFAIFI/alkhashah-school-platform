@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { requirePermission } from "@/lib/auth/session";
 import { db } from "@/db";
@@ -15,9 +15,17 @@ import { orFallback, orDash } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function SessionPage({ params }: { params: Promise<{ id: string; sid: string }> }) {
+export default async function SessionPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string; sid: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requirePermission("performance.read", "performance.individual.read");
   const { id, sid } = await params;
+  const issuedParam = (await searchParams).issued;
+  const issuedNumber = typeof issuedParam === "string" ? issuedParam : null;
   const [session] = await db.select().from(perfSessions).where(eq(perfSessions.id, sid));
   if (!session || session.cycleId !== id) notFound();
   const [cycle] = await db.select().from(perfCycles).where(eq(perfCycles.id, id));
@@ -51,7 +59,19 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
     const u = await requirePermission("reports.generate", "performance.individual.read");
     const withSignature = formData.get("withSignature") === "on" && u.permissions.has("branding.use");
     const withStamp = formData.get("withStamp") === "on" && u.permissions.has("branding.use");
-    await generateSessionReport({ sessionId: sid, withSignature, withStamp, issuedBy: u.id });
+    const { docNumber } = await generateSessionReport({ sessionId: sid, withSignature, withStamp, issuedBy: u.id });
+    /*
+     * D-053 قاعدة 4 بقيد D-065: كان الإجراء ينتهي بلا شيء إطلاقاً — لا تحويل ولا تحديث.
+     *
+     * فتصدر وثيقة رسمية مرقّمة ويُحفظ ملفها ويُربط `report_doc_id` بالجلسة، ولا يتغيّر على
+     * الشاشة حرف: لا رابط تنزيل، ولا يتحوّل الزر إلى «إعادة إصدار». فيظن المدير أن الزر لم
+     * يعمل فيضغطه ثانيةً، فتصدر وثيقة ثانية برقم جديد **وتحلّ محلّ الأولى** في مرجع الجلسة
+     * — وهو بالضبط ما يحذّر منه تأكيد إعادة الإصدار نفسه.
+     *
+     * الوجهة تحمل رقم الوثيقة الصادرة: عنوان مختلف فعلاً فيقع انتقال حقيقي وتُصيَّر الصفحة
+     * من جديد، والرقم بذاته إثبات النتيجة.
+     */
+    redirect(`/performance/cycles/${id}/sessions/${sid}?issued=${encodeURIComponent(docNumber)}`);
   }
 
   return (
@@ -151,6 +171,12 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
       <Card>
         <h2 className="mb-3 font-bold text-brand-900">التقرير والاكتمال</h2>
         <div className="space-y-3 text-sm">
+          {/* التأكيد من الوثيقة المحفوظة لا من العنوان — رقم ملفّق في الرابط لا يُعرض */}
+          {issuedNumber && reportDoc?.docNumber === issuedNumber && (
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 font-medium text-emerald-800">
+              صدر تقرير الجلسة رقم {issuedNumber}
+            </p>
+          )}
           <form action={issueReport} className="flex flex-wrap items-center gap-4">
             {canBrand && (
               <>

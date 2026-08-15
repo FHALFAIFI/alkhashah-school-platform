@@ -9,13 +9,21 @@ import {
   categoryByKey,
   isGroupableColumn,
   isSortableColumn,
+  reportByKey,
   reportsInCategory,
   type CategoryKey,
   type ReportColumn,
   type ReportDefinition,
   type SectionKey,
 } from "@/lib/reports/catalog";
-import { parseReportFilters, describeFilters, REPORT_MODES } from "@/lib/reports/filters";
+import {
+  parseReportFilters,
+  describeFilters,
+  writeListParam,
+  canonicalListQuery,
+  REPORT_MODES,
+} from "@/lib/reports/filters";
+import { redirect } from "next/navigation";
 import { runReport } from "@/lib/reports/loaders";
 import { loadFilterOptions, loadFilterLabelMaps } from "@/lib/reports/filter-options";
 import { statusOptionsFor } from "@/lib/reports/status-options";
@@ -110,7 +118,44 @@ export default async function ReportsPage({
 }) {
   const user = await requirePermission("reports.read");
   const sp = await searchParams;
+
+  /*
+   * D-066: عنوانٌ بمفاتيح مكرّرة (رابط أو إشارة مرجعية من قبل هذا الإصدار) يُوحَّد هنا قبل
+   * أي تصيير. لولاه لبقي مفتاح جزء الصفحة عند موجّه Next محسوباً من آخر تكرار وحده، فيقع
+   * أول رفعٍ لقيمة في العطل نفسه. العنوان الموحَّد أصلاً لا يمرّ من هنا.
+   */
+  const canonicalQuery = canonicalListQuery(sp);
+  if (canonicalQuery !== null) redirect(`/reports?${canonicalQuery}`);
   const first = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
+
+  /*
+   * D-068 (شرط قبول صريح): معرّف `report` يُحسم استقلالاً عن `category`.
+   *
+   * عنوانٌ يصل بفئة فارغة (`?category=&report=maintenance-register` بترتيبَيه) يجب أن يفتح
+   * التقرير لا صفحة المركز الخاوية: التقرير يُحسم من السجل وحده، وتُشتق فئته من إعلانه في
+   * السجل، ثم يُعاد التوجيه إلى العنوان القانوني الكامل — فلا يبقى `category=` فارغ تُبنى
+   * منه روابط الترتيب والتصدير، ولا تُختلق شريحة مرشّح (مرشّح «التصنيف» معامله
+   * `recordCategory` لا `category`). الحالات الخمس محسومة صراحةً:
+   *  • لا `report` في العنوان ← سلوك المركز كما هو (فئة صالحة تُعرض، وإلا الصفحة الأم)؛
+   *  • `report` صالح بفئته المعلنة ← يُعرض كما هو (لا توجيه)؛
+   *  • `report` صالح و`category` فارغ أو غائب ← اشتقاق الفئة وتوجيه قانوني (هنا)؛
+   *  • `report` غير معروف ← لا اشتقاق؛ الفئة الفارغة تسقط ويُعرض المركز؛
+   *  • `report` صالح لكن `category` مغايرة لفئته ← تُعرض الفئة المطلوبة وحدها بلا تقرير
+   *    (السلوك الآمن القائم — لا يُخمَّن مقصد المستخدم).
+   * الصلاحيات كما في المسار الاعتيادي: صلاحية التقرير وصلاحية فئته معاً قبل الاشتقاق.
+   */
+  const reportParam = first("report");
+  if (reportParam && !first("category")) {
+    const independent = reportByKey(reportParam);
+    if (independent && user.permissions.has(independent.permission)) {
+      const home = categoryByKey(independent.category);
+      if (home && user.permissions.has(home.permission)) {
+        const canonical = paramsFrom(sp);
+        canonical.set("category", home.key);
+        redirect(`/reports?${canonical.toString()}`);
+      }
+    }
+  }
 
   // الفئات المرئية لهذا المستخدم فقط
   const visibleCategories = REPORT_CATEGORIES.filter((c) => user.permissions.has(c.permission));
@@ -165,7 +210,7 @@ export default async function ReportsPage({
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(sp)) {
       if (typeof v === "string") p.append(k, v);
-      else if (Array.isArray(v)) for (const one of v) p.append(k, one);
+      else if (Array.isArray(v)) writeListParam(p, k, v);
     }
     p.set("format", format);
     return `/api/reports/export?${p.toString()}`;
@@ -191,6 +236,7 @@ export default async function ReportsPage({
         actions={
           <div className="flex flex-wrap gap-2">
             <LinkButton href="/reports/builder">منشئ التقارير</LinkButton>
+            <LinkButton href="/reports/archive" variant="secondary">أرشيف التقارير</LinkButton>
             {user.permissions.has("reports.executive") && (
               // التسمية كما اعتادها المدير في النسخة السابقة — إعادة تصميم مركز التقارير
               // لا تستلزم تغيير اسم إجراء قائم يعرفه المستخدم.
@@ -233,6 +279,13 @@ export default async function ReportsPage({
                       إعدادات تقارير محفوظة بأسمائها — شغّلها كما هي أو عدّلها أو انسخها.
                     </p>
                     <div className="mt-3"><LinkButton href="/reports/templates" variant="secondary">فتح القوالب</LinkButton></div>
+                  </Card>
+                  <Card>
+                    <h3 className="font-bold text-brand-900">أرشيف التقارير</h3>
+                    <p className="mt-1 text-xs text-gray-500">
+                      التقارير المحفوظة: مسودات تُبنى وتُعاين، وتقارير نهائية مرقّمة بلقطات لا تتغير، وأرشيف يُبحث فيه.
+                    </p>
+                    <div className="mt-3"><LinkButton href="/reports/archive" variant="secondary">فتح الأرشيف</LinkButton></div>
                   </Card>
                   <Card>
                     <h3 className="font-bold text-brand-900">التقارير الصادرة</h3>
@@ -458,7 +511,7 @@ function paramsFrom(sp: Record<string, string | string[] | undefined>): URLSearc
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) {
     if (typeof v === "string") p.append(k, v);
-    else if (Array.isArray(v)) for (const one of v) p.append(k, one);
+    else if (Array.isArray(v)) writeListParam(p, k, v);
   }
   return p;
 }

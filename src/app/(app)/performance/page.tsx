@@ -135,7 +135,7 @@ export default async function PerformancePage() {
         <Card className="border-purple-200 bg-purple-50">
           <p className="text-sm text-purple-900">
             لا نماذج معتمدة بعد. النماذج الرسمية الثمانية تدخل من ملف الوزارة بعد التحقق البصري (الملف المصدر غير متوفر حالياً)،
-            ويمكن للمدير تصميم نماذج الموظفين من <Link className="underline" href="/performance/models">مصمم النماذج</Link>.
+            ويمكن للمدير تصميم نماذج الموظفين من <Link prefetch={false} className="underline" href="/performance/models">مصمم النماذج</Link>.
           </p>
         </Card>
       )}

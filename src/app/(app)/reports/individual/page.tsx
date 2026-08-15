@@ -190,11 +190,11 @@ export default async function IndividualReportPage({
 
       <p className="text-xs text-gray-500 print:hidden">
         للتقارير الجماعية والإحصائية:{" "}
-        <Link href="/reports?category=performance" className="text-brand-700 hover:underline">
+        <Link prefetch={false} href="/reports?category=performance" className="text-brand-700 hover:underline">
           تقارير الأداء الوظيفي
         </Link>
         {" · "}
-        <Link href="/performance/analytics" className="text-brand-700 hover:underline">
+        <Link prefetch={false} href="/performance/analytics" className="text-brand-700 hover:underline">
           لوحة الأداء والتقرير الشامل
         </Link>
       </p>
