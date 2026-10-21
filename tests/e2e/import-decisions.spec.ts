@@ -168,6 +168,7 @@ test.describe("قرارات الاستيراد القابلة للتراجع —
 });
 
 test.describe("سطح المكتب: جدول الدفعة كما هو", () => {
+  test.describe.configure({ mode: "serial" });
   test.use({ viewport: { width: 1280, height: 800 }, locale: "ar-SA" });
 
   test("عند 1280px يظهر الجدول وتختفي البطاقات", async ({ page }) => {
@@ -182,5 +183,55 @@ test.describe("سطح المكتب: جدول الدفعة كما هو", () => {
     await page.waitForURL(/\/imports\/[0-9a-f-]{36}$/);
     await expect(page.locator("table").last()).toBeVisible();
     await expect(page.getByTestId("import-row-card").first()).toBeHidden();
+  });
+
+  /**
+   * D-069 (شرط قبول): «مستبعد» يظهر فور الإجراء بلا أي إعادة تحميل — من نتيجة الإجراء
+   * نفسها لا من HTML يُجلب على حدة — وعدادات الترويسة تتصالح بالتحديث الواحد الذي يليه،
+   * والحالة تبقى صحيحة بعد التنقّل والعودة. كان التحديث بعد الإجراء يضيع على بناء
+   * الإنتاج (`loading.tsx` + عيب Next 16.2 — vercel/next.js#86151) فلا يظهر الاستبعاد
+   * إطلاقاً دون إعادة تحميل يدوية.
+   */
+  test("الاستبعاد يظهر فوراً بلا إعادة تحميل ويبقى بعد التنقّل والعودة", async ({ page }) => {
+    test.setTimeout(120_000);
+    await login(page);
+    await page.goto("/imports");
+    await page
+      .locator("tbody tr")
+      .filter({ hasText: DECISIONS_FILE })
+      .first()
+      .getByRole("link", { name: "فتح" })
+      .click();
+    await page.waitForURL(/\/imports\/[0-9a-f-]{36}$/);
+    const batchPageUrl = page.url();
+
+    const table = page.locator("table").last();
+    const row = table.locator("tbody tr").filter({ hasText: "تجريبي آلي معلم قرارات" });
+    await expect(row.locator("span.rounded-full", { hasText: "جاهز" })).toBeVisible();
+
+    // عدّاد تحميل المستند: كل ما يلي يجب أن يقع داخل التطبيق — لا إعادة تحميل تُخفي العطل
+    let documentLoads = 0;
+    page.on("load", () => {
+      documentLoads += 1;
+    });
+
+    await row.getByRole("button", { name: "استبعاد" }).click();
+    // الشارة تتغير فوراً من نتيجة الإجراء (المخزن المؤكد من العميل — D-069)
+    await expect(row.locator("span.rounded-full", { hasText: "مستبعد" })).toBeVisible({ timeout: 10_000 });
+    await expect(row.getByRole("button", { name: "استبعاد" })).toBeHidden();
+    // مصالحة HTML الخادم: عدّادات الترويسة تُحدَّث بالتحديث الواحد بعد الإجراء
+    await expect(page.getByText(/مستبعد: 1/)).toBeVisible({ timeout: 15_000 });
+    expect(documentLoads, "وقعت إعادة تحميل كاملة للمستند").toBe(0);
+
+    // البقاء بعد التنقّل والعودة — الحقيقة من الخادم في تحميل جديد تماماً
+    await page.goto("/imports");
+    await page.goto(batchPageUrl);
+    await expect(row.locator("span.rounded-full", { hasText: "مستبعد" })).toBeVisible();
+
+    // إرجاع الصف جاهزاً — لا يتغير ما تعتمده اختبارات لاحقة على هذه الدفعة
+    const undo = row.getByRole("button", { name: "تراجع عن آخر قرار" });
+    await expect(undo).toBeVisible();
+    await undo.click();
+    await expect(row.locator("span.rounded-full", { hasText: "جاهز" })).toBeVisible({ timeout: 10_000 });
   });
 });

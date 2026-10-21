@@ -4,11 +4,19 @@ import { getDocumentIdentity, saveDocumentIdentity } from "@/lib/document-identi
 import { saveUploadedFile, validateUpload } from "@/lib/storage";
 import { PageHeader, Card, SubmitButton, Field, LinkButton } from "@/components/ui";
 import { audit } from "@/lib/audit";
+import { redirect } from "next/navigation";
 
 export const metadata = { title: "الإعدادات" };
 export const dynamic = "force-dynamic";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const saved = sp.saved === "1";
+  const rejectedLogo = sp.خطأ === "شعار";
   const user = await requirePermission("admin.settings");
   const [sigDefault, stampDefault, followupTarget, assetPrefix, identity] = await Promise.all([
     getSetting("branding.signature_default", false),
@@ -26,6 +34,11 @@ export default async function SettingsPage() {
     await setSetting("performance.followup_target", Math.max(1, Number(formData.get("followupTarget") ?? 5)), u.id);
     await setSetting("assets.code_prefix", String(formData.get("assetPrefix") ?? "KHS-AST-"), u.id);
     await audit({ actorId: u.id, action: "admin.settings_changed", summary: "تحديث إعدادات النظام" });
+    /*
+     * D-065: كان الإجراء ينتهي بلا شيء — تُحفظ الإعدادات فعلاً ولا تُعاد الصفحة، فلا تأكيد
+     * ولا قيم محدَّثة على الشاشة. وهذه بالضبط شكوى «التغييرات لا تظهر».
+     */
+    redirect("/admin/settings?saved=1");
   }
 
   async function saveIdentity(formData: FormData) {
@@ -40,7 +53,8 @@ export default async function SettingsPage() {
       const file = formData.get(field);
       if (file instanceof File && file.size > 0) {
         const err = validateUpload(file.name, file.type || "application/octet-stream", file.size);
-        if (err) return;
+        // الرفض كان صامتاً: يُرفض الشعار ويُحفظ الباقي ولا يُخبَر أحد. الآن يُعلَن على الشاشة.
+        if (err) redirect("/admin/settings?خطأ=شعار");
         const stored = await saveUploadedFile({
           originalName: file.name,
           mime: file.type || "application/octet-stream",
@@ -52,28 +66,46 @@ export default async function SettingsPage() {
         logoPatch[key] = stored.id;
       }
     }
+    // ألوان الهوية (v2.6 §E): لا يُقبل إلا لون سداسي عشري صالح — القيمة غير الصالحة تُتجاهل
+    // فتبقى القيمة المخزّنة الحالية كما هي (التحقق على الخادم لا في المتصفح)
+    const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+    const colorPatch: Record<string, string> = {};
+    for (const name of ["primaryColor", "accentColor"] as const) {
+      const value = String(formData.get(name) ?? "").trim();
+      if (HEX_COLOR.test(value)) colorPatch[name] = value;
+    }
     await saveDocumentIdentity(
       {
         ministryName: String(formData.get("ministryName") ?? ""),
         educationDepartment: String(formData.get("educationDepartment") ?? ""),
-        educationOffice: String(formData.get("educationOffice") ?? ""),
         schoolName: String(formData.get("schoolName") ?? ""),
         principalName: String(formData.get("principalName") ?? ""),
         principalTitle: String(formData.get("principalTitle") ?? ""),
         academicYear: String(formData.get("academicYear") ?? ""),
         headerNote: String(formData.get("headerNote") ?? ""),
         footerNote: String(formData.get("footerNote") ?? ""),
+        contactInfo: String(formData.get("contactInfo") ?? "").trim().slice(0, 300),
+        ...colorPatch,
         ...logoPatch,
       },
       u.id,
     );
     await audit({ actorId: u.id, action: "admin.identity_changed", summary: "تحديث هوية الوثائق الرسمية" });
+    redirect("/admin/settings?saved=1"); // D-065 — كما أعلاه
   }
 
   const appVersion = process.env.APP_VERSION ?? process.env.npm_package_version ?? "0.1.0";
 
   return (
     <div className="max-w-2xl space-y-4">
+      {saved && (
+        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">حُفظت الإعدادات</p>
+      )}
+      {rejectedLogo && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+          لم يُقبل ملف الشعار (النوع أو الحجم) — لم يُحفظ أي تغيير في الهوية. أعد المحاولة بصورة صالحة.
+        </p>
+      )}
       <PageHeader title="إعدادات النظام" />
       {/* هوية الوثائق الرسمية (v2.3 §8): اسم المدير ومسماه والشعارات — مركزية لا تُكرر في المولدات */}
       <Card>
@@ -86,13 +118,16 @@ export default async function SettingsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="سطر الوزارة" name="ministryName" defaultValue={identity.ministryName} />
             <Field label="إدارة التعليم" name="educationDepartment" defaultValue={identity.educationDepartment} />
-            <Field label="مكتب التعليم" name="educationOffice" defaultValue={identity.educationOffice} />
             <Field label="اسم المدرسة/المجمع" name="schoolName" defaultValue={identity.schoolName} />
             <Field label="اسم مدير المدرسة" name="principalName" defaultValue={identity.principalName} hint="مثال: حسين بن جابر أحمد الفيفي" />
             <Field label="المسمى الوظيفي" name="principalTitle" defaultValue={identity.principalTitle} />
             <Field label="العام الدراسي" name="academicYear" defaultValue={identity.academicYear} />
             <Field label="ملاحظة الترويسة (اختياري)" name="headerNote" defaultValue={identity.headerNote} />
             <Field label="نص التذييل" name="footerNote" defaultValue={identity.footerNote} />
+            <Field label="بيانات الاتصال" name="contactInfo" defaultValue={identity.contactInfo} hint="هاتف أو بريد أو عنوان — تظهر في ترويسة الوثائق والتقارير" />
+            {/* ألوان الهوية (v2.6 §E) — مركزية لكل الوثائق والتقارير المولّدة */}
+            <Field label="اللون الأساسي للهوية" name="primaryColor" defaultValue={identity.primaryColor} dir="ltr" hint="لون سداسي عشري مثل ‎#1f5244" />
+            <Field label="لون التمييز" name="accentColor" defaultValue={identity.accentColor} dir="ltr" hint="لون سداسي عشري مثل ‎#348066" />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>

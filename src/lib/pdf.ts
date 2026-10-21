@@ -54,7 +54,7 @@ export function officialPageHtml(opts: {
     ? opts.identity.orgLines
         .map((l, i) => (i === opts.identity!.orgLines.length - 1 ? `<strong>${escapeHtml(l)}</strong>` : escapeHtml(l)))
         .join("<br>")
-    : "المملكة العربية السعودية<br>وزارة التعليم<br>إدارة التعليم في محافظة صبيا<br>مكتب تعليم العيدابي<br><strong>مجمع الخشعة التعليمي للبنين</strong>";
+    : "المملكة العربية السعودية<br>وزارة التعليم<br>إدارة التعليم في محافظة صبيا<br><strong>مجمع الخشعة التعليمي للبنين</strong>";
   const metaNote = escapeHtml(opts.identity?.footerNote ?? "منصة الإدارة المدرسية المتكاملة");
   const headerNote = opts.identity?.headerNote ? `<br>${escapeHtml(opts.identity.headerNote)}` : "";
   const yearLine = opts.identity?.academicYear ? `<br>العام الدراسي: ${escapeHtml(opts.identity.academicYear)}` : "";
@@ -142,7 +142,7 @@ ${
 </html>`;
 }
 
-export async function htmlToPdf(html: string, opts?: { pageNumbers?: boolean }): Promise<Buffer> {
+export async function htmlToPdf(html: string, opts?: { pageNumbers?: boolean; preferCssPageSize?: boolean }): Promise<Buffer> {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ args: ["--font-render-hinting=none"] });
   try {
@@ -150,6 +150,9 @@ export async function htmlToPdf(html: string, opts?: { pageNumbers?: boolean }):
     await page.setContent(html, { waitUntil: "networkidle" });
     const pdf = await page.pdf({
       format: "A4",
+      // v2.6 §F: الوثيقة ذات الأقسام الأفقية تعلن أحجام صفحاتها بقواعد `@page` المسماة،
+      // وهذا الخيار يجعل Chromium يحترمها — فتختلط الصفحات الرأسية والأفقية في ملف واحد
+      ...(opts?.preferCssPageSize ? { preferCSSPageSize: true } : {}),
       margin: { top: "15mm", bottom: "15mm", left: "12mm", right: "12mm" },
       printBackground: true,
       // أرقام الصفحات للتقارير الطويلة (v2.3 §7) — من مولّد PDF نفسه فتصح مهما طال التقرير

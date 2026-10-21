@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, eq, isNull, sql } from "drizzle-orm";
+import { asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   committees,
@@ -203,6 +203,13 @@ function distinctLabels(values: (string | null)[], blankLabel: string | null): s
 /**
  * جداول تحويل المعرّفات إلى أسماء — تُستعمل في شرائح الشاشة وفي ترويسة التقرير المُصدَّر
  * فيقرأ المدير «لجنة التوجيه والإرشاد» لا معرّفاً سداسياً عشرياً.
+ *
+ * **D-067 — لماذا `inArray` لا `= any(...)`:** كانت الشروط مكتوبة
+ * ``sql`${committees.id} = any(${ids})` `` فتُربَط المصفوفة **معاملاً واحداً**، فيحاول
+ * Postgres قراءة المعرّف الواحد على أنه حرفيّة مصفوفة ويرفض بـ 22P02
+ * (`malformed array literal`). والنتيجة أن ترشيح أي تقرير بشخص أو ببند أو بلجنة أو
+ * ببرنامج كان **يُسقط الصفحة كلها** إلى شاشة الخطأ العامة. `inArray` تولّد
+ * `in ($1, $2, …)` بربط قيمة لكل معرّف، وهي الصيغة الصحيحة لأعمدة uuid.
  */
 export async function loadFilterLabelMaps(filters: {
   personIds?: string[];
@@ -223,7 +230,7 @@ export async function loadFilterLabelMaps(filters: {
       db
         .select({ id: people.id, name: people.fullName })
         .from(people)
-        .where(sql`${people.id} = any(${filters.personIds})`)
+        .where(inArray(people.id, filters.personIds))
         .then((rows) => {
           maps.people = new Map(rows.map((r) => [r.id, orFallback(r.name, "بدون اسم")]));
         }),
@@ -234,7 +241,7 @@ export async function loadFilterLabelMaps(filters: {
       db
         .select({ id: financialItems.id, name: financialItems.nameAr })
         .from(financialItems)
-        .where(sql`${financialItems.id} = any(${filters.itemIds})`)
+        .where(inArray(financialItems.id, filters.itemIds))
         .then((rows) => {
           maps.items = new Map(rows.map((r) => [r.id, orFallback(r.name, "بند بدون اسم")]));
         }),
@@ -245,7 +252,7 @@ export async function loadFilterLabelMaps(filters: {
       db
         .select({ id: committees.id, name: committees.nameAr })
         .from(committees)
-        .where(sql`${committees.id} = any(${filters.committeeIds})`)
+        .where(inArray(committees.id, filters.committeeIds))
         .then((rows) => {
           maps.committees = new Map(rows.map((r) => [r.id, orFallback(r.name, "بدون اسم")]));
         }),
@@ -256,7 +263,7 @@ export async function loadFilterLabelMaps(filters: {
       db
         .select({ id: programs.id, seq: programs.seq, name: programs.name })
         .from(programs)
-        .where(sql`${programs.id} = any(${filters.programIds})`)
+        .where(inArray(programs.id, filters.programIds))
         .then((rows) => {
           maps.programs = new Map(rows.map((r) => [r.id, `${r.seq}. ${orFallback(r.name, "بدون اسم")}`]));
         }),

@@ -4,7 +4,8 @@ import { PageHeader, Card, Badge, EmptyState, LinkButton } from "@/components/ui
 import { SectionReportsLink } from "@/components/section-reports-link";
 import { FilterPanel } from "@/components/report-filters";
 import { loadFilterOptions } from "@/lib/reports/filter-options";
-import { parseReportFilters } from "@/lib/reports/filters";
+import { parseReportFilters, canonicalListQuery } from "@/lib/reports/filters";
+import { redirect } from "next/navigation";
 import { loadWeeklyFollowup, type WeeklyRow } from "@/lib/plan/followup-service";
 import {
   daysSince,
@@ -52,6 +53,14 @@ export default async function FollowupPage({
   const user = await requirePermission("plan.read");
   const canWrite = user.permissions.has("plan.write");
   const sp = await searchParams;
+
+  /*
+   * D-066: عنوانٌ بمفاتيح مكرّرة (رابط أو إشارة مرجعية من قبل هذا الإصدار) يُوحَّد هنا قبل
+   * أي تصيير. لولاه لبقي مفتاح جزء الصفحة عند موجّه Next محسوباً من آخر تكرار وحده، فيقع
+   * أول رفعٍ لقيمة في العطل نفسه. العنوان الموحَّد أصلاً لا يمرّ من هنا.
+   */
+  const canonicalQuery = canonicalListQuery(sp);
+  if (canonicalQuery !== null) redirect(`/plan/followup?${canonicalQuery}`);
 
   // «اسبوع» بالعربية بقيت مقبولة: روابط المدير المحفوظة منذ v2.4 تستعملها
   const legacyWeek = typeof sp["اسبوع"] === "string" ? (sp["اسبوع"] as string) : undefined;
@@ -138,7 +147,7 @@ export default async function FollowupPage({
               <ul className="space-y-1 px-4 pb-4 text-sm">
                 {result.closed.map((p) => (
                   <li key={p.programId} className="flex flex-wrap items-center gap-2">
-                    <Link href={`/plan/${p.programId}`} className="text-brand-700 hover:underline">
+                    <Link prefetch={false} href={`/plan/${p.programId}`} className="text-brand-700 hover:underline">
                       {p.seq}. {orFallback(p.name)}
                     </Link>
                     <Badge value="مغلق" />
@@ -164,7 +173,7 @@ function ProgramCard({ row, canWrite, isCurrentWeek }: { row: WeeklyRow; canWrit
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 basis-56">
-          <Link href={`/plan/${row.programId}`} className="font-medium text-brand-700 hover:underline">
+          <Link prefetch={false} href={`/plan/${row.programId}`} className="font-medium text-brand-700 hover:underline">
             {row.seq}. {orFallback(row.name)}
           </Link>
           <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-gray-500">
@@ -201,7 +210,7 @@ function ProgramCard({ row, canWrite, isCurrentWeek }: { row: WeeklyRow; canWrit
           completedAt: row.completedAt,
           status: row.approval,
         }) && (
-          <Link href="/plan/consistency" className="rounded-full bg-red-50 px-2 py-0.5 text-red-800 hover:underline">
+          <Link prefetch={false} href="/plan/consistency" className="rounded-full bg-red-50 px-2 py-0.5 text-red-800 hover:underline">
             {NEEDS_REVIEW_LABEL}
           </Link>
         )}
@@ -236,7 +245,7 @@ function ProgramCard({ row, canWrite, isCurrentWeek }: { row: WeeklyRow; canWrit
         {row.evidenceLatestAt && (
           <span className="text-gray-400">· آخر رفع: {row.evidenceLatestAt.toLocaleDateString("ar-SA-u-nu-latn")}</span>
         )}
-        <Link href={`/plan/${row.programId}#evidence`} className="text-brand-700 hover:underline">فتح شواهد البرنامج</Link>
+        <Link prefetch={false} href={`/plan/${row.programId}#evidence`} className="text-brand-700 hover:underline">فتح شواهد البرنامج</Link>
       </div>
 
       {/* التسجيل للأسبوع الحالي فقط — سجلات الأسابيع السابقة تاريخية لا تُعدل من هنا */}

@@ -20,6 +20,13 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   globalSetup: "./tests/e2e/global-setup.ts",
+  /*
+   * في CI يُضاف تقرير JSON إلى السطر: عدّ «تخطّي ٨» في السجل لا يقول أيّها تخطّى ولا لماذا،
+   * وشرط الجاهزية أن يكون كل تخطٍّ مُسمّى ومُبرَّراً. الملف يُرفَع مع مُرفَق التقرير.
+   */
+  reporter: process.env.CI
+    ? [["line"], ["json", { outputFile: "playwright-report/results.json" }]]
+    : "list",
   use: {
     baseURL: process.env.APP_URL ?? `http://localhost:${E2E_PORT}`,
     locale: "ar-SA",

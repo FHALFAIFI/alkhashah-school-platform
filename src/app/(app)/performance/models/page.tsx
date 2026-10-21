@@ -62,7 +62,7 @@ export default async function ModelsPage() {
             return (
               <tr key={m.id}>
                 <td className="px-3 py-2 font-medium">
-                  <Link href={`/performance/models/${m.id}`} className="text-brand-700 hover:underline">{orFallback(m.nameAr)}</Link>
+                  <Link prefetch={false} href={`/performance/models/${m.id}`} className="text-brand-700 hover:underline">{orFallback(m.nameAr)}</Link>
                 </td>
                 <td className="px-3 py-2"><Badge value={m.audience} /></td>
                 <td className="px-3 py-2 text-xs">{m.official ? "رسمي" : "داخلي"}</td>
@@ -87,7 +87,7 @@ export default async function ModelsPage() {
               {archivedModels.map((m) => (
                 <tr key={m.id}>
                   <td className="px-3 py-2 font-medium">
-                    <Link href={`/performance/models/${m.id}`} className="text-brand-700 hover:underline">{orFallback(m.nameAr)}</Link>
+                    <Link prefetch={false} href={`/performance/models/${m.id}`} className="text-brand-700 hover:underline">{orFallback(m.nameAr)}</Link>
                   </td>
                   <td className="px-3 py-2"><Badge value={m.audience} /></td>
                   <td className="px-3 py-2 text-xs tabular-nums">{m.archivedAt ? dualNumericCell(m.archivedAt) : "—"}</td>

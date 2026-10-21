@@ -95,7 +95,14 @@ export function AssignmentFormCard({
   );
   // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
   useRefreshOnSuccess(uploadState);
-  const [, startTransition] = useTransition();
+  const [generating, startTransition] = useTransition();
+  /*
+   * D-065: كان توليد نموذج التكليف ينتهي برسالة يملكها العميل («صدر نموذج التكليف …») بلا
+   * تحديث، فلا يظهر رابط «تنزيل نموذج التكليف» — لأنه يُشتق من `assignmentPdfFileId` القادم
+   * من الخادم. كان الاختبار يمرّ أحياناً لأن تحديثاً عابراً من لوحة توزيع المهام يسبقه
+   * مصادفةً؛ فالعيب قائم والاختبار متذبذب. التحديث الآن بعد انتهاء الانتقال (D-049 قاعدة 3).
+   */
+  useRefreshAfterTransition(generating);
 
   return (
     <div className="space-y-2">

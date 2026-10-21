@@ -328,7 +328,6 @@ export function TemplateEditor({
             <div><label className={label} htmlFor="i-school">اسم المدرسة</label><input id="i-school" className={input} value={idn.schoolName ?? ""} onChange={(e) => setIdentity("schoolName", e.target.value)} maxLength={200} /></div>
             <div><label className={label} htmlFor="i-min">نص الوزارة</label><input id="i-min" className={input} value={idn.ministryText ?? ""} onChange={(e) => setIdentity("ministryText", e.target.value)} maxLength={300} /></div>
             <div><label className={label} htmlFor="i-dep">إدارة التعليم</label><input id="i-dep" className={input} value={idn.departmentText ?? ""} onChange={(e) => setIdentity("departmentText", e.target.value)} maxLength={300} /></div>
-            <div><label className={label} htmlFor="i-off">مكتب التعليم</label><input id="i-off" className={input} value={idn.officeText ?? ""} onChange={(e) => setIdentity("officeText", e.target.value)} maxLength={300} /></div>
           </div>
         </fieldset>
 

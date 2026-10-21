@@ -114,7 +114,7 @@ export default async function PlanConsistencyPage({
       {/* المرشِّحات (§5.2) */}
       <div className="mb-4 flex flex-wrap gap-2 print:hidden">
         {(Object.keys(CONSISTENCY_FILTERS) as ConsistencyFilter[]).map((key) => (
-          <Link
+          <Link prefetch={false}
             key={key}
             href={`/plan/consistency?filter=${key}`}
             className={`rounded-lg border px-3 py-1.5 text-sm ${
@@ -143,7 +143,7 @@ export default async function PlanConsistencyPage({
             <Card key={p.id}>
               <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <Link href={`/plan/${p.id}`} className="font-bold text-brand-800 hover:underline">
+                  <Link prefetch={false} href={`/plan/${p.id}`} className="font-bold text-brand-800 hover:underline">
                     {p.seq}. {orFallback(p.name)}
                   </Link>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">

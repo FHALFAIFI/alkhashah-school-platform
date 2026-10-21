@@ -37,18 +37,22 @@ export function TemplateEditor({
   currentId?: string;
 }) {
   const [state, formAction] = useActionState<TemplateActionState, FormData>(action, null);
-  // D-053: الإجراء لا يُبطل أي مسار — التحديث من العميل بعد استقرار النتيجة
-  useRefreshOnSuccess(state);
   const router = useRouter();
+  const target = state?.newId ?? currentId;
+  /*
+   * D-053 قاعدة 4: الإجراء الذي ينتهي بانتقال لا يُحدَّث معه.
+   *
+   * كان هذا المكوّن يجمع الاثنين — `useRefreshOnSuccess` مع `router.push` — فيُعيد
+   * التحديثُ جلبَ المسار الحالي ويُلغي الانتقالَ المعلَّق: القالب يُنشأ فعلاً وتظهر رسالة
+   * «أُنشئ القالب …»، ثم يبقى المستخدم على نموذج فارغ فيحفظ ثانيةً ويُنشئ قالباً مكرراً.
+   * التحديث الآن للحالة التي لا انتقال فيها فقط.
+   */
+  useRefreshOnSuccess(target ? null : state);
 
   // على النجاح انتقل إلى صفحة القالب (الإصدار الجديد إن وُجد، وإلا القالب الحالي)
   useEffect(() => {
-    const target = state?.newId ?? currentId;
-    if (state?.success && target) {
-      router.push(`/building/inspections/templates/${target}`);
-      router.refresh();
-    }
-  }, [state, currentId, router]);
+    if (state?.success && target) router.push(`/building/inspections/templates/${target}`);
+  }, [state, target, router]);
   const [meta, setMeta] = useState<Meta>(initialMeta);
   const [sections, setSections] = useState<TemplateSection[]>(
     initialSections.length > 0 ? initialSections : [{ key: newKey(), title: "قسم ١", items: [blankItem()] }],

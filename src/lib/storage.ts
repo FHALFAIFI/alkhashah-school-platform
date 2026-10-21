@@ -215,6 +215,64 @@ export async function saveUploadedFile(opts: {
 }
 
 /**
+ * مخرجات النظام المولَّدة (v2.6 §B/§G) — مسار حفظ مستقل عن رفع المستخدمين.
+ *
+ * لماذا لا يمر بـ`saveUploadedFile`: قائمة الرفع المسموحة قائمة **مرفوعات مستخدم**، ولا
+ * تشمل ZIP عمداً — فتح ZIP للرفع العام يوسّع سطح الهجوم بلا حاجة. أما هنا فالمحتوى
+ * ولّده النظام نفسه (PDF/Word/Excel/ZIP لتقرير محفوظ)، فالقائمة مغلقة على هذه الأربع،
+ * والحجم يسقفه حد أوسع (حزمة بمرفقاتها تتجاوز حد رفع الملف الواحد)، ولا اعتماد D-032 —
+ * كنطاق "reports" في المسار الأصلي تماماً.
+ */
+const GENERATED_ALLOWED: Record<string, string> = {
+  "application/pdf": ".pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "application/zip": ".zip",
+};
+
+export const MAX_GENERATED_BYTES = 100 * 1024 * 1024;
+
+export async function saveGeneratedFile(opts: {
+  originalName: string;
+  mime: string;
+  data: Buffer;
+  sensitive?: boolean;
+  uploadedBy?: string;
+}) {
+  const ext = GENERATED_ALLOWED[opts.mime];
+  if (!ext) throw new UploadValidationError("نوع المخرج المولَّد غير مدعوم");
+  if (opts.data.length <= 0 || opts.data.length > MAX_GENERATED_BYTES) {
+    throw new UploadValidationError("حجم المخرج المولَّد يتجاوز الحد المسموح");
+  }
+  // ZIP يشارك docx/xlsx توقيع PK — والأربعة كلها ذات توقيع معروف يُفحص
+  const sigErr =
+    opts.mime === "application/zip"
+      ? opts.data[0] === 0x50 && opts.data[1] === 0x4b
+        ? null
+        : "محتوى الملف لا يطابق نوعه المُعلَن"
+      : validateFileSignature(opts.data, opts.mime);
+  if (sigErr) throw new UploadValidationError(sigErr);
+
+  const id = randomUUID();
+  const relPath = path.join("reports", id.slice(0, 2), `${id}${ext}`);
+  await storage.put(relPath, opts.data);
+  const [file] = await db
+    .insert(storedFiles)
+    .values({
+      originalName: opts.originalName,
+      mime: opts.mime,
+      size: opts.data.length,
+      sha256: createHash("sha256").update(opts.data).digest("hex"),
+      storagePath: relPath,
+      scope: "reports",
+      sensitive: opts.sensitive ?? false,
+      uploadedBy: opts.uploadedBy,
+    })
+    .returning();
+  return file;
+}
+
+/**
  * اعتماد المدير اليدوي لملف «قيد الاعتماد» (D-032).
  * التحقق من كون المعتمِد مديراً يجري هنا على الخادم من جدول الأدوار —
  * واجهة الاستدعاء مسؤولة عن المصادقة فقط.

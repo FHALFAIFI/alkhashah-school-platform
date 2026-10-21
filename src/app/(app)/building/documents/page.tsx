@@ -82,7 +82,7 @@ export default async function BuildingDocumentsPage() {
       </Card>
 
       <p className="text-xs text-gray-400">
-        <Link href="/building" className="underline">← وحدة المبنى</Link>
+        <Link prefetch={false} href="/building" className="underline">← وحدة المبنى</Link>
       </p>
     </div>
   );

@@ -524,9 +524,21 @@ test("س9: تقريرا «البرامج حسب المسؤول» و«البرا�
   await seedConsistencyFixtures();
   await login(page);
 
-  await page.locator("aside").getByRole("link", { name: "التقارير", exact: true }).click();
+  // v2.3: أقسام القائمة الجانبية قابلة للطي وتتذكر حالتها — يُفتح القسم إن كان مطوياً
+  const sidebar = page.locator("aside");
+  const reportsLink = sidebar.getByRole("link", { name: "التقارير", exact: true });
+  if (!(await reportsLink.isVisible())) {
+    await sidebar.getByRole("button", { name: /الأشخاص والتقارير/ }).click();
+  }
+  await reportsLink.click();
   await page.waitForURL("**/reports**");
-  await page.getByRole("link", { name: "الخطة والبرامج", exact: true }).first().click();
+  // v2.5.0 §14: الفئة بطاقة بعنوانها ورابطها «عرض التقارير»
+  await page
+    .locator("div.rounded-xl")
+    .filter({ hasText: "الخطة والبرامج" })
+    .first()
+    .getByRole("link", { name: "عرض التقارير" })
+    .click();
 
   // كلا التقريرين معلنان بالاسم في قائمة الفئة — لا يُفتحان إلا بمعرفة مفتاحهما
   for (const label of ["البرامج حسب المسؤول", "البرامج حسب المجال"]) {
@@ -534,10 +546,11 @@ test("س9: تقريرا «البرامج حسب المسؤول» و«البرا�
   }
 
   const openReport = async (label: string) => {
+    // بطاقة التقرير نفسها لا أعمق `div` يحوي العنوان — الأخيرة لا تحمل الرابط بعد §14
     const card = page
-      .locator("div")
+      .locator("div.rounded-xl")
       .filter({ has: page.getByRole("heading", { name: label, exact: true }) })
-      .last();
+      .first();
     await card.getByRole("link", { name: "عرض", exact: true }).click();
     await page.waitForLoadState("networkidle");
   };
@@ -636,9 +649,15 @@ test("س12: دورة حياة نموذج التقييم — «حذف النمو�
   await page.fill('input[name="nameAr"]', `${TAG} نموذج للحذف`);
   await page.getByRole("button", { name: "إنشاء", exact: true }).click();
   await page.waitForURL("**/performance/models/**", { timeout: 25_000 });
-  await expect(page.getByRole("button", { name: "حذف النموذج" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "حذف النموذج نهائياً" })).toBeVisible();
+  // v2.4.1 §8/§12.9: الحذف النهائي بلوحة (اسم حرفي + سبب + إقرار) لا بزر ونافذة تأكيد
+  await page.getByRole("button", { name: "حذف النموذج نهائياً" }).click();
+  const expectedName = (await page.locator("#pd-typed").locator("xpath=../label//span").last().innerText()).trim();
+  await page.locator("#pd-typed").fill(expectedName);
+  await page.locator("#pd-reason").fill("حذف تجريبي موثّق للنموذج");
+  await page.locator('input[name="confirm"]').check();
   page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "حذف النموذج" }).click();
+  await page.getByRole("button", { name: "حذف النموذج نهائياً" }).click();
   await page.waitForURL("**/performance/models", { timeout: 25_000 });
   await expect(page.getByText(`${TAG} نموذج للحذف`)).toHaveCount(0);
 
@@ -738,15 +757,16 @@ test("س14: القائمة الجانبية — عجلة الفأرة والتم
   expect(mobileOverflow).toBeLessThanOrEqual(1);
 });
 
-test("س15: هوية الإصدار — «الإصدار 2.4.1» في الغلاف و/api/health بلا أي سر", async ({ page, request }) => {
+test("س15: هوية الإصدار — «الإصدار 2.6.0» في الغلاف و/api/health بلا أي سر", async ({ page, request }) => {
   test.setTimeout(90_000);
   await login(page);
-  await expect(page.locator("aside")).toContainText("الإصدار 2.4.1");
+  // الإصدار الحالي 2.6.0 — الرقم يُقرأ من `RELEASE_VERSION` ويُثبته اختبار الوحدة
+  await expect(page.locator("aside")).toContainText("الإصدار 2.6.0");
 
   const health = await request.get("/api/health");
   expect(health.ok()).toBe(true);
   const body = await health.json();
-  expect(body).toMatchObject({ status: "ok", db: "up", version: "2.4.1" });
+  expect(body).toMatchObject({ status: "ok", db: "up", version: "2.6.0" });
   expect(body).toHaveProperty("commit");
   expect(body).toHaveProperty("environment");
 

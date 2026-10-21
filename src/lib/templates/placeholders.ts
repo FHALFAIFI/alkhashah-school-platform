@@ -24,7 +24,6 @@ export const PLACEHOLDERS: readonly PlaceholderDef[] = [
   { key: "school_name", label: "اسم المدرسة", docTypes: null },
   { key: "ministry_name", label: "اسم الوزارة", docTypes: null },
   { key: "education_department", label: "إدارة التعليم", docTypes: null },
-  { key: "education_office", label: "مكتب التعليم", docTypes: null },
   { key: "principal_name", label: "اسم المدير", docTypes: null },
   { key: "academic_year", label: "العام الدراسي", docTypes: null },
   { key: "document_number", label: "رقم الوثيقة", docTypes: null },

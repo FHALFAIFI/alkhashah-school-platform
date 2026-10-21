@@ -142,7 +142,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
             <tr key={p.id}>
               <td className="px-3 py-2 tabular-nums">{p.seq}</td>
               <td className="px-3 py-2 font-medium">
-                <Link href={`/plan/${p.id}`} className="text-brand-700 hover:underline">{orFallback(p.name)}</Link>
+                <Link prefetch={false} href={`/plan/${p.id}`} className="text-brand-700 hover:underline">{orFallback(p.name)}</Link>
               </td>
               <td className="px-3 py-2 text-xs">{orFallback(p.domain, "بدون تصنيف")}</td>
               <td className="px-3 py-2 text-xs">{orDash(p.ownerPosition)}</td>
@@ -191,7 +191,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
                 <tr key={p.id} className="text-gray-500">
                   <td className="px-3 py-2 tabular-nums">{p.seq}</td>
                   <td className="px-3 py-2 font-medium">
-                    <Link href={`/plan/${p.id}`} className="text-brand-700 hover:underline">{orFallback(p.name)}</Link>
+                    <Link prefetch={false} href={`/plan/${p.id}`} className="text-brand-700 hover:underline">{orFallback(p.name)}</Link>
                   </td>
                   <td className="px-3 py-2 text-xs">{orFallback(p.domain, "بدون تصنيف")}</td>
                   <td className="px-3 py-2 text-xs">

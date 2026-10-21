@@ -79,7 +79,15 @@ export const FILTER_DEFS: Readonly<Record<FilterKey, FilterDef>> = {
   jobTitle: { key: "jobTitle", labelAr: "المسمى الوظيفي", kind: "multi", params: ["jobTitle"] },
   department: { key: "department", labelAr: "القسم", kind: "multi", params: ["dept"] },
   cycle: { key: "cycle", labelAr: "دورة التقييم", kind: "multi", params: ["cycleId"] },
-  category: { key: "category", labelAr: "التصنيف", kind: "multi", params: ["category"] },
+  /*
+   * D-068: معامل هذا المرشّح `recordCategory` لا `category`.
+   *
+   * `category` في مركز التقارير معامل تنقّل يحمل **فئة التقرير** (`?category=building`)،
+   * فلمّا كان مرشّح «التصنيف» يستعمل الاسم نفسه صار كل تقرير يُفتح من المركز مُرشَّحاً
+   * بتصنيفٍ لم يطلبه أحد: «بلاغات الصيانة» تُفتح مُرشَّحة بـ«building» فتعود فارغة دائماً،
+   * وتظهر معها شريحة «التصنيف: building» لا معنى لها. اسمان مختلفان لمعنيين مختلفين.
+   */
+  category: { key: "category", labelAr: "التصنيف", kind: "multi", params: ["recordCategory"] },
   priority: { key: "priority", labelAr: "الأولوية", kind: "multi", params: ["priority"] },
   location: { key: "location", labelAr: "الموقع", kind: "multi", params: ["roomId"] },
   week: { key: "week", labelAr: "الأسبوع", kind: "single", params: ["week"] },
@@ -237,6 +245,83 @@ export function lowThresholdHeaderLine(filters: ReportFilters): [string, string]
   return [FILTER_DEFS.lowThreshold.labelAr, `أقل من ${effectiveLowThreshold(filters)}٪`];
 }
 
+/* ──────────────── قائمة قيم داخل معامل واحد — D-066 ──────────────── */
+
+/**
+ * فاصل قيم المرشّح المتعدّد داخل معامل URL **واحد**.
+ *
+ * ── لماذا لا تُكرَّر المفاتيح (D-066) ─────────────────────────────────────
+ * يميّز موجّه Next صفحةً عن أخرى بمفتاح جزء يبنيه من
+ * `JSON.stringify(Object.fromEntries(new URLSearchParams(search)))`
+ * (`addSearchParamsIfPageSegment` في `next/dist/shared/lib/segment`، ويقابله على العميل
+ * `segment-cache/scheduler` و`router-reducer/ppr-navigations`). و`Object.fromEntries`
+ * يُسقط كل تكرار لمفتاح عدا الأخير.
+ *
+ * فـ`?domain=أ&domain=ب` و`?domain=ب` ينتجان مفتاح الجزء نفسه: `__PAGE__?{"domain":"ب"}`.
+ * حين يرفع المدير «أ» يتغيّر العنوان وتتغيّر الشرائح — ويقرأ الموجّه أن جزء الصفحة لم
+ * يتغيّر، فيعيد استعمال الشجرة المُحمَّلة ولا يُرسل طلب تصيير إطلاقاً. النتيجة جدول وعدد
+ * نتائج يعودان لاختيارٍ لم يعد قائماً. وينطبق الأمر نفسه على كل تغيير لا يمس آخر تكرار:
+ * رفع قيمة من الوسط، وإعادة ترتيب عمودين في منشئ التقارير.
+ *
+ * ── الحل ─────────────────────────────────────────────────────────────────
+ * ألّا يتكرّر مفتاح في العنوان أصلاً: تُكتب القيم في معامل واحد مفصولة بمحرف تحكّم
+ * (U+001F). عندئذ يكون `Object.fromEntries` أميناً على المحتوى، ويصير لكل اختيارٍ مختلف
+ * مفتاحُ صفحةٍ مختلف — فيسأل الموجّه الخادم في كل مرة، ويعمل الرجوع والتقدّم وفتح الرابط
+ * مباشرةً بالسلوك نفسه.
+ *
+ * ── لماذا محرف تحكّم لا فاصلة ────────────────────────────────────────────
+ * القيم أسماء مجالات ومسؤولين ومسمّيات وظيفية عربية يكتبها المدير، وقد تحمل فاصلة أو
+ * شرطة أو أي محرف مطبوع. U+001F لا يمكن أن يرد في نص مكتوب ولا في معرّف UUID، فلا
+ * يلتبس بقيمة، ولا يكسر رابطاً قديماً كُتب بتكرار المفاتيح — فالقراءة تقبل الشكلين.
+ */
+export const LIST_SEPARATOR = "\u001f";
+
+/** يكتب قائمة قيم في نص معامل واحد (تُنظَّف القيمة من الفاصل احتياطاً) */
+export function encodeListParam(values: readonly string[]): string {
+  return values.map((v) => v.split(LIST_SEPARATOR).join("")).join(LIST_SEPARATOR);
+}
+
+/** يقرأ قائمة قيم من نص معامل واحد */
+export function decodeListParam(raw: string): string[] {
+  return raw.split(LIST_SEPARATOR).filter((v) => v.trim() !== "");
+}
+
+/** قيم مرشّح متعدّد من العنوان — يقبل الشكلين: معامل واحد مفصول، أو مفاتيح مكرّرة (روابط قديمة) */
+export function readListParam(params: URLSearchParams, name: string): string[] {
+  return params.getAll(name).flatMap(decodeListParam);
+}
+
+/** يكتب قيم مرشّح متعدّد في العنوان بلا تكرار مفاتيح — والقائمة الفارغة تحذف المعامل */
+export function writeListParam(params: URLSearchParams, name: string, values: readonly string[]): void {
+  params.delete(name);
+  if (values.length > 0) params.set(name, encodeListParam(values));
+}
+
+/**
+ * توحيد عنوان وصل بمفاتيح مكرّرة (رابط أو إشارة مرجعية من قبل D-066) إلى الشكل المفصول.
+ *
+ * لازم لا تجميلي: ما دام العنوان الحالي يحمل `?domain=أ&domain=ب` فإن مفتاح جزء الصفحة
+ * عند الموجّه هو `{"domain":"ب"}`، فأول رفعٍ لقيمة يقع في العطل نفسه ولو كانت المنصة تكتب
+ * الشكل الجديد. التوحيد عند الوصول يجعل أول انتقالٍ بعده سليماً.
+ *
+ * يعيد نص الاستعلام الموحَّد، أو `null` إن لم يكن في العنوان مفتاح مكرَّر أصلاً.
+ */
+export function canonicalListQuery(
+  source: Record<string, string | string[] | undefined>,
+): string | null {
+  const out = new URLSearchParams();
+  let hasRepeatedKey = false;
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) continue;
+    // Next لا يعطي مصفوفةً إلا حين يتكرّر المفتاح في العنوان
+    if (Array.isArray(value)) {
+      if (value.length > 1) hasRepeatedKey = true;
+      writeListParam(out, key, [...new Set(value.flatMap(decodeListParam))]);
+    } else out.set(key, value);
+  }
+  return hasRepeatedKey ? out.toString() : null;
+}
+
 /* ─────────────────────────── القراءة من العنوان ─────────────────────────── */
 
 /** مصدر معاملات مقروء: `URLSearchParams` أو خريطة `searchParams` في Next */
@@ -274,8 +359,18 @@ const MAX_MULTI_VALUES = 200;
 /** حد أعلى لطول نص البحث — يمنع نمط `ILIKE` عملاقاً */
 const MAX_SEARCH_LENGTH = 120;
 
+/**
+ * قيم مرشّح متعدّد. تُقبل الصيغتان معاً: معامل واحد مفصول بـ`LIST_SEPARATOR` (ما تكتبه
+ * المنصة منذ D-066)، ومفاتيح مكرّرة (روابط وقوالب محفوظة قبله) — فلا ينكسر رابط قديم.
+ */
 function readMulti(source: ParamSource, name: string): string[] | undefined {
-  const values = [...new Set(readAll(source, name).map((v) => v.trim()))].slice(0, MAX_MULTI_VALUES);
+  const values = [
+    ...new Set(
+      readAll(source, name)
+        .flatMap(decodeListParam)
+        .map((v) => v.trim()),
+    ),
+  ].slice(0, MAX_MULTI_VALUES);
   return emptyToUndefined(values);
 }
 
@@ -331,7 +426,7 @@ export function parseReportFilters(
     jobTitles: readMulti(source, "jobTitle"),
     departments: readMulti(source, "dept"),
     cycleIds: readMulti(source, "cycleId"),
-    categories: readMulti(source, "category"),
+    categories: readMulti(source, "recordCategory"),
     priorities: readMulti(source, "priority"),
     roomIds: readMulti(source, "roomId"),
     week: readOne(source, "week"),
@@ -356,7 +451,7 @@ export function parseReportFilters(
 
 /* ─────────────────────────── الكتابة إلى العنوان ─────────────────────────── */
 
-/** المعاملات المتعدّدة القيم — تُكتب مكرَّرة لا مفصولة بفواصل */
+/** المعاملات المتعدّدة القيم — تُكتب في معامل واحد مفصول، بلا تكرار مفاتيح (D-066) */
 const MULTI_PARAMS: [keyof ReportFilters, string][] = [
   ["statuses", "status"],
   ["personIds", "personId"],
@@ -369,12 +464,15 @@ const MULTI_PARAMS: [keyof ReportFilters, string][] = [
   ["jobTitles", "jobTitle"],
   ["departments", "dept"],
   ["cycleIds", "cycleId"],
-  ["categories", "category"],
+  ["categories", "recordCategory"],
   ["priorities", "priority"],
   ["roomIds", "roomId"],
   ["flags", "flag"],
   ["columns", "col"],
 ];
+
+/** أسماء معاملات العنوان المتعدّدة القيم — يحتاجها كل من يدمج مصدرين من المعاملات */
+export const MULTI_PARAM_NAMES: ReadonlySet<string> = new Set(MULTI_PARAMS.map(([, param]) => param));
 
 const SCALAR_PARAMS: [keyof ReportFilters, string][] = [
   ["search", "search"],
@@ -403,8 +501,7 @@ export function serializeReportFilters(filters: ReportFilters, base?: URLSearchP
   sp.delete("dir");
 
   for (const [field, param] of MULTI_PARAMS) {
-    const values = filters[field] as string[] | undefined;
-    for (const v of values ?? []) sp.append(param, v);
+    writeListParam(sp, param, (filters[field] as string[] | undefined) ?? []);
   }
   for (const [field, param] of SCALAR_PARAMS) {
     const value = filters[field];
@@ -425,17 +522,28 @@ export type StoredFilters = Record<string, string[]>;
 
 export function filtersToStored(filters: ReportFilters): StoredFilters {
   const sp = serializeReportFilters(filters);
+  const multi = new Set(MULTI_PARAMS.map(([, param]) => param));
   const out: StoredFilters = {};
-  for (const key of new Set(sp.keys())) out[key] = sp.getAll(key);
+  // الشكل المخزَّن لا يتأثر بفاصل العنوان (D-066): المتعدّد يعود مصفوفةً كما كان قبله،
+  // فصفوف القوالب واللقطات المحفوظة تبقى مقروءة بالمعنى نفسه بلا هجرة.
+  for (const key of new Set(sp.keys())) {
+    out[key] = multi.has(key) ? sp.getAll(key).flatMap(decodeListParam) : sp.getAll(key);
+  }
   return out;
 }
 
-/** العكس — يقبل الشكل القديم (نص مفرد) كي لا ينكسر صفّ مخزَّن قبل هذا التمثيل */
+/**
+ * العكس — يقبل الشكل القديم (نص مفرد) كي لا ينكسر صفّ مخزَّن قبل هذا التمثيل.
+ *
+ * المصفوفة تُكتب في معامل واحد مفصول لا في مفاتيح مكرّرة (D-066): ناتج هذه الدالة يُبنى
+ * منه رابط قابل للتنقّل (رابط «فتح في المنشئ» في أرشيف التقارير)، ومفتاح مكرَّر فيه يعيد
+ * العطل نفسه.
+ */
 export function storedToParams(stored: unknown): URLSearchParams {
   const sp = new URLSearchParams();
   if (!stored || typeof stored !== "object") return sp;
   for (const [key, value] of Object.entries(stored as Record<string, unknown>)) {
-    if (Array.isArray(value)) for (const v of value) sp.append(key, String(v));
+    if (Array.isArray(value)) writeListParam(sp, key, value.map(String));
     else if (value !== null && value !== undefined) sp.append(key, String(value));
   }
   return sp;

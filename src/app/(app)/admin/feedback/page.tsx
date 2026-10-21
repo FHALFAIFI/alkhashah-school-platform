@@ -101,7 +101,7 @@ export default async function FeedbackAdminPage({ searchParams }: { searchParams
             <button type="submit" className="min-h-11 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700 lg:min-h-0 lg:py-2">
               تطبيق
             </button>
-            <Link href="/admin/feedback" className="min-h-11 rounded-lg border border-sand-200 px-4 py-2 text-sm text-gray-600 hover:bg-sand-100 lg:min-h-0">
+            <Link prefetch={false} href="/admin/feedback" className="min-h-11 rounded-lg border border-sand-200 px-4 py-2 text-sm text-gray-600 hover:bg-sand-100 lg:min-h-0">
               مسح
             </Link>
           </div>
@@ -115,7 +115,7 @@ export default async function FeedbackAdminPage({ searchParams }: { searchParams
           {/* الجوال: بطاقات رأسية بلا تمرير أفقي */}
           <div className="space-y-3 lg:hidden">
             {rows.map((r) => (
-              <Link
+              <Link prefetch={false}
                 key={r.id}
                 href={`/admin/feedback/${r.id}`}
                 className="block rounded-xl border border-sand-200 bg-white p-4"
@@ -155,7 +155,7 @@ export default async function FeedbackAdminPage({ searchParams }: { searchParams
                   <td className="px-3 py-2">{r.createdByName ?? "—"}</td>
                   <td className="px-3 py-2 text-xs text-gray-500">{fmtDate(r.createdAt)}</td>
                   <td className="px-3 py-2">
-                    <Link href={`/admin/feedback/${r.id}`} className="text-brand-700 underline-offset-2 hover:underline">
+                    <Link prefetch={false} href={`/admin/feedback/${r.id}`} className="text-brand-700 underline-offset-2 hover:underline">
                       فتح
                     </Link>
                   </td>

@@ -213,7 +213,7 @@ function InspectionResultPanel({
                     {f.duplicateIssue && (
                       <span className="mt-0.5 block text-amber-800">
                         يوجد بلاغ مفتوح لنفس البند ({f.duplicateIssue.code} — {f.duplicateIssue.status}) —{" "}
-                        <Link href={`/building/maintenance/${f.duplicateIssue.id}`} className="underline">
+                        <Link prefetch={false} href={`/building/maintenance/${f.duplicateIssue.id}`} className="underline">
                           {VIEW_ISSUE_CTA}
                         </Link>
                         {" "}بدل إنشاء بلاغ مكرر.
@@ -263,7 +263,7 @@ function InspectionResultPanel({
 
       {done && (
         <p className="mt-2 text-xs text-amber-900">
-          افتح البلاغات من <Link href="/building/maintenance" className="underline">بلاغات الصيانة</Link> لاعتمادها وإصدار تقاريرها.
+          افتح البلاغات من <Link prefetch={false} href="/building/maintenance" className="underline">بلاغات الصيانة</Link> لاعتمادها وإصدار تقاريرها.
         </p>
       )}
     </div>

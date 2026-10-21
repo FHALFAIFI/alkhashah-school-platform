@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { parseReportFilters, serializeReportFilters, filtersToStored, storedToParams } from "@/lib/reports/filters";
+import {
+  parseReportFilters,
+  serializeReportFilters,
+  filtersToStored,
+  storedToParams,
+  readListParam,
+} from "@/lib/reports/filters";
 import { REPORTS, isSortableColumn, isGroupableColumn, reportByKey } from "@/lib/reports/catalog";
 import { sanitizeCell, toCsv } from "@/lib/reports/export-safety";
 
@@ -117,8 +123,9 @@ describe("§22 — الذهاب والعودة لا يفقد قيمة ولا ي�
 
   it("التسلسل إلى العنوان لا يفقد قيمة", () => {
     const sp = serializeReportFilters({ committeeIds: ["a", "b"], flags: ["hasTasks"] });
-    expect(sp.getAll("committeeId")).toEqual(["a", "b"]);
-    expect(sp.getAll("flag")).toEqual(["hasTasks"]);
+    // D-066: القيم في معامل واحد مفصول لا في مفاتيح مكرّرة
+    expect(readListParam(sp, "committeeId")).toEqual(["a", "b"]);
+    expect(readListParam(sp, "flag")).toEqual(["hasTasks"]);
   });
 });
 

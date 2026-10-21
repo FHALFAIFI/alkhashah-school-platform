@@ -1,6 +1,8 @@
 import "server-only";
 import { getDocumentIdentity, resolveHeader, type IdentityToggles, type DocumentIdentity, type ResolvedHeader } from "@/lib/document-identity";
 import { readStoredFile } from "@/lib/storage";
+import { loadWordImageAsset } from "@/lib/reports/word-design";
+import type { WordHeader } from "@/lib/reports/word-export";
 import type { PageHeaderIdentity } from "@/lib/pdf";
 
 /**
@@ -26,22 +28,34 @@ async function fileToDataUri(fileId: string | null): Promise<string | null> {
   }
 }
 
-/** v2.4 §15: ترويسة وورد من الهوية المركزية نفسها — تستدعيها كل مسارات تصدير DOCX */
-export async function getWordHeader(): Promise<{
-  orgLines: string[];
-  principalName?: string;
-  principalTitle?: string;
-  academicYear?: string;
-  footerNote?: string;
-}> {
+/**
+ * v2.4 §15: ترويسة وورد من الهوية المركزية نفسها — تستدعيها كل مسارات تصدير DOCX.
+ * منذ إعادة تصميم v2.6 تحمل أيضاً ألوان الهوية والشعارات وأصلي التوقيع والختم متى
+ * فعّلتها ضوابط التضمين — محمّلة من التخزين المحلي الآمن فقط، والمتعذر يسقط بصمت.
+ */
+export async function getWordHeader(): Promise<WordHeader> {
   const identity = await getDocumentIdentity();
   const resolved = resolveHeader(identity);
+  const [ministryLogo, schoolLogo, signature, stamp] = await Promise.all([
+    loadWordImageAsset(resolved.ministryLogoFileId),
+    loadWordImageAsset(resolved.schoolLogoFileId),
+    loadWordImageAsset(resolved.signatureFileId),
+    loadWordImageAsset(resolved.stampFileId),
+  ]);
   return {
     orgLines: resolved.orgLines,
     principalName: resolved.principalName || undefined,
     principalTitle: resolved.principalTitle || undefined,
     academicYear: resolved.academicYear || undefined,
+    headerNote: resolved.headerNote || undefined,
     footerNote: resolved.footerNote || undefined,
+    contactInfo: resolved.contactInfo || undefined,
+    primaryColor: resolved.primaryColor,
+    accentColor: resolved.accentColor,
+    ministryLogo,
+    schoolLogo,
+    signature,
+    stamp,
   };
 }
 

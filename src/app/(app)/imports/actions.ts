@@ -84,38 +84,67 @@ export async function uploadImportAction(_prev: ImportActionState, formData: For
   redirect(`/imports/${batchId}`);
 }
 
-export async function correctRowAction(rowId: string, batchId: string, formData: FormData): Promise<void> {
+/**
+ * نتيجة قرار الصف (D-069): الحالة الجديدة تعود مع الاستجابة كي يعرضها العميل فوراً —
+ * الحالة المرئية لا تنتظر تحديث الصفحة الكامل (الذي قد يُجهَض على HTTP/1.1)، والتحديث
+ * الكامل يبقى مصالحةً لبقية الصفحة (العدادات وبوابة التنفيذ).
+ */
+export type RowActionResult = { status?: string; error?: string };
+
+export async function correctRowAction(rowId: string, batchId: string, formData: FormData): Promise<RowActionResult> {
   const user = await requirePermission("imports.read");
   const corrections: Record<string, unknown> = {};
   for (const [key, value] of formData.entries()) {
     if (key.startsWith("f_")) corrections[key.slice(2)] = String(value);
   }
-  await applyRowDecision({ rowId, action: "تصحيح", corrections, actorId: user.id, actorName: user.displayName });
+  try {
+    const row = await applyRowDecision({ rowId, action: "تصحيح", corrections, actorId: user.id, actorName: user.displayName });
+    return { status: row.status };
+  } catch (e) {
+    return { error: userFacingError(e, "تعذر تصحيح الصف") };
+  }
 }
 
-export async function excludeRowAction(rowId: string, batchId: string): Promise<void> {
-  const user = await requirePermission("imports.read");
-  await applyRowDecision({ rowId, action: "استبعاد", actorId: user.id, actorName: user.displayName });
+type RowActor = { id: string; displayName: string };
+
+/** تنفيذ قرار الصف بعد التفويض — التفويض نفسه يبقى ظاهراً على حدود كل إجراء */
+async function decideRow(user: RowActor, rowId: string, action: string, fallbackError: string): Promise<RowActionResult> {
+  try {
+    const row = await applyRowDecision({ rowId, action, actorId: user.id, actorName: user.displayName });
+    return { status: row.status };
+  } catch (e) {
+    return { error: userFacingError(e, fallbackError) };
+  }
 }
 
-export async function markRowReadyAction(rowId: string, batchId: string): Promise<void> {
+export async function excludeRowAction(rowId: string, _batchId: string): Promise<RowActionResult> {
   const user = await requirePermission("imports.read");
-  await applyRowDecision({ rowId, action: "تأكيد كجاهز", actorId: user.id, actorName: user.displayName });
+  return decideRow(user, rowId, "استبعاد", "تعذر استبعاد الصف");
 }
 
-export async function deferRowAction(rowId: string, batchId: string): Promise<void> {
+export async function markRowReadyAction(rowId: string, _batchId: string): Promise<RowActionResult> {
   const user = await requirePermission("imports.read");
-  await applyRowDecision({ rowId, action: "تأجيل", actorId: user.id, actorName: user.displayName });
+  return decideRow(user, rowId, "تأكيد كجاهز", "تعذر تأكيد الصف");
 }
 
-export async function returnRowToReviewAction(rowId: string, batchId: string): Promise<void> {
+export async function deferRowAction(rowId: string, _batchId: string): Promise<RowActionResult> {
   const user = await requirePermission("imports.read");
-  await applyRowDecision({ rowId, action: "إعادة إلى المراجعة", actorId: user.id, actorName: user.displayName });
+  return decideRow(user, rowId, "تأجيل", "تعذر تأجيل الصف");
 }
 
-export async function undoRowDecisionAction(rowId: string, batchId: string): Promise<void> {
+export async function returnRowToReviewAction(rowId: string, _batchId: string): Promise<RowActionResult> {
   const user = await requirePermission("imports.read");
-  await undoLastRowDecision({ rowId, actorId: user.id, actorName: user.displayName });
+  return decideRow(user, rowId, "إعادة إلى المراجعة", "تعذر إعادة الصف إلى المراجعة");
+}
+
+export async function undoRowDecisionAction(rowId: string, _batchId: string): Promise<RowActionResult> {
+  const user = await requirePermission("imports.read");
+  try {
+    const row = await undoLastRowDecision({ rowId, actorId: user.id, actorName: user.displayName });
+    return { status: row.status };
+  } catch (e) {
+    return { error: userFacingError(e, "تعذر التراجع عن القرار") };
+  }
 }
 
 export async function cancelBatchAction(batchId: string): Promise<ImportActionState> {

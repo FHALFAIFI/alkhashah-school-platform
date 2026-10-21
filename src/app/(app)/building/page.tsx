@@ -101,7 +101,7 @@ export default async function BuildingPage({ searchParams }: { searchParams: Pro
               <tr key={r.id}>
                 <td className="px-3 py-2 tabular-nums">{r.code}</td>
                 <td className="px-3 py-2 font-medium">
-                  <Link href={`/building/rooms/${r.id}`} className="text-brand-700 hover:underline">{r.nameAr}</Link>
+                  <Link prefetch={false} href={`/building/rooms/${r.id}`} className="text-brand-700 hover:underline">{r.nameAr}</Link>
                 </td>
                 <td className="px-3 py-2 text-xs">{r.roomType}</td>
                 <td className="px-3 py-2 text-xs tabular-nums">{r.lengthM && r.widthM ? `${Number(r.lengthM).toFixed(1)}×${Number(r.widthM).toFixed(1)}م` : "—"}</td>

@@ -12,7 +12,7 @@ import {
   type TemplateResult,
 } from "@/lib/reports/templates";
 
-export type ActionState = TemplateResult | null;
+export type ActionState = (TemplateResult & { instanceId?: string }) | null;
 
 /**
  * إجراءات قوالب التقارير (v2.5.0 §4.5).
@@ -72,4 +72,47 @@ export async function deleteTemplateAction(templateId: string, _prev: ActionStat
   // واحد بلا اسم مكتوب ولا سبب إلزامي — الضوابط الثقيلة للحذف الذي لا رجعة فيه.
   if (String(formData.get("confirm") ?? "") !== "1") return { error: "أكّد حذف القالب" };
   return deleteTemplate(templateId, user);
+}
+
+/* ─────────────── الجسر إلى التقارير المحفوظة (v2.6 §A — بلوكر §2) ─────────────── */
+
+/**
+ * المنشئ هو واجهة التأليف الوحيدة: ما يختاره المستخدم هنا (التقرير والمرشّحات والأعمدة
+ * وترتيبها والتجميع ونمط العرض) يُحفظ كما هو في التقرير المحفوظ — لا منشئ ثانٍ مصغَّر.
+ * الاختيارات كلها في نص الاستعلام نفسه الذي تقرأه الشاشة، فتمرّ بالمحلّل المُقيَّد بالقوائم
+ * البيضاء قبل أن تُخزَّن.
+ */
+function instanceInputFrom(formData: FormData) {
+  const reportKey = String(formData.get("reportKey") ?? "");
+  const filters = filtersFromForm(formData, reportKey);
+  const formats = formData.getAll("outputFormat").map(String).filter((f) => ["pdf", "docx", "xlsx"].includes(f));
+  const options: Record<string, unknown> = { reportKey };
+  const templateKey = String(formData.get("templateKey") ?? "");
+  if (templateKey) options.templateKey = templateKey;
+  if (formats.length) options.outputFormats = formats;
+  return {
+    title: String(formData.get("title") ?? ""),
+    typeKey: "single",
+    filters,
+    options,
+    periodFrom: String(formData.get("periodFrom") ?? "") || null,
+    periodTo: String(formData.get("periodTo") ?? "") || null,
+  };
+}
+
+export async function createInstanceFromBuilderAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("reports.read", "reports.builder");
+  const { createInstance } = await import("@/lib/reports/instances/service");
+  const result = await createInstance(instanceInputFrom(formData), user);
+  if (result.error || !result.instanceId) return result;
+  redirect(`/reports/archive/${result.instanceId}`);
+}
+
+/** تحديث تقرير محفوظ من المنشئ — الرابط يحمل `instance=<id>` فيصير المنشئ محرّره */
+export async function updateInstanceFromBuilderAction(instanceId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requirePermission("reports.read", "reports.builder");
+  const { updateInstance } = await import("@/lib/reports/instances/service");
+  const result = await updateInstance(instanceId, instanceInputFrom(formData), user);
+  if (result.error) return result;
+  redirect(`/reports/archive/${instanceId}`);
 }

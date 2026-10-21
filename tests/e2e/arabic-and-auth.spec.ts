@@ -20,7 +20,7 @@ async function assertNoVisibleEnglish(page: import("@playwright/test").Page) {
   const text = await page.evaluate(() => document.body.innerText);
   const latinWords = text.match(/[A-Za-z]{2,}/g) ?? [];
   // امتدادات الملفات المرفوعة (تظهر ضمن أسماء ملفات حقيقية في /imports) كلمات تقنية مسموحة
-  const allowed = new Set(["PDF", "Excel", "Word", "QR", "KHS", "DOC", "AST", "RM", "MNT", "xlsx", "docx", "csv"]);
+  const allowed = new Set(["PDF", "CSV", "Excel", "Word", "QR", "KHS", "DOC", "AST", "RM", "MNT", "ZIP", "xlsx", "docx", "csv", "zip", "pdf"]);
   // رموز التحقق للوثائق الصادرة أحرف سداسية عشرية بالتصميم (KHS-DOC + رمز تحقق) — ليست كلمات إنجليزية
   const violations = latinWords.filter((w) => !allowed.has(w) && !/^KHS/.test(w) && !/^[A-F0-9]+$/.test(w));
   expect(violations, `كلمات إنجليزية ظاهرة: ${violations.join(", ")}`).toEqual([]);

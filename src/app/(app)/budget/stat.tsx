@@ -26,7 +26,7 @@ export function Stat({
   );
   return (
     <Card className={href ? "transition hover:border-brand-300" : undefined}>
-      {href ? <Link href={href} className="block">{body}</Link> : body}
+      {href ? <Link prefetch={false} href={href} className="block">{body}</Link> : body}
     </Card>
   );
 }

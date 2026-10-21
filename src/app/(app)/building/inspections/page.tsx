@@ -69,7 +69,7 @@ export default async function InspectionsPage() {
       <Card>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold text-brand-900">قوالب الفحص ({templates.length})</h2>
-          <Link href="/building/inspections/templates" className="text-sm text-brand-700 underline">
+          <Link prefetch={false} href="/building/inspections/templates" className="text-sm text-brand-700 underline">
             إدارة القوالب والإصدارات ←
           </Link>
         </div>
@@ -77,7 +77,7 @@ export default async function InspectionsPage() {
           {templates.map((t) => (
             <tr key={t.id} id={`tpl-${t.id}`} className="scroll-mt-20">
               <td className="px-3 py-2 font-medium">
-                <Link href={`/building/inspections/templates/${t.id}`} className="text-brand-700 hover:underline">
+                <Link prefetch={false} href={`/building/inspections/templates/${t.id}`} className="text-brand-700 hover:underline">
                   {orFallback(t.nameAr)}
                 </Link>
               </td>
@@ -103,7 +103,7 @@ export default async function InspectionsPage() {
             <tr key={room.id}>
               <td className="px-3 py-2 tabular-nums">{room.code}</td>
               <td className="px-3 py-2 font-medium">
-                <Link href={`/building/rooms/${room.id}`} className="text-brand-700 hover:underline">{orFallback(room.nameAr)}</Link>
+                <Link prefetch={false} href={`/building/rooms/${room.id}`} className="text-brand-700 hover:underline">{orFallback(room.nameAr)}</Link>
               </td>
               <td className="px-3 py-2 text-xs">{floorName.get(room.floorId)}</td>
               <td className="px-3 py-2"><Badge value={readiness.statusAr} /></td>

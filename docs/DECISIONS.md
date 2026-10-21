@@ -882,3 +882,577 @@ already in production rows («في المسار», «متوقف مؤقتاً») 
 `plan-followups` report. They previously ran different queries and disagreed — the report
 always read *today's* week and ignored the selected one.
 `tests/integration/followup-parity.test.ts` compares the two outputs row by row.
+
+## D-055 — A report instance is a third artifact class: numbered, immutable, lifecycled (2026-08-08)
+
+v2.6 §A/§B. The platform already distinguishes a *saved template* (a recipe,
+`report_templates`), an *issued document* (a frozen HTML snapshot, `documents`) and a
+*built-in report definition* (`lib/reports/catalog`). v2.6 adds the fourth thing the owner
+actually asked for: **a report the school keeps** — built in the builder, saved as a draft,
+finalized into an immutable numbered snapshot, archived, and searchable years later.
+
+**The model.** New tables (all additive, migration 0034; guards in 0035):
+
+- `report_instances` — title, catalog `report_key` or composite type, Arabic lifecycle
+  status «مسودة | نهائي | مؤرشف», recipe columns while draft (filters/columns/options),
+  a `snapshot` jsonb written **exactly once** inside the finalization transaction,
+  `report_number` unique and NULL until finalized, `version_of_id` self-reference for
+  "new version", `signed_copy_file_id`, finalized/archived/created/updated audit columns.
+- `report_outputs` — one row per (instance, format) pointing at `stored_files`; the
+  preserved PDF/DOCX/XLSX (+ ZIP) of the finalized report.
+- `report_jobs` — DB-backed generation jobs (D-059).
+- `report_counters` — per-year counter row locked with `SELECT … FOR UPDATE` at
+  finalization. `documents.ts`'s count-based numbering has a documented race; report
+  numbers must never collide or skip, so they take the locked-counter path. Number format:
+  `<prefix><year>-<seq>` with prefix from setting `reports.number_prefix`
+  (default «KHS-RPT-»).
+
+**Lifecycle rules (§A):** only drafts may be edited or deleted; finalization is
+transactional and idempotent (a second submit returns the same number); a "new version"
+creates a new draft carrying `version_of_id`; archiving flips status only. The archive
+search reads titles/numbers/types/periods — never inside snapshots.
+
+**Immutability is enforced in the database, not just the service.** Migration 0035
+installs triggers: `report_instances` rows that are not «مسودة» reject UPDATEs to
+anything except the archive transition, the signed-copy reference and updater metadata,
+and reject DELETE outright; `report_outputs` of a finalized instance reject
+UPDATE/DELETE (ZIP excepted — D-060 explains why). Application code, background jobs,
+cascades and future migrations all hit the same wall. Regression tests prove it from both
+sides (service refusal and raw-SQL refusal).
+
+**Permissions:** no new keys. Draft authoring = `reports.builder`; export =
+`reports.generate`; finalization and signed-copy upload = `documents.issue` (finalizing
+*is* issuing an official numbered artifact). Sensitive instances (any section marked
+`sensitive` in the catalog) additionally require `performance.individual.read` on every
+read/export path — the report archive must not reopen what D-013 closed.
+
+## D-056 — Composite report types are presets over the one catalog, not a second engine (2026-08-08)
+
+v2.6 §A/§C. The builder gains multi-section reports (التقرير الدوري، التقرير الختامي،
+الملخص التنفيذي…) without a second report engine: a composite type is an ordered list of
+**sections, each bound to a catalog report key**, sharing the instance's period/scope
+filters with optional per-section additions. Everything the catalog already guarantees —
+permission per report, whitelisted columns/sort/group, filter isolation, sensitivity —
+applies per section by construction. Sections can be reordered and hidden; empty sections
+are omitted automatically with an explicit «إظهار الأقسام الفارغة» override. A
+single-source instance is the degenerate case: one section.
+
+The registry lives in `src/lib/reports/instances/types.ts` (pure module, unit-testable,
+same style as `catalog.ts`). No report is fabricated from data the platform does not
+hold; a section whose data model lacks a concept states that rather than inventing it
+(the v2.5.0 attendance precedent).
+
+## D-057 — «إدارة التعليم» is the addressee; «مكتب التعليم» leaves the identity (2026-08-08)
+
+v2.6 §E. The office line is removed from: `DocumentIdentity` rendering (`resolveHeader`
+no longer emits it), the identity settings screen, the document-template identity block
+and its placeholder (`education_office`), the hard-coded fallback org lines in
+`lib/pdf.ts`, and every generated filename/label. The stored `document.identity` settings
+row keeps any old `educationOffice` value (settings are jsonb; ignoring a key is free) —
+nothing rewrites user data.
+
+**Boundary:** official source data is untouched. The committee-duty texts in
+`src/db/seed-data/committee-templates.ts` mention «مكتب التعليم» because the ministry's
+own wording does; the language policy forbids paraphrasing it. The pinning test therefore
+scopes to identity, templates, reports, letters and labels — not to verbatim source data.
+
+## D-058 — Five protected base templates in code; customized copies in the database (2026-08-08)
+
+v2.6 §E. The five base templates (رسمي إلى إدارة التعليم، إداري داخلي، تنفيذي موجز،
+تحليلي مفصّل، طباعة أولية بلا هوية) are a **pure registry**
+(`src/lib/reports/instances/base-templates.ts`): they cannot be deleted or destructively
+modified because they are not rows. A customized copy is a `report_style_templates` row
+referencing its base key with a whitelisted config diff (colors, header/footer text,
+cover/TOC defaults, identity toggles) — the same closed-config philosophy as
+`template_versions`, and explicitly **not** a general-purpose template designer. Default
+template per report type lives in the settings store (`reports.default_templates`);
+per-instance overrides live in the instance options and are frozen into the snapshot at
+finalization. The existing dark document-template engine (`template_definitions`) is left
+untouched: entangling a live release with dark code buys nothing.
+
+## D-059 — Background generation: DB-backed jobs executed with `after()`, at-least-once, idempotent (2026-08-08)
+
+v2.6 §I. There is no worker infrastructure and this release does not invent a daemon.
+A generation request inserts a `report_jobs` row and schedules the work with Next's
+`after()` — it runs on the server after the action's response has streamed, so it can
+never abort the response (the D-049/D-053 failure class is structurally impossible).
+The UI polls job status with the existing client-refresh idiom.
+
+Reliability rules: one **active** job per instance (partial unique index on the two
+Arabic active statuses); job execution re-checks state before writing; outputs are
+upserted per (instance, format) so a retry after a crash cannot duplicate files or rows;
+a job stuck in «قيد التنفيذ» past its heartbeat window is retryable — «إعادة المحاولة»
+re-enqueues, it never edits the stuck row's history. Failures preserve the draft and
+store an Arabic failure reason on the job row. This is the house `client_op_id` idempotency
+pattern applied server-side.
+
+## D-060 — One snapshot document renders everywhere; ZIP is assembled from preserved parts (2026-08-08)
+
+v2.6 §B/§F/§G. Finalization freezes a single self-contained `SnapshotDoc` (schema
+versioned, `version: 1`): title, type, period, resolved filter description, sections with
+their columns and rows, the resolved identity (org lines, principal, logos by file id),
+the resolved template config, and generation metadata. Every consumer — app preview,
+paginated print preview, PDF, DOCX, XLSX — renders from this one structure, which is what
+makes "the PDF matches the approved preview" testable rather than aspirational.
+
+The preserved outputs are PDF/DOCX/XLSX files in `stored_files` (scope `reports`).
+The ZIP is **assembled deterministically from preserved parts** (outputs + signed copy +
+referenced attachments) and re-assembled when the signed copy arrives after finalization —
+which is why the immutability trigger (D-055) exempts exactly the ZIP row and nothing
+else. Path safety: entry names are sanitized flat names, never caller paths; integrity is
+verified by reading the archive back before it is stored or served.
+
+## D-061 — Finalization holds an optimistic lock on the draft's `updated_at` (2026-08-08)
+
+v2.6 §A, raised by the independent RC review.
+
+**The race.** `finalizeInstance` builds the snapshot *before* opening its transaction —
+deliberately, because building runs every section's query and holding a row lock across
+that would serialise the whole archive. But that leaves a window: a draft edit landing
+between the build and the lock meant the frozen snapshot could be built from **older**
+settings than the ones stored, and nothing would ever reveal it — the report would simply
+be wrong forever, which §B makes unfixable by design.
+
+**The rule.** `updated_at` is read before the build and compared under `FOR UPDATE`. If it
+moved, the built snapshot is discarded and the whole attempt repeats (bounded at three).
+A finalized report is therefore always built from the last committed state of its draft.
+Idempotency is unchanged: a row already final returns its existing number.
+
+**Why not lock for the whole build.** It would serialise finalization against every other
+reader of those tables for the duration of a full report build — seconds on large reports —
+to prevent a window measured in milliseconds. The compare-and-retry costs one extra read.
+
+`tests/integration/v260-review-blockers.test.ts` proves it by **lock ordering, not timing**:
+the test holds the row lock, lets finalize build and block, edits the title, commits, and
+asserts the frozen snapshot carries the newer title.
+
+## D-062 — The package is never downloadable in a stale state (2026-08-08)
+
+v2.6 §B/§G, raised by the independent RC review.
+
+D-060 allowed the ZIP row to be replaced when a signed copy arrives. The first
+implementation replaced it *after* rebuilding, so between the signed copy landing and the
+rebuild finishing, the previous package — the one missing that signed copy — was still
+downloadable and looked complete.
+
+**The rule.** Attaching a signed copy **deletes** the existing ZIP row in the same
+transaction as the reference update. From that instant the only truthful state is "not
+assembled yet", and the rebuild runs as a recorded `report_jobs` entry like any other
+generation: its failure is stored with an Arabic reason and surfaced with Retry, never
+swallowed by a fire-and-forget catch. `rebuildZip` reloads the instance row at assembly
+time, so a signed copy replaced between scheduling and execution still wins.
+
+Migration 0036 narrows the trigger accordingly: a ZIP row may replace only
+`file_id`/`checksum`/`size`/`created_at` — never its `format`, `instance_id` or `id`.
+
+## D-063 — Integrity is verified against the bytes on disk, not against a second row (2026-08-08)
+
+v2.6 §B/§H, raised by the independent RC review.
+
+`report_outputs.checksum` and `stored_files.sha256` are both recorded at write time, so
+comparing them proves only that two database rows agree — they drift together the moment
+the file itself is altered or truncated underneath. Reads now recompute SHA-256 from the
+bytes actually returned by storage and compare that to the recorded digest, returning an
+explicit `{ corrupt: true }` that the download route turns into an audited refusal.
+
+The cost is one hash per download of an already-in-memory buffer. The alternative —
+serving a silently corrupted official report — is not an acceptable trade at any price.
+
+## D-064 — The report builder is the only authoring surface (2026-08-08)
+
+v2.6 §A, raised by the independent RC review.
+
+The archive shipped with its own reduced editing form, which meant column selection,
+ordering, grouping and display mode were reachable in `/reports/builder` but not when
+editing a saved report — two authoring surfaces with different capabilities over the same
+model.
+
+**The rule.** `/reports/builder` authors both: it gains a "save as report" step, and
+opening it with `instance=<id>` makes it that report's editor. The archive's own form keeps
+only what the builder cannot express — period, output template, output formats, section
+order and visibility, identity overrides. Saved report *settings* (`report_templates`)
+open in the builder as starting points, closing the loop between the two.
+
+Two defects this surfaced, both silent: stored filters were read back without the report's
+whitelist so saved column/sort/group selections vanished on read; and the snapshot ordered
+columns by catalogue definition instead of by the user's selection order, discarding an
+explicitly approved builder capability.
+
+## D-065 — A redirect that differs only by a fragment is not a refresh (2026-08-08)
+
+Refines rule 4 of **D-053** ("actions ending in `redirect()` need no refresh").
+
+**What happened.** Issuing the official meeting minutes generated the numbered document,
+stored the PDF, and set `meetings.minutes_doc_id` — and the screen did not change. The
+download link never appeared and the workflow indicator stayed on «إصدار المحضر», so the
+principal's only reasonable reading is that the button did nothing, and re-pressing it issues
+a *second* numbered official document. This is the same harm D-053 rule 4 was written to
+prevent; the fix for it had been applied and did not work.
+
+**Why.** The action ended in `redirect("/committees/{id}/meetings/{mid}#minutes")` — the
+route the user was already on, distinguished only by a fragment. The App Router treats that
+as a hash navigation: it scrolls and reuses the mounted tree, and never requests a new RSC
+payload. Rule 4 assumed "redirect" implies "server render". It does not. The redirect must
+change something the router actually navigates on.
+
+**The rule.** When an action redirects back to its own route, the destination must carry a
+**result-specific query parameter** — not a fragment alone. Here it is the issued document
+number, which does three things at once: it forces a real navigation, it differs on every
+issuance so a second press cannot be mistaken for a no-op, and it names the result on screen.
+
+**The confirmation is read from the database, not from the URL.** The banner renders only
+when the number in the URL equals the `doc_number` actually persisted for this meeting, so a
+hand-edited link cannot claim an issuance that never happened.
+
+**The sweep this exposed.** Auditing every inline `"use server"` action under `src/app` for
+the same shape found **ten more that ended with nothing at all** — no redirect, no returned
+result, so nothing on screen could change:
+
+| Action | What silently succeeded |
+|---|---|
+| `performance/cycles/[id]/sessions/[sid]` `issueReport` | session report issued; button never became «إعادة إصدار» — re-pressing **replaces** the session's report reference |
+| `committees/[id]/report` `issueReport` | committee card issued; «الإصدارات السابقة» unchanged |
+| `plan/[id]/report` `issueReport` + `issueCard` | programme report and assignment card issued |
+| `committees` `issueRegistry` | the councils/committees registry issued |
+| `performance/analytics` `issueOverallReport` | the school-wide performance report issued |
+| `performance/employees/[personId]` `issueReport` | the individual performance report issued |
+| `building/report` `issueReport` | the building report issued |
+| `admin/settings` `save` + `saveIdentity` | settings and document identity saved — the literal "my changes don't show" complaint |
+| `notifications` `markAllRead` | notifications marked read, still listed unread |
+
+All ten now end in a redirect. The document-issuing ones carry the issued number and render
+`IssuedDocumentNotice`, which re-reads the document from `documents` before showing anything.
+`saveIdentity` additionally stopped swallowing a rejected logo upload — it redirected to a
+silent no-op; it now says so.
+
+**A second hole, in rule 3.** The guard for "a transition must refresh when it settles"
+matched only `const [pending, start] = useTransition()`. Two components discard the pending
+flag — `const [, startTransition] = useTransition()` — and slipped past it, both with the
+same visible symptom: the action's own success message appears while the server-derived part
+of the screen does not change.
+
+- **Assignment form** (`committees/[id]/committee-ui.tsx`): «صدر نموذج التكليف …» appeared
+  and «تنزيل نموذج التكليف» never did. This one had been *passing* in CI by luck — an
+  unrelated refresh from the task-distribution panel sometimes landed after the generation
+  — which is exactly how a flaky green hides a real defect.
+- **Evidence restore** (`evidence/[id]/evidence-manage-ui.tsx`): the evidence was restored
+  and the page kept showing it archived, restore button included.
+
+Both now call `useRefreshAfterTransition`, and the guard matches any `useTransition()` use
+regardless of how its result is destructured.
+
+`tests/unit/no-revalidate-in-actions.test.ts` pins both halves: no inline action may end
+without a redirect or a returned result, and no `redirect()` target under `src/app` may carry
+a fragment without also carrying a query string. `tests/integration/minutes-issuance.test.ts`
+pins the persistence (`minutes_doc_id`, the `documents` row, the PDF bytes), and workflows س3
+pins the refreshed screen — URL, download link, document number, and workflow stage.
+
+## D-066 — A repeated query parameter makes the router believe the page did not change (2026-08-09)
+
+**Recorded on 2026-08-08 as an open, reproduced defect; root-caused and fixed on 2026-08-09.**
+
+**Symptom.** On a report filtered by two values of the same parameter (two domains, two
+owners), removing one of them — from its chip or by unchecking it — updated the URL, the
+chips and the checkboxes, and left the table and «عدد النتائج» showing both values' rows.
+The screen only corrected itself on a page reload. The first record stopped here and called
+it a framework cache defect with no configuration that suppresses it. That was wrong: the
+cause is the **shape of the URL this codebase writes**, and it is ours to fix.
+
+**Root cause.** The App Router identifies a page cache node by a segment key built from
+`JSON.stringify(searchParams)` — `addSearchParamsIfPageSegment` in
+`next/dist/shared/lib/segment`, and on the client
+`segment-cache/scheduler` and `router-reducer/ppr-navigations`, both of which build that
+object with `Object.fromEntries(new URLSearchParams(search))`. **`Object.fromEntries` keeps
+only the last occurrence of a repeated key.** So
+
+    ?domain=أ&domain=ب   →   __PAGE__?{"domain":"ب"}
+    ?domain=ب            →   __PAGE__?{"domain":"ب"}
+
+are the *same page* as far as the router is concerned. It reuses the mounted tree, issues no
+RSC request at all, and the server is never asked — which is exactly what the first
+investigation measured and mis-attributed to a cache.
+
+This also explains the asymmetry that made the defect look erratic. Only a change that moves
+the **last** occurrence changes the key:
+
+| transition | key before → after | result |
+|---|---|---|
+| none → one | `{}` → `{"domain":"أ"}` | refreshes |
+| one → two | `{"domain":"أ"}` → `{"domain":"ب"}` | refreshes |
+| two → **first removed** | `{"domain":"ب"}` → `{"domain":"ب"}` | **stale** |
+| three → **middle removed** | `{"domain":"ج"}` → `{"domain":"ج"}` | **stale** |
+| three → last removed | `{"domain":"ج"}` → `{"domain":"ب"}` | refreshes |
+
+**The fix — the platform never writes a repeated key.** A multi-value filter is one
+parameter whose value is the list, separated by U+001F: `?domain=أ<US>ب`. Then
+`Object.fromEntries` is faithful, every distinct selection has a distinct page segment key,
+and the router asks the server every time. `LIST_SEPARATOR`, `encodeListParam`,
+`decodeListParam`, `readListParam` and `writeListParam` in `src/lib/reports/filters.ts` are
+the single definition; `serializeReportFilters`, the filter panel, the report builder,
+`templateRunHref` and `storedToParams` all go through them.
+
+**Why a control character and not a comma.** The values are Arabic domain, owner, job-title
+and department names typed by the principal, and UUIDs. Any printable delimiter could occur
+inside a value; U+001F cannot occur in typed text or in a UUID, so no value can be split by
+accident and **no pre-existing link breaks** — reading still accepts repeated keys.
+
+**Legacy URLs are canonicalised on the server, not in an effect.** A bookmark or saved link
+written before this change still carries repeated keys, and until it is rewritten the very
+first removal falls into the same hole. `/reports`, `/reports/builder` and `/plan/followup`
+therefore `redirect()` to the canonical query before rendering. This was first written as a
+`router.replace` in a client effect; that version raced with the user's own navigation and
+occasionally cancelled it. A server redirect cannot: it happens before hydration exists.
+
+**A second, unrelated hole this closed.** The session-filter restore ran once per *mount*.
+After «مسح الفلاتر» — or after removing the last filter — the URL has no meaningful
+parameters, so a remount re-applied the saved filters and `router.replace`d a filter the user
+had just removed. It now runs once per key per browsing session.
+
+**The stored shape did not change.** `filtersToStored` still writes arrays, so saved
+templates and frozen report instances are byte-identical to before; no migration.
+
+**Coverage.** `tests/unit/report-filter-list-params.test.ts` — encoding round-trip including
+values containing commas, pipes and colons; the collapse itself asserted against
+`Object.fromEntries`; every removal position producing a distinct key; no writer emits a
+repeated key; and a source scan that fails on `for (… of values) sp.append(…)`, the exact
+shape that caused this. `tests/e2e/zzzzz-v260-filters.spec.ts` — nine browser scenarios:
+owner and domain single→zero, multi→single (first, middle, last), multi→zero, chip and
+checkbox, both filters together, back/forward, direct URL load in both the new and the legacy
+shape, and column reorder/hide in the builder. Every scenario also asserts the document was
+never reloaded. The scenario in `tests/e2e/zzzz-v250.spec.ts` that carried `test.fixme` for
+this defect is enabled and passing.
+
+**One harness note, recorded rather than hidden.** Under machine-speed clicking, a pointer
+event is occasionally lost while the server-rendered tree is being replaced — the URL simply
+does not change. The browser scenarios click once, wait up to eight seconds for the URL, and
+click at most one more time; every assertion after that is unchanged. This is a property of
+driving a server-rendered tree at machine speed, not of the filters: it predates this fix and
+is not reachable at human clicking speed.
+
+## D-067 — Filtering a report by an id crashed the page (2026-08-08)
+
+Found by rebuilding the v2.5.0 §19.3 committee-registry scenario to drive the real filter
+panel. **A production defect, not a test problem.**
+
+**Symptom.** Choosing a single committee — or a single person, financial item, or programme
+— in any report's filter panel replaced the report with the generic error screen
+(«تعذّر إتمام العملية … رمز المرجع»). Every id-valued filter in the platform was affected.
+
+**Cause.** `loadFilterLabelMaps` — which turns filter ids into the names shown in the chips
+and in the exported report header — wrote its conditions as
+``sql`${committees.id} = any(${ids})` ``. Drizzle binds the JavaScript array as a *single*
+parameter, so Postgres receives `= any(($1))` with a lone uuid string and tries to parse it
+as an array literal: `22P02 malformed array literal`. The failure is in the label lookup, not
+in the report query — the rows load correctly, and the page dies while labelling the chips.
+
+**Fix.** `inArray(col, ids)`, which emits `in ($1, $2, …)` with one bind per id. All four
+call sites (person, item, committee, programme) corrected; no other `= any(` binding exists
+in `src`.
+
+**Why no test caught it.** The only scenario that exercised an id filter used Playwright's
+`check()` on a controlled checkbox, which fails *before* the navigation happens — so the
+crash sat behind a failing test and was never reached. This is the concrete cost of a test
+that fails for a mechanical reason: it hides whatever comes after it.
+
+Pinned by `tests/integration/report-filter-labels.test.ts` (all four keys, one id and
+several) and by the repaired browser scenario ٩–١١ in `tests/e2e/zzzz-v250.spec.ts`.
+
+## D-068 — «التصنيف» is a filter; `category` is navigation (2026-08-09)
+
+Found while proving D-066: after removing the last real filter, one chip refused to go away —
+«التصنيف: plan».
+
+**The collision.** The reports centre carries the *report category* in `?category=…`
+(`?category=building&report=maintenance-register`). The «التصنيف» filter — a record-level
+classification — declared the **same** parameter name. So every report opened from the centre
+was silently filtered by a value nobody chose.
+
+**What it cost.** Only one report in the catalogue declares that filter, and it is the one the
+principal opens after every inspection round: **«بلاغات الصيانة»**. Opened from the reports
+centre it was filtered to `category = "building"` — a report-category key that no maintenance
+issue can ever carry — so it returned **an empty register no matter how many issues existed**,
+with a meaningless «التصنيف: building» chip above the emptiness explaining it. Saving that view
+as a template stored the bogus value too.
+
+**Why no test caught it.** The e2e database has zero maintenance issues, so the report was
+empty in the tests for an unrelated reason and the filter never mattered. The unit tests
+exercised `parseReportFilters` with filter parameters, never with a reports-centre URL.
+
+**The decision.** Two meanings may not share one parameter name. The **filter** moved to
+`recordCategory`; `category` stays what it has been since v2.2 — navigation. The filter is
+reached only from the reports centre, the builder and the archive draft, so nothing outside
+those surfaces reads it, and no operational screen changes. Stored templates that carry the
+bogus `category` array are no longer read as a filter, which repairs them rather than
+preserving a value that was never chosen.
+
+Pinned in `tests/unit/report-filter-list-params.test.ts`: a reports-centre URL yields no
+category filter, `recordCategory` yields the real one, and writing a category filter does not
+touch the navigation parameter.
+
+**Addendum (2026-08-09, corrective round — acceptance condition).** An explicitly supplied
+but **empty** `category` (`/reports?category=&report=maintenance-register`, in either
+parameter order) previously fell through to the bare reports centre: the empty string made
+the category unresolvable and the report selector only searched inside a resolved category.
+The selector now resolves an explicit `report` key **independently** against the catalog,
+derives its declared category when the supplied one is empty or absent, and redirects to the
+canonical URL — so no downstream link (sort, pagination, export) ever carries an empty
+`category=`, and no phantom «التصنيف» chip can appear (the filter parameter is
+`recordCategory`, per the main entry above). Five cases are distinguished explicitly: no
+report selected; a valid report with its normal category; a valid report with empty
+category (derive + canonical redirect); an unknown report key (no derivation — the centre
+renders untouched); and a report/category mismatch (the requested category renders alone,
+without the report — the user's intent is not guessed). Permission checks are unchanged:
+both the report's and the derived category's permissions gate the derivation. Pinned by the
+«D-068 — بلاغات الصيانة بفئة فارغة» block in `tests/e2e/zzzzz-v260-filters.spec.ts`: both
+orderings, direct load, the real reports-centre path, explicit normal category, unknown
+report, and mismatch — each proving the register title, a seeded row, the exact count, and
+the absence of any phantom chip.
+
+## D-069 — A `loading.tsx` boundary silently swallowed every post-action refresh in production (2026-08-09)
+
+The ARM64 gate found three browser scenarios failing over direct HTTP/1.1 while passing over
+HTTP/2 (Tailscale): the finalize badge never appeared without a manual reload, «مستبعد»
+never became visible after a row exclusion, and an in-app navigation to a batch page
+stalled. All three reproduced locally against `next start` on an isolated port.
+
+**Forensics.** The server action POST always succeeded (the response value arrived and the
+row was persisted). The client-driven `router.refresh()` (D-053) then fired; the server
+answered 200 with a complete, well-formed flight body (proven by replaying the exact request
+headers — 22–23 KB, intact under a deliberately slow reader, so no server-side truncation).
+The client router **received and discarded** it: the DOM never updated, Chrome logged
+`net::ERR_ABORTED` for the cancelled stream tail, and no retry followed. Application was
+ambient luck (2/6 across repetitions). In `next dev` the same flow works every time.
+
+**Root cause.** Upstream Next.js 16.2 defect — production-only: with a `loading.tsx`
+boundary in the tree, a soft navigation/refresh whose response arrives while a server action
+is settling gets stuck or discarded (vercel/next.js#86151; the action-queue fix #95391
+landed in 16.3 only, not backported to 16.2.x). This platform had exactly one
+`loading.tsx`, at `(app)/` — covering **every** application page. Removing it made the
+refresh apply **5/5**, then the full probe battery 3/3 green. It also rewrites history:
+the v2.2.1 «UI does not refresh after save» complaint and the v2.3 "never e2e against host
+`next start` — aborts Server-Action streams (env quirk)" note were this same defect, not an
+environment quirk; dev timing and HTTP/2 multiplexing masked it.
+
+**The decision — four parts, all shipped together:**
+
+1. **`(app)/loading.tsx` is removed** (the issue-confirmed workaround). The upstream fix
+   arrives with a future framework upgrade — deliberately *not* taken on this RC branch.
+   *(Superseded the same day — see the addendum below: the upgrade **was** taken, forced by
+   evidence, and the removal is retained regardless.)*
+2. **`prefetch={false}` on every application `<Link>`** (84 sites + `LinkButton`
+   centrally). Next 16 eagerly refetches every in-viewport link on each refresh and after
+   each server action (vercel/next.js#93210) — ~20 full SSR renders per action against a
+   Mac mini serving the whole school, saturating HTTP/1.1's six connections. Every app page
+   is `force-dynamic`, so prefetch bought nothing; first-click latency on the school LAN is
+   milliseconds.
+3. **Refreshes are now verified.** The app layout renders a per-render
+   `data-render-stamp`; the `useRefresh*` hooks re-attempt `router.refresh()` up to three
+   times (2 s apart) if the stamp does not change, then stop. A bounded safety net over an
+   upstream behaviour we do not control — not the primary mechanism.
+4. **User-visible action outcomes no longer depend on any refresh.** Import row decisions
+   return the resulting status in the action response; a client-side store publishes it to
+   both renderings of the row (mobile card and desktop table) the moment the action
+   settles (~60 ms observed). The §I generation watcher no longer refreshes the whole page
+   every 4 s: it polls a lightweight authenticated JSON endpoint
+   (`/api/reports/instances/[id]/job`) with no overlapping requests, explicit timeout and
+   error states, cleanup on unmount, and exactly **one** verified refresh when the job
+   reaches a terminal state — rendering the outcome (download links or the Arabic failure
+   reason with a retry button) client-side from the poll payload itself.
+
+Pinned by: the «الاستبعاد يظهر فوراً بلا إعادة تحميل» scenario in
+`tests/e2e/import-decisions.spec.ts` (visible badge without reload + server-counter
+reconciliation + persistence across revisit), the no-reload guard on the finalize scenario
+in `tests/e2e/zzzzz-v260-archive.spec.ts`, and the D-068 block in
+`tests/e2e/zzzzz-v260-filters.spec.ts`. The definitive transport evidence is the full
+Playwright suite executed against the production build over plain HTTP/1.1
+(`E2E_EXTERNAL=1` against `next start`) — previously impossible (v2.3 note), now required.
+
+**Addendum — Next.js 16.2.12 → 16.3.0 (2026-08-09, same corrective round).** The first
+corrective commit (`3c4a156`) went red on **both** CI triggers at the same step: a sidebar
+navigation to `/building` in the digital-twin scenario never completed within the 600 s test
+timeout — on CI runners only; five full local suite runs (dev mode and production mode over
+HTTP/1.1, including a cold-cache run) stayed green. The step is a plain `Link` click issued
+immediately after a login server action. That is precisely the remaining sibling of D-069's
+upstream defect: **a navigation dispatched while a server action is still settling is
+discarded and reverted by the router's action queue** — fixed upstream in Next 16.3.0
+("Fix navigation getting reverted when a Server Action is in flight", vercel/next.js#95391),
+never backported to 16.2.x. Removing `loading.tsx` (which this round did for the refresh
+half of the bug) also *widens* that window on slow machines: without a loading boundary the
+navigation commits only when the server response completes. A slow CI runner sits in that
+window for seconds; this workstation never does — which is why the race was only observable
+in CI, and would equally threaten the school's slowest client devices in production.
+
+The upgrade to **16.3.0** (stable, released 2026-08-03; `eslint-config-next` moved with it)
+takes the actual fixes for both halves (#95391 and the #86151 loading.js discard) instead of
+depending on timing. Every app-level change of this round is retained on top of it — the
+lightweight job polling, the client-confirmed row status, the prefetch trim and the verified
+refresh are correct designs regardless of the framework's bugs, and `loading.tsx` stays
+removed this release to keep the validated delta minimal (restoring it may be evaluated
+after deployment). One new 16.3 lint rule was satisfied by replacing a
+`window.location.href` internal navigation with `router.push` in the evidence manage UI.
+The full validation battery and the complete ARM64 gate run against the upgraded framework.
+
+**Second addendum — `loading.tsx` restored; the CI-only navigation hang, root-caused with a
+snapshot (2026-08-09, same round).** The 16.3.0 commit still went red on both CI triggers,
+same single step: a sidebar `Link` navigation to `/building`. The uploaded Playwright
+snapshot is decisive: at timeout the sidebar marks «مخطط المبنى» as the **active** entry
+(the router's client state has moved) while `<main>` still renders the dashboard — a
+navigation **half-committed forever**, its route-data fetch aborted (`⨯ The destination
+stream closed early` in the dev-server log) and never retried. The trigger was this round's
+own `prefetch={false}`: for 36 commits the sidebar's route data was always prefetched
+before any click, so the vulnerable on-demand fetch never happened; only slow CI runners
+sit in the window long enough to hit it. Two conclusions follow. First, the correct guard
+for primary navigation is a **loading boundary**, not prefetch: with `loading.tsx` present
+the navigation commits instantly (URL, spinner) and data streams in afterwards — no
+half-committed state exists. Second, restoring `loading.tsx` is safe **only because of the
+16.3 upgrade**: the boundary was the trigger of the refresh-discard defect on 16.2
+(#86151), which is fixed in 16.3 — re-measured after restoration: post-action refreshes
+applied **6/6** with the boundary in place. Final state of the round, each piece justified
+by a measured failure: Next 16.3.0 + `loading.tsx` restored + `prefetch={false}` everywhere
++ verified refresh + refresh-independent visible outcomes + lightweight job polling.
+
+## D-070 — One official visual system for every generated Word document (2026-08-10)
+
+**Context.** The interactive Microsoft Word check of the `853f074` candidate's nine samples
+confirmed structural and functional correctness (valid packages, RTL, real header/footer,
+live page fields, editability, mixed orientations) — and rejected the **visual design**.
+The DOCX exporters rendered a vertically stacked centered header and unstyled default
+tables, while every PDF the platform has issued since v2.3/v2.4 carries the established
+official document identity of `officialPageHtml` (src/lib/pdf.ts) and the v2.6 instance
+renderer: the three-zone RTL header (ministry identity and logo on the right, title and
+year centrally, document number/date and school logo on the left) above a primary-color
+separator, dark-green section headings with an accent side rule, `#cfcabc`-bordered tables
+with the `#f2f0eb` header fill, the restrained official footer, and the principal
+approval/signature/stamp area. Two DOCX paths (the v2.6 instance exporter and the legacy
+registry `word-export.ts`) each carried their own, different, plainer look.
+
+**Decision.** The established official design is the *only* visual system for generated
+Word documents, implemented once in shared native-Word primitives —
+`src/lib/reports/word-design.ts` — used by **both** DOCX paths:
+
+- The three-zone header is a real, editable Word header built as a borderless RTL zone
+  table, defined on the first section and inherited by every later section (portrait and
+  landscape alike), never duplicated in the body. The «بلا هوية» template keeps its clean
+  identity-free header.
+- Logos are embedded as native `ImageRun` parts read exclusively through the secure local
+  storage layer — no screenshots, no network fetch, no external relationships. Aspect
+  ratio is preserved inside fixed maximum bounds; PNG and JPEG embed natively; anything
+  else (WebP, corrupt data, a missing file) silently degrades to the text identity —
+  a logo can never block document generation. `showLogos` is now honored by DOCX
+  (previously ignored), independently of `showIdentity`.
+- Identity colors (`primaryColor`/`accentColor`, D-057) drive the separator, headings and
+  accent rules. Tables carry the official grid, header fill, bold Arabic header text,
+  native cell margins scaled by the template's density, top vertical alignment,
+  right-aligned RTL content, repeating header rows, and rows that never split.
+- The footer is a real Word footer: separator rule, configured footer text, live
+  `PAGE`/`NUMPAGES` fields. The approval area is a stable borderless two-block layout with
+  principal-level fields only — title, name, date line, signature space/asset, stamp
+  space/asset — honoring the central identity's signature/stamp inclusion settings in the
+  registry path (the frozen instance snapshot carries no signature assets, so instance
+  approval areas keep fillable spaces; snapshot semantics unchanged).
+
+**Explicitly unchanged:** data semantics, filters, issuance, numbering, audit,
+authorization, report content, frozen-snapshot immutability, output hashing, offline
+generation, A4 geometry, orientation and column-splitting logic, and the PDF/Excel/ZIP
+exporters. Release version stays `2.6.0` — the prior candidate was never tagged or
+deployed; its digest is superseded (DELIVERY §10).

@@ -76,7 +76,7 @@ export default async function TasksPage() {
                 <td className="px-3 py-2"><Badge value={t.status} /></td>
                 <td className="px-3 py-2 text-xs">
                   {src ? (
-                    <Link href={src.href} className="text-brand-700 underline underline-offset-2 hover:text-brand-900">
+                    <Link prefetch={false} href={src.href} className="text-brand-700 underline underline-offset-2 hover:text-brand-900">
                       {SOURCE_LABELS[t.sourceType ?? "manual"] ?? "المصدر"}
                     </Link>
                   ) : (

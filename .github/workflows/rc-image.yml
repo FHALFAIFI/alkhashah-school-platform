@@ -1,0 +1,170 @@
+# v2.6 — بناء صورة المرشَّح **خارج مضيف الإنتاج** (بلوكر §10 من المراجعة المستقلة).
+#
+# لماذا هنا لا على جهاز التطوير: الجهاز الوحيد الذي يملك Docker في هذه البيئة هو نفسه
+# الذي يخدم الإنتاج على المنفذ 3080، والتعليمات تمنع البناء عليه صراحةً (ودرس v2.5.0
+# يؤكده: البناء هناك قتل حاوية الإنتاج خمس مرات تحت ضغط الذاكرة). عدّاء GitHub مضيف
+# مستقل تماماً، فيتحقق الشرطان معاً: البناء يجري خارج مضيف الإنتاج، ولا يُلمس 3080.
+#
+# ما ينتجه هذا السير:
+#   1. صورة linux/arm64 (معمارية Mac mini الإنتاجي) مبنية من Dockerfile.production نفسه،
+#      مدفوعة إلى GHCR بوسم الالتزام — و**بصمتها الثابتة** مسجَّلة في مُخرَج ومُرفَق.
+#   2. فحص تشغيل بمعمارية العدّاء (amd64) من Dockerfile نفسه ووسم الالتزام نفسه: قاعدة
+#      Postgres معزولة، هجرات، ثم /api/health حتى يردّ سليماً بالإصدار والالتزام المضبوطين.
+#
+# **حدّ هذا الفحص، صريحاً:** هو يثبت أن *الشيفرة* تُقلع وتهاجر وتردّ سليمة، ولا يثبت أن
+# ثنائيّة **arm64** المدفوعة تعمل — فتلك لم تُشغَّل قط هنا. تشغيل الصورة arm64 نفسها على
+# Mac mini مقابل قاعدة معزولة على منفذ مؤقّت هو **البوابة الأولى الإلزامية قبل أي تبديل**،
+# وهي موصوفة في RUNBOOK §«المرشَّح القادم — v2.6.0» ولم تُنفَّذ بعد.
+#
+# لا أسرار مضافة: الدفع يستعمل GITHUB_TOKEN الذي تمنحه المنصة للسير نفسه، والحزمة ترث
+# خصوصية المستودع. لا بيانات مدرسية ولا نسخ احتياطية تدخل الصورة.
+name: RC image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/v2.6-reporting-platform"]
+
+concurrency:
+  group: rc-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  rc-image:
+    name: Build multi-platform RC (amd64+arm64) + runtime smoke of the pushed digest (arm64 runtime NOT proven)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64 emulation for the cross build)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute lowercase image reference
+        id: ref
+        run: |
+          echo "image=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/madrasa-app" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # صورة متعددة المنصات (بلوكر المراجعة التصحيحية): قائمة بيانات واحدة تضم amd64 وarm64،
+      # فبصمة واحدة ثابتة تُشغَّل أصلاً على العدّاء (فحص التشغيل أدناه يسحبها بعينها) وعلى
+      # Mac mini (بوابة arm64). لا صورة فحص مبنية على حدة — الدليل كله على المُنتَج المدفوع.
+      - name: Build and push the multi-platform RC image (linux/amd64, linux/arm64)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.production
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ steps.ref.outputs.image }}:0.1.0-v2_6_0-rc
+            ${{ steps.ref.outputs.image }}:${{ steps.ref.outputs.commit }}
+          build-args: |
+            RELEASE_COMMIT=${{ steps.ref.outputs.commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Record the immutable digest and prove the arm64 manifest is present
+        run: |
+          mkdir -p rc-image-record
+          IMAGE="${{ steps.ref.outputs.image }}"
+          DIGEST="${{ steps.build.outputs.digest }}"
+          echo "== manifest list must contain linux/arm64 and linux/amd64 =="
+          docker buildx imagetools inspect "$IMAGE@$DIGEST" | tee rc-image-record/manifest.txt
+          grep -q "linux/arm64" rc-image-record/manifest.txt || { echo "FAIL: no linux/arm64 manifest"; exit 1; }
+          grep -q "linux/amd64" rc-image-record/manifest.txt || { echo "FAIL: no linux/amd64 manifest"; exit 1; }
+          {
+            echo "image:       $IMAGE:0.1.0-v2_6_0-rc"
+            echo "platforms:   linux/amd64, linux/arm64 (one manifest list — deploy by this digest)"
+            echo "commit:      ${{ github.sha }}"
+            echo "short:       ${{ steps.ref.outputs.commit }}"
+            echo "digest:      $DIGEST"
+            echo "built_on:    GitHub Actions runner (NOT the host serving port 3080)"
+            echo "runtime_smoke: the amd64 child of THIS pushed digest — the arm64 child has NOT been executed here"
+            echo "arm64_gate:  MANDATORY pre-swap: pull this digest on the Mac mini, run it against an"
+            echo "             isolated database on a temporary port, abort before touching 3080 on any failure"
+            echo "run_url:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } | tee rc-image-record/DIGEST.txt
+
+      # ── فحص التشغيل: الطفل amd64 من **البصمة المدفوعة نفسها** مقابل قاعدة معزولة ──
+      # لا صورة فحص مبنية على حدة بعد الآن: تُسحب البصمة المدفوعة بعينها (العدّاء يختار
+      # طفلها amd64 من قائمة البيانات) فيقع الدليل على المُنتَج نفسه الذي سيُنشر.
+      #
+      # ما يثبته هذا الفحص: أن الصورة المدفوعة تقلع وتهاجر وتردّ صحةً بالإصدار والالتزام
+      # الصحيحين على amd64. وما لا يثبته: أن طفلها **arm64** يعمل — لم يُنفَّذ هنا قط.
+      # إثباته بوابة ما قبل التبديل على Mac mini.
+      - name: Runtime smoke — the amd64 child of the pushed digest, against an isolated Postgres
+        run: |
+          set -euo pipefail
+          docker pull "${{ steps.ref.outputs.image }}@${{ steps.build.outputs.digest }}"
+          docker tag "${{ steps.ref.outputs.image }}@${{ steps.build.outputs.digest }}" madrasa-app:rc-smoke
+          docker network create rc-smoke-net
+          docker run -d --name rc-smoke-db --network rc-smoke-net \
+            -e POSTGRES_USER=madrasa -e POSTGRES_PASSWORD=rc_smoke_pw -e POSTGRES_DB=madrasa_rc_smoke \
+            postgres:16
+          for i in $(seq 1 30); do
+            docker exec rc-smoke-db pg_isready -U madrasa && break
+            sleep 2
+          done
+
+          DB_URL="postgresql://madrasa:rc_smoke_pw@rc-smoke-db:5432/madrasa_rc_smoke"
+
+          echo "== migrate-only init, exactly as production does =="
+          docker run --rm --network rc-smoke-net -e DATABASE_URL="$DB_URL" -e MADRASA_ENV=production \
+            madrasa-app:rc-smoke sh -c "npx tsx src/db/migrate.ts"
+
+          LEDGER=$(docker exec rc-smoke-db psql -U madrasa -d madrasa_rc_smoke -t -A \
+            -c "SELECT count(*) FROM drizzle.__drizzle_migrations")
+          echo "ledger: $LEDGER"
+          [ "$LEDGER" = "37" ] || { echo "FAIL: expected ledger 37, got $LEDGER"; exit 1; }
+
+          echo "== boot the image and interrogate /api/health =="
+          docker run -d --name rc-smoke-app --network rc-smoke-net -p 3099:3080 \
+            -e DATABASE_URL="$DB_URL" \
+            -e SESSION_SECRET="$(openssl rand -hex 32)" \
+            -e MADRASA_ENV=production \
+            madrasa-app:rc-smoke
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3099/api/health > health.json 2>/dev/null; then break; fi
+            sleep 2
+          done
+          cat health.json
+          grep -q '"status":"ok"' health.json || { docker logs rc-smoke-app | tail -50; exit 1; }
+          grep -q '"db":"up"' health.json     || { docker logs rc-smoke-app | tail -50; exit 1; }
+          grep -q '"version":"2.6.0"' health.json || { echo "FAIL: health does not report 2.6.0"; exit 1; }
+          # الالتزام المضمَّن يُطابَق بالضبط: صورة مبنية من التزام آخر تُرفض هنا لا عند التبديل
+          grep -q "\"commit\":\"${{ steps.ref.outputs.commit }}\"" health.json \
+            || { echo "FAIL: health does not report commit ${{ steps.ref.outputs.commit }}"; cat health.json; exit 1; }
+
+          echo "== the login page renders (auth gate alive) =="
+          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3099/login | grep -q 200
+
+          cp health.json rc-image-record/health.json
+          docker rm -f rc-smoke-app rc-smoke-db
+          docker network rm rc-smoke-net
+          echo "runtime smoke PASS"
+
+      - name: Upload the digest record and health response
+        uses: actions/upload-artifact@v4
+        with:
+          name: v26-rc-image-record
+          path: rc-image-record/
+          if-no-files-found: error
+          retention-days: 90

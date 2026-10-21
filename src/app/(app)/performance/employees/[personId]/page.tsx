@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, eq, inArray } from "drizzle-orm";
@@ -13,6 +14,7 @@ import { cycleProgress } from "@/lib/performance/scoring";
 import { loadAnalyticsCycles } from "@/lib/performance/analytics-service";
 import { individualReportLabel, resultBandLabel } from "@/lib/performance/report-labels";
 import { employeeTypeOf } from "@/lib/employee-type";
+import { IssuedDocumentNotice } from "@/components/issued-document-notice";
 
 export const metadata = { title: "تقرير أداء منسوب" };
 export const dynamic = "force-dynamic";
@@ -28,12 +30,14 @@ export default async function EmployeeKpiPage({
   searchParams,
 }: {
   params: Promise<{ personId: string }>;
-  searchParams: Promise<{ دورة?: string }>;
+  searchParams: Promise<{ دورة?: string; issued?: string }>;
 }) {
   const user = await requirePermission("performance.read", "performance.individual.read");
   const { personId } = await params;
   if (!isUuid(personId)) notFound();
-  const requestedCycle = (await searchParams)["دورة"];
+  const sp = await searchParams;
+  const requestedCycle = sp["دورة"];
+  const issuedNumber = typeof sp.issued === "string" ? sp.issued : null;
   const [person] = await db.select().from(people).where(eq(people.id, personId));
   if (!person) notFound();
   const canGenerate = user.permissions.has("reports.generate");
@@ -91,11 +95,20 @@ export default async function EmployeeKpiPage({
     "use server";
     const u = await requirePermission("reports.generate", "performance.individual.read");
     const { generateEmployeePerformanceReport } = await import("@/lib/reports/performance-reports");
-    await generateEmployeePerformanceReport({ personId, cycleId: selectedCycleId, issuedBy: u.id });
+    const { docNumber } = await generateEmployeePerformanceReport({ personId, cycleId: selectedCycleId, issuedBy: u.id });
+    /*
+     * D-065: الإجراء كان ينتهي بلا شيء. الدورة المختارة تبقى في العنوان — وإلا عاد المدير
+     * بعد الإصدار إلى دورة أخرى غير التي أصدر تقريرها.
+     */
+    const back = new URLSearchParams();
+    if (requestedCycle) back.set("دورة", requestedCycle);
+    back.set("issued", docNumber);
+    redirect(`/performance/employees/${personId}?${back.toString()}`);
   }
 
   return (
     <div className="space-y-4">
+      <IssuedDocumentNotice docNumber={issuedNumber} label="صدر تقرير الأداء الفردي رقم" />
       <div className="print:hidden">
         <BackButton fallbackHref="/performance/analytics" label="عودة إلى لوحة الأداء" />
       </div>
@@ -145,7 +158,7 @@ export default async function EmployeeKpiPage({
                   {/* v2.4.1 §1.4: الفئة من شرائح التوزيع المعتمدة — لا تقدير لفظي مخترع */}
                   <td className="px-3 py-2 text-xs">{resultBandLabel(resultPercent)}</td>
                   <td className="px-3 py-2">
-                    <Link href={`/performance/cycles/${cycle.id}`} className="text-xs text-brand-700 underline">
+                    <Link prefetch={false} href={`/performance/cycles/${cycle.id}`} className="text-xs text-brand-700 underline">
                       فتح الدورة ←
                     </Link>
                   </td>

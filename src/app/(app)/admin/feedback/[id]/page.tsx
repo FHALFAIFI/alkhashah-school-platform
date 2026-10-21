@@ -36,7 +36,7 @@ export default async function FeedbackDetailPage({ params }: { params: Promise<{
           <div className="flex flex-wrap items-center gap-2">
             <Badge value={f.status} />
             {f.archivedAt && <Badge value="مؤرشف" />}
-            <Link href="/admin/feedback" className="rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100">
+            <Link prefetch={false} href="/admin/feedback" className="rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100">
               عودة للقائمة
             </Link>
           </div>
@@ -96,7 +96,7 @@ export default async function FeedbackDetailPage({ params }: { params: Promise<{
             <dl className="space-y-2 text-sm">
               <Item label="الصفحة">
                 {linkedOpenable ? (
-                  <Link href={f.pagePath} className="text-brand-700 underline-offset-2 hover:underline" dir="ltr">
+                  <Link prefetch={false} href={f.pagePath} className="text-brand-700 underline-offset-2 hover:underline" dir="ltr">
                     {f.pagePath}
                   </Link>
                 ) : (

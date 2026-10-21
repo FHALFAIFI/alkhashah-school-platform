@@ -186,6 +186,16 @@ export function DualDate({
   );
 }
 
+/*
+ * D-069: `prefetch={false}` على كل روابط التطبيق (هنا وفي كل `<Link>` مباشر).
+ *
+ * كل صفحات التطبيق ديناميكية (`force-dynamic`)، فالجلب المسبق يعيد تصيير الصفحات كاملة
+ * على الخادم بلا فائدة تُذكر — والأسوأ أن كل إجراء خادم يُبطل مخزن الموجّه فيُعاد جلب
+ * **كل** الروابط المجلوبة مسبقاً دفعة واحدة: عشرات طلبات RSC تتزاحم على ست وصلات HTTP/1.1
+ * وتُجهض التحديث الذي يحمل الحالة المرئية بعد الإجراء («مستبعد» لا يظهر، شارة «نهائي»
+ * لا تصل). إلغاء الجلب المسبق يزيل العاصفة من أصلها؛ كلفة النقرة الأولى ميلّيات معدودة
+ * على شبكة المدرسة المحلية.
+ */
 export function LinkButton({
   href,
   children,
@@ -200,7 +210,7 @@ export function LinkButton({
       ? "bg-brand-600 text-white hover:bg-brand-700"
       : "border border-sand-200 bg-white text-gray-700 hover:bg-sand-100";
   return (
-    <Link href={href} className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-sm font-medium transition lg:min-h-0 ${cls}`}>
+    <Link prefetch={false} href={href} className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-sm font-medium transition lg:min-h-0 ${cls}`}>
       {children}
     </Link>
   );

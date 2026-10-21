@@ -9,6 +9,7 @@ import {
   serializeReportFilters,
   filtersToStored,
   storedToParams,
+  writeListParam,
   isReportMode,
   type ReportFilters,
 } from "./filters";
@@ -322,7 +323,7 @@ export function templateRunHref(template: SavedTemplate): string {
   const sp = serializeReportFilters(template.filters);
   sp.set("category", def?.category ?? "");
   sp.set("report", template.reportKey);
-  for (const c of template.columns) sp.append("col", c);
+  writeListParam(sp, "col", template.columns);
   sp.set("template", template.id);
   return `/reports?${sp.toString()}`;
 }

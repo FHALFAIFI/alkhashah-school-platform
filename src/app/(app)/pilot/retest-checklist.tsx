@@ -144,7 +144,7 @@ function RetestItem({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <span className="font-medium text-gray-800">{index}. {task.text}</span>
-          <Link href={task.href} className="ms-2 text-sm text-brand-700 underline">افتح الصفحة</Link>
+          <Link prefetch={false} href={task.href} className="ms-2 text-sm text-brand-700 underline">افتح الصفحة</Link>
         </div>
         <select value={status} onChange={(e) => onChange({ status: e.target.value as Status })} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm">
           {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}

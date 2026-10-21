@@ -87,20 +87,24 @@ function isoDate(d: Date | string | null | undefined): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
 
+/** ترتيب في الذاكرة بمفتاح مُقيَّد بالقائمة البيضاء — القيم الفارغة إلى النهاية دائماً */
+function sortRows(rows: ReportRow[], filters: ReportFilters, reportKey: string): ReportRow[] {
+  const sortKey = filters.sort && isSortableColumn(reportKey, filters.sort) ? filters.sort : null;
+  if (!sortKey) return rows;
+  return [...rows].sort((a, b) => {
+    const av = a[sortKey];
+    const bv = b[sortKey];
+    // القيم الفارغة تُدفع إلى النهاية دائماً فلا يفسد الترتيب بحقل اختياري غير مُدخل
+    if (av === null || av === undefined) return 1;
+    if (bv === null || bv === undefined) return -1;
+    const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv), "ar");
+    return filters.dir === "desc" ? -cmp : cmp;
+  });
+}
+
 /** ترتيب وتقسيم صفحات في الذاكرة — للتقارير المجمَّعة أو المدمَجة من مصدرين */
 function paginate(rows: ReportRow[], filters: ReportFilters, reportKey: string): LoadedReport {
-  const sortKey = filters.sort && isSortableColumn(reportKey, filters.sort) ? filters.sort : null;
-  const sorted = sortKey
-    ? [...rows].sort((a, b) => {
-        const av = a[sortKey];
-        const bv = b[sortKey];
-        // القيم الفارغة تُدفع إلى النهاية دائماً فلا يفسد الترتيب بحقل اختياري غير مُدخل
-        if (av === null || av === undefined) return 1;
-        if (bv === null || bv === undefined) return -1;
-        const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv), "ar");
-        return filters.dir === "desc" ? -cmp : cmp;
-      })
-    : rows;
+  const sorted = sortRows(rows, filters, reportKey);
   const page = clampPage(filters.page ?? 1);
   const pageSize = clampPageSize(filters.pageSize);
   return { rows: sorted.slice((page - 1) * pageSize, page * pageSize), total: sorted.length };
@@ -1898,13 +1902,20 @@ export async function runReport(reportKey: string, filters: ReportFilters): Prom
   return paginate(rows, filters, reportKey);
 }
 
-/** تشغيل تقرير للتصدير — بلا تقسيم صفحات، وبحد أعلى صريح للصفوف */
+/**
+ * تشغيل تقرير للتصدير — بلا تقسيم صفحات، وبحد أعلى صريح للصفوف.
+ *
+ * لا يمرّ عبر `paginate`: تمريرها بحجم صفحة كبير كان يبدو صحيحاً بينما `clampPageSize`
+ * يقصّه بصمت إلى حجم صفحة **الشاشة** (200)، فكل تصدير فوق 200 صف كان يفقد بقيته بلا
+ * تصريح — وعلامة الاقتطاع لا تُرفع إلا فوق 5000 فبدا الملف كاملاً. عيب v2.5.0 كشفه
+ * قياس إجهاد v2.6 (`scripts/v260-perf-audit.ts`) ويثبّته اختبار `export-full-rows`.
+ */
 export async function runReportForExport(reportKey: string, filters: ReportFilters): Promise<{ rows: ReportRow[]; truncated: boolean }> {
   const def = reportByKey(reportKey);
   if (!def) throw new Error("تقرير غير معروف");
   const loader = LOADERS[reportKey];
   if (!loader) throw new Error("تقرير غير معروف");
   const all = await loader(filters);
-  const sorted = paginate(all, { ...filters, page: 1, pageSize: MAX_EXPORT_ROWS }, reportKey).rows;
+  const sorted = sortRows(all, filters, reportKey);
   return { rows: sorted.slice(0, MAX_EXPORT_ROWS), truncated: all.length > MAX_EXPORT_ROWS };
 }

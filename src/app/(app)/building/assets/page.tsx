@@ -85,13 +85,13 @@ export default async function AssetsPage({
 
       {/* مرشّح: النشط / المؤرشف */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Link
+        <Link prefetch={false}
           href="/building/assets"
           className={`rounded-lg px-3 py-1.5 font-medium ${!showArchived ? "bg-brand-600 text-white" : "border border-sand-200 bg-white text-gray-600"}`}
         >
           الأصول النشطة
         </Link>
-        <Link
+        <Link prefetch={false}
           href="/building/assets?عرض=مؤرشف"
           className={`rounded-lg px-3 py-1.5 font-medium ${showArchived ? "bg-brand-600 text-white" : "border border-sand-200 bg-white text-gray-600"}`}
         >
@@ -114,7 +114,7 @@ export default async function AssetsPage({
             عرض الأصل بالرمز <span className="tabular-nums" dir="ltr">{params["رمز"]?.trim()}</span>
             {shownAssets.length === 0 && " — لا أصل بهذا الرمز، تحقق من الملصق"}
           </span>
-          <Link href={showArchived ? "/building/assets?عرض=مؤرشف" : "/building/assets"} className="font-medium text-brand-700 underline">
+          <Link prefetch={false} href={showArchived ? "/building/assets?عرض=مؤرشف" : "/building/assets"} className="font-medium text-brand-700 underline">
             إظهار الكل
           </Link>
         </div>

@@ -1,5 +1,20 @@
 # Recorded Test Results — سجل نتائج الاختبارات
 
+## v2.6.0 RC gate — 2026-08-08 (branch `feat/v2.6-reporting-platform`)
+
+```
+Vitest      1139 passed (1139) across 112 files   [baseline at branch: 1042/103]
+Playwright  tests/e2e/zzzzz-v260-archive.spec.ts — 7 passed, twice (fresh-DB determinism run included)
+typecheck   clean · lint clean · next build success · drizzle-kit check clean
+CI          .github/workflows/ci.yml — all five jobs green (quality, tests, migration safety incl.
+            v2.5.0→v2.6 upgrade rehearsal, production build, synthetic sample artifacts)
+```
+
+Full record: `docs/DELIVERY_V2_6_0.md`. The 11 pre-existing Playwright failures documented on the
+v2.5 branch are unrelated and untouched.
+
+---
+
 Latest full run — 2026-07-16 (real-data validation pass, D-014), Mac mini M2 (dev machine), Postgres 16 (Docker), Node 24.
 
 ## Vitest (unit + integration) — `npm run test`
