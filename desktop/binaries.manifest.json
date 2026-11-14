@@ -59,8 +59,18 @@
         "include",
         "symbols",
         "pgAdmin*",
-        "stackbuilder*"
-      ]
+        "stackbuilder*",
+        "plperl.dll",
+        "bool_plperl.dll",
+        "hstore_plperl.dll",
+        "jsonb_plperl.dll",
+        "plpython3.dll",
+        "hstore_plpython3.dll",
+        "jsonb_plpython3.dll",
+        "ltree_plpython3.dll",
+        "pltcl.dll"
+      ],
+      "excludeReason": "GUI/installer/dev parts are not needed; PL/Perl, PL/Python and PL/Tcl need external language runtimes the app never uses"
     },
     {
       "id": "chromium",
