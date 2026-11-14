@@ -204,7 +204,7 @@ describe("cross-file contracts", () => {
     expect(ps).toContain("Join-Path $install 'FathersApp.exe'");
     expect(ps).toContain("stop -D $data -m fast -w");
     expect(ps).not.toMatch(/Stop-Process|taskkill|Kill\(/i);
-    const source = fs.readFileSync(path.join(root, "desktop/resources/stop-owned-postgres.ps1"), "utf8");
+    const source = fs.readFileSync(path.join(root, "desktop/resources/stop-owned-postgres.ps1"), "utf8").replace(/\r\n/g, "\n");
     const flattened = source.split("\n").filter((l) => !/^\s*#/.test(l)).map((l) => l.replace(/^ +/, "")).join(";").replace(/\{;/g, "{ ").replace(/;\}/g, " }").replace(/;;+/g, ";");
     expect(ps).toBe(flattened);
   });
