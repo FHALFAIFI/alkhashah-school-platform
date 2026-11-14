@@ -11,32 +11,56 @@
       "license": "MIT (plus bundled third-party licenses)",
       "sourceUrl": "https://github.com/nodejs/node/tree/v24.22.3",
       "layout": [
-        { "from": "node-v24.22.3-win-x64/node.exe", "to": "node/node.exe" },
-        { "from": "node-v24.22.3-win-x64/LICENSE", "to": "node/LICENSE" }
+        {
+          "from": "node-v24.22.3-win-x64/node.exe",
+          "to": "node/node.exe"
+        },
+        {
+          "from": "node-v24.22.3-win-x64/LICENSE",
+          "to": "node/LICENSE"
+        }
       ]
     },
     {
       "id": "postgresql",
       "name": "PostgreSQL (EDB Windows binaries)",
-      "version": "16",
-      "url": null,
-      "candidates": [
-        "https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip",
-        "https://get.enterprisedb.com/postgresql/postgresql-16.14-1-windows-x64-binaries.zip",
-        "https://get.enterprisedb.com/postgresql/postgresql-16.13-1-windows-x64-binaries.zip",
-        "https://get.enterprisedb.com/postgresql/postgresql-16.12-1-windows-x64-binaries.zip",
-        "https://get.enterprisedb.com/postgresql/postgresql-16.11-1-windows-x64-binaries.zip"
-      ],
-      "sha256": null,
-      "pinSource": "trust-on-first-use from a GitHub-hosted Windows runner (EDB publishes no checksum file); recorded in docs/WINDOWS_DESKTOP_PACKAGING.md",
+      "version": "16.15-1",
+      "url": "https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip",
+      "sha256": "25e6fcdfb8caec38691bf461125e7564508760666f7b8e5dc6a5f0818f58f81e",
+      "pinSource": "trust-on-first-use: downloaded on a GitHub-hosted Windows Server 2025 runner, run 43627935944 (2026-11-14), 332441502 bytes; EDB publishes no checksum file",
       "license": "PostgreSQL License (bundled libraries: OpenSSL Apache-2.0, ICU, zlib, libxml2, gettext LGPL)",
       "sourceUrl": "https://www.postgresql.org/ftp/source/",
       "layout": [
-        { "from": "pgsql/bin", "to": "pgsql/bin" },
-        { "from": "pgsql/lib", "to": "pgsql/lib" },
-        { "from": "pgsql/share", "to": "pgsql/share" }
+        {
+          "from": "pgsql/bin",
+          "to": "pgsql/bin"
+        },
+        {
+          "from": "pgsql/lib",
+          "to": "pgsql/lib"
+        },
+        {
+          "from": "pgsql/share",
+          "to": "pgsql/share"
+        },
+        {
+          "from": "pgsql/server_license.txt",
+          "to": "pgsql/server_license.txt"
+        },
+        {
+          "from": "pgsql/commandlinetools_3rd_party_licenses.txt",
+          "to": "pgsql/commandlinetools_3rd_party_licenses.txt"
+        }
       ],
-      "exclude": ["pgAdmin 4", "StackBuilder", "doc", "include", "symbols", "pgAdmin*", "stackbuilder*"]
+      "exclude": [
+        "pgAdmin 4",
+        "StackBuilder",
+        "doc",
+        "include",
+        "symbols",
+        "pgAdmin*",
+        "stackbuilder*"
+      ]
     },
     {
       "id": "chromium",
@@ -47,11 +71,21 @@
       "pinSource": "downloaded from Google's Chrome-for-Testing bucket (the archive Playwright mirrors for this revision)",
       "license": "BSD-3-Clause (Chromium) + third-party licenses in LICENSE.headless_shell",
       "sourceUrl": "https://chromium.googlesource.com/chromium/src/+/refs/tags/149.0.7827.55",
-      "playwright": { "package": "playwright-core", "version": "1.61.1", "browser": "chromium-headless-shell", "revision": "1228" },
+      "playwright": {
+        "package": "playwright-core",
+        "version": "1.61.1",
+        "browser": "chromium-headless-shell",
+        "revision": "1228"
+      },
       "layout": [
-        { "from": "chrome-headless-shell-win64", "to": "chromium/chromium_headless_shell-1228/chrome-headless-shell-win64" }
+        {
+          "from": "chrome-headless-shell-win64",
+          "to": "chromium/chromium_headless_shell-1228/chrome-headless-shell-win64"
+        }
       ],
-      "markers": ["chromium/chromium_headless_shell-1228/INSTALLATION_COMPLETE"]
+      "markers": [
+        "chromium/chromium_headless_shell-1228/INSTALLATION_COMPLETE"
+      ]
     },
     {
       "id": "poppler",
@@ -63,16 +97,45 @@
       "license": "GPL-2.0-or-later (poppler); bundled libraries under their own licenses (cairo LGPL/MPL, freetype FTL, libpng, zlib, openjpeg BSD, libtiff, lcms2 MIT, OpenSSL Apache-2.0, curl)",
       "sourceUrl": "https://gitlab.freedesktop.org/poppler/poppler/-/tree/poppler-26.02.0 ; build recipe https://github.com/oschwartz10612/poppler-windows",
       "layout": [
-        { "from": "poppler-26.02.0/Library/bin", "to": "poppler/bin" },
-        { "from": "poppler-26.02.0/share/poppler/COPYING", "to": "poppler/COPYING" },
-        { "from": "poppler-26.02.0/share/poppler/COPYING.gpl2", "to": "poppler/COPYING.gpl2" },
-        { "from": "poppler-26.02.0/share/poppler/COPYING.adobe", "to": "poppler/COPYING.adobe" }
-      ]
+        {
+          "from": "poppler-26.02.0/Library/bin",
+          "to": "poppler/bin"
+        },
+        {
+          "from": "poppler-26.02.0/share/poppler/COPYING",
+          "to": "poppler/COPYING"
+        },
+        {
+          "from": "poppler-26.02.0/share/poppler/COPYING.gpl2",
+          "to": "poppler/COPYING.gpl2"
+        },
+        {
+          "from": "poppler-26.02.0/share/poppler/COPYING.adobe",
+          "to": "poppler/COPYING.adobe"
+        }
+      ],
+      "exclude": [
+        "poppler-glib.dll",
+        "poppler-cpp.dll"
+      ],
+      "excludeReason": "unused library front-ends; poppler-glib imports GLib, which this build does not ship"
     }
   ],
   "vcRuntime": {
     "comment": "PostgreSQL and Poppler link the Microsoft Visual C++ 2015-2022 runtime, which a clean Windows install may lack. The official redistributable DLLs (VC\\Redist\\MSVC\\<ver>\\x64\\Microsoft.VC143.CRT) are deployed app-locally next to those binaries, as permitted by the Visual Studio redistribution terms.",
-    "dlls": ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll", "concrt140.dll"],
-    "targets": ["pgsql/bin", "poppler/bin"]
+    "dlls": [
+      "vcruntime140.dll",
+      "vcruntime140_1.dll",
+      "msvcp140.dll",
+      "msvcp140_1.dll",
+      "msvcp140_2.dll",
+      "msvcp140_atomic_wait.dll",
+      "msvcp140_codecvt_ids.dll",
+      "concrt140.dll"
+    ],
+    "targets": [
+      "pgsql/bin",
+      "poppler/bin"
+    ]
   }
 }

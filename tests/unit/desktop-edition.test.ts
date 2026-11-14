@@ -191,9 +191,22 @@ describe("cross-file contracts", () => {
   });
 
   it("pdftoppm: PATH lookup by default (Mac/Linux unchanged), bundled path when POPPLER_BIN_DIR is set", () => {
-    expect(pdftoppmCommand({}, "linux")).toBe("pdftoppm");
-    expect(pdftoppmCommand({ POPPLER_BIN_DIR: "/opt/poppler/bin" }, "linux")).toBe(path.join("/opt/poppler/bin", "pdftoppm"));
-    expect(pdftoppmCommand({ POPPLER_BIN_DIR: "/opt/poppler/bin" }, "win32").endsWith("pdftoppm.exe")).toBe(true);
+    expect(pdftoppmCommand({} as unknown as NodeJS.ProcessEnv, "linux")).toBe("pdftoppm");
+    expect(pdftoppmCommand({ POPPLER_BIN_DIR: "/opt/poppler/bin" } as unknown as NodeJS.ProcessEnv, "linux")).toBe(path.join("/opt/poppler/bin", "pdftoppm"));
+    expect(pdftoppmCommand({ POPPLER_BIN_DIR: "/opt/poppler/bin" } as unknown as NodeJS.ProcessEnv, "win32").endsWith("pdftoppm.exe")).toBe(true);
+  });
+
+  it("installer hook only stops PostgreSQL that belongs to a Father's App install, and never kills", () => {
+    const nsh = fs.readFileSync(path.join(root, "desktop/resources/installer.nsh"), "utf8");
+    const enc = /-EncodedCommand ([A-Za-z0-9+/=]+)/.exec(nsh)?.[1];
+    expect(enc).toBeTruthy();
+    const ps = Buffer.from(enc!, "base64").toString("utf16le");
+    expect(ps).toContain("Join-Path $install 'FathersApp.exe'");
+    expect(ps).toContain("stop -D $data -m fast -w");
+    expect(ps).not.toMatch(/Stop-Process|taskkill|Kill\(/i);
+    const source = fs.readFileSync(path.join(root, "desktop/resources/stop-owned-postgres.ps1"), "utf8");
+    const flattened = source.split("\n").filter((l) => !/^\s*#/.test(l)).map((l) => l.replace(/^ +/, "")).join(";").replace(/\{;/g, "{ ").replace(/;\}/g, " }").replace(/;;+/g, ";");
+    expect(ps).toBe(flattened);
   });
 
   it("desktop package version tracks the application version", () => {

@@ -1,11 +1,21 @@
 # Windows desktop edition (desktop/) — build and verification on GitHub-hosted Windows x64.
-# Synthetic data only. Never deploys anything; the installer is uploaded as a CI artifact.
+#
+# Synthetic data only; isolated per-job data directories. Never deploys anything — the
+# offline installer is uploaded as a workflow artifact for manual download.
+#
+#   build  — native Next.js standalone build on Windows, pinned + checksum-verified runtimes,
+#            app-local VC++ runtime, static DLL audit, NSIS installers ("previous" + current).
+#   verify — a FRESH runner with no repository dependencies installed: silent install,
+#            cold/warm self-tests with a system-only PATH, upgrade (data preserved), upgrade
+#            over an orphaned PostgreSQL while an unrelated PostgreSQL service is running,
+#            lifecycle harness on the bundled binaries, non-ASCII data path, offline
+#            (firewalled) Electron E2E with real login and exports, uninstall keeps data.
 name: Windows desktop
 
 on:
   push:
     branches: ["claude/**", "feat/windows-desktop**"]
-    paths: ["desktop/**", ".github/workflows/windows-desktop.yml", "src/**", "drizzle/**", "package.json", "package-lock.json", "next.config.ts"]
+    paths: ["desktop/**", ".github/workflows/windows-desktop.yml", "src/**", "drizzle/**", "package.json", "package-lock.json", "next.config.ts", "tests/unit/desktop-edition.test.ts"]
   workflow_dispatch:
 
 concurrency:
@@ -15,18 +25,257 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  NODE_VERSION: "24"
+  NEXT_TELEMETRY_DISABLED: "1"
+
 jobs:
-  discover-postgresql:
+  build:
     runs-on: windows-latest
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: "24" }
-      - name: Locate and hash the EDB PostgreSQL 16 Windows binaries
-        run: node desktop/scripts/fetch-binaries.mjs --discover postgresql
-      - name: Inspect archive layout and MSVC runtime presence
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+
+      - name: Install application dependencies (Windows-native modules)
+        run: npm ci
+
+      - name: Desktop unit tests
+        run: npx vitest run tests/unit/desktop-edition.test.ts
+
+      - name: Build the Windows standalone app tree
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: node desktop/scripts/prepare-app.mjs
+
+      - name: Fetch pinned runtimes (SHA-256 verified)
+        run: node desktop/scripts/fetch-binaries.mjs
+
+      - name: Deploy the VC++ runtime app-locally
         shell: pwsh
         run: |
-          $zip = Get-ChildItem desktop/.cache/downloads/*.zip | Select-Object -First 1
-          tar -tf $zip.FullName | Select-String -Pattern '^pgsql/[^/]+/?$' | ForEach-Object { $_.Line }
-          tar -tf $zip.FullName | Select-String -Pattern 'vcruntime|msvcp|LICENSE|COPYRIGHT' | ForEach-Object { $_.Line }
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC14*.CRT" -Directory | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $crt) { throw "VC++ redistributable folder not found under $vs" }
+          Write-Host "Using $($crt.FullName)"
+          node desktop/scripts/fetch-binaries.mjs --vc-runtime $crt.FullName
+
+      - name: Static DLL audit of bundled runtimes and native modules
+        run: node desktop/scripts/check-pe-deps.mjs desktop/vendor desktop/build/app/node_modules
+
+      - name: Install packaging tools
+        working-directory: desktop
+        run: npm ci --ignore-scripts
+
+      - name: Build installers
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          # "previous" version for the upgrade test (store compression: fast to build)
+          npx electron-builder --win nsis --x64 --publish never -c.extraMetadata.version=2.6.0-0 -c.compression=store
+          if ($LASTEXITCODE -ne 0) { throw "previous build failed" }
+          Rename-Item dist\win-unpacked win-unpacked-prev
+          npx electron-builder --win nsis --x64 --publish never
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+
+      - name: Static DLL audit of the packaged application
+        run: node desktop/scripts/check-pe-deps.mjs desktop/dist/win-unpacked
+
+      - name: Checksums
+        shell: pwsh
+        working-directory: desktop/dist
+        run: |
+          Get-ChildItem *.exe | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)" | Out-File -Encoding ascii -Append SHA256SUMS.txt
+            "{0}  {1:N1} MB  {2}" -f $_.Name, ($_.Length / 1MB), $h | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          }
+          Copy-Item ..\vendor\BINARIES.lock.json .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fathersapp-windows-installer
+          path: |
+            desktop/dist/FathersApp-Setup-2.6.0-x64.exe
+            desktop/dist/SHA256SUMS.txt
+            desktop/dist/BINARIES.lock.json
+          retention-days: 30
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fathersapp-windows-installer-previous-for-upgrade-test
+          path: desktop/dist/FathersApp-Setup-2.6.0-0-x64.exe
+          retention-days: 7
+          compression-level: 0
+
+  verify:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      REPORTS: ${{ github.workspace }}\reports
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            desktop/tests
+            desktop/lib
+      - uses: actions/download-artifact@v4
+        with: { name: fathersapp-windows-installer, path: dist }
+      - uses: actions/download-artifact@v4
+        with: { name: fathersapp-windows-installer-previous-for-upgrade-test, path: dist }
+
+      - name: Install the previous version (silent, per-machine)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force $env:REPORTS | Out-Null
+          $p = Start-Process dist\FathersApp-Setup-2.6.0-0-x64.exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exit $($p.ExitCode)" }
+          $inst = "$env:ProgramFiles\Father's App"
+          foreach ($f in "FathersApp.exe","resources\node\node.exe","resources\pgsql\bin\postgres.exe","resources\pgsql\bin\pg_ctl.exe","resources\app\server.js","resources\chromium\chromium_headless_shell-1228\chrome-headless-shell-win64\chrome-headless-shell.exe","resources\poppler\bin\pdftoppm.exe") {
+            if (-not (Test-Path -LiteralPath (Join-Path $inst $f))) { throw "missing $f" }
+          }
+          if (-not (Test-Path -LiteralPath "$env:PUBLIC\Desktop\Father's App.lnk")) { throw "desktop shortcut missing" }
+          # installed binaries must not be writable by ordinary users
+          $acl = (Get-Acl -LiteralPath "$inst\resources\pgsql\bin").Access | Where-Object { $_.IdentityReference -match 'Users$' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
+          if ($acl) { throw "install folder is writable by Users" }
+          "install: OK (shortcut, files, read-only ACL)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: Cold first run, then warm run (system-only PATH, real %LOCALAPPDATA%)
+        shell: pwsh
+        run: |
+          $exe = "$env:ProgramFiles\Father's App\FathersApp.exe"
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          foreach ($n in "cold","warm1","warm2") {
+            $out = "$env:REPORTS\selftest-$n.json"
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $p = Start-Process $exe -ArgumentList "--self-test=$out","--self-test-backup" -Wait -PassThru
+            $sw.Stop()
+            $r = Get-Content $out | ConvertFrom-Json
+            "$n : exit=$($p.ExitCode) total=$($r.timings.total)ms window=$($r.windowLoadedMs)ms process=$($sw.ElapsedMilliseconds)ms stop=$($r.stopMs)ms firstRun=$($r.firstRun) seeded=$($r.seeded)" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+            if ($p.ExitCode -ne 0 -or -not $r.ok) { Get-Content $out; throw "self-test $n failed" }
+          }
+          $cold = Get-Content "$env:REPORTS\selftest-cold.json" | ConvertFrom-Json
+          $warm = Get-Content "$env:REPORTS\selftest-warm1.json" | ConvertFrom-Json
+          if (-not $cold.firstRun -or -not $cold.seeded) { throw "cold run did not bootstrap" }
+          if ($warm.firstRun -or $warm.seeded) { throw "warm run re-bootstrapped (must never re-seed)" }
+          if (Test-Path "$env:LOCALAPPDATA\FathersApp\run\session.json") { throw "runtime metadata left after clean exit" }
+
+      - name: Upgrade over the previous version — data preserved
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\FathersApp-Setup-2.6.0-x64.exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "upgrade installer exit $($p.ExitCode)" }
+          $exe = "$env:ProgramFiles\Father's App\FathersApp.exe"
+          $ver = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
+          $out = "$env:REPORTS\selftest-after-upgrade.json"
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $p = Start-Process $exe -ArgumentList "--self-test=$out","--self-test-backup" -Wait -PassThru
+          $r = Get-Content $out | ConvertFrom-Json
+          if ($p.ExitCode -ne 0 -or -not $r.ok) { Get-Content $out; throw "self-test after upgrade failed" }
+          if ($r.firstRun -or $r.seeded) { throw "upgrade lost or re-seeded data" }
+          if ($r.backups.Count -lt 4) { throw "earlier backups missing after upgrade: $($r.backups -join ', ')" }
+          "upgrade: OK (product $ver, firstRun=$($r.firstRun), backups kept=$($r.backups.Count))" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: Crash + upgrade over an orphaned PostgreSQL; unrelated PostgreSQL untouched
+        shell: pwsh
+        run: |
+          $inst = "$env:ProgramFiles\Father's App"
+          # an unrelated PostgreSQL service (preinstalled on the runner image) must survive
+          $svc = Get-Service postgresql* -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($svc) { Set-Service $svc.Name -StartupType Manual; Start-Service $svc.Name; $svc.Refresh(); "unrelated service: $($svc.Name) $($svc.Status)" }
+          $app = Start-Process "$inst\FathersApp.exe" -PassThru
+          $deadline = (Get-Date).AddMinutes(4)
+          while (-not (Test-Path "$env:LOCALAPPDATA\FathersApp\run\session.json") -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
+          if (-not (Test-Path "$env:LOCALAPPDATA\FathersApp\run\session.json")) { throw "app did not start" }
+          Start-Sleep 3
+          Stop-Process -Id $app.Id -Force   # simulated crash: no graceful shutdown at all
+          Start-Sleep 5
+          $owned = Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.ExecutablePath -like "$inst\*" }
+          "owned postgres processes after crash: $(@($owned).Count)"
+          $p = Start-Process dist\FathersApp-Setup-2.6.0-x64.exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "re-install over orphaned PostgreSQL failed: $($p.ExitCode)" }
+          $owned = Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.ExecutablePath -like "$inst\*" }
+          if (@($owned).Count -ne 0) { throw "installer left our PostgreSQL running" }
+          if ($svc) { $svc.Refresh(); if ($svc.Status -ne 'Running') { throw "unrelated PostgreSQL service was stopped!" }; Stop-Service $svc.Name }
+          $out = "$env:REPORTS\selftest-after-crash.json"
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $p = Start-Process "$inst\FathersApp.exe" -ArgumentList "--self-test=$out" -Wait -PassThru
+          $r = Get-Content $out | ConvertFrom-Json
+          if ($p.ExitCode -ne 0 -or -not $r.ok) { Get-Content $out; throw "recovery after crash failed" }
+          "crash recovery + upgrade over orphan: OK (unrelated service untouched: $([bool]$svc))" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: Lifecycle harness on the installed bundled runtimes (backup/restore/tamper/crash)
+        shell: pwsh
+        run: |
+          $res = "$env:ProgramFiles\Father's App\resources"
+          $env:FATHERSAPP_RESOURCES = $res
+          $env:FATHERSAPP_DATA_DIR = "$env:RUNNER_TEMP\fa-harness"
+          $env:FATHERSAPP_HARNESS_OUT = "$env:REPORTS\harness.json"
+          & "$res\node\node.exe" desktop\tests\lifecycle-harness.cjs
+          if ($LASTEXITCODE -ne 0) { throw "lifecycle harness failed" }
+
+      - name: Non-ASCII (Arabic) data directory
+        shell: pwsh
+        run: |
+          $env:FATHERSAPP_DATA_DIR = "$env:RUNNER_TEMP\بيانات المدرسة"
+          $out = "$env:REPORTS\selftest-arabic-path.json"
+          $p = Start-Process "$env:ProgramFiles\Father's App\FathersApp.exe" -ArgumentList "--self-test=$out","--self-test-backup" -Wait -PassThru
+          $r = Get-Content $out | ConvertFrom-Json
+          if ($p.ExitCode -ne 0 -or -not $r.ok) { Get-Content $out; throw "Arabic data path failed" }
+          $state = Get-Content "$env:FATHERSAPP_DATA_DIR\config\state.json" | ConvertFrom-Json
+          "arabic data path: OK (pg root: $($state.pgRoot))" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: Offline Electron E2E (outbound firewalled) — login, exports, restarts, crash
+        shell: pwsh
+        run: |
+          $inst = "$env:ProgramFiles\Father's App"
+          Get-ChildItem -LiteralPath $inst -Recurse -Include *.exe | ForEach-Object {
+            New-NetFirewallRule -DisplayName "fa-offline-$($_.Name)-$([guid]::NewGuid())" -Direction Outbound -Action Block -Program $_.FullName | Out-Null
+          }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\e2e-tools" | Out-Null
+          Push-Location "$env:RUNNER_TEMP\e2e-tools"
+          npm init -y | Out-Null
+          npm i playwright@1.61.1 --no-audit --no-fund --ignore-scripts | Out-Null
+          Pop-Location
+          $env:NODE_PATH = "$env:RUNNER_TEMP\e2e-tools\node_modules"
+          $env:FATHERSAPP_EXE = "$inst\FathersApp.exe"
+          $env:FATHERSAPP_DATA_DIR = "$env:RUNNER_TEMP\fa-e2e"
+          $env:FATHERSAPP_E2E_OUT = "$env:REPORTS\e2e.json"
+          Copy-Item desktop\tests\electron-e2e.mjs "$env:RUNNER_TEMP\e2e-tools\"
+          Push-Location "$env:RUNNER_TEMP\e2e-tools"
+          node electron-e2e.mjs
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "electron e2e failed" }
+
+      - name: Uninstall keeps school data and backups
+        shell: pwsh
+        run: |
+          $u = Get-ChildItem -LiteralPath "$env:ProgramFiles\Father's App" -Filter "Uninstall*.exe" | Select-Object -First 1
+          $p = Start-Process $u.FullName -ArgumentList '/S' -Wait -PassThru
+          Start-Sleep 5
+          if (Test-Path -LiteralPath "$env:ProgramFiles\Father's App\FathersApp.exe") { throw "uninstall did not remove the program" }
+          foreach ($d in "config\secrets.bin","backups\weekly","storage") {
+            if (-not (Test-Path "$env:LOCALAPPDATA\FathersApp\$d")) { throw "uninstall removed $d" }
+          }
+          "uninstall: OK (program removed, data + backups kept)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: Collect reports and logs
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:REPORTS\logs" | Out-Null
+          Copy-Item "$env:LOCALAPPDATA\FathersApp\logs\*" "$env:REPORTS\logs\" -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:RUNNER_TEMP" -Directory -Filter "fa-*" | ForEach-Object {
+            New-Item -ItemType Directory -Force "$env:REPORTS\logs\$($_.Name)" | Out-Null
+            Copy-Item "$($_.FullName)\logs\*" "$env:REPORTS\logs\$($_.Name)\" -ErrorAction SilentlyContinue
+            Copy-Item "$($_.FullName)\harness.log" "$env:REPORTS\logs\$($_.Name)\" -ErrorAction SilentlyContinue
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-desktop-test-reports
+          path: reports
+          retention-days: 30

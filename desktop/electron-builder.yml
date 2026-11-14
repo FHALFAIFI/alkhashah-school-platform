@@ -1,0 +1,50 @@
+# Windows x64 offline installer (NSIS). Built only on Windows (see .github/workflows/windows-desktop.yml)
+# after scripts/prepare-app.mjs (app tree) and scripts/fetch-binaries.mjs (pinned runtimes).
+appId: sa.edu.alkhashah.fathersapp
+productName: Father's App
+executableName: FathersApp
+copyright: "مجمع الخشعة التعليمي للبنين"
+directories:
+  output: dist
+  buildResources: resources
+# Only the launcher code goes into app.asar; everything heavy is an unpacked, read-only resource.
+files:
+  - main/**
+  - lib/**
+  - package.json
+  - "!**/*.map"
+asar: true
+extraResources:
+  - { from: build/app, to: app, filter: ["**/*"] }
+  - { from: vendor/node, to: node }
+  - { from: vendor/pgsql, to: pgsql }
+  - { from: vendor/chromium, to: chromium }
+  - { from: vendor/poppler, to: poppler }
+  - { from: vendor/BINARIES.lock.json, to: BINARIES.lock.json }
+  - { from: guide, to: guide }
+  - { from: THIRD_PARTY_NOTICES.md, to: THIRD_PARTY_NOTICES.md }
+electronLanguages: [ar, en-US]
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.png
+  # Not code-signed yet (no certificate provisioned) — see docs/WINDOWS_DESKTOP_PACKAGING.md §Signing.
+  signAndEditExecutable: true
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: true
+  # Per-machine install under Program Files: installed binaries are not writable by the
+  # everyday (non-elevated) user; all data lives in %LOCALAPPDATA%\FathersApp.
+  perMachine: true
+  allowElevation: true
+  runAfterFinish: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: "Father's App"
+  # Uninstalling never deletes school data, backups or keys.
+  deleteAppDataOnUninstall: false
+  artifactName: "FathersApp-Setup-${version}-x64.${ext}"
+  include: resources/installer.nsh
+  differentialPackage: false
+publish: null

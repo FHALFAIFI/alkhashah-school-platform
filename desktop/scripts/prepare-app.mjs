@@ -57,6 +57,28 @@ for (const pkgName of ["playwright", "playwright-core"]) {
   fs.cpSync(src, dst, { recursive: true, dereference: true });
 }
 
+// Turbopack references server externals through hashed aliases (.next/node_modules/<pkg>-<hash>)
+// that are symlinks; fs.cpSync rewrote them to absolute build-machine paths, and symlinks are
+// fragile in an NSIS install anyway. Each alias becomes a real copy of the package (a forwarding
+// shim is not enough: Turbopack imports these as ES modules and needs their named exports).
+const aliasRoot = path.join(out, ".next", "node_modules");
+const replaceAliases = (dir) => {
+  if (!fs.existsSync(dir)) return;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isSymbolicLink()) {
+      const target = fs.readlinkSync(p).split(path.sep).join("/");
+      const pkgName = target.slice(target.lastIndexOf("node_modules/") + "node_modules/".length);
+      if (!/^(@[a-z0-9-]+\/)?[a-z0-9._-]+$/i.test(pkgName)) throw new Error(`unexpected alias target ${target}`);
+      fs.rmSync(p);
+      fs.cpSync(path.join(out, "node_modules", ...pkgName.split("/")), p, { recursive: true, dereference: true });
+    } else if (e.isDirectory()) {
+      replaceAliases(p);
+    }
+  }
+};
+replaceAliases(aliasRoot);
+
 // Sources and dev configs are not needed at runtime.
 for (const p of ["src", "tsconfig.json", "drizzle.config.ts", "postcss.config.mjs", "next.config.ts", "package-lock.json"]) {
   fs.rmSync(path.join(out, p), { recursive: true, force: true });
@@ -94,7 +116,7 @@ const violations = [];
 const walk = (dir, rel) => {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const r = rel ? `${rel}/${e.name}` : e.name;
-    if (r.startsWith("node_modules/")) continue;
+    if (r.startsWith("node_modules/") || r.includes("/node_modules/")) continue;
     if (forbidden.some((re) => re.test(r))) violations.push(r);
     if (e.isDirectory()) walk(path.join(dir, e.name), r);
   }
@@ -104,6 +126,16 @@ const nm = path.join(out, "node_modules");
 for (const e of fs.existsSync(nm) ? fs.readdirSync(nm) : []) {
   if (/^(reference_files|storage|backups)$/.test(e)) violations.push(`node_modules/${e}`);
 }
+const links = [];
+const findLinks = (dir) => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isSymbolicLink()) links.push(path.relative(out, p));
+    else if (e.isDirectory()) findLinks(p);
+  }
+};
+findLinks(out);
+if (links.length) violations.push(...links.map((l) => `symlink not allowed: ${l}`));
 if (violations.length) {
   console.error("REFUSING TO PACKAGE — forbidden content in app tree:\n  " + violations.join("\n  "));
   process.exit(1);
