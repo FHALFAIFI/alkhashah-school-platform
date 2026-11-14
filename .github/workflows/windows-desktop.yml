@@ -62,7 +62,7 @@ jobs:
           node desktop/scripts/fetch-binaries.mjs --vc-runtime $crt.FullName
 
       - name: Static DLL audit of bundled runtimes and native modules
-        run: node desktop/scripts/check-pe-deps.mjs desktop/vendor desktop/build/app/node_modules
+        run: node desktop/scripts/check-pe-deps.mjs desktop/vendor desktop/build/app/node_modules desktop/build/app/.next/node_modules --node-host desktop/vendor/node
 
       - name: Install packaging tools
         working-directory: desktop
@@ -80,7 +80,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
       - name: Static DLL audit of the packaged application
-        run: node desktop/scripts/check-pe-deps.mjs desktop/dist/win-unpacked
+        run: node desktop/scripts/check-pe-deps.mjs desktop/dist/win-unpacked --node-host desktop/dist/win-unpacked/resources/node
 
       - name: Checksums
         shell: pwsh

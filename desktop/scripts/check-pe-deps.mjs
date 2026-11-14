@@ -92,9 +92,11 @@ function walk(dir, out = []) {
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("check-pe-deps.mjs")) {
   const args = process.argv.slice(2);
   const search = [];
+  let nodeHost = null;
   const roots = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--search") search.push(args[++i]);
+    else if (args[i] === "--node-host") nodeHost = args[++i];
     else roots.push(args[i]);
   }
   if (!roots.length) { console.error("usage: check-pe-deps.mjs <dir>… [--search <dir>]"); process.exit(2); }
@@ -107,11 +109,21 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
       if (!imports) continue;
       files++;
       const local = new Set(fs.readdirSync(path.dirname(f)).map((n) => n.toLowerCase()));
+      // Modules loaded into a host process also resolve against what the host already loaded:
+      // PostgreSQL extension DLLs (…/pgsql/lib) run inside postgres.exe from …/pgsql/bin, and
+      // Node addons run inside node.exe, whose directory is searched first.
+      const hostDirs = [];
+      const parts = f.split(/[\\/]/);
+      const li = parts.lastIndexOf("lib");
+      if (li > 0 && parts[li - 1] === "pgsql") hostDirs.push([...parts.slice(0, li), "bin"].join(path.sep));
+      if (/\.node$/i.test(f) && nodeHost) hostDirs.push(nodeHost);
+      for (const h of hostDirs) if (fs.existsSync(h)) for (const n of fs.readdirSync(h)) local.add(n.toLowerCase());
       for (const dll of imports) {
         const n = dll.toLowerCase();
         if (local.has(n) || extra.has(n) || SYSTEM.has(n) || isApiSet(n)) continue;
         // Node addons resolve symbols from the host executable
         if (/\.node$/i.test(f) && (n === "node.exe" || n === "node.dll")) continue;
+        if (n === "postgres.exe" && hostDirs.length) continue;
         problems.push(`${path.relative(process.cwd(), f)} → ${dll}`);
       }
     }

@@ -20,7 +20,9 @@ const out = path.join(desktop, "build", "app");
 const skipBuild = process.argv.includes("--skip-build");
 
 function sh(cmd, args, env = {}) {
-  execFileSync(cmd, args, { cwd: root, stdio: "inherit", env: { ...process.env, ...env }, shell: process.platform === "win32" });
+  // npx is a .cmd shim on Windows and needs a shell; node itself must not go through one
+  // (its path may contain spaces, e.g. C:\\Program Files\\nodejs\\node.exe).
+  execFileSync(cmd, args, { cwd: root, stdio: "inherit", env: { ...process.env, ...env }, shell: process.platform === "win32" && cmd === "npx" });
 }
 
 if (!skipBuild) {
@@ -50,7 +52,10 @@ fs.copyFileSync(path.join(desktop, "server", "desktop-server-entry.cjs"), path.j
 
 // The output tracer misses files some externals load dynamically (playwright-core requires
 // browsers.json via a computed path). Ship those packages complete.
-for (const pkgName of ["playwright", "playwright-core"]) {
+// sharp's platform packages carry their libvips DLLs/shared objects, which the tracer drops.
+const imgDir = path.join(out, "node_modules", "@img");
+const imgPkgs = fs.existsSync(imgDir) ? fs.readdirSync(imgDir).map((n) => `@img/${n}`) : [];
+for (const pkgName of ["playwright", "playwright-core", ...imgPkgs]) {
   const src = path.join(root, "node_modules", pkgName);
   const dst = path.join(out, "node_modules", pkgName);
   fs.rmSync(dst, { recursive: true, force: true });

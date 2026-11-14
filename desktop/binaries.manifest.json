@@ -122,7 +122,7 @@
     }
   ],
   "vcRuntime": {
-    "comment": "PostgreSQL and Poppler link the Microsoft Visual C++ 2015-2022 runtime, which a clean Windows install may lack. The official redistributable DLLs (VC\\Redist\\MSVC\\<ver>\\x64\\Microsoft.VC143.CRT) are deployed app-locally next to those binaries, as permitted by the Visual Studio redistribution terms.",
+    "comment": "PostgreSQL and Poppler link the Microsoft Visual C++ 2015-2022 runtime, which a clean Windows install may lack. The official redistributable DLLs (VC\\Redist\\MSVC\\<ver>\\x64\\Microsoft.VC143.CRT) are deployed app-locally next to those binaries, as permitted by the Visual Studio redistribution terms. node.exe links the CRT statically, but native addons (argon2) import vcruntime140.dll, so it is also placed next to node.exe (the process's application directory is searched first).",
     "dlls": [
       "vcruntime140.dll",
       "vcruntime140_1.dll",
@@ -135,7 +135,8 @@
     ],
     "targets": [
       "pgsql/bin",
-      "poppler/bin"
+      "poppler/bin",
+      "node"
     ]
   }
 }
