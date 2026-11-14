@@ -73,7 +73,7 @@ jobs:
         shell: pwsh
         run: |
           # "previous" version for the upgrade test (store compression: fast to build)
-          npx electron-builder --win nsis --x64 --publish never -c.extraMetadata.version=2.6.0-0 -c.compression=store
+          npx electron-builder --win nsis --x64 --publish never '-c.extraMetadata.version=2.6.0-0' '-c.compression=store'
           if ($LASTEXITCODE -ne 0) { throw "previous build failed" }
           Rename-Item dist\win-unpacked win-unpacked-prev
           npx electron-builder --win nsis --x64 --publish never
