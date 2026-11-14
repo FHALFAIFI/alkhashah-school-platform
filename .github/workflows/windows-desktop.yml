@@ -132,11 +132,20 @@ jobs:
           New-Item -ItemType Directory -Force $env:REPORTS | Out-Null
           $p = Start-Process dist\FathersApp-Setup-2.6.0-0-x64.exe -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "installer exit $($p.ExitCode)" }
-          $inst = "$env:ProgramFiles\Father's App"
+          # Locate the installation the way Windows does: the uninstall registry entry.
+          $keys = Get-ChildItem HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall, HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall -ErrorAction SilentlyContinue
+          $entry = $keys | Get-ItemProperty | Where-Object { $_.DisplayName -like "Father*" } | Select-Object -First 1
+          if (-not $entry) { Get-ChildItem "$env:ProgramFiles","$env:LOCALAPPDATA\Programs" -Directory | Select-Object FullName; throw "no uninstall registry entry" }
+          $entry | Select-Object DisplayName, DisplayVersion, InstallLocation, UninstallString | Format-List
+          $inst = ($entry.InstallLocation ?? (Split-Path ($entry.UninstallString -replace '"','' -replace ' /.*$',''))).TrimEnd('\')
+          "INST=$inst" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          if (-not $inst.StartsWith($env:ProgramFiles)) { throw "not a per-machine install: $inst" }
           foreach ($f in "FathersApp.exe","resources\node\node.exe","resources\pgsql\bin\postgres.exe","resources\pgsql\bin\pg_ctl.exe","resources\server\server.js","resources\app.asar","resources\chromium\chromium_headless_shell-1228\chrome-headless-shell-win64\chrome-headless-shell.exe","resources\poppler\bin\pdftoppm.exe") {
             if (-not (Test-Path -LiteralPath (Join-Path $inst $f))) { throw "missing $f" }
           }
-          if (-not (Test-Path -LiteralPath "$env:PUBLIC\Desktop\Father's App.lnk")) { throw "desktop shortcut missing" }
+          $lnk = Get-ChildItem "$env:PUBLIC\Desktop\*.lnk" | Where-Object { $_.Name -like "Father*" }
+          if (-not $lnk) { Get-ChildItem "$env:PUBLIC\Desktop", "$env:USERPROFILE\Desktop" -ErrorAction SilentlyContinue; throw "desktop shortcut missing" }
+          "shortcut: $($lnk.FullName)"
           # installed binaries must not be writable by ordinary users
           $acl = (Get-Acl -LiteralPath "$inst\resources\pgsql\bin").Access | Where-Object { $_.IdentityReference -match 'Users$' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
           if ($acl) { throw "install folder is writable by Users" }
@@ -145,7 +154,7 @@ jobs:
       - name: Cold first run, then warm run (system-only PATH, real %LOCALAPPDATA%)
         shell: pwsh
         run: |
-          $exe = "$env:ProgramFiles\Father's App\FathersApp.exe"
+          $exe = "$env:INST\FathersApp.exe"
           $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
           foreach ($n in "cold","warm1","warm2") {
             $out = "$env:REPORTS\selftest-$n.json"
@@ -167,7 +176,7 @@ jobs:
         run: |
           $p = Start-Process dist\FathersApp-Setup-2.6.0-x64.exe -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "upgrade installer exit $($p.ExitCode)" }
-          $exe = "$env:ProgramFiles\Father's App\FathersApp.exe"
+          $exe = "$env:INST\FathersApp.exe"
           $ver = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
           $out = "$env:REPORTS\selftest-after-upgrade.json"
           $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
@@ -181,7 +190,7 @@ jobs:
       - name: Crash + upgrade over an orphaned PostgreSQL; unrelated PostgreSQL untouched
         shell: pwsh
         run: |
-          $inst = "$env:ProgramFiles\Father's App"
+          $inst = $env:INST
           # an unrelated PostgreSQL service (preinstalled on the runner image) must survive
           $svc = Get-Service postgresql* -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($svc) { Set-Service $svc.Name -StartupType Manual; Start-Service $svc.Name; $svc.Refresh(); "unrelated service: $($svc.Name) $($svc.Status)" }
@@ -209,7 +218,7 @@ jobs:
       - name: Lifecycle harness on the installed bundled runtimes (backup/restore/tamper/crash)
         shell: pwsh
         run: |
-          $res = "$env:ProgramFiles\Father's App\resources"
+          $res = "$env:INST\resources"
           $env:FATHERSAPP_RESOURCES = $res
           $env:FATHERSAPP_DATA_DIR = "$env:RUNNER_TEMP\fa-harness"
           $env:FATHERSAPP_HARNESS_OUT = "$env:REPORTS\harness.json"
@@ -221,7 +230,7 @@ jobs:
         run: |
           $env:FATHERSAPP_DATA_DIR = "$env:RUNNER_TEMP\بيانات المدرسة"
           $out = "$env:REPORTS\selftest-arabic-path.json"
-          $p = Start-Process "$env:ProgramFiles\Father's App\FathersApp.exe" -ArgumentList "--self-test=$out","--self-test-backup" -Wait -PassThru
+          $p = Start-Process "$env:INST\FathersApp.exe" -ArgumentList "--self-test=$out","--self-test-backup" -Wait -PassThru
           $r = Get-Content $out | ConvertFrom-Json
           if ($p.ExitCode -ne 0 -or -not $r.ok) { Get-Content $out; throw "Arabic data path failed" }
           $state = Get-Content "$env:FATHERSAPP_DATA_DIR\config\state.json" | ConvertFrom-Json
@@ -230,7 +239,7 @@ jobs:
       - name: Offline Electron E2E (outbound firewalled) — login, exports, restarts, crash
         shell: pwsh
         run: |
-          $inst = "$env:ProgramFiles\Father's App"
+          $inst = $env:INST
           Get-ChildItem -LiteralPath $inst -Recurse -Include *.exe | ForEach-Object {
             New-NetFirewallRule -DisplayName "fa-offline-$($_.Name)-$([guid]::NewGuid())" -Direction Outbound -Action Block -Program $_.FullName | Out-Null
           }
@@ -253,10 +262,10 @@ jobs:
       - name: Uninstall keeps school data and backups
         shell: pwsh
         run: |
-          $u = Get-ChildItem -LiteralPath "$env:ProgramFiles\Father's App" -Filter "Uninstall*.exe" | Select-Object -First 1
+          $u = Get-ChildItem -LiteralPath $env:INST -Filter "Uninstall*.exe" | Select-Object -First 1
           $p = Start-Process $u.FullName -ArgumentList '/S' -Wait -PassThru
           Start-Sleep 5
-          if (Test-Path -LiteralPath "$env:ProgramFiles\Father's App\FathersApp.exe") { throw "uninstall did not remove the program" }
+          if (Test-Path -LiteralPath "$env:INST\FathersApp.exe") { throw "uninstall did not remove the program" }
           foreach ($d in "config\secrets.bin","backups\weekly","storage") {
             if (-not (Test-Path "$env:LOCALAPPDATA\FathersApp\$d")) { throw "uninstall removed $d" }
           }
