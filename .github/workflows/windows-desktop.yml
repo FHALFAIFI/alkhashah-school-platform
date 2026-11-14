@@ -1,0 +1,32 @@
+# Windows desktop edition (desktop/) — build and verification on GitHub-hosted Windows x64.
+# Synthetic data only. Never deploys anything; the installer is uploaded as a CI artifact.
+name: Windows desktop
+
+on:
+  push:
+    branches: ["claude/**", "feat/windows-desktop**"]
+    paths: ["desktop/**", ".github/workflows/windows-desktop.yml", "src/**", "drizzle/**", "package.json", "package-lock.json", "next.config.ts"]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  discover-postgresql:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - name: Locate and hash the EDB PostgreSQL 16 Windows binaries
+        run: node desktop/scripts/fetch-binaries.mjs --discover postgresql
+      - name: Inspect archive layout and MSVC runtime presence
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem desktop/.cache/downloads/*.zip | Select-Object -First 1
+          tar -tf $zip.FullName | Select-String -Pattern '^pgsql/[^/]+/?$' | ForEach-Object { $_.Line }
+          tar -tf $zip.FullName | Select-String -Pattern 'vcruntime|msvcp|LICENSE|COPYRIGHT' | ForEach-Object { $_.Line }

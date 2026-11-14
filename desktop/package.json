@@ -1,0 +1,20 @@
+{
+  "name": "fathers-app-desktop",
+  "productName": "Father's App",
+  "version": "2.6.0",
+  "private": true,
+  "description": "منصة الإدارة المدرسية المتكاملة — نسخة ويندوز المكتبية دون اتصال",
+  "author": "مجمع الخشعة التعليمي للبنين",
+  "main": "main/main.js",
+  "scripts": {
+    "fetch-binaries": "node scripts/fetch-binaries.mjs",
+    "prepare-app": "node scripts/prepare-app.mjs",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "pack:win": "electron-builder --win dir --x64 --publish never",
+    "test:lifecycle": "node tests/lifecycle-harness.cjs"
+  },
+  "devDependencies": {
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0"
+  }
+}

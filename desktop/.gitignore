@@ -1,0 +1,6 @@
+# Build outputs and downloaded third-party runtimes (fetched + checksum-verified by scripts/fetch-binaries.mjs)
+node_modules/
+build/
+vendor/
+dist/
+.cache/

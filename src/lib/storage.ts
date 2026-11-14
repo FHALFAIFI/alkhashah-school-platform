@@ -162,7 +162,8 @@ export async function saveUploadedFile(opts: {
   const ext = path.extname(opts.originalName).toLowerCase();
   const id = randomUUID();
   const scope = opts.scope ?? "attachments";
-  const relPath = path.join(scope, id.slice(0, 2), `${id}${ext}`);
+  // POSIX separators on every OS: identical on Mac/Linux, and Windows desktop rows stay portable across restores.
+  const relPath = path.posix.join(scope, id.slice(0, 2), `${id}${ext}`);
 
   // القبول (D-032): رفع المدير يُقبل فوراً — لا اعتماد ثانٍ من الشخص نفسه؛
   // رفع أي دور آخر يبقى «قيد الاعتماد» حتى يعتمده المدير. فحوص أمان الملف أعلاه
@@ -254,7 +255,7 @@ export async function saveGeneratedFile(opts: {
   if (sigErr) throw new UploadValidationError(sigErr);
 
   const id = randomUUID();
-  const relPath = path.join("reports", id.slice(0, 2), `${id}${ext}`);
+  const relPath = path.posix.join("reports", id.slice(0, 2), `${id}${ext}`);
   await storage.put(relPath, opts.data);
   const [file] = await db
     .insert(storedFiles)

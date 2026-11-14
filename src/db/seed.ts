@@ -185,7 +185,7 @@ async function seedBranding() {
       continue;
     }
     if (!existsSync(destPath)) copyFileSync(srcPath, destPath);
-    const relPath = path.join("private", "branding", item.dest);
+    const relPath = path.posix.join("private", "branding", item.dest);
     const existing = await db.select().from(storedFiles).where(eq(storedFiles.storagePath, relPath));
     if (existing.length === 0) {
       const { createHash } = await import("node:crypto");

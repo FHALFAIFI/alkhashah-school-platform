@@ -1,0 +1,78 @@
+{
+  "comment": "Third-party Windows x64 runtimes bundled in the offline installer. Every archive is pinned by SHA-256; scripts/fetch-binaries.mjs refuses anything that does not match. Update deliberately: change url+version, then re-pin the hash from a trusted download.",
+  "items": [
+    {
+      "id": "node",
+      "name": "Node.js",
+      "version": "24.22.3",
+      "url": "https://nodejs.org/dist/v24.22.3/node-v24.22.3-win-x64.zip",
+      "sha256": "e612af99f626ab415ea225af6bce5c971feb448cb5cae250bb1c3fa50c5f7d9f",
+      "pinSource": "matches https://nodejs.org/dist/v24.22.3/SHASUMS256.txt",
+      "license": "MIT (plus bundled third-party licenses)",
+      "sourceUrl": "https://github.com/nodejs/node/tree/v24.22.3",
+      "layout": [
+        { "from": "node-v24.22.3-win-x64/node.exe", "to": "node/node.exe" },
+        { "from": "node-v24.22.3-win-x64/LICENSE", "to": "node/LICENSE" }
+      ]
+    },
+    {
+      "id": "postgresql",
+      "name": "PostgreSQL (EDB Windows binaries)",
+      "version": "16",
+      "url": null,
+      "candidates": [
+        "https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip",
+        "https://get.enterprisedb.com/postgresql/postgresql-16.14-1-windows-x64-binaries.zip",
+        "https://get.enterprisedb.com/postgresql/postgresql-16.13-1-windows-x64-binaries.zip",
+        "https://get.enterprisedb.com/postgresql/postgresql-16.12-1-windows-x64-binaries.zip",
+        "https://get.enterprisedb.com/postgresql/postgresql-16.11-1-windows-x64-binaries.zip"
+      ],
+      "sha256": null,
+      "pinSource": "trust-on-first-use from a GitHub-hosted Windows runner (EDB publishes no checksum file); recorded in docs/WINDOWS_DESKTOP_PACKAGING.md",
+      "license": "PostgreSQL License (bundled libraries: OpenSSL Apache-2.0, ICU, zlib, libxml2, gettext LGPL)",
+      "sourceUrl": "https://www.postgresql.org/ftp/source/",
+      "layout": [
+        { "from": "pgsql/bin", "to": "pgsql/bin" },
+        { "from": "pgsql/lib", "to": "pgsql/lib" },
+        { "from": "pgsql/share", "to": "pgsql/share" }
+      ],
+      "exclude": ["pgAdmin 4", "StackBuilder", "doc", "include", "symbols", "pgAdmin*", "stackbuilder*"]
+    },
+    {
+      "id": "chromium",
+      "name": "Chrome Headless Shell (Chrome for Testing) — Playwright 1.61.1 chromium-headless-shell revision 1228",
+      "version": "149.0.7827.55",
+      "url": "https://storage.googleapis.com/chrome-for-testing-public/149.0.7827.55/win64/chrome-headless-shell-win64.zip",
+      "sha256": "5cfda0c763aa6a867ce2efad0c467e3220e9c5c01c4cba02fd57afe49ede5457",
+      "pinSource": "downloaded from Google's Chrome-for-Testing bucket (the archive Playwright mirrors for this revision)",
+      "license": "BSD-3-Clause (Chromium) + third-party licenses in LICENSE.headless_shell",
+      "sourceUrl": "https://chromium.googlesource.com/chromium/src/+/refs/tags/149.0.7827.55",
+      "playwright": { "package": "playwright-core", "version": "1.61.1", "browser": "chromium-headless-shell", "revision": "1228" },
+      "layout": [
+        { "from": "chrome-headless-shell-win64", "to": "chromium/chromium_headless_shell-1228/chrome-headless-shell-win64" }
+      ],
+      "markers": ["chromium/chromium_headless_shell-1228/INSTALLATION_COMPLETE"]
+    },
+    {
+      "id": "poppler",
+      "name": "Poppler utilities (poppler-windows build)",
+      "version": "26.02.0-0",
+      "url": "https://github.com/oschwartz10612/poppler-windows/releases/download/v26.02.0-0/Release-26.02.0-0.zip",
+      "sha256": "993e4a94376ed712fafc7058d724ea0b943d118bbd2305cd9ed55174eb85cda5",
+      "pinSource": "downloaded from the project's GitHub release",
+      "license": "GPL-2.0-or-later (poppler); bundled libraries under their own licenses (cairo LGPL/MPL, freetype FTL, libpng, zlib, openjpeg BSD, libtiff, lcms2 MIT, OpenSSL Apache-2.0, curl)",
+      "sourceUrl": "https://gitlab.freedesktop.org/poppler/poppler/-/tree/poppler-26.02.0 ; build recipe https://github.com/oschwartz10612/poppler-windows",
+      "layout": [
+        { "from": "poppler-26.02.0/Library/bin", "to": "poppler/bin" },
+        { "from": "poppler-26.02.0/share/poppler/COPYING", "to": "poppler/COPYING" },
+        { "from": "poppler-26.02.0/share/poppler/COPYING.gpl2", "to": "poppler/COPYING.gpl2" },
+        { "from": "poppler-26.02.0/share/poppler/COPYING.adobe", "to": "poppler/COPYING.adobe" }
+      ]
+    }
+  ],
+  "vcRuntime": {
+    "comment": "PostgreSQL and Poppler link the Microsoft Visual C++ 2015-2022 runtime, which a clean Windows install may lack. The official redistributable DLLs (VC\\Redist\\MSVC\\<ver>\\x64\\Microsoft.VC143.CRT) are deployed app-locally next to those binaries, as permitted by the Visual Studio redistribution terms.",
+    "dlls": ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll", "concrt140.dll"],
+    "targets": ["pgsql/bin", "poppler/bin"]
+  }
+}

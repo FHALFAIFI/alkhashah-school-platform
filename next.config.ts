@@ -57,7 +57,31 @@ const securityHeaders = [
   },
 ];
 
+/**
+ * Windows desktop edition (desktop/): the offline installer ships a self-contained
+ * standalone server. Opt-in only via NEXT_OUTPUT=standalone so the Mac/Ubuntu Docker
+ * build (`next start` with full node_modules) is byte-for-byte unchanged.
+ */
+const standalone = process.env.NEXT_OUTPUT === "standalone";
+
 const nextConfig: NextConfig = {
+  ...(standalone
+    ? {
+        output: "standalone" as const,
+        // Dynamic `process.cwd()` reads make the tracer pull in the whole repository.
+        // School data, private storage, secrets and dev material must never reach the
+        // installer; desktop/scripts/prepare-app.mjs re-checks this fail-closed.
+        outputFileTracingExcludes: {
+          "/*": [
+            "reference_files/**", "storage/**", "storage-*/**", "backups/**", "local_data/**",
+            ".env*", "docs/**", "tests/**", "scripts/**", "desktop/**", ".github/**",
+            "*.md", "Dockerfile*", "*compose*.yml", "playwright.config.ts", "vitest.config.ts",
+            "eslint.config.mjs", "coverage/**", "test-results/**", "playwright-report/**",
+            ".ci-*/**", "storage-ci-artifacts/**", "storage-gate-records/**",
+          ],
+        },
+      }
+    : {}),
   serverExternalPackages: ["@node-rs/argon2", "playwright", "exceljs", "@napi-rs/canvas", "pdfjs-dist", "adm-zip", "pg"],
   experimental: {
     serverActions: {
