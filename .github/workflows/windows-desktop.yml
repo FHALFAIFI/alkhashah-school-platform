@@ -152,6 +152,7 @@ jobs:
           "install: OK (shortcut, files, read-only ACL)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - name: Cold first run, then warm run (system-only PATH, real %LOCALAPPDATA%)
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $exe = "$env:INST\FathersApp.exe"
@@ -172,6 +173,7 @@ jobs:
           if (Test-Path "$env:LOCALAPPDATA\FathersApp\run\session.json") { throw "runtime metadata left after clean exit" }
 
       - name: Upgrade over the previous version — data preserved
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $p = Start-Process dist\FathersApp-Setup-2.6.0-x64.exe -ArgumentList '/S' -Wait -PassThru
@@ -188,6 +190,7 @@ jobs:
           "upgrade: OK (product $ver, firstRun=$($r.firstRun), backups kept=$($r.backups.Count))" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - name: Crash + upgrade over an orphaned PostgreSQL; unrelated PostgreSQL untouched
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $inst = $env:INST
@@ -216,6 +219,7 @@ jobs:
           "crash recovery + upgrade over orphan: OK (unrelated service untouched: $([bool]$svc))" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - name: Lifecycle harness on the installed bundled runtimes (backup/restore/tamper/crash)
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $res = "$env:INST\resources"
@@ -226,6 +230,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "lifecycle harness failed" }
 
       - name: Non-ASCII (Arabic) data directory
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $env:FATHERSAPP_DATA_DIR = "$env:RUNNER_TEMP\بيانات المدرسة"
@@ -237,6 +242,7 @@ jobs:
           "arabic data path: OK (pg root: $($state.pgRoot))" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - name: Offline Electron E2E (outbound firewalled) — login, exports, restarts, crash
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $inst = $env:INST
@@ -260,6 +266,7 @@ jobs:
           if ($code -ne 0) { throw "electron e2e failed" }
 
       - name: Uninstall keeps school data and backups
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $u = Get-ChildItem -LiteralPath $env:INST -Filter "Uninstall*.exe" | Select-Object -First 1

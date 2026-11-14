@@ -43,7 +43,7 @@ function cleanEnv(extra, base = process.env) {
  *
  * @param {string} file
  * @param {string[]} args
- * @param {{ env?: Record<string,string>, cwd?: string, timeoutMs?: number, input?: string, stdoutFile?: string, stdinFile?: string }} [o]
+ * @param {{ env?: Record<string,string>, cwd?: string, timeoutMs?: number, input?: string, stdoutFile?: string, stdinFile?: string, noPipes?: boolean }} [o]
  * @returns {Promise<{ code: number | null, stdout: string, stderr: string, timedOut: boolean }>}
  */
 function run(file, args, o = {}) {
@@ -63,7 +63,7 @@ function run(file, args, o = {}) {
       cwd: o.cwd,
       env: o.env,
       windowsHide: true,
-      stdio: [inFd ?? "pipe", outFd ?? "pipe", "pipe"],
+      stdio: o.noPipes ? "ignore" : [inFd ?? "pipe", outFd ?? "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
@@ -78,11 +78,21 @@ function run(file, args, o = {}) {
       closeFds();
       reject(e);
     });
-    child.on("close", (code) => {
+    // Resolve on process exit, not on stream close: on Windows `pg_ctl start` leaves
+    // postgres.exe holding inherited copies of our pipe handles, so "close" would never fire.
+    // After exit, give buffered output a short grace period, then detach the streams.
+    let settled = false;
+    const finish = (/** @type {number | null} */ code) => {
+      if (settled) return;
+      settled = true;
       if (timer) clearTimeout(timer);
       closeFds();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
       resolve({ code, stdout, stderr, timedOut });
-    });
+    };
+    child.on("close", (code) => finish(code));
+    child.on("exit", (code) => setTimeout(() => finish(code), 300));
     if (child.stdin) {
       if (o.input !== undefined) child.stdin.end(o.input);
       else child.stdin.end();

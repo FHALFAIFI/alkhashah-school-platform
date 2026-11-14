@@ -203,7 +203,14 @@ async function start(tools, loc, port) {
   rotateLog(loc.log);
   // -w waits until the server accepts connections; crash recovery after an unclean
   // shutdown (power loss, killed process) happens inside this wait.
-  await runChecked(tools.pgCtl, ["start", "-D", loc.data, "-l", loc.log, "-w", "-t", "300", "-s"], { env: cleanEnv({ LC_ALL: "C" }), timeoutMs: 330000 });
+  // No pipes at all: the postmaster inherits pg_ctl's handles on Windows. Diagnostics go to
+  // the server log (-l), which is quoted in the error on failure.
+  const r = await run(tools.pgCtl, ["start", "-D", loc.data, "-l", loc.log, "-w", "-t", "300", "-s"], { env: cleanEnv({ LC_ALL: "C" }), timeoutMs: 330000, noPipes: true });
+  if (r.code !== 0) {
+    let tail = "";
+    try { tail = fs.readFileSync(loc.log, "utf8").slice(-1500); } catch { /* no log */ }
+    throw new Error(`pg_ctl start failed (${r.timedOut ? "timeout" : r.code}): ${tail}`);
+  }
 }
 
 /**
