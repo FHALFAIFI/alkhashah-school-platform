@@ -99,7 +99,8 @@ function recoveryKeyText(backupKey, createdAt) {
 function parseRecoveryKey(/** @type {string} */ text) {
   const line = text.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith(RECOVERY_PREFIX));
   const key = (line ? line.slice(RECOVERY_PREFIX.length) : text).trim();
-  if (key.length < 8 || /\s/.test(key)) return null;
+  // a pasted server BACKUP_PASSPHRASE may contain spaces; only multi-line text is rejected
+  if (key.length < 8 || /[\r\n]/.test(key)) return null;
   return key;
 }
 

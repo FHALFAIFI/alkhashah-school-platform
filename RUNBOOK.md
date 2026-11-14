@@ -1,6 +1,8 @@
 # RUNBOOK — دفتر التشغيل اليومي
 
 > المرجع السريع لتشغيل المنصة وتشخيصها. التفاصيل الكاملة: `docs/INSTALL_MAC_AR.md` (ماك) و`docs/DEPLOY_UBUNTU_AR.md` (أوبنتو).
+>
+> Windows offline desktop edition (separate, not a production deployment): `docs/WINDOWS_DESKTOP_PACKAGING.md`.
 
 ## المرشَّح القادم — v2.6.0 «منصة التقارير» (لم يُنشر — بانتظار تصريح المالك)
 

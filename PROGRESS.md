@@ -2,7 +2,21 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **v2.6.0 WORD DESIGN ROUND after the interactive Word check (2026-08-10), NOT DEPLOYED**
+## Latest checkpoint — **Windows offline desktop edition (2026-11-14), branch `claude/eloquent-lovelace-7kr1k4`, NOT MERGED / NOT DEPLOYED**
+
+New `desktop/` package (D-071): Electron 45 shell + NSIS per-machine installer that runs the
+unchanged app on a bundled Node 24.22.3, private PostgreSQL 16.15 (EDB), Chrome Headless Shell
+149 (Playwright r1228) and Poppler 26.02 — all SHA-256 pinned (`desktop/binaries.manifest.json`).
+Lifecycle core `desktop/lib/orchestrator.js` (Electron-free): atomic first-run initdb, seed only
+on an empty `users` table, migrations only when the journal changes (pre-upgrade safety backup),
+token-authenticated readiness, loopback-only, job-draining shutdown, crash/orphan recovery.
+Encrypted full backup/restore byte-compatible with `scripts/backup-weekly.sh`/`restore.sh`.
+Runbook: `docs/WINDOWS_DESKTOP_PACKAGING.md`; Arabic guide: `desktop/guide/دليل-الاستخدام.html`.
+Gates here: typecheck 0 · lint 0 · vitest unit 612/612 (+20 desktop) · Linux lifecycle harness
+14/14 · Linux Electron E2E 20/20. Windows evidence: `.github/workflows/windows-desktop.yml`
+(installer artifact + `windows-desktop-test-reports`). Production, real data and backups untouched.
+
+## Previous checkpoint (before the desktop edition) — **v2.6.0 WORD DESIGN ROUND after the interactive Word check (2026-08-10), NOT DEPLOYED**
 
 The interactive Microsoft Word check of the `853f074` samples confirmed structural and
 functional correctness and **rejected the visual design**: the owner requires the

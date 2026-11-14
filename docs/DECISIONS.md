@@ -1456,3 +1456,23 @@ authorization, report content, frozen-snapshot immutability, output hashing, off
 generation, A4 geometry, orientation and column-splitting logic, and the PDF/Excel/ZIP
 exporters. Release version stays `2.6.0` — the prior candidate was never tagged or
 deployed; its digest is superseded (DELIVERY §10).
+
+## D-071 — Windows offline desktop edition alongside, not instead of, the server deployment (2026-11-14)
+
+**Context.** The owner asked for a one-click Windows edition ("Father's App") that runs the
+complete application on a laptop with no Docker, WSL, separately installed Node/PostgreSQL,
+internet or command line.
+
+**Decision.** A separate packaging layer in `desktop/` (Electron 45 shell + NSIS per-machine
+installer) runs the *unchanged* application: Next.js 16 standalone server on a bundled Node 24,
+a private PostgreSQL 16.15 cluster per Windows user, bundled Chrome Headless Shell for PDF and
+Poppler for previews. Application changes are limited to three behavior-neutral edits:
+opt-in `NEXT_OUTPUT=standalone` (+ trace excludes) in `next.config.ts`; `POPPLER_BIN_DIR` for
+`pdftoppm` (PATH lookup unchanged when unset); POSIX separators for new `storage_path` values
+(byte-identical on Mac/Linux, keeps Windows rows portable across restores).
+
+**Consequences.** Mac/Ubuntu deployment, scripts and data are untouched. Desktop backups use
+the server's weekly-backup format and openssl parameters, so data can move between the two
+editions in both directions (only by the principal's explicit restore). Details and test
+evidence: `docs/WINDOWS_DESKTOP_PACKAGING.md`. Open items: code signing, independent
+re-verification of the EDB archive hash, clean-machine/reboot manual checks.
