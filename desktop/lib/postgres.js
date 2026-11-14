@@ -111,8 +111,10 @@ async function initCluster(tools, loc, superPassword, tmpDir) {
   for (const n of fs.readdirSync(loc.root)) {
     if (n.startsWith("data.init-")) fs.rmSync(path.join(loc.root, n), { recursive: true, force: true });
   }
-  fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
-  const pwfile = path.join(tmpDir, `pw-${crypto.randomBytes(6).toString("hex")}`);
+  // The password file lives in the cluster root, which resolvePgRoot() guarantees is
+  // ASCII-safe — PostgreSQL tools cannot open non-ANSI paths such as an Arabic %TEMP%.
+  void tmpDir;
+  const pwfile = path.join(loc.root, `pw-${crypto.randomBytes(6).toString("hex")}`);
   fs.writeFileSync(pwfile, superPassword + "\n", { mode: 0o600 });
   try {
     await runChecked(tools.initdb, [
