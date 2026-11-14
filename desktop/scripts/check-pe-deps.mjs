@@ -26,7 +26,7 @@ const SYSTEM = new Set([
   "windowscodecs.dll", "netutils.dll", "srvcli.dll", "wer.dll", "comsvcs.dll", "xinput1_4.dll", "dinput8.dll",
   "mscms.dll", "dhcpcsvc6.dll", "winusb.dll", "virtdisk.dll", "sensapi.dll", "msdmo.dll", "ksuser.dll", "avrt.dll",
   "audioses.dll", "mmdevapi.dll", "dsound.dll", "msacm32.dll", "mfcore.dll", "evr.dll", "d3dcompiler_47.dll",
-  "fontsub.dll", "bthprops.cpl", "wsnmp32.dll", "icmp.dll", "tdh.dll", "webauthn.dll", "ndfapi.dll", "nsi.dll", "winsta.dll",
+  "fontsub.dll", "bthprops.cpl", "cryptui.dll", "tbs.dll", "wsnmp32.dll", "icmp.dll", "tdh.dll", "webauthn.dll", "ndfapi.dll", "nsi.dll", "winsta.dll",
 ]);
 const isApiSet = (n) => /^(api|ext)-ms-win-/i.test(n);
 
