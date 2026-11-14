@@ -18,3 +18,12 @@
 !macro customUnInit
   !insertmacro stopOwnedPostgres
 !macroend
+
+; The Next.js standalone server tree is installed verbatim by NSIS (electron-builder's resource
+; copier excludes node_modules). Runs right after the application package is extracted.
+!macro customFiles_x64
+  RMDir /r "$INSTDIR\resources\server"
+  SetOutPath "$INSTDIR\resources\server"
+  File /r "${PROJECT_DIR}\build\server\*.*"
+  SetOutPath "$INSTDIR"
+!macroend

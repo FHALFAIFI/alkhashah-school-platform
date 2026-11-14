@@ -15,9 +15,10 @@ files:
   - "!**/*.map"
 asar: true
 extraResources:
-  # NOT "app": Electron would load resources/app before app.asar as the Electron app itself
-  # node_modules must be named explicitly, or electron-builder silently drops it from extraResources
-  - { from: build/server, to: server, filter: ["**/*", "**/node_modules/**/*"] }
+  # The Next.js server tree (build/server → resources/server) is NOT listed here: electron-builder
+  # silently drops node_modules from extraResources. NSIS installs it verbatim instead
+  # (resources/installer.nsh, customFiles_x64). Never name it "app": Electron would load
+  # resources/app ahead of app.asar as the Electron application itself.
   - { from: vendor/node, to: node }
   - { from: vendor/pgsql, to: pgsql }
   - { from: vendor/chromium, to: chromium }

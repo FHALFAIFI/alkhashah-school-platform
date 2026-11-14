@@ -79,11 +79,11 @@ jobs:
           npx electron-builder --win nsis --x64 --publish never
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
-      - name: Packaged app tree is complete (no silent resource exclusions)
-        run: node desktop/scripts/check-packaged-tree.mjs desktop/build/server desktop/dist/win-unpacked/resources/server
+      - name: Runtime file list of the server tree (checked after install)
+        run: node desktop/scripts/check-packaged-tree.mjs --write-list desktop/build/server desktop/dist/server-files.txt
 
       - name: Static DLL audit of the packaged application
-        run: node desktop/scripts/check-pe-deps.mjs desktop/dist/win-unpacked --node-host desktop/dist/win-unpacked/resources/node
+        run: node desktop/scripts/check-pe-deps.mjs desktop/dist/win-unpacked desktop/build/server --node-host desktop/dist/win-unpacked/resources/node
 
       - name: Checksums
         shell: pwsh
@@ -103,6 +103,7 @@ jobs:
             desktop/dist/FathersApp-Setup-2.6.0-x64.exe
             desktop/dist/SHA256SUMS.txt
             desktop/dist/BINARIES.lock.json
+            desktop/dist/server-files.txt
           retention-days: 30
           compression-level: 0
       - uses: actions/upload-artifact@v4
@@ -124,6 +125,7 @@ jobs:
           sparse-checkout: |
             desktop/tests
             desktop/lib
+            desktop/scripts
       - uses: actions/download-artifact@v4
         with: { name: fathersapp-windows-installer, path: dist }
       - uses: actions/download-artifact@v4
@@ -152,7 +154,9 @@ jobs:
           # installed binaries must not be writable by ordinary users
           $acl = (Get-Acl -LiteralPath "$inst\resources\pgsql\bin").Access | Where-Object { $_.IdentityReference -match 'Users$' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
           if ($acl) { throw "install folder is writable by Users" }
-          "install: OK (shortcut, files, read-only ACL)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          node desktop/scripts/check-packaged-tree.mjs --from-list dist/server-files.txt "$inst\resources\server"
+          if ($LASTEXITCODE -ne 0) { throw "installed server tree incomplete" }
+          "install: OK (shortcut, files, complete server tree, read-only ACL)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - name: Cold first run, then warm run (system-only PATH, real %LOCALAPPDATA%)
         timeout-minutes: 15

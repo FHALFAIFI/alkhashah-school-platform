@@ -19,7 +19,7 @@ FathersApp.exe (Electron 45, main process: desktop/main/main.js)
        every renderer request not addressed to that origin is cancelled
 ```
 
-Installed (read-only, per-machine): `C:\Program Files\Father's App\`
+Installed (read-only, per-machine): `C:\Program Files\FathersApp\` (the server tree is installed by NSIS directly — electron-builder drops `node_modules` from `extraResources`)
 `resources\{app.asar, server, node, pgsql, chromium, poppler, guide, BINARIES.lock.json, THIRD_PARTY_NOTICES.md}`.
 
 Per-user data: `%LOCALAPPDATA%\FathersApp\`
