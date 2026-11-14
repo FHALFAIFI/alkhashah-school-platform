@@ -79,6 +79,9 @@ jobs:
           npx electron-builder --win nsis --x64 --publish never
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
+      - name: Packaged app tree is complete (no silent resource exclusions)
+        run: node desktop/scripts/check-packaged-tree.mjs desktop/build/server desktop/dist/win-unpacked/resources/server
+
       - name: Static DLL audit of the packaged application
         run: node desktop/scripts/check-pe-deps.mjs desktop/dist/win-unpacked --node-host desktop/dist/win-unpacked/resources/node
 
