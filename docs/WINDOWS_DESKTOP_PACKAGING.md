@@ -20,7 +20,7 @@ FathersApp.exe (Electron 45, main process: desktop/main/main.js)
 ```
 
 Installed (read-only, per-machine): `C:\Program Files\Father's App\`
-`resources\{app, node, pgsql, chromium, poppler, guide, BINARIES.lock.json, THIRD_PARTY_NOTICES.md}`.
+`resources\{app.asar, server, node, pgsql, chromium, poppler, guide, BINARIES.lock.json, THIRD_PARTY_NOTICES.md}`.
 
 Per-user data: `%LOCALAPPDATA%\FathersApp\`
 
@@ -168,7 +168,7 @@ node desktop/scripts/fetch-binaries.mjs --vc-runtime "<VS>\VC\Redist\MSVC\<ver>\
 ```
 
 ```bash
-node desktop/scripts/check-pe-deps.mjs desktop/vendor desktop/build/app/node_modules
+node desktop/scripts/check-pe-deps.mjs desktop/vendor desktop/build/server/node_modules
 ```
 
 ```bash

@@ -62,7 +62,7 @@ jobs:
           node desktop/scripts/fetch-binaries.mjs --vc-runtime $crt.FullName
 
       - name: Static DLL audit of bundled runtimes and native modules
-        run: node desktop/scripts/check-pe-deps.mjs desktop/vendor desktop/build/app/node_modules desktop/build/app/.next/node_modules --node-host desktop/vendor/node
+        run: node desktop/scripts/check-pe-deps.mjs desktop/vendor desktop/build/server/node_modules desktop/build/server/.next/node_modules --node-host desktop/vendor/node
 
       - name: Install packaging tools
         working-directory: desktop
@@ -133,7 +133,7 @@ jobs:
           $p = Start-Process dist\FathersApp-Setup-2.6.0-0-x64.exe -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "installer exit $($p.ExitCode)" }
           $inst = "$env:ProgramFiles\Father's App"
-          foreach ($f in "FathersApp.exe","resources\node\node.exe","resources\pgsql\bin\postgres.exe","resources\pgsql\bin\pg_ctl.exe","resources\app\server.js","resources\chromium\chromium_headless_shell-1228\chrome-headless-shell-win64\chrome-headless-shell.exe","resources\poppler\bin\pdftoppm.exe") {
+          foreach ($f in "FathersApp.exe","resources\node\node.exe","resources\pgsql\bin\postgres.exe","resources\pgsql\bin\pg_ctl.exe","resources\server\server.js","resources\app.asar","resources\chromium\chromium_headless_shell-1228\chrome-headless-shell-win64\chrome-headless-shell.exe","resources\poppler\bin\pdftoppm.exe") {
             if (-not (Test-Path -LiteralPath (Join-Path $inst $f))) { throw "missing $f" }
           }
           if (-not (Test-Path -LiteralPath "$env:PUBLIC\Desktop\Father's App.lnk")) { throw "desktop shortcut missing" }

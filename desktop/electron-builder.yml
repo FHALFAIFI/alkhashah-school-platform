@@ -15,7 +15,8 @@ files:
   - "!**/*.map"
 asar: true
 extraResources:
-  - { from: build/app, to: app, filter: ["**/*"] }
+  # NOT "app": Electron would load resources/app before app.asar as the Electron app itself
+  - { from: build/server, to: server, filter: ["**/*"] }
   - { from: vendor/node, to: node }
   - { from: vendor/pgsql, to: pgsql }
   - { from: vendor/chromium, to: chromium }

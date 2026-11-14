@@ -72,7 +72,8 @@ function resourceLayout(resourcesDir, o = {}) {
   const env = o.env ?? process.env;
   const win = (o.platform ?? process.platform) === "win32";
   const exe = (/** @type {string} */ n) => (win ? `${n}.exe` : n);
-  const appDir = env.FATHERSAPP_APP_DIR ?? path.join(resourcesDir, "app");
+  // "server", never "app": Electron loads <resources>/app ahead of app.asar.
+  const appDir = env.FATHERSAPP_APP_DIR ?? path.join(resourcesDir, "server");
   const pgBin = env.FATHERSAPP_PG_BIN ?? path.join(resourcesDir, "pgsql", "bin");
   return {
     resourcesDir,

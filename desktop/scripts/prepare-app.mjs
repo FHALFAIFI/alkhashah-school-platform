@@ -1,4 +1,4 @@
-// Assembles desktop/build/app — the immutable application tree shipped in the installer —
+// Assembles desktop/build/server — the immutable application tree shipped in the installer —
 // from a `NEXT_OUTPUT=standalone next build`.
 //
 //   node desktop/scripts/prepare-app.mjs [--skip-build]
@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktop = path.resolve(here, "..");
 const root = path.resolve(desktop, "..");
-const out = path.join(desktop, "build", "app");
+const out = path.join(desktop, "build", "server");
 const skipBuild = process.argv.includes("--skip-build");
 
 function sh(cmd, args, env = {}) {
