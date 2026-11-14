@@ -12,9 +12,11 @@ on an empty `users` table, migrations only when the journal changes (pre-upgrade
 token-authenticated readiness, loopback-only, job-draining shutdown, crash/orphan recovery.
 Encrypted full backup/restore byte-compatible with `scripts/backup-weekly.sh`/`restore.sh`.
 Runbook: `docs/WINDOWS_DESKTOP_PACKAGING.md`; Arabic guide: `desktop/guide/دليل-الاستخدام.html`.
-Gates here: typecheck 0 · lint 0 · vitest unit 612/612 (+20 desktop) · Linux lifecycle harness
-14/14 · Linux Electron E2E 20/20. Windows evidence: `.github/workflows/windows-desktop.yml`
-(installer artifact + `windows-desktop-test-reports`). Production, real data and backups untouched.
+Gates here: typecheck 0 · lint 0 · vitest unit 612/612 (incl. 20 desktop) · Linux lifecycle harness
+14/14 · Linux Electron E2E 20/20. **Windows CI run 43647675275 green** (install, cold/warm, upgrade,
+crash + orphan, harness 14/14, Arabic path, firewalled Electron E2E 20/20, uninstall) — record in
+`docs/WINDOWS_DESKTOP_PACKAGING.md` §10. Not yet done: clean consumer Windows 10/11 machine,
+real reboot/shutdown with the app open, code signing. Production, real data and backups untouched.
 
 ## Previous checkpoint (before the desktop edition) — **v2.6.0 WORD DESIGN ROUND after the interactive Word check (2026-08-10), NOT DEPLOYED**
 

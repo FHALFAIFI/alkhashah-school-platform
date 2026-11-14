@@ -200,3 +200,36 @@ the principal's laptop (principal's explicit action only).
 The installer and executables are not code-signed (no certificate provisioned). Windows
 SmartScreen will warn on first run. Before distribution, sign with an organisation
 certificate (`CSC_LINK`/`CSC_KEY_PASSWORD` for electron-builder, or Azure Trusted Signing).
+
+## 10. Verification record (2026-11-14)
+
+Windows evidence: workflow run **43647675275** (commit `d4b875f`), build + verify both green.
+Runner image: Windows Server 2025 Datacenter 10.0.26100, `windows-2025-vs2026` (a GitHub-hosted
+runner, **not** a clean consumer Windows 10/11 — see §8).
+
+| Check | Result |
+| --- | --- |
+| Static DLL audit (vendor runtimes, native addons, packaged app) | pass — after fixes: VC++ runtime next to `node.exe`, PL/Perl/Python/Tcl removed, complete `sharp` |
+| Per-machine silent install, desktop shortcut, `Users` have no write ACL, 3,559 server runtime files present | pass |
+| Cold first run (initdb + migrate + seed + server), system-only `PATH` | 12.3 s orchestrator / ~16.6 s process (run 12); bootstrapped once |
+| Warm start | 1.4–1.6 s orchestrator, ~3 s process incl. window; never re-seeded |
+| Clean stop (drain + `pg_ctl stop -m fast`) | 0.4–2.0 s |
+| Upgrade 2.6.0-0 → 2.6.0 | data and earlier backups kept, not re-seeded |
+| Hard crash, then installer over the orphaned cluster while the runner's own `postgresql-x64-17` service runs | installer stopped only our PostgreSQL; unrelated service still running; app recovered |
+| Lifecycle harness on installed runtimes | 14/14 (first run 5.1 s, PDF via bundled Chromium, verified backup, tamper + wrong key rejected, restore, warm 1.07–1.17 s, crash recovery, seed once) |
+| Arabic data directory (`…\بيانات المدرسة`) | pass (cluster relocated to an ASCII-safe root) |
+| Offline Electron E2E, all bundled exes firewalled outbound | 20/20: login, `Secure`+`HttpOnly` cookie, PDF/XLSX/DOCX export, renderer network blocked, graceful close stops PostgreSQL, 3 warm cycles (2.1–2.3 s), tree-kill crash recovery (first relaunch) |
+| Uninstall | program removed; `secrets.bin`, backups and storage kept |
+
+Installer artifact: `fathersapp-windows-installer` of that run (`FathersApp-Setup-2.6.0-x64.exe`,
+≈258 MB, with `SHA256SUMS.txt`, `BINARIES.lock.json`), retained 30 days.
+
+Linux (development container): Vitest unit 612/612 (incl. 20 desktop), typecheck 0, lint 0,
+lifecycle harness 14/14, Electron E2E 20/20 under Xvfb with the original `.next` moved away.
+
+Defects found and fixed by this verification (all would have shipped otherwise): Turbopack
+external aliases pointing at the build machine; Playwright's `browsers.json` missing from the
+trace; `node_modules` silently dropped from `extraResources`; `resources/app` shadowing
+`app.asar`; Node waiting forever on pipes inherited by `postgres.exe`; argon2 needing
+`vcruntime140.dll` beside `node.exe`; initdb password file under a non-ASCII path; spellcheck
+dictionary download attempts.
