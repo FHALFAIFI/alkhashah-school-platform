@@ -162,12 +162,32 @@ async function main() {
   await silenceDialogs(app);
   page = await appWindow(app);
   const pid = app.process().pid;
-  try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  // Hard crash of the whole Electron process tree (Task Manager "End process tree" / power cut);
+  // PostgreSQL and the Node server are separate processes and are deliberately left behind.
+  if (process.platform === "win32") {
+    const { execFileSync } = await import("node:child_process");
+    try { execFileSync(path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"), ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" }); } catch { /* gone */ }
+  } else {
+    try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  }
   await new Promise((r) => setTimeout(r, 3000));
   t0 = Date.now();
-  app = await electron.launch(launchOpts());
-  await silenceDialogs(app);
-  page = await appWindow(app);
+  // A relaunch can briefly lose the single-instance race while Chromium helpers of the dead
+  // instance wind down; a user would simply double-click again. Record how many tries it took.
+  let attempts = 0;
+  for (;;) {
+    attempts++;
+    try {
+      app = await electron.launch(launchOpts());
+      await silenceDialogs(app);
+      page = await appWindow(app, 120_000);
+      break;
+    } catch (e) {
+      if (attempts >= 6) throw e;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  report.recoveryLaunchAttempts = attempts;
   report.timings.recoveryStartMs = Date.now() - t0;
   const health = await page.evaluate(async () => (await fetch("/api/health")).json());
   check("crash-recovery", health.status === "ok" && health.db === "up", health);
@@ -187,5 +207,7 @@ main()
   })
   .finally(() => {
     if (process.env.FATHERSAPP_E2E_OUT) fs.writeFileSync(process.env.FATHERSAPP_E2E_OUT, JSON.stringify(report, null, 2));
-    console.log(JSON.stringify({ ok: report.ok, timings: report.timings, cycles: report.cycles }));
+    console.log(JSON.stringify({ ok: report.ok, timings: report.timings, cycles: report.cycles, recoveryLaunchAttempts: report.recoveryLaunchAttempts }));
+    // Playwright/Electron handles of a killed app can keep the event loop alive forever.
+    setTimeout(() => process.exit(process.exitCode ?? 0), 1000);
   });
