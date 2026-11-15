@@ -18,6 +18,7 @@ const { Orchestrator } = require("../lib/orchestrator");
 const { defaultDataRoot, dataLayout } = require("../lib/paths");
 const { plainProtector, recoveryKeyText, parseRecoveryKey } = require("../lib/secrets");
 const { listBackups } = require("../lib/backup");
+const { backupReadiness, sameVolume } = require("../lib/readiness");
 const S = require("./strings");
 
 const SELF_TEST = (process.argv.find((a) => a.startsWith("--self-test=")) ?? "").slice("--self-test=".length) || null;
@@ -51,6 +52,7 @@ const log = (/** @type {string} */ m) => {
 let quitting = false;
 let shuttingDown = false;
 let busy = false;
+/** @type {NodeJS.Timeout | null} */ let startupBackupTimer = null;
 
 function protector() {
   if (safeStorage.isEncryptionAvailable()) {
@@ -69,8 +71,9 @@ function protector() {
 }
 
 function resourcesDir() {
-  if (process.env.FATHERSAPP_RESOURCES) return process.env.FATHERSAPP_RESOURCES;
-  return app.isPackaged ? process.resourcesPath : path.join(__dirname, "..", "build");
+  // Installed builds always use their own read-only resources; the override is for development.
+  if (app.isPackaged) return process.resourcesPath;
+  return process.env.FATHERSAPP_RESOURCES ?? path.join(__dirname, "..", "build");
 }
 
 // ————— splash —————
@@ -130,7 +133,17 @@ function createMainWindow(/** @type {string} */ url) {
     e.preventDefault();
     void shutdownAndQuit();
   });
-  // Windows is shutting down / restarting / logging off: stop PostgreSQL synchronously.
+  // Windows asks whether the session may end (shutdown/restart/log-off). Delay it once and
+  // run the normal safe shutdown (no backup, short drain); Windows continues by itself as
+  // soon as the app has exited, or the user may choose "shut down anyway" — then
+  // session-end below still stops PostgreSQL synchronously.
+  mainWindow.on("query-session-end", (e) => {
+    if (quitting) return;
+    log(`query-session-end (${(e.reasons ?? []).join(",")}) — graceful stop before Windows continues`);
+    e.preventDefault();
+    void shutdownAndQuit({ fast: true });
+  });
+  // Windows is ending the session now: stop PostgreSQL synchronously.
   mainWindow.on("session-end", () => {
     log("session-end received — emergency stop");
     quitting = true;
@@ -198,6 +211,7 @@ function buildMenu() {
     {
       label: "النسخ الاحتياطي",
       submenu: [
+        { label: "حالة النسخ الاحتياطي…", click: () => void backupStatus() },
         { label: "إنشاء نسخة احتياطية الآن", click: () => void manualBackup() },
         { label: "استعادة نسخة احتياطية…", click: () => void restoreFlow() },
         { type: "separator" },
@@ -262,25 +276,100 @@ async function manualBackup() {
 
 async function chooseOffsite() {
   if (!orch) return;
-  const r = await dialog.showOpenDialog({ title: "اختر مجلداً خارج هذا الجهاز لحفظ نسخ إضافية", properties: ["openDirectory", "createDirectory"] });
+  const r = await dialog.showOpenDialog({ title: "اختر مجلداً خارج هذا الجهاز (ذاكرة USB أو مجلد سحابي)", properties: ["openDirectory", "createDirectory"] });
   if (r.canceled || !r.filePaths[0]) return;
-  orch.updateSettings({ offsiteDir: r.filePaths[0] });
-  await info("سيُنسخ كل نسخة احتياطية جديدة إلى هذا المجلد أيضاً.", r.filePaths[0]);
+  const dir = r.filePaths[0];
+  try {
+    const probe = path.join(dir, `.fathersapp-write-test-${process.pid}`);
+    fs.writeFileSync(probe, "ok");
+    fs.rmSync(probe, { force: true });
+  } catch {
+    await info("لا يمكن الكتابة في هذا المجلد.", "اختر مجلداً آخر (مثل ذاكرة USB موصولة).", "error");
+    return;
+  }
+  if (sameVolume(dir, dataRoot)) {
+    const c = await dialog.showMessageBox({
+      type: "warning", title: S.APP_TITLE, noLink: true, cancelId: 1, defaultId: 1,
+      message: "هذا المجلد على قرص هذا الجهاز نفسه.",
+      detail: "لن يحمي من تعطّل الجهاز أو فقده، إلا إذا كان مجلداً متزامناً مع خدمة سحابية (مثل OneDrive) تعمل فعلاً. هل تريد استعماله مع ذلك؟",
+      buttons: ["استعماله", "اختيار مجلد آخر"],
+    });
+    if (c.response !== 0) return;
+  }
+  orch.updateSettings({ offsiteDir: dir });
+  delete orch.state.lastOffsiteError;
+  orch.saveState();
+  // Prove it works now, instead of discovering a problem on the day it is needed.
+  await manualBackup();
 }
 
 async function exportRecoveryKey() {
   if (!orch?.secrets) return false;
   const r = await dialog.showSaveDialog({
-    title: "حفظ مفتاح استعادة النسخ الاحتياطية",
+    title: "حفظ مفتاح استعادة النسخ الاحتياطية (يفضَّل على ذاكرة USB)",
     defaultPath: path.join(app.getPath("documents"), "مفتاح-استعادة-النسخ-FathersApp.txt"),
     filters: [{ name: "ملف نصي", extensions: ["txt"] }],
   });
   if (r.canceled || !r.filePath) return false;
-  fs.writeFileSync(r.filePath, recoveryKeyText(orch.secrets.backupKey, orch.secrets.createdAt), { encoding: "utf8" });
+  try {
+    fs.writeFileSync(r.filePath, recoveryKeyText(orch.secrets.backupKey, orch.secrets.createdAt), { encoding: "utf8" });
+    // read back: a key file that does not round-trip is worse than none
+    if (parseRecoveryKey(fs.readFileSync(r.filePath, "utf8")) !== orch.secrets.backupKey) throw new Error("readback mismatch");
+  } catch (e) {
+    log(`recovery key export failed: ${e instanceof Error ? e.message : e}`);
+    await info("تعذّر حفظ مفتاح الاستعادة في هذا المكان.", "اختر مكاناً آخر (مثل ذاكرة USB).", "error");
+    return false;
+  }
+  const local = sameVolume(r.filePath, dataRoot);
   orch.state.recoveryKeyExportedAt = new Date().toISOString();
+  orch.state.recoveryKeyOnSameDrive = local;
   orch.saveState();
-  await info("حُفظ مفتاح الاستعادة.", "انقله الآن إلى ذاكرة USB أو مكان آمن خارج هذا الجهاز، ثم احذفه من هذا الجهاز.");
+  await info(
+    "حُفظ مفتاح الاستعادة وتم التحقق من الملف.",
+    local
+      ? "الملف الآن على قرص هذا الجهاز فقط. احفظه مرة أخرى على ذاكرة USB من قائمة «النسخ الاحتياطي ← حفظ مفتاح الاستعادة» واحفظ الذاكرة في مكان آمن بعيداً عن الجهاز."
+      : "احفظ هذه الذاكرة في مكان آمن بعيداً عن الجهاز، ولا تضعها مع النسخ الاحتياطية في المكان نفسه.",
+  );
   return true;
+}
+
+function fmtTime(/** @type {string | undefined} */ iso) {
+  return iso ? new Date(iso).toLocaleString("ar-SA-u-nu-latn", { timeZone: "Asia/Riyadh" }) : "لا يوجد";
+}
+
+async function backupStatus() {
+  if (!orch) return;
+  const issues = backupReadiness({ state: orch.state, settings: orch.settings, dataRoot });
+  const lines = [
+    `آخر نسخة احتياطية: ${fmtTime(orch.state.lastBackupAt)}`,
+    `آخر نسخ إلى المجلد الخارجي: ${fmtTime(orch.state.lastOffsiteOkAt)}`,
+    `المجلد الخارجي: ${orch.settings.offsiteDir ?? "غير محدد"}`,
+    `مفتاح الاستعادة: ${orch.state.recoveryKeyExportedAt ? (orch.state.recoveryKeyOnSameDrive ? "محفوظ على هذا الجهاز فقط" : "محفوظ خارج هذا الجهاز") : "لم يُحفظ"}`,
+  ];
+  await info(issues.length ? "النسخ الاحتياطي يحتاج إلى انتباهك." : "إعدادات النسخ الاحتياطي مكتملة.", [...lines, "", ...issues.map((i) => `• ${i.ar}`)].join("\n"), issues.length ? "warning" : "info");
+}
+
+/**
+ * Shown at EVERY launch while anything stands between this laptop and a backup that can be
+ * restored elsewhere — not a one-time prompt that is easy to dismiss and forget.
+ */
+async function backupReadinessDialogs() {
+  if (SELF_TEST || !orch) return;
+  for (let round = 0; round < 4; round++) {
+    const issues = backupReadiness({ state: orch.state, settings: orch.settings, dataRoot });
+    if (!issues.length) return;
+    const needKey = issues.some((i) => i.code.startsWith("recovery-key"));
+    const r = await dialog.showMessageBox({
+      type: "warning", title: S.APP_TITLE, noLink: true, cancelId: 1, defaultId: 0,
+      message: "حماية بيانات المدرسة لم تكتمل بعد",
+      detail: issues.map((i) => `• ${i.ar}`).join("\n") + "\n\nستظهر هذه الرسالة عند كل تشغيل حتى تكتمل.",
+      // index 1 is always "remind me later" (also what the automated tests answer)
+      buttons: [needKey ? "حفظ مفتاح الاستعادة…" : "تحديد مجلد النسخ الخارجي…", "تذكيري لاحقاً", needKey ? "تحديد مجلد النسخ الخارجي…" : "إنشاء نسخة الآن"],
+    });
+    if (r.response === 1) return;
+    if (r.response === 0) { if (needKey) await exportRecoveryKey(); else await chooseOffsite(); }
+    if (r.response === 2) { if (needKey) await chooseOffsite(); else await manualBackup(); }
+  }
 }
 
 async function restoreFlow() {
@@ -337,7 +426,12 @@ async function restoreFlow() {
     log(`restore failed: ${e instanceof Error ? e.stack : e}`);
     splash?.hide();
     mainWindow?.show();
-    await info("لم تكتمل الاستعادة — بياناتك الحالية لم تتغير.", S.errorMessage(e), "error");
+    const code = /** @type {any} */ (e)?.code;
+    if (code === "RESTORE_APPLIED_START_FAILED") {
+      await info("استُعيدت النسخة، لكن تعذّر تشغيل المنصة بعدها.", `بياناتك السابقة محفوظة في نسخة الأمان: ${/** @type {any} */ (e).safetyBackup}\nأعد تشغيل المنصة، وإن تكرر الخطأ فأرسل مجلد السجلات للدعم الفني ولا تحذف أي ملفات.`, "error");
+    } else {
+      await info("لم تكتمل الاستعادة، ولم تُستبدل بياناتك الحالية.", S.errorMessage(e), "error");
+    }
     if (orch?.url && mainWindow) { appOrigin = new URL(orch.url).origin; void mainWindow.loadURL(orch.url); }
   } finally {
     busy = false;
@@ -357,15 +451,7 @@ async function firstRunDialogs(/** @type {string[] | null} */ creds) {
     });
     if (r.response === 0) clipboard.writeText(creds.join("\n"));
   }
-  if (!orch.state.recoveryKeyExportedAt) {
-    const r = await dialog.showMessageBox({
-      type: "warning", title: S.APP_TITLE, noLink: true, cancelId: 1,
-      message: "احفظ مفتاح استعادة النسخ الاحتياطية",
-      detail: "النسخ الاحتياطية مشفّرة. إذا تعطّل هذا الجهاز فلن تُفتح النسخ على جهاز آخر إلا بهذا المفتاح. احفظه على ذاكرة USB.",
-      buttons: ["حفظ المفتاح الآن", "لاحقاً"],
-    });
-    if (r.response === 0) await exportRecoveryKey();
-  }
+  await backupReadinessDialogs();
 }
 
 // ————— startup / shutdown —————
@@ -380,6 +466,7 @@ async function start() {
     protector: protector(),
     appVersion: app.getVersion(),
     ownExecutable: process.execPath,
+    allowDevOverrides: !app.isPackaged,
     log,
     onStep: (k) => setStatus(S.STEPS[k] ?? S.STEPS.lock),
     onDraining: (n) => setStatus(S.STEPS.stopServer, S.draining(n)),
@@ -391,6 +478,9 @@ async function start() {
   createMainWindow(res.url);
   await new Promise((r) => mainWindow?.webContents.once("did-finish-load", () => r(undefined)));
   await firstRunDialogs(res.initialCredentials);
+  // daily automatic backup also shortly after start (not only at close): a laptop that is
+  // always shut down with the app open must still get backups
+  if (!SELF_TEST) startupBackupTimer = setTimeout(() => void orch?.backupIfDue(), 90_000);
   return res;
 }
 
@@ -399,7 +489,7 @@ async function onServerCrash(/** @type {number | null} */ code) {
   const r = await dialog.showMessageBox({
     type: "error", title: S.APP_TITLE, noLink: true,
     message: "توقفت المنصة بشكل غير متوقع.",
-    detail: `بياناتك محفوظة. (الرمز: ${code ?? "—"})`,
+      detail: `لم يُحذف شيء من بياناتك، وستُفحص قاعدة البيانات عند إعادة التشغيل. (الرمز: ${code ?? "—"})`,
     buttons: ["إعادة التشغيل", "إغلاق"],
   });
   if (r.response === 1) { void shutdownAndQuit(); return; }
@@ -417,16 +507,18 @@ async function onServerCrash(/** @type {number | null} */ code) {
   }
 }
 
-async function shutdownAndQuit() {
+async function shutdownAndQuit(/** @type {{ fast?: boolean }} */ opts = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
-  log("shutdown requested");
+  if (startupBackupTimer) clearTimeout(startupBackupTimer);
+  log(`shutdown requested${opts.fast ? " (Windows session ending)" : ""}`);
   showSplash();
   setStatus(S.STEPS.stopServer);
   mainWindow?.hide();
   try {
-    const report = orch ? await orch.stop({ drainMs: 120_000 }) : {};
-    if (report?.backupError) await info("أُغلقت المنصة، لكن النسخة الاحتياطية التلقائية لم تكتمل.", "سيُعاد المحاولة عند الإغلاق القادم. يمكنك إنشاء نسخة يدوياً من قائمة «النسخ الاحتياطي».", "warning");
+    // When Windows is ending the session: short drain, no backup (the startup backup covers it).
+    const report = orch ? await orch.stop(opts.fast ? { drainMs: 15_000, backup: false } : { drainMs: 120_000 }) : {};
+    if (!opts.fast && report?.backupError) await info("أُغلقت المنصة، لكن النسخة الاحتياطية التلقائية لم تكتمل.", "سيُعاد المحاولة عند الإغلاق القادم. يمكنك إنشاء نسخة يدوياً من قائمة «النسخ الاحتياطي».", "warning");
   } catch (e) {
     log(`shutdown error: ${e instanceof Error ? e.stack : e}`);
   } finally {
@@ -463,7 +555,7 @@ app.whenReady().then(async () => {
     const r = await dialog.showMessageBox({
       type: "error", title: S.APP_TITLE, noLink: true,
       message: "تعذّر تشغيل المنصة.",
-      detail: `${S.errorMessage(e)}\n\nبياناتك لم تُمسّ. إن تكرر ذلك فأرسل مجلد السجلات للدعم الفني.`,
+      detail: `${S.errorMessage(e)}\n\nلم يُحذف شيء من بياناتك. إن تكرر ذلك فأرسل مجلد السجلات للدعم الفني، ولا تحذف مجلد FathersApp.`,
       buttons: ["فتح مجلد السجلات", "إغلاق"],
     });
     if (r.response === 0) await shell.openPath(layout.logs);

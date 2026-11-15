@@ -17,6 +17,7 @@ const STEPS = {
   server: "تشغيل المنصة…",
   stopServer: "جارٍ إنهاء العمليات الجارية بأمان…",
   autoBackup: "إنشاء النسخة الاحتياطية اليومية التلقائية…",
+  workFiles: "تنظيف الملفات المؤقتة…",
   stopPostgres: "إيقاف قاعدة البيانات بأمان…",
   backup: "جارٍ إنشاء نسخة احتياطية والتحقق منها…",
   restoreVerify: "جارٍ التحقق من سلامة النسخة الاحتياطية…",
@@ -34,6 +35,8 @@ function errorMessage(e) {
   const code = e?.code;
   const msg = String(e?.message ?? e);
   if (code === "ALREADY_RUNNING") return "المنصة تعمل بالفعل على هذا الجهاز.";
+  if (code === "DATA_NEWER_THAN_APP") return `بيانات هذا الجهاز أُنشئت بإصدار أحدث (${e.dataVersion}) من الإصدار المثبّت الآن. ثبّت الإصدار الأحدث مرة أخرى؛ لن يُفتح هذا الإصدار الأقدم على البيانات حمايةً لها.`;
+  if (code === "BACKUP_NEWER_THAN_APP") return `هذه النسخة أُنشئت بإصدار أحدث (${e.backupVersion}) من الإصدار المثبّت. ثبّت الإصدار الأحدث أولاً ثم أعد الاستعادة.`;
   if (code === "ENOSPC" || /no space left/i.test(msg)) return "مساحة القرص غير كافية. أفرغ بعض المساحة ثم أعد المحاولة.";
   if (code === "BAD_KEY_OR_CORRUPT") return "مفتاح الاستعادة غير صحيح، أو أن ملف النسخة الاحتياطية تالف.";
   if (code === "CHECKSUM_MISMATCH" || code === "MEMBER_CORRUPT" || code === "MEMBER_MISSING") return "ملف النسخة الاحتياطية تالف أو غير مكتمل — لم يُغيَّر أي شيء في بياناتك الحالية.";

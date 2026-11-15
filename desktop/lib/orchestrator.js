@@ -22,6 +22,7 @@ const pg = require("./postgres");
 const { startServer, stopServer } = require("./server");
 const backup = require("./backup");
 const { runChecked, cleanEnv, isAlive, commandLineOf } = require("./proc");
+const { compareVersions, redactSecrets } = require("./readiness");
 
 const DEFAULT_SETTINGS = { offsiteDir: null, autoBackupHours: 24, retention: 14, safetyRetention: 5 };
 
@@ -37,6 +38,7 @@ const DEFAULT_SETTINGS = { offsiteDir: null, autoBackupHours: 24, retention: 14,
  *   onDraining?: (activeJobs: number) => void,
  *   log?: (m: string) => void,
  *   ownExecutable?: string,
+ *   allowDevOverrides?: boolean,
  * }} OrchestratorOptions
  */
 
@@ -54,7 +56,11 @@ class Orchestrator {
   constructor(o) {
     this.o = o;
     this.d = dataLayout(o.dataRoot);
-    this.r = resourceLayout(o.resourcesDir);
+    // Packaged builds ignore the FATHERSAPP_* runtime-path overrides (development/test only),
+    // so the environment cannot redirect which node.exe / PostgreSQL binaries are executed.
+    this.r = resourceLayout(o.resourcesDir, { env: o.allowDevOverrides === false ? {} : process.env });
+    /** @type {Promise<any> | null} */
+    this.backupInFlight = null;
     this.log = o.log ?? (() => {});
     /** @type {import("./server").ServerHandle | null} */
     this.server = null;
@@ -155,6 +161,30 @@ class Orchestrator {
     fs.rmSync(this.d.sessionFile, { force: true });
   }
 
+  /**
+   * Work files of an interrupted backup/verify/restore can hold DECRYPTED school data (the
+   * database dump and attachments). They are removed at every start, before anything else
+   * runs, together with partial encrypted archives (*.part). Only our own tmp folder and our
+   * own backup folders are touched.
+   */
+  cleanupWorkFiles() {
+    let removed = 0;
+    if (fs.existsSync(this.d.tmp)) {
+      for (const n of fs.readdirSync(this.d.tmp)) {
+        fs.rmSync(path.join(this.d.tmp, n), { recursive: true, force: true });
+        removed++;
+      }
+    }
+    for (const dir of [this.d.backupsFull, this.d.backupsSafety]) {
+      if (!fs.existsSync(dir)) continue;
+      for (const n of fs.readdirSync(dir)) {
+        if (n.endsWith(".part")) { fs.rmSync(path.join(dir, n), { force: true }); removed++; }
+      }
+    }
+    if (removed) this.log(`removed ${removed} leftover work file(s) from an interrupted operation`);
+    return removed;
+  }
+
   // ————— start —————
 
   migrationsHash() {
@@ -203,6 +233,11 @@ class Orchestrator {
     await this.step("lock", () => this.acquireLock());
     try {
       this.state = readJson(this.d.stateFile, {});
+      await this.step("workFiles", async () => this.cleanupWorkFiles());
+      // Data written by a newer version must never be opened by older code (downgrade).
+      if (compareVersions(this.state.appVersion, this.o.appVersion) === 1) {
+        throw Object.assign(new Error(`data was last used by version ${this.state.appVersion}, this is ${this.o.appVersion}`), { code: "DATA_NEWER_THAN_APP", dataVersion: this.state.appVersion });
+      }
       const { secrets, created } = loadOrCreateSecrets(this.d.secretsFile, this.o.protector);
       this.secrets = secrets;
       if (created) this.log("generated installation secrets");
@@ -238,7 +273,6 @@ class Orchestrator {
         }
         await this.step("migrate", () => this.runNodeScript(this.r.migrateScript));
         this.state.migrationsHash = mh;
-        this.state.appVersion = this.o.appVersion;
         this.saveState();
       }
 
@@ -257,6 +291,9 @@ class Orchestrator {
       }
 
       await this.step("server", () => this.startAppServer());
+      if (compareVersions(this.o.appVersion, this.state.appVersion) !== -1 || this.state.appVersion === undefined) {
+        if (this.state.appVersion !== this.o.appVersion) { this.state.appVersion = this.o.appVersion; this.saveState(); }
+      }
       writeJsonAtomic(this.d.sessionFile, {
         launcherPid: process.pid,
         serverPid: this.server?.pid,
@@ -269,7 +306,7 @@ class Orchestrator {
       this.log(`ready in ${this.timings.total} ms (firstRun=${firstRun})`);
       return { url: /** @type {string} */ (this.url), firstRun, initialCredentials, timings: { ...this.timings } };
     } catch (e) {
-      this.log(`start failed: ${e instanceof Error ? e.stack : e}`);
+      this.log(`start failed: ${redactSecrets(e instanceof Error ? String(e.stack) : String(e), this.secretValues())}`);
       await this.stop({ backup: false, drainMs: 2000 }).catch(() => {});
       throw e;
     }
@@ -341,6 +378,10 @@ class Orchestrator {
     return Number(out) || 0;
   }
 
+  secretValues() {
+    return this.secrets ? [this.secrets.pgSuperPassword, this.secrets.pgAppPassword, this.secrets.backupKey] : [];
+  }
+
   readInitialCredentials() {
     const f = path.join(this.d.storage, "private", "initial-credentials.txt");
     try { return fs.readFileSync(f, "utf8").split(/\r?\n/).filter(Boolean); } catch { return null; }
@@ -367,17 +408,42 @@ class Orchestrator {
     return backup.createBackup(this.backupContext(), { outDir: this.d.backupsSafety, label, retention: this.settings.safetyRetention, log: this.log });
   }
 
-  /** User-visible full backup (manual or automatic), with retention and off-device copy. */
+  /**
+   * User-visible full backup (manual or automatic), with retention and off-device copy.
+   * Serialized: a second request waits for the one in flight instead of racing it.
+   */
   async fullBackup() {
-    if (!this.pgRunning) throw new Error("database is not running");
-    const s = this.settings;
-    const res = await backup.createBackup(this.backupContext(), { outDir: this.d.backupsFull, retention: s.retention, offsiteDir: s.offsiteDir, log: this.log });
-    this.state.lastBackupAt = new Date().toISOString();
-    this.state.lastBackupFile = res.name;
-    this.state.lastBackupOffsite = res.offsite;
-    delete this.state.lastBackupError;
-    this.saveState();
-    return res;
+    if (this.backupInFlight) return this.backupInFlight;
+    this.backupInFlight = (async () => {
+      if (!this.pgRunning) throw new Error("database is not running");
+      const s = this.settings;
+      try {
+        const res = await backup.createBackup(this.backupContext(), { outDir: this.d.backupsFull, retention: s.retention, offsiteDir: s.offsiteDir, log: this.log });
+        this.state.lastBackupAt = new Date().toISOString();
+        this.state.lastBackupFile = res.name;
+        delete this.state.lastBackupError;
+        if (s.offsiteDir) {
+          if (res.offsite?.ok) { this.state.lastOffsiteOkAt = this.state.lastBackupAt; delete this.state.lastOffsiteError; }
+          else this.state.lastOffsiteError = res.offsite?.reason ?? "offsite-error";
+        }
+        this.saveState();
+        return res;
+      } catch (e) {
+        this.state.lastBackupError = redactSecrets(e instanceof Error ? e.message : String(e), this.secretValues()).slice(0, 500);
+        this.saveState();
+        throw e;
+      }
+    })();
+    try { return await this.backupInFlight; } finally { this.backupInFlight = null; }
+  }
+
+  /**
+   * Daily automatic backup at startup as well as at close — so a laptop that is always shut
+   * down with the app open still gets backups. Never throws (failure is recorded in state).
+   */
+  async backupIfDue() {
+    if (!this.pgRunning || !this.state.bootstrapped || !this.backupDue()) return null;
+    try { return await this.fullBackup(); } catch (e) { this.log(`automatic backup failed: ${e instanceof Error ? e.message : e}`); return null; }
   }
 
   backupDue() {
@@ -399,7 +465,10 @@ class Orchestrator {
    * @param {string} file @param {string} key
    */
   async restore(file, key) {
-    await this.verify(file, key);
+    const info = await this.verify(file, key);
+    if (compareVersions(info.backupVersion, this.o.appVersion) === 1) {
+      throw Object.assign(new Error(`backup was made by a newer version (${info.backupVersion})`), { code: "BACKUP_NEWER_THAN_APP", backupVersion: info.backupVersion });
+    }
     const safety = await this.safetyBackup("pre-restore");
     if (this.server) {
       this.stopping = true;
@@ -418,10 +487,16 @@ class Orchestrator {
     this.state.bootstrapped = true;
     this.state.restoredAt = new Date().toISOString();
     this.saveState();
-    await this.runNodeScript(this.r.migrateScript);
-    this.state.migrationsHash = this.migrationsHash();
-    this.saveState();
-    await this.startAppServer();
+    try {
+      await this.runNodeScript(this.r.migrateScript);
+      this.state.migrationsHash = this.migrationsHash();
+      this.saveState();
+      await this.startAppServer();
+    } catch (e) {
+      // The restored data IS in place now; the previous data is in the safety backup and in
+      // the kept previous database/storage. Say exactly that — never "nothing changed".
+      throw Object.assign(new Error(`restore applied but the application could not start: ${e instanceof Error ? e.message : e}`), { code: "RESTORE_APPLIED_START_FAILED", safetyBackup: safety.name, cause: e });
+    }
     return { ...result, safetyBackup: safety.name, url: this.url };
   }
 
@@ -441,15 +516,18 @@ class Orchestrator {
         report.server = await stopServer(this.server, { drainMs: o.drainMs ?? 120_000 });
         this.server = null;
       }
+      if (this.backupInFlight) {
+        // never stop PostgreSQL underneath a running pg_dump
+        this.o.onStep?.("autoBackup");
+        await this.backupInFlight.catch(() => {});
+      }
       if (o.backup !== false && this.pgRunning && this.state.bootstrapped && this.backupDue()) {
         this.o.onStep?.("autoBackup");
         try {
           const b = await this.fullBackup();
           report.backup = b.name;
         } catch (e) {
-          report.backupError = e instanceof Error ? e.message : String(e);
-          this.state.lastBackupError = report.backupError;
-          this.saveState();
+          report.backupError = this.state.lastBackupError ?? (e instanceof Error ? e.message : String(e));
           this.log(`automatic backup failed: ${report.backupError}`);
         }
       }

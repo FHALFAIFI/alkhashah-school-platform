@@ -61,6 +61,10 @@ jobs:
           Write-Host "Using $($crt.FullName)"
           node desktop/scripts/fetch-binaries.mjs --vc-runtime $crt.FullName
 
+      - name: Authenticode provenance of bundled runtimes
+        shell: pwsh
+        run: pwsh desktop/scripts/signature-report.ps1 (Resolve-Path desktop/vendor).Path desktop/vendor/SIGNATURES.json
+
       - name: Static DLL audit of bundled runtimes and native modules
         run: node desktop/scripts/check-pe-deps.mjs desktop/vendor desktop/build/server/node_modules desktop/build/server/.next/node_modules --node-host desktop/vendor/node
 
@@ -92,9 +96,11 @@ jobs:
           Get-ChildItem *.exe | ForEach-Object {
             $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$h  $($_.Name)" | Out-File -Encoding ascii -Append SHA256SUMS.txt
+            Write-Host "SHA256 $h  $($_.Name)  $($_.Length) bytes"
             "{0}  {1:N1} MB  {2}" -f $_.Name, ($_.Length / 1MB), $h | Out-File -Append $env:GITHUB_STEP_SUMMARY
           }
           Copy-Item ..\vendor\BINARIES.lock.json .
+          Copy-Item ..\vendor\SIGNATURES.json .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -103,6 +109,7 @@ jobs:
             desktop/dist/FathersApp-Setup-2.6.0-x64.exe
             desktop/dist/SHA256SUMS.txt
             desktop/dist/BINARIES.lock.json
+            desktop/dist/SIGNATURES.json
             desktop/dist/server-files.txt
           retention-days: 30
           compression-level: 0
@@ -224,6 +231,39 @@ jobs:
           $r = Get-Content $out | ConvertFrom-Json
           if ($p.ExitCode -ne 0 -or -not $r.ok) { Get-Content $out; throw "recovery after crash failed" }
           "crash recovery + upgrade over orphan: OK (unrelated service untouched: $([bool]$svc))" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: Windows shutdown request (WM_QUERYENDSESSION) stops the app and PostgreSQL cleanly
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $inst = $env:INST
+          Add-Type -TypeDefinition @"
+          using System; using System.Runtime.InteropServices;
+          public static class Win32Msg {
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+          }
+          "@
+          $sess = "$env:LOCALAPPDATA\FathersApp\run\session.json"
+          $app = Start-Process "$inst\FathersApp.exe" -PassThru
+          $deadline = (Get-Date).AddMinutes(4)
+          while (-not (Test-Path $sess) -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
+          if (-not (Test-Path $sess)) { throw "app did not start" }
+          $h = [IntPtr]::Zero
+          for ($i = 0; $i -lt 60 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep 1; $h = (Get-Process -Id $app.Id).MainWindowHandle }
+          if ($h -eq [IntPtr]::Zero) { throw "no main window handle" }
+          $r = [IntPtr]::Zero
+          [void][Win32Msg]::SendMessageTimeout($h, 0x0011, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 10000, [ref]$r)  # WM_QUERYENDSESSION
+          "WM_QUERYENDSESSION answered: $r (0 = app asked Windows to wait)"
+          if (-not $app.WaitForExit(120000)) { throw "app did not exit after the shutdown request" }
+          $owned = Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.ExecutablePath -like "$inst\*" }
+          if (@($owned).Count -ne 0) { throw "PostgreSQL still running after shutdown request" }
+          $state = Get-Content "$env:LOCALAPPDATA\FathersApp\config\state.json" | ConvertFrom-Json
+          if (Test-Path (Join-Path $state.pgRoot "data\postmaster.pid")) { throw "postmaster.pid left behind (unclean stop)" }
+          $log = Get-Content "$env:LOCALAPPDATA\FathersApp\logs\launcher.log" -Raw
+          if ($log -notmatch 'query-session-end') { throw "query-session-end not handled" }
+          if ($log -notmatch '"postgres":"fast"') { throw "PostgreSQL was not stopped with pg_ctl fast" }
+          "os-shutdown request: OK (graceful, pg_ctl fast)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - name: Lifecycle harness on the installed bundled runtimes (backup/restore/tamper/crash)
         timeout-minutes: 15

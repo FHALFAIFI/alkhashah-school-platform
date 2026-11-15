@@ -27,6 +27,19 @@ extraResources:
   - { from: guide, to: guide }
   - { from: THIRD_PARTY_NOTICES.md, to: THIRD_PARTY_NOTICES.md }
 electronLanguages: [ar, en-US]
+# Electron fuses (flipped in the shipped binary). FathersApp.exe cannot be abused as a generic
+# Node.js runtime (ELECTRON_RUN_AS_NODE / NODE_OPTIONS), only app.asar can be loaded as the
+# app, and the cookie store (session cookie) is encrypted with DPAPI.
+# enableNodeCliInspectArguments stays on ONLY because the CI end-to-end test drives the
+# installed app through the inspector; see docs/WINDOWS_RC1_READINESS.md (residual risk:
+# someone who can already run programs as this Windows user can attach a debugger).
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  onlyLoadAppFromAsar: true
+  enableCookieEncryption: true
+  grantFileProtocolExtraPrivileges: false
+  enableNodeCliInspectArguments: true
 win:
   target:
     - target: nsis

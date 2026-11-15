@@ -221,3 +221,110 @@ describe("cross-file contracts", () => {
     expect(cfg).toMatch(/\.\.\.\(standalone\s*\?/);
   });
 });
+
+describe("release-candidate safety logic", () => {
+  const readiness = require(path.join(root, "desktop/lib/readiness.js"));
+
+  it("version comparison: pre-release < release < newer; unknown versions disable the guard", () => {
+    expect(readiness.compareVersions("2.6.0-0", "2.6.0")).toBe(-1);
+    expect(readiness.compareVersions("2.6.0", "2.6.0")).toBe(0);
+    expect(readiness.compareVersions("2.10.0", "2.9.9")).toBe(1);
+    expect(readiness.compareVersions("2.5.0", "2.6.0")).toBe(-1);
+    expect(readiness.compareVersions(undefined, "2.6.0")).toBeNull();
+    expect(readiness.compareVersions("harness", "2.6.0")).toBeNull();
+  });
+
+  it("backup readiness keeps nagging until key is off-device and off-device copies keep succeeding", () => {
+    const now = Date.parse("2026-11-15T00:00:00Z");
+    const codes = (state: object, settings: object) => readiness.backupReadiness({ state, settings, now, dataRoot: "C:\\x" }).map((i: { code: string }) => i.code);
+    expect(codes({}, {})).toEqual(["recovery-key-missing", "offsite-missing"]);
+    expect(codes({ recoveryKeyExportedAt: "x", recoveryKeyOnSameDrive: true }, { offsiteDir: "E:\\b" })).toEqual(["recovery-key-same-drive", "offsite-stale"]);
+    expect(codes({ recoveryKeyExportedAt: "x", lastOffsiteError: "offsite-unavailable" }, { offsiteDir: "E:\\b" })).toEqual(["offsite-failing"]);
+    expect(codes({ recoveryKeyExportedAt: "x", lastOffsiteOkAt: "2026-11-14T00:00:00Z", lastBackupAt: "2026-11-14T00:00:00Z", bootstrapped: true }, { offsiteDir: "E:\\b" })).toEqual([]);
+    expect(codes({ recoveryKeyExportedAt: "x", lastOffsiteOkAt: "2026-11-14T00:00:00Z", lastBackupAt: "2026-11-01T00:00:00Z", bootstrapped: true }, { offsiteDir: "E:\\b" })).toEqual(["backup-stale"]);
+    expect(codes({ recoveryKeyExportedAt: "x", lastOffsiteOkAt: "2026-11-14T00:00:00Z", lastBackupError: "disk full" }, { offsiteDir: "E:\\b" })).toEqual(["backup-failing"]);
+    for (const i of readiness.backupReadiness({ state: {}, settings: {}, now, dataRoot: "C:\\x" })) expect(i.ar).toMatch(/[\u0600-\u06ff]/);
+  });
+
+  it("same-volume detection on Windows paths (drive letters and UNC shares)", () => {
+    expect(readiness.sameVolume("C:\\Users\\u\\AppData\\Local\\FathersApp", "c:/Users/u/Documents", "win32")).toBe(true);
+    expect(readiness.sameVolume("C:\\Users\\u", "E:\\backup", "win32")).toBe(false);
+    expect(readiness.sameVolume("\\\\nas\\share\\a", "\\\\NAS\\share\\b", "win32")).toBe(true);
+    expect(readiness.sameVolume("\\\\nas\\share\\a", "C:\\a", "win32")).toBe(false);
+  });
+
+  it("secrets are redacted from text bound for logs", () => {
+    const out = readiness.redactSecrets("ERROR: x LINE 1: create role madrasa password 'Abc''defgh123' -- AbcSecretValue", ["AbcSecretValue"]);
+    expect(out).not.toContain("defgh123");
+    expect(out).not.toContain("AbcSecretValue");
+  });
+
+  it("storage swap is fully reverted when the second rename fails (Windows file lock)", async () => {
+    const d = tmp();
+    const live = path.join(d, "storage"), incoming = path.join(d, "incoming"), prev = path.join(d, "storage.prev");
+    fs.mkdirSync(live); fs.writeFileSync(path.join(live, "old.txt"), "old");
+    fs.mkdirSync(incoming); fs.writeFileSync(path.join(incoming, "new.txt"), "new");
+    let calls = 0;
+    const flaky = async (from: string, to: string) => {
+      calls++;
+      if (calls === 2) throw Object.assign(new Error("locked"), { code: "EBUSY" });
+      fs.renameSync(from, to);
+    };
+    await expect(backup.swapStorage(live, incoming, prev, flaky)).rejects.toThrow("locked");
+    expect(fs.readFileSync(path.join(live, "old.txt"), "utf8")).toBe("old");
+    expect(fs.existsSync(path.join(incoming, "new.txt"))).toBe(true);
+    expect(fs.existsSync(prev)).toBe(false);
+  });
+
+  it("storage swap revert function restores the previous storage after a later (database) failure", async () => {
+    const d = tmp();
+    const live = path.join(d, "storage"), incoming = path.join(d, "incoming"), prev = path.join(d, "storage.prev");
+    fs.mkdirSync(live); fs.writeFileSync(path.join(live, "old.txt"), "old");
+    fs.mkdirSync(incoming); fs.writeFileSync(path.join(incoming, "new.txt"), "new");
+    const revert = await backup.swapStorage(live, incoming, prev);
+    expect(fs.existsSync(path.join(live, "new.txt"))).toBe(true);
+    await revert();
+    expect(fs.readFileSync(path.join(live, "old.txt"), "utf8")).toBe("old");
+    expect(fs.existsSync(path.join(incoming, "new.txt"))).toBe(true);
+  });
+
+  it("archive version is read from package.json (server backups) or the desktop manifest", () => {
+    const d = tmp();
+    expect(backup.readArchiveVersion(d)).toBeNull();
+    fs.writeFileSync(path.join(d, "manifest.json"), JSON.stringify({ appVersion: "2.6.0" }));
+    expect(backup.readArchiveVersion(d)).toBe("2.6.0");
+    fs.writeFileSync(path.join(d, "package.json"), JSON.stringify({ version: "2.5.0" }));
+    expect(backup.readArchiveVersion(d)).toBe("2.5.0");
+  });
+
+  it("packaged builds ignore runtime-path overrides; the server never logs failing statements", () => {
+    const paths2 = require(path.join(root, "desktop/lib/paths.js"));
+    const r = paths2.resourceLayout("/opt/res", { env: {}, platform: "win32" });
+    expect(r.node).toBe(path.join("/opt/res", "node", "node.exe"));
+    const pgSrc = fs.readFileSync(path.join(root, "desktop/lib/postgres.js"), "utf8");
+    expect(pgSrc).toContain("log_min_error_statement = panic");
+    const mainSrc = fs.readFileSync(path.join(root, "desktop/main/main.js"), "utf8");
+    expect(mainSrc).toMatch(/if \(app\.isPackaged\) return process\.resourcesPath;/);
+    expect(mainSrc).toContain("allowDevOverrides: !app.isPackaged");
+    const builder = fs.readFileSync(path.join(root, "desktop/electron-builder.yml"), "utf8");
+    expect(builder).toMatch(/runAsNode: false/);
+    expect(builder).toMatch(/enableNodeOptionsEnvironmentVariable: false/);
+    expect(builder).toMatch(/onlyLoadAppFromAsar: true/);
+  });
+});
+
+describe("Arabic user guide wording", () => {
+  const guide = fs.readFileSync(path.join(root, "desktop/guide/دليل-الاستخدام.html"), "utf8");
+  it("makes no absolute safety guarantees about power loss, shutdown or logs", () => {
+    expect(guide).not.toContain("لا يُفسد البيانات");
+    expect(guide).not.toContain("والمنصة مفتوحة آمن");
+    expect(guide).not.toContain("(لا يحتوي كلمات مرور)");
+    expect(guide).toContain("لا يمكن ضمان ذلك");
+  });
+  it("tells the user how to verify the installer checksum and where to keep the recovery key", () => {
+    expect(guide).toContain("Get-FileHash");
+    expect(guide).toContain("قناة مختلفة");
+    expect(guide).toContain("لا تحفظ المفتاح والنسخ معاً");
+    expect(guide).toContain("Smart App Control");
+  });
+});

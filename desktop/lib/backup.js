@@ -25,6 +25,7 @@ const { createEncryptStream, createDecryptStream, sha256File } = require("./cryp
 const { tarStream, listTree, extractTar } = require("./tar");
 const { run, runChecked, cleanEnv } = require("./proc");
 const pg = require("./postgres");
+const { compareVersions } = require("./readiness");
 
 const MANIFEST_FORMAT = "fathersapp-backup/1";
 const NAME_RE = /^full-(\d{8}-\d{6})(?:-[a-z0-9-]+)?\.tar\.gz\.enc$/;
@@ -196,7 +197,7 @@ async function extractVerified(encFile, key, destDir, o) {
     throw new Error("backup has no manifest");
   }
   const tocEntries = await checkDump(o.tools, path.join(destDir, "db.dump"));
-  return { manifest, tocEntries, fileCount: files.size, legacy: manifest === null };
+  return { manifest, tocEntries, fileCount: files.size, legacy: manifest === null, backupVersion: readArchiveVersion(destDir) };
 }
 
 /**
@@ -264,19 +265,28 @@ async function copyOffsite(file, offsiteDir) {
  * @param {BackupContext & { dataRoot: string }} ctx
  * @param {string} encFile
  * @param {string} key
- * @param {{ log?: (m: string) => void }} [o]
+ * @param {{ log?: (m: string) => void, rename?: (from: string, to: string) => Promise<void> }} [o]
  */
 async function restoreBackup(ctx, encFile, key, o = {}) {
   const s = stamp();
   const work = fs.mkdtempSync(path.join(ctx.tmpDir, `restore-${s}-`));
   const su = { port: ctx.port, user: pg.SUPERUSER, password: ctx.secrets.pgSuperPassword, db: "postgres" };
   const staging = `${pg.APP_DB}_restore_${crypto.randomBytes(3).toString("hex")}`;
-  let swapped = false;
+  const prevDb = `${pg.APP_DB}_prev_${s.replace("-", "_")}`;
+  const prevStorage = path.join(ctx.dataRoot, `storage.prev-${s}`);
+  let stagingCreated = false;
   try {
     const info = await extractVerified(encFile, key, work, { tools: ctx.tools });
     o.log?.(`restore: archive verified (${info.fileCount} members, legacy=${info.legacy})`);
+    // Never restore data written by a newer application version: older code on a newer
+    // schema can misread or damage it. (Older backups are fine — migrations bring them up.)
+    const backupVersion = readArchiveVersion(work);
+    if (compareVersions(backupVersion, ctx.appVersion) === 1) {
+      throw Object.assign(new Error(`backup was made by a newer version (${backupVersion} > ${ctx.appVersion})`), { code: "BACKUP_NEWER_THAN_APP", backupVersion });
+    }
 
     await pg.psql(ctx.tools, su, `create database ${staging} owner ${pg.APP_ROLE} encoding 'UTF8' template template0`);
+    stagingCreated = true;
     await pg.psql(ctx.tools, { ...su, db: staging }, `revoke create on schema public from public; alter schema public owner to ${pg.APP_ROLE}`);
     await runChecked(ctx.tools.pgRestore, ["-h", "127.0.0.1", "-p", String(ctx.port), "-U", pg.APP_ROLE, "-d", staging, "--no-owner", "--no-acl", "--exit-on-error", "--no-password"], {
       env: cleanEnv({ PGPASSWORD: ctx.secrets.pgAppPassword, PGCONNECT_TIMEOUT: "15" }),
@@ -285,36 +295,90 @@ async function restoreBackup(ctx, encFile, key, o = {}) {
     });
     o.log?.("restore: database restored into staging");
 
-    // swap databases
-    const prevDb = `${pg.APP_DB}_prev_${s.replace("-", "_")}`;
-    await pg.psql(ctx.tools, su, `select pg_terminate_backend(pid) from pg_stat_activity where datname in (${pg.lit(pg.APP_DB)}, ${pg.lit(staging)}) and pid <> pg_backend_pid()`);
-    await pg.psql(ctx.tools, su, `alter database ${pg.APP_DB} rename to ${prevDb}`);
-    await pg.psql(ctx.tools, su, `alter database ${staging} rename to ${pg.APP_DB}`);
-    swapped = true;
-    await pg.psql(ctx.tools, su, `revoke all on database ${pg.APP_DB} from public`);
-    // keep only the most recent previous database
-    const olds = (await pg.psql(ctx.tools, su, `select datname from pg_database where datname like '${pg.APP_DB}_prev_%' and datname <> ${pg.lit(prevDb)}`)).split("\n").filter(Boolean);
-    for (const d of olds) if (/^[a-z0-9_]+$/.test(d)) await pg.psql(ctx.tools, su, `drop database if exists ${d}`);
-
-    // swap storage
+    // 1) storage first — on Windows a folder rename can fail while antivirus or the search
+    //    indexer holds a file open; that must happen before anything live has changed.
     const extractedStorage = path.join(work, "storage");
     fs.mkdirSync(extractedStorage, { recursive: true });
-    const prevStorage = path.join(ctx.dataRoot, `storage.prev-${s}`);
-    for (const n of fs.readdirSync(ctx.dataRoot)) {
-      if (n.startsWith("storage.prev-")) fs.rmSync(path.join(ctx.dataRoot, n), { recursive: true, force: true });
-    }
-    if (fs.existsSync(ctx.storageDir)) fs.renameSync(ctx.storageDir, prevStorage);
-    fs.renameSync(extractedStorage, ctx.storageDir);
+    const revertStorage = await swapStorage(ctx.storageDir, extractedStorage, prevStorage, o.rename);
     o.log?.("restore: storage swapped");
-    return { ok: true, legacy: info.legacy, manifest: info.manifest, previousDatabase: prevDb, previousStorage: prevStorage };
-  } catch (e) {
-    if (!swapped) {
-      await pg.psql(ctx.tools, su, `drop database if exists ${staging}`).catch(() => {});
+
+    // 2) database — if either rename fails, everything is put back as it was
+    try {
+      await pg.psql(ctx.tools, su, `select pg_terminate_backend(pid) from pg_stat_activity where datname in (${pg.lit(pg.APP_DB)}, ${pg.lit(staging)}) and pid <> pg_backend_pid()`);
+      await pg.psql(ctx.tools, su, `alter database ${pg.APP_DB} rename to ${prevDb}`);
+      try {
+        await pg.psql(ctx.tools, su, `alter database ${staging} rename to ${pg.APP_DB}`);
+      } catch (e) {
+        await pg.psql(ctx.tools, su, `alter database ${prevDb} rename to ${pg.APP_DB}`);
+        throw e;
+      }
+    } catch (e) {
+      await revertStorage();
+      throw e;
     }
+    stagingCreated = false;
+    o.log?.("restore: database swapped");
+
+    // 3) only now discard older safety copies (the one just made is kept)
+    await pg.psql(ctx.tools, su, `revoke all on database ${pg.APP_DB} from public`).catch(() => {});
+    const olds = (await pg.psql(ctx.tools, su, `select datname from pg_database where datname like '${pg.APP_DB}_prev_%' and datname <> ${pg.lit(prevDb)}`).catch(() => "")).split("\n").filter(Boolean);
+    for (const d of olds) if (/^[a-z0-9_]+$/.test(d)) await pg.psql(ctx.tools, su, `drop database if exists ${d}`).catch(() => {});
+    for (const n of fs.readdirSync(ctx.dataRoot)) {
+      const p = path.join(ctx.dataRoot, n);
+      if (n.startsWith("storage.prev-") && p !== prevStorage) fs.rmSync(p, { recursive: true, force: true });
+    }
+    return { ok: true, legacy: info.legacy, manifest: info.manifest, backupVersion, previousDatabase: prevDb, previousStorage: prevStorage };
+  } catch (e) {
+    if (stagingCreated) await pg.psql(ctx.tools, su, `drop database if exists ${staging}`).catch(() => {});
     throw e;
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
+}
+
+/** Version recorded inside an extracted archive (package.json; desktop manifest as fallback). */
+function readArchiveVersion(/** @type {string} */ dir) {
+  try { return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).version ?? null; } catch { /* none */ }
+  try { return JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8")).appVersion ?? null; } catch { /* none */ }
+  return null;
+}
+
+/**
+ * Directory rename that tolerates the transient locks Windows antivirus/indexing take.
+ * @param {string} from @param {string} to
+ */
+async function renameWithRetry(from, to, attempts = 10) {
+  for (let i = 1; ; i++) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (e) {
+      const code = /** @type {NodeJS.ErrnoException} */ (e).code;
+      if (i >= attempts || !["EPERM", "EBUSY", "EACCES", "ENOTEMPTY"].includes(String(code))) throw e;
+      await new Promise((r) => setTimeout(r, 250 * i));
+    }
+  }
+}
+
+/**
+ * live → prev, incoming → live. Returns a function that undoes the swap. If the second
+ * rename fails, the first is undone before the error propagates, so `live` is never missing.
+ * @param {string} live @param {string} incoming @param {string} prev
+ * @param {(from: string, to: string) => Promise<void>} [rename]
+ */
+async function swapStorage(live, incoming, prev, rename = renameWithRetry) {
+  const hadLive = fs.existsSync(live);
+  if (hadLive) await rename(live, prev);
+  try {
+    await rename(incoming, live);
+  } catch (e) {
+    if (hadLive) await rename(prev, live);
+    throw e;
+  }
+  return async () => {
+    await rename(live, incoming);
+    if (hadLive) await rename(prev, live);
+  };
 }
 
 /** @param {string} dir */
@@ -326,4 +390,4 @@ function listBackups(dir) {
   });
 }
 
-module.exports = { stamp, createBackup, verifyBackup, restoreBackup, pruneBackups, copyOffsite, listBackups, checkDump, MANIFEST_FORMAT, NAME_RE };
+module.exports = { stamp, createBackup, verifyBackup, restoreBackup, swapStorage, renameWithRetry, readArchiveVersion, pruneBackups, copyOffsite, listBackups, checkDump, MANIFEST_FORMAT, NAME_RE };

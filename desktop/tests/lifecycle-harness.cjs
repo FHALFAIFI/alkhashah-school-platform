@@ -28,11 +28,12 @@ if (fs.existsSync(dataRoot) && fs.readdirSync(dataRoot).length > 0 && !process.e
   throw new Error("FATHERSAPP_DATA_DIR must be empty (refusing to touch existing data)");
 }
 const resourcesDir = process.env.FATHERSAPP_RESOURCES ?? path.join(__dirname, "..", "build");
+const APP_VERSION = "2.6.0";
 const results = { checks: /** @type {any[]} */ ([]), timings: /** @type {Record<string, any>} */ ({}) };
 const log = (/** @type {string} */ m) => fs.appendFileSync(path.join(dataRoot, "harness.log"), `${new Date().toISOString()} ${m}\n`);
 
 function make() {
-  return new Orchestrator({ dataRoot, resourcesDir, protector: plainProtector(), appVersion: "harness", log });
+  return new Orchestrator({ dataRoot, resourcesDir, protector: plainProtector(), appVersion: APP_VERSION, log });
 }
 function ok(/** @type {string} */ name, /** @type {any} */ detail = {}) {
   const line = { check: name, ok: true, ...detail };
@@ -150,6 +151,13 @@ async function main() {
   assert.equal((await (await fetch(`${rr.url}/api/health`)).json()).status, "ok");
   ok("restore", { safetyBackup: rr.safetyBackup });
 
+  // a backup written by a newer version is refused before anything is touched
+  o.o.appVersion = "2.5.9";
+  await assert.rejects(o.restore(b.file, o.secrets.backupKey), (e) => /** @type {any} */ (e).code === "BACKUP_NEWER_THAN_APP");
+  o.o.appVersion = APP_VERSION;
+  assert.equal((await (await fetch(`${o.url}/api/health`)).json()).status, "ok", "server still running after refused restore");
+  ok("restore-refuses-newer-backup");
+
   // 5) clean shutdown with automatic backup; nothing left running
   const pgLoc = o.pgLoc;
   const serverPid = o.server?.pid;
@@ -161,6 +169,20 @@ async function main() {
   assert.ok(!fs.existsSync(o.d.sessionFile));
   ok("clean-stop", { report: stopReport, ms: results.timings.cleanStopMs });
 
+  // 5b) leftovers of an interrupted backup/restore (decrypted dump!) are removed at start
+  const leftover = path.join(o.d.tmp, "restore-20260101-000000-x");
+  fs.mkdirSync(path.join(leftover, "storage"), { recursive: true });
+  fs.writeFileSync(path.join(leftover, "db.dump"), "PLAINTEXT");
+  fs.writeFileSync(path.join(o.d.backupsFull, "full-20260101-000000.tar.gz.enc.part"), "partial");
+  // 5c) data last used by a newer version: refuse to start, touch nothing
+  const stateFile = o.d.stateFile;
+  const saved = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  fs.writeFileSync(stateFile, JSON.stringify({ ...saved, appVersion: "99.0.0" }));
+  await assert.rejects(make().start(), (e) => /** @type {any} */ (e).code === "DATA_NEWER_THAN_APP");
+  assert.equal(await pg.status(o.r.pg, /** @type {any} */ (pgLoc)), "stopped", "nothing started for a newer data set");
+  fs.writeFileSync(stateFile, JSON.stringify(saved));
+  ok("downgrade-refused");
+
   // 6) warm starts (repeated open/close) — never re-seeds
   const warm = [];
   for (let i = 0; i < 3; i++) {
@@ -169,6 +191,22 @@ async function main() {
     assert.equal(s.firstRun, false);
     assert.equal(s.initialCredentials, null, "seed must not run again");
     warm.push(s.timings.total);
+    if (i === 0) {
+      assert.ok(!fs.existsSync(leftover), "decrypted leftovers removed");
+      assert.ok(!fs.readdirSync(o.d.backupsFull).some((n) => n.endsWith(".part")), "partial archives removed");
+      ok("leftover-work-files-removed");
+      // startup backup when due, and a stop issued while it runs must wait for it
+      o.state.lastBackupAt = "2000-01-01T00:00:00.000Z";
+      const pending = o.backupIfDue();
+      await new Promise((r) => setTimeout(r, 50));
+      const before = fs.readdirSync(o.d.backupsFull).filter((n) => n.endsWith(".enc")).length;
+      await o.stop({ backup: false, drainMs: 5000 });
+      const res = await pending;
+      assert.ok(res && res.verified, "startup backup completed and verified despite concurrent stop");
+      assert.equal(fs.readdirSync(o.d.backupsFull).filter((n) => n.endsWith(".enc")).length, before + 1);
+      ok("startup-backup-serialized-with-stop", { name: res.name });
+      continue;
+    }
     await o.stop({ backup: false, drainMs: 5000 });
   }
   results.timings.warmStartsMs = warm;
@@ -196,6 +234,16 @@ async function main() {
   assert.equal(users, 2);
   ok("seed-once", { users });
   await o.stop({ backup: false, drainMs: 5000 });
+
+  // 9) no secret ever reaches a log file (launcher, server, PostgreSQL)
+  const secretsNow = [o.secrets.pgSuperPassword, o.secrets.pgAppPassword, o.secrets.backupKey];
+  const logFiles = [path.join(dataRoot, "harness.log"), ...fs.readdirSync(o.d.logs).map((n) => path.join(o.d.logs, n)), /** @type {any} */ (o.pgLoc).log];
+  for (const f of logFiles) {
+    if (!fs.existsSync(f)) continue;
+    const text = fs.readFileSync(f, "utf8");
+    for (const sec of secretsNow) assert.ok(!text.includes(sec), `secret found in ${path.basename(f)}`);
+  }
+  ok("no-secrets-in-logs", { files: logFiles.filter((f) => fs.existsSync(f)).length });
 
   if (process.env.FATHERSAPP_HARNESS_OUT) fs.writeFileSync(process.env.FATHERSAPP_HARNESS_OUT, JSON.stringify(results, null, 2));
   console.log(JSON.stringify({ done: true, timings: results.timings }));

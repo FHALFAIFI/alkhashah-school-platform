@@ -17,6 +17,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { run, runChecked, cleanEnv } = require("./proc");
 const { hasNonAscii } = require("./paths");
+const { redactSecrets } = require("./readiness");
 
 const SUPERUSER = "postgres";
 const APP_ROLE = "madrasa";
@@ -172,6 +173,9 @@ function writeRuntimeConfig(dataDir, port) {
       "lc_messages = 'C'",
       "logging_collector = off",
       "log_min_messages = warning",
+      // Never copy a failing SQL statement into the log: role DDL carries passwords.
+      "log_min_error_statement = panic",
+      "log_statement = 'none'",
       "log_line_prefix = '%m [%p] '",
       "fsync = on",
       "synchronous_commit = on",
@@ -246,11 +250,18 @@ function stopSync(tools, loc, timeoutSec) {
  * @param {string} sql
  */
 async function psql(tools, c, sql) {
-  const r = await runChecked(tools.psql, ["-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-p", String(c.port), "-U", c.user, "-d", c.db, "-c", sql], {
-    env: cleanEnv({ PGPASSWORD: c.password, PGCONNECT_TIMEOUT: "15", PGCLIENTENCODING: "UTF8" }),
-    timeoutMs: 120000,
-  });
-  return r.stdout.trim();
+  try {
+    const r = await runChecked(tools.psql, ["-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-p", String(c.port), "-U", c.user, "-d", c.db, "-c", sql], {
+      env: cleanEnv({ PGPASSWORD: c.password, PGCONNECT_TIMEOUT: "15", PGCLIENTENCODING: "UTF8" }),
+      timeoutMs: 120000,
+    });
+    return r.stdout.trim();
+  } catch (e) {
+    // psql echoes the failing statement; role DDL contains passwords — never let them reach a log.
+    const err = /** @type {Error} */ (e);
+    err.message = redactSecrets(err.message, [c.password]);
+    throw err;
+  }
 }
 
 /** Literal quoting for the generated random secrets (base64url — defensive anyway). */
