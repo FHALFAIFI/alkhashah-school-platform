@@ -8,11 +8,11 @@ and all real school records untouched. Date: 2026-11-15.
 | Item | Value |
 |---|---|
 | Installer | `FathersApp-Setup-2.6.0-x64.exe` (NSIS, per-machine, x64, **unsigned**) |
-| Built from commit | `@@COMMIT@@` |
-| CI run | @@RUN@@ |
-| GitHub artifact | `fathersapp-windows-installer` (installer + `SHA256SUMS.txt` + `BINARIES.lock.json` + `SIGNATURES.json`); retention 30 days — **download and archive it before @@EXPIRY@@** |
-| Size | @@SIZE@@ bytes |
-| **SHA-256** | `@@SHA@@` |
+| Built from commit | `f4036a348d739d429b5ab7d3d6a8d83944f24205` |
+| CI run | [43674344861](https://github.com/FHALFAIFI/alkhashah-school-platform/actions/runs/43674344861) — build ✅, verify ✅ (install, cold/warm, upgrade, crash + orphan, Windows-shutdown request, lifecycle harness 19/19, Arabic data path, firewalled Electron E2E 20/20, uninstall) |
+| GitHub artifact | `fathersapp-windows-installer` (installer + `SHA256SUMS.txt` + `BINARIES.lock.json` + `SIGNATURES.json`); retention 30 days — **download and archive it before 2026-12-15** |
+| Size | 257,482,551 bytes |
+| **SHA-256** | `51fc23df6d43c20329570b01467625697b1daec9d900f62627a17bb17d69d0cc` |
 
 The SHA-256 above is the value printed by the CI "Checksums" step on the Windows runner
 that built the file and is the value inside the artifact's `SHA256SUMS.txt`. It is the only
@@ -38,7 +38,7 @@ Control, a real reboot with the app open, sleep, a hard power-off, a real USB st
 
 | # | Finding | Severity | Fix | Test |
 |---|---|---|---|---|
-| F1 | **The RC-hardening commit `bb2243c` was red on Windows CI** (run 43671088164): the new Windows-shutdown test timed out. The backup-readiness reminder — shown at every launch until the key and off-device folder are set — was an **unparented** message box, i.e. a second unowned top-level window. It received `WM_QUERYENDSESSION`, answered "yes", and the graceful stop never ran. The last green run (43647675275) predates the hardening, so "CI passed" did not cover the current code. | High (release gate; also priority 2: an unowned reminder can slip behind the maximized app) | Every dialog is now owned by the visible main window (modal — cannot be lost behind the app); after a session-ending stop the process exits directly so an open modal cannot keep it alive. | Unit test fails on the old `main.js`; CI step now sends the query to every visible top-level window (as Windows does) and requires: reminder owned by the main window, exactly one unowned window, one veto, PostgreSQL stopped with `pg_ctl fast`, no `postmaster.pid`. |
+| F1 | **The RC-hardening commit `bb2243c` was red on Windows CI** (run 43671088164): the new Windows-shutdown test timed out. The backup-readiness reminder — shown at every launch until the key and off-device folder are set — was an **unparented** message box, i.e. a second unowned top-level window. It received `WM_QUERYENDSESSION`, answered "yes", and the graceful stop never ran. The last green run (43647675275) predates the hardening, so "CI passed" did not cover the current code. | High (release gate; also priority 2: an unowned reminder can slip behind the maximized app) | Every dialog is now owned by the visible main window (modal — cannot be lost behind the app); first-run dialogs wait until the main window is actually shown (run 43673124464 proved `did-finish-load` can precede `ready-to-show`); after a session-ending stop the process exits directly so an open modal cannot keep it alive. Run 43674344861: «unowned=1 owned=1», main window answered 0 (wait), PostgreSQL stopped with `pg_ctl fast`. | Unit test fails on the old `main.js`; CI step now sends the query to every visible top-level window (as Windows does) and requires: reminder owned by the main window, exactly one unowned window, one veto, PostgreSQL stopped with `pg_ctl fast`, no `postmaster.pid`. |
 | F2 | Electron 45's clipboard API is **asynchronous**. Restore → «لصق المفتاح من الحافظة» passed a Promise to the key parser, so this option could never restore (it failed safe: «لم يُعثر على مفتاح صالح», no data touched). | Medium (a recovery path silently broken) | `await clipboard.readText()` / `writeText()`. | Static assertion: no un-awaited clipboard call; `main.js` now type-checks clean against Electron 45 typings. |
 | F3 | Guide §7 promised «بياناتك تبقى كما هي» on upgrade. | Low (priority 7) | Reworded: back up off-device first; the update does not delete the data folder. | Guide wording test. |
 

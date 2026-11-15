@@ -8,9 +8,10 @@ Release-readiness review of the desktop edition: `docs/WINDOWS_RC1_READINESS.md`
 SHA-256, verdict, provenance, data-loss table) + `docs/WINDOWS_11_ACCEPTANCE_CHECKLIST.md`.
 The RC-hardening commit `bb2243c` was **red** on Windows CI (run 43671088164): the unparented
 backup-readiness dialog answered `WM_QUERYENDSESSION` instead of the main window. Fixed in
-`3cb989e` (all dialogs owned by the main window; direct exit after a session-ending stop;
+`3cb989e` + `f4036a3` (all dialogs owned by the visible main window; direct exit after a session-ending stop;
 Electron 45 async clipboard awaited — «لصق المفتاح من الحافظة» could never restore; guide §7
-softened). Verdict: **conditional GO** for the father's laptop — only after the clean-laptop
+softened). RC1 = `FathersApp-Setup-2.6.0-x64.exe` from run 43674344861 (all green), SHA-256
+`51fc23df6d43c20329570b01467625697b1daec9d900f62627a17bb17d69d0cc`. Verdict: **conditional GO** for the father's laptop — only after the clean-laptop
 checklist passes, Smart App Control is not On, and the recovery key + off-device folder are
 set before real data. Open: code signing, independent EDB pin re-check, VC++ redistribution
 basis before wider distribution.
