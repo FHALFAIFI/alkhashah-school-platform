@@ -232,9 +232,37 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// ————— dialogs —————
+// Every dialog is owned by the visible main window: it is modal (cannot slip behind the
+// maximized app and be overlooked — the backup-readiness reminder relies on this), and the
+// main window stays the process's only unowned top-level window, so Windows' shutdown query
+// (WM_QUERYENDSESSION) is answered by the window that runs the graceful stop.
+
+function dialogOwner() {
+  return mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null;
+}
+
+/** @param {Electron.MessageBoxOptions} o */
+function messageBox(o) {
+  const w = dialogOwner();
+  return w ? dialog.showMessageBox(w, o) : dialog.showMessageBox(o);
+}
+
+/** @param {Electron.OpenDialogOptions} o */
+function openDialog(o) {
+  const w = dialogOwner();
+  return w ? dialog.showOpenDialog(w, o) : dialog.showOpenDialog(o);
+}
+
+/** @param {Electron.SaveDialogOptions} o */
+function saveDialog(o) {
+  const w = dialogOwner();
+  return w ? dialog.showSaveDialog(w, o) : dialog.showSaveDialog(o);
+}
+
 async function info(/** @type {string} */ message, /** @type {string} */ detail = "", type = /** @type {"info"|"warning"|"error"} */ ("info")) {
   if (SELF_TEST) { log(`dialog(${type}): ${message} ${detail}`); return; }
-  await dialog.showMessageBox({ type, title: S.APP_TITLE, message, detail, buttons: ["حسناً"], noLink: true });
+  await messageBox({ type, title: S.APP_TITLE, message, detail, buttons: ["حسناً"], noLink: true });
 }
 
 async function about() {
@@ -276,7 +304,7 @@ async function manualBackup() {
 
 async function chooseOffsite() {
   if (!orch) return;
-  const r = await dialog.showOpenDialog({ title: "اختر مجلداً خارج هذا الجهاز (ذاكرة USB أو مجلد سحابي)", properties: ["openDirectory", "createDirectory"] });
+  const r = await openDialog({ title: "اختر مجلداً خارج هذا الجهاز (ذاكرة USB أو مجلد سحابي)", properties: ["openDirectory", "createDirectory"] });
   if (r.canceled || !r.filePaths[0]) return;
   const dir = r.filePaths[0];
   try {
@@ -288,7 +316,7 @@ async function chooseOffsite() {
     return;
   }
   if (sameVolume(dir, dataRoot)) {
-    const c = await dialog.showMessageBox({
+    const c = await messageBox({
       type: "warning", title: S.APP_TITLE, noLink: true, cancelId: 1, defaultId: 1,
       message: "هذا المجلد على قرص هذا الجهاز نفسه.",
       detail: "لن يحمي من تعطّل الجهاز أو فقده، إلا إذا كان مجلداً متزامناً مع خدمة سحابية (مثل OneDrive) تعمل فعلاً. هل تريد استعماله مع ذلك؟",
@@ -305,7 +333,7 @@ async function chooseOffsite() {
 
 async function exportRecoveryKey() {
   if (!orch?.secrets) return false;
-  const r = await dialog.showSaveDialog({
+  const r = await saveDialog({
     title: "حفظ مفتاح استعادة النسخ الاحتياطية (يفضَّل على ذاكرة USB)",
     defaultPath: path.join(app.getPath("documents"), "مفتاح-استعادة-النسخ-FathersApp.txt"),
     filters: [{ name: "ملف نصي", extensions: ["txt"] }],
@@ -359,7 +387,7 @@ async function backupReadinessDialogs() {
     const issues = backupReadiness({ state: orch.state, settings: orch.settings, dataRoot });
     if (!issues.length) return;
     const needKey = issues.some((i) => i.code.startsWith("recovery-key"));
-    const r = await dialog.showMessageBox({
+    const r = await messageBox({
       type: "warning", title: S.APP_TITLE, noLink: true, cancelId: 1, defaultId: 0,
       message: "حماية بيانات المدرسة لم تكتمل بعد",
       detail: issues.map((i) => `• ${i.ar}`).join("\n") + "\n\nستظهر هذه الرسالة عند كل تشغيل حتى تكتمل.",
@@ -374,7 +402,7 @@ async function backupReadinessDialogs() {
 
 async function restoreFlow() {
   if (!orch || busy) return;
-  const pick = await dialog.showOpenDialog({
+  const pick = await openDialog({
     title: "اختر ملف النسخة الاحتياطية",
     defaultPath: layout.backupsFull,
     filters: [{ name: "نسخة احتياطية مشفّرة", extensions: ["enc"] }],
@@ -383,7 +411,7 @@ async function restoreFlow() {
   if (pick.canceled || !pick.filePaths[0]) return;
   const file = pick.filePaths[0];
 
-  const keyChoice = await dialog.showMessageBox({
+  const keyChoice = await messageBox({
     type: "question", title: S.APP_TITLE, noLink: true, cancelId: 3,
     message: "بأي مفتاح شُفّرت هذه النسخة؟",
     buttons: ["مفتاح هذا الجهاز", "ملف مفتاح الاستعادة…", "لصق المفتاح من الحافظة", "إلغاء"],
@@ -392,10 +420,10 @@ async function restoreFlow() {
   let key = null;
   if (keyChoice.response === 0) key = orch.secrets.backupKey;
   else if (keyChoice.response === 1) {
-    const k = await dialog.showOpenDialog({ title: "اختر ملف مفتاح الاستعادة", filters: [{ name: "ملف نصي", extensions: ["txt"] }], properties: ["openFile"] });
+    const k = await openDialog({ title: "اختر ملف مفتاح الاستعادة", filters: [{ name: "ملف نصي", extensions: ["txt"] }], properties: ["openFile"] });
     if (k.canceled || !k.filePaths[0]) return;
     key = parseRecoveryKey(fs.readFileSync(k.filePaths[0], "utf8"));
-  } else if (keyChoice.response === 2) key = parseRecoveryKey(clipboard.readText());
+  } else if (keyChoice.response === 2) key = parseRecoveryKey(await clipboard.readText());
   else return;
   if (!key) { await info("لم يُعثر على مفتاح صالح.", "", "error"); return; }
 
@@ -406,7 +434,7 @@ async function restoreFlow() {
     const v = await orch.verify(file, key);
     splash?.hide();
     const created = v.manifest?.createdAt ? new Date(v.manifest.createdAt).toLocaleString("ar-SA-u-nu-latn", { timeZone: "Asia/Riyadh" }) : "غير معروف (نسخة من خادم ماك/أوبنتو)";
-    const confirm = await dialog.showMessageBox({
+    const confirm = await messageBox({
       type: "warning", title: S.APP_TITLE, noLink: true, cancelId: 1, defaultId: 1,
       message: "استبدال البيانات الحالية بمحتوى هذه النسخة؟",
       detail: `تاريخ النسخة: ${created}\nعدد الملفات: ${v.fileCount}\n\nستُحفظ نسخة أمان تلقائية من بياناتك الحالية قبل الاستبدال.`,
@@ -443,13 +471,13 @@ async function restoreFlow() {
 async function firstRunDialogs(/** @type {string[] | null} */ creds) {
   if (SELF_TEST || !orch) return;
   if (creds && creds.length) {
-    const r = await dialog.showMessageBox({
+    const r = await messageBox({
       type: "info", title: S.APP_TITLE, noLink: true,
       message: "تم إعداد المنصة لأول مرة. هذه بيانات الدخول المؤقتة:",
       detail: `${creds.join("\n")}\n\nغيّر كلمتي المرور بعد أول دخول، وفعّل التحقق الثنائي.`,
       buttons: ["نسخ إلى الحافظة", "متابعة"],
     });
-    if (r.response === 0) clipboard.writeText(creds.join("\n"));
+    if (r.response === 0) await clipboard.writeText(creds.join("\n"));
   }
   await backupReadinessDialogs();
 }
@@ -486,7 +514,7 @@ async function start() {
 
 async function onServerCrash(/** @type {number | null} */ code) {
   if (quitting || shuttingDown) return;
-  const r = await dialog.showMessageBox({
+  const r = await messageBox({
     type: "error", title: S.APP_TITLE, noLink: true,
     message: "توقفت المنصة بشكل غير متوقع.",
       detail: `لم يُحذف شيء من بياناتك، وستُفحص قاعدة البيانات عند إعادة التشغيل. (الرمز: ${code ?? "—"})`,
@@ -523,7 +551,9 @@ async function shutdownAndQuit(/** @type {{ fast?: boolean }} */ opts = {}) {
     log(`shutdown error: ${e instanceof Error ? e.stack : e}`);
   } finally {
     quitting = true;
-    app.quit();
+    // Session ending: everything is already stopped; exit directly so that an open modal
+    // dialog (e.g. the backup reminder) can never keep the process alive under Windows.
+    if (opts.fast) app.exit(0); else app.quit();
   }
 }
 
@@ -552,7 +582,7 @@ app.whenReady().then(async () => {
   } catch (e) {
     log(`startup failed: ${e instanceof Error ? e.stack : e}`);
     splash?.hide();
-    const r = await dialog.showMessageBox({
+    const r = await messageBox({
       type: "error", title: S.APP_TITLE, noLink: true,
       message: "تعذّر تشغيل المنصة.",
       detail: `${S.errorMessage(e)}\n\nلم يُحذف شيء من بياناتك. إن تكرر ذلك فأرسل مجلد السجلات للدعم الفني، ولا تحذف مجلد FathersApp.`,

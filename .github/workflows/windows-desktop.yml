@@ -238,10 +238,22 @@ jobs:
         run: |
           $inst = $env:INST
           Add-Type -TypeDefinition @"
-          using System; using System.Runtime.InteropServices;
+          using System; using System.Collections.Generic; using System.Runtime.InteropServices;
           public static class Win32Msg {
+            public delegate bool EnumProc(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+            [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
             [DllImport("user32.dll", SetLastError = true)]
             public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+            // visible top-level windows of one process; owned = has an owner window (dialogs)
+            public class Win { public IntPtr Handle; public IntPtr Owner; }
+            public static Win[] Visible(uint pid) {
+              var res = new List<Win>();
+              EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) res.Add(new Win { Handle = h, Owner = GetWindow(h, 4) }); return true; }, IntPtr.Zero);
+              return res.ToArray();
+            }
           }
           "@
           $sess = "$env:LOCALAPPDATA\FathersApp\run\session.json"
@@ -249,12 +261,29 @@ jobs:
           $deadline = (Get-Date).AddMinutes(4)
           while (-not (Test-Path $sess) -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
           if (-not (Test-Path $sess)) { throw "app did not start" }
-          $h = [IntPtr]::Zero
-          for ($i = 0; $i -lt 60 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep 1; $h = (Get-Process -Id $app.Id).MainWindowHandle }
-          if ($h -eq [IntPtr]::Zero) { throw "no main window handle" }
-          $r = [IntPtr]::Zero
-          [void][Win32Msg]::SendMessageTimeout($h, 0x0011, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 10000, [ref]$r)  # WM_QUERYENDSESSION
-          "WM_QUERYENDSESSION answered: $r (0 = app asked Windows to wait)"
+          # Real-world worst case: the backup-readiness reminder is open (no key saved, no
+          # off-device folder yet). It must be OWNED by the main window (modal, cannot slip
+          # behind it) — regression guard for the unparented dialog that failed run 43671088164.
+          $wins = @()
+          for ($i = 0; $i -lt 90; $i++) {
+            Start-Sleep 1
+            $wins = @([Win32Msg]::Visible([uint32]$app.Id))
+            if (@($wins | Where-Object { $_.Owner -ne [IntPtr]::Zero }).Count -ge 1 -and @($wins | Where-Object { $_.Owner -eq [IntPtr]::Zero }).Count -ge 1) { break }
+          }
+          $unowned = @($wins | Where-Object { $_.Owner -eq [IntPtr]::Zero })
+          $owned = @($wins | Where-Object { $_.Owner -ne [IntPtr]::Zero })
+          "visible top-level windows: unowned=$($unowned.Count) owned=$($owned.Count)"
+          if ($owned.Count -lt 1) { throw "backup-readiness reminder not shown as a dialog owned by the main window" }
+          if ($unowned.Count -ne 1) { throw "expected exactly one unowned top-level window (the main window), found $($unowned.Count)" }
+          # Windows sends WM_QUERYENDSESSION to every top-level window; the main window must veto once.
+          $vetoed = $false
+          foreach ($w in $wins) {
+            $r = [IntPtr]::Zero
+            [void][Win32Msg]::SendMessageTimeout($w.Handle, 0x0011, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 10000, [ref]$r)  # WM_QUERYENDSESSION
+            "WM_QUERYENDSESSION -> $($w.Handle) (owner $($w.Owner)) answered: $r (0 = app asked Windows to wait)"
+            if ($r -eq [IntPtr]::Zero) { $vetoed = $true }
+          }
+          if (-not $vetoed) { throw "no window asked Windows to wait for the graceful stop" }
           if (-not $app.WaitForExit(120000)) { throw "app did not exit after the shutdown request" }
           $owned = Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.ExecutablePath -like "$inst\*" }
           if (@($owned).Count -ne 0) { throw "PostgreSQL still running after shutdown request" }

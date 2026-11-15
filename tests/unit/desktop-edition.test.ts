@@ -311,6 +311,28 @@ describe("release-candidate safety logic", () => {
     expect(builder).toMatch(/enableNodeOptionsEnvironmentVariable: false/);
     expect(builder).toMatch(/onlyLoadAppFromAsar: true/);
   });
+
+  it("every dialog is owned by the main window, and a session-ending stop exits directly", () => {
+    // Regression (Windows run 43671088164): the unparented backup-readiness reminder was a
+    // separate top-level window — it could slip behind the maximized app, and it answered
+    // WM_QUERYENDSESSION instead of the main window, so the graceful stop never ran.
+    const mainSrc = fs.readFileSync(path.join(root, "desktop/main/main.js"), "utf8");
+    const raw = mainSrc.match(/dialog\.show(MessageBox|OpenDialog|SaveDialog)\(/g) ?? [];
+    // only the three helpers call Electron's dialog API, each with and without an owner
+    expect(raw).toHaveLength(6);
+    for (const kind of ["MessageBox", "OpenDialog", "SaveDialog"]) {
+      expect(mainSrc).toContain(`w ? dialog.show${kind}(w, o) : dialog.show${kind}(o)`);
+    }
+    expect(mainSrc).toMatch(/function dialogOwner\(\) \{\s*return mainWindow && !mainWindow\.isDestroyed\(\) && mainWindow\.isVisible\(\) \? mainWindow : null;/);
+    expect(mainSrc).toContain("if (opts.fast) app.exit(0); else app.quit();");
+    // Electron 45's clipboard is asynchronous: an un-awaited readText() hands a Promise to
+    // parseRecoveryKey and «لصق المفتاح من الحافظة» could never restore a backup.
+    expect(mainSrc).not.toMatch(/(?<!await )clipboard\.(readText|writeText)\(/);
+    expect(mainSrc).toContain("parseRecoveryKey(await clipboard.readText())");
+    const wf = fs.readFileSync(path.join(root, ".github/workflows/windows-desktop.yml"), "utf8");
+    expect(wf).toContain("backup-readiness reminder not shown as a dialog owned by the main window");
+    expect(wf).toContain("no window asked Windows to wait for the graceful stop");
+  });
 });
 
 describe("Arabic user guide wording", () => {
@@ -320,6 +342,7 @@ describe("Arabic user guide wording", () => {
     expect(guide).not.toContain("والمنصة مفتوحة آمن");
     expect(guide).not.toContain("(لا يحتوي كلمات مرور)");
     expect(guide).toContain("لا يمكن ضمان ذلك");
+    expect(guide).not.toContain("بياناتك تبقى كما هي");
   });
   it("tells the user how to verify the installer checksum and where to keep the recovery key", () => {
     expect(guide).toContain("Get-FileHash");
