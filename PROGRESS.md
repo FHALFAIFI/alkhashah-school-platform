@@ -2,7 +2,20 @@
 
 > Resume protocol: read this file top-to-bottom, then `git log --oneline -20`, `git status`, `docs/DECISIONS.md`, and `docs/TEST_RESULTS.md`. Continue from the last checkpoint — never restart.
 
-## Latest checkpoint — **Windows offline desktop edition (2026-11-14), branch `claude/eloquent-lovelace-7kr1k4`, NOT MERGED / NOT DEPLOYED**
+## Latest checkpoint — **Windows 11 RC1 review (2026-11-15), branch `claude/eloquent-lovelace-7kr1k4`, NOT MERGED / NOT DEPLOYED**
+
+Release-readiness review of the desktop edition: `docs/WINDOWS_RC1_READINESS.md` (artifact,
+SHA-256, verdict, provenance, data-loss table) + `docs/WINDOWS_11_ACCEPTANCE_CHECKLIST.md`.
+The RC-hardening commit `bb2243c` was **red** on Windows CI (run 43671088164): the unparented
+backup-readiness dialog answered `WM_QUERYENDSESSION` instead of the main window. Fixed in
+`3cb989e` (all dialogs owned by the main window; direct exit after a session-ending stop;
+Electron 45 async clipboard awaited — «لصق المفتاح من الحافظة» could never restore; guide §7
+softened). Verdict: **conditional GO** for the father's laptop — only after the clean-laptop
+checklist passes, Smart App Control is not On, and the recovery key + off-device folder are
+set before real data. Open: code signing, independent EDB pin re-check, VC++ redistribution
+basis before wider distribution.
+
+## Previous checkpoint — **Windows offline desktop edition (2026-11-14), branch `claude/eloquent-lovelace-7kr1k4`, NOT MERGED / NOT DEPLOYED**
 
 New `desktop/` package (D-071): Electron 45 shell + NSIS per-machine installer that runs the
 unchanged app on a bundled Node 24.22.3, private PostgreSQL 16.15 (EDB), Chrome Headless Shell

@@ -36,7 +36,7 @@ a channel different from the one used to deliver the installer.
 | C1 | Installer finishes without further questions | app window opens by itself (splash «جارٍ التحضير…» then progress messages) |
 | C2 | First-run time | login page within ~30 s (CI measured 12–17 s) |
 | C3 | Credentials dialog «تم إعداد المنصة لأول مرة…» | two accounts listed; use «نسخ إلى الحافظة» and paste into Notepad (test only) |
-| C4 **[STOP]** | Readiness dialog «حماية بيانات المدرسة لم تكتمل بعد» | lists: recovery key not saved, no external folder |
+| C4 **[STOP]** | Readiness dialog «حماية بيانات المدرسة لم تكتمل بعد» | lists: recovery key not saved, no external folder; it is **modal** — clicking the app window behind it does not hide it or bring the app in front of it |
 | C5 | Desktop icon "Father's App" exists | yes |
 | C6 | `C:\Program Files\FathersApp` | exists; try to create a text file inside it without admin → refused |
 | C7 | `%LOCALAPPDATA%\FathersApp` | contains `postgres`, `storage`, `backups`, `config`, `logs` |
@@ -73,7 +73,7 @@ a channel different from the one used to deliver the installer.
 |---|---|---|
 | F1 | Close the window (✕) | «إيقاف قاعدة البيانات بأمان…», app exits within ~10 s; Task Manager shows no `postgres.exe` / `node.exe` from FathersApp |
 | F2 | Reopen | starts in a few seconds, still logged in, E2 record present |
-| F3 **[STOP]** | With the app open: Start → Power → **Restart** | Windows may briefly show that Father's App is preventing shutdown, then continues on its own; after reboot the app opens normally and E2 record is present |
+| F3 **[STOP]** | With the app open **and a dialog showing** («النسخ الاحتياطي ← حالة النسخ الاحتياطي…», leave it open): Start → Power → **Restart** | Windows may briefly show that Father's App is preventing shutdown, then continues on its own; after reboot the app opens normally and E2 record is present |
 | F4 | With the app open: Start → Power → **Shut down**, then power on | same as F3 |
 | F5 | With the app open: close the lid (sleep) for 5 min, reopen | app keeps working |
 | F6 | With the app open: hold the power button (hard power-off), power on, open the app | starts (possibly slower: database recovery); E2 record present. If it does not start: record logs, **do not delete anything** |
@@ -87,6 +87,7 @@ a channel different from the one used to deliver the installer.
 | G2 | «استعادة نسخة احتياطية…» → the backup on the USB stick → «ملف مفتاح الاستعادة…» → the key on the USB stick → confirm with the checkbox | success message names the pre-restore safety copy |
 | G3 | G1 record is gone, E2 record and its attachment are present | yes |
 | G4 | Try a restore with a wrong key file (edit one character in a copy) | refused with «مفتاح الاستعادة غير صحيح…»; data unchanged |
+| G5 | Open the key file on the USB stick in Notepad, copy the whole text (Ctrl+A, Ctrl+C); restore the same backup choosing «لصق المفتاح من الحافظة» | verification passes and the confirmation dialog appears (cancel it there, or complete it — both fine); then clear the clipboard by copying any other text |
 
 ## H. Uninstall / reinstall (optional on the principal's laptop; required on a test laptop)
 
