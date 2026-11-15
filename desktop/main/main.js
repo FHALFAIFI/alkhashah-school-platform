@@ -505,6 +505,11 @@ async function start() {
   setStatus(S.STEPS.server);
   createMainWindow(res.url);
   await new Promise((r) => mainWindow?.webContents.once("did-finish-load", () => r(undefined)));
+  // ready-to-show (which shows the window) can fire after did-finish-load; the first-run and
+  // backup-readiness dialogs must be owned by the visible main window, so wait for it.
+  if (!SELF_TEST && mainWindow && !mainWindow.isVisible()) {
+    await new Promise((r) => { mainWindow?.once("show", () => r(undefined)); setTimeout(r, 15_000); });
+  }
   await firstRunDialogs(res.initialCredentials);
   // daily automatic backup also shortly after start (not only at close): a laptop that is
   // always shut down with the app open must still get backups

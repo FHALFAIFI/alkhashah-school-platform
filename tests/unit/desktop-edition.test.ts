@@ -325,6 +325,11 @@ describe("release-candidate safety logic", () => {
     }
     expect(mainSrc).toMatch(/function dialogOwner\(\) \{\s*return mainWindow && !mainWindow\.isDestroyed\(\) && mainWindow\.isVisible\(\) \? mainWindow : null;/);
     expect(mainSrc).toContain("if (opts.fast) app.exit(0); else app.quit();");
+    // run 43673124464: did-finish-load came before ready-to-show, so the reminder was still
+    // shown unowned — the first-run dialogs must wait until the main window is visible
+    const startFn = mainSrc.slice(mainSrc.indexOf("async function start()"), mainSrc.indexOf("async function onServerCrash"));
+    expect(startFn.indexOf('mainWindow?.once("show"')).toBeGreaterThan(-1);
+    expect(startFn.indexOf('mainWindow?.once("show"')).toBeLessThan(startFn.indexOf("await firstRunDialogs("));
     // Electron 45's clipboard is asynchronous: an un-awaited readText() hands a Promise to
     // parseRecoveryKey and «لصق المفتاح من الحافظة» could never restore a backup.
     expect(mainSrc).not.toMatch(/(?<!await )clipboard\.(readText|writeText)\(/);
